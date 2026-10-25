@@ -23,7 +23,11 @@ export const api = {
   emergencyClear: () => call("/api/emergency-stop/clear", "POST", {}),
   login: (username: string, password: string) => fetch(BASE + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) }).then(async r => { if (!r.ok) throw new Error("Login failed"); return r.json(); }),
   policies: () => call("/api/policies"),
+  policyHistory: () => call("/api/policies/history"),
+  connections: () => call("/api/connections"),
+  logs: (service: string, lines: number) => call(`/api/logs?service=${service}&lines=${lines}`),
   createPolicy: (allow_tier3: boolean) => call("/api/policies", "POST", { allow_tier3, desktop_enabled: false, allowed_apps: [], allowed_services: [], note: "Set from dashboard" }),
   oidcConfigured: () => fetch(BASE + "/api/auth/oidc/configured").then(r => r.json()),
+  me: () => call("/api/auth/me"),
   oidcLogin: () => { window.location.href = BASE + "/api/auth/oidc/login"; },
 };

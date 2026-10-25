@@ -228,12 +228,14 @@ def run_diagnostic_task(task_name: str) -> str:
     return run_diagnostic(task_name)
 
 @mcp.tool()
-def run_shell(command: str, working_directory: str = "", timeout: int = 120) -> dict:
+def run_shell(command: str, working_directory: str = "", timeout: int = 0) -> dict:
     """Run any shell command on this machine. Ungated: runs as the MCP
-    service user (root on this droplet). Output truncated per stream."""
+    service user (root on this droplet). timeout=0 (default) means no
+    time limit: the call returns when the command finishes or fails.
+    A positive timeout still caps the run. Output truncated per stream."""
     import subprocess
 
-    timeout = max(1, min(int(timeout), 300))
+    timeout_arg = None if timeout <= 0 else int(timeout)
     try:
         proc = subprocess.run(
             command,
@@ -241,7 +243,7 @@ def run_shell(command: str, working_directory: str = "", timeout: int = 120) -> 
             cwd=working_directory or None,
             capture_output=True,
             text=True,
-            timeout=timeout,
+            timeout=timeout_arg,
         )
         return {
             "returncode": proc.returncode,

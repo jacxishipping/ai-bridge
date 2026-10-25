@@ -162,7 +162,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     @app.get("/api/devices")
     def list_devices(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None), tenant: str = "default"):
         require_role("viewer", x_admin_token, x_session_token)
-        rows = conn.execute("SELECT id, name, hostname, os, tenant, status, last_seen, revoked, created_at FROM devices WHERE tenant=?", (tenant,)).fetchall()
+        rows = conn.execute("SELECT id, name, hostname, os, tenant, status, last_seen, revoked, created_at, token_expires_at FROM devices WHERE tenant=?", (tenant,)).fetchall()
         return [dict(r) for r in rows]
 
     @app.post("/api/devices/{device_id}/revoke")
@@ -291,6 +291,11 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         audit(user["username"], "", "login", {}, "allowed")
         return {"session_token": session_token, "username": user["username"], "role": user["role"], "expires_at": expires}
 
+    @app.get("/api/auth/me")
+    def me(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor, role = auth_context(x_admin_token, x_session_token)
+        return {"username": actor, "role": role}
+
     # --- Auth: OIDC (dormant unless AI_BRIDGE_OIDC_* are set) ------------
     @app.get("/api/auth/oidc/configured")
     def oidc_configured():
@@ -412,6 +417,94 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         require_role("viewer", x_admin_token, x_session_token)
         rows = conn.execute("SELECT version, policy_json, created_by, created_at, note FROM policies ORDER BY version DESC LIMIT 100").fetchall()
         return [dict(r) for r in rows]
+
+    # --- Connections + logs (dashboard insight views) ---------------------
+    @app.get("/api/connections")
+    def connections(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        """Live connection status: MCP service, OAuth gateway, and the
+        ChatGPT OAuth clients/tokens registered with the gateway.
+        Token hashes are never returned, only counts and client metadata."""
+        import socket
+        import sqlite3
+
+        require_role("viewer", x_admin_token, x_session_token)
+
+        def tcp_up(port: int) -> bool:
+            try:
+                sock = socket.create_connection(("127.0.0.1", port), timeout=2)
+                sock.close()
+                return True
+            except OSError:
+                return False
+
+        clients: list[dict] = []
+        active_access = 0
+        active_refresh = 0
+        total_tokens = 0
+        last_token_at = None
+        db_path = os.environ.get("AI_BRIDGE_OAUTH_DB", "/etc/ai-bridge-oauth/oauth.db")
+        try:
+            odb = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            odb.row_factory = sqlite3.Row
+            for row in odb.execute("SELECT client_id, client_name, redirect_uris, created_at FROM clients ORDER BY created_at DESC"):
+                clients.append({
+                    "client_id_prefix": row["client_id"][:16],
+                    "client_name": row["client_name"],
+                    "redirect_uris": row["redirect_uris"],
+                    "created_at": row["created_at"],
+                })
+            now = dbmod.now()
+            for row in odb.execute("SELECT kind, created_at, expires_at, revoked FROM tokens"):
+                total_tokens += 1
+                if row["revoked"] or row["expires_at"] < now:
+                    continue
+                if row["kind"] == "access":
+                    active_access += 1
+                elif row["kind"] == "refresh":
+                    active_refresh += 1
+                if last_token_at is None or row["created_at"] > last_token_at:
+                    last_token_at = row["created_at"]
+            odb.close()
+        except Exception:
+            pass
+        return {
+            "mcp": {"up": tcp_up(8001), "port": 8001},
+            "oauth_gateway": {"up": tcp_up(8002), "port": 8002},
+            "chatgpt": {
+                "clients": clients,
+                "active_access_tokens": active_access,
+                "active_refresh_tokens": active_refresh,
+                "total_tokens": total_tokens,
+                "last_token_at": last_token_at,
+            },
+        }
+
+    @app.get("/api/logs")
+    def service_logs(service: str = "control", lines: int = 100, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        """Recent log tail for one service. Admin/operator viewers only in
+        practice (viewer role + dashboard auth); lines are capped."""
+        import shutil
+        import subprocess
+
+        require_role("viewer", x_admin_token, x_session_token)
+        lines = max(10, min(int(lines), 200))
+        units = {"control": "ai-bridge-control", "mcp": "ai-bridge-mcp", "oauth": "ai-bridge-oauth"}
+        if service in units:
+            journal = shutil.which("journalctl")
+            if journal is None:
+                return {"service": service, "lines": ["journalctl not available on this host."]}
+            proc = subprocess.run([journal, "-u", units[service], "-n", str(lines), "--no-pager"],
+                                  capture_output=True, text=True, timeout=15)
+            return {"service": service, "lines": (proc.stdout or "").splitlines()[-lines:]}
+        if service == "nginx":
+            try:
+                with open("/var/log/nginx/access.log", errors="replace") as handle:
+                    all_lines = handle.readlines()
+                wanted = [line.rstrip("\n") for line in all_lines if "/mcp" in line or "/api/" in line]
+                return {"service": service, "lines": wanted[-lines:]}
+            except OSError as exc:
+                return {"service": service, "lines": [f"nginx access log unavailable: {exc}"]}
+        raise HTTPException(status_code=400, detail="Unknown log service.")
 
     # --- Agent polling (outbound only) -----------------------------------
     @app.post("/api/agent/heartbeat")
