@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.env
+.DS_Store
+.ai-bridge/
+*.db
+apps/dashboard/node_modules/
+apps/dashboard/dist/
+ai-bridge-workspace/

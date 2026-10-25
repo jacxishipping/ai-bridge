@@ -1,0 +1,22 @@
+[Unit]
+Description=AI Bridge Linux agent (unprivileged, outbound only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ai-bridge
+Group=ai-bridge
+WorkingDirectory=/opt/ai-bridge
+EnvironmentFile=/etc/ai-bridge/agent.env
+ExecStart=/opt/ai-bridge/.venv/bin/python agents/linux/agent_main.py
+Restart=on-failure
+RestartSec=5
+# Hardening: no new privileges, private tmp, read-only / except workspace.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/ai-bridge/ai-bridge-workspace /var/lib/ai-bridge
+
+[Install]
+WantedBy=multi-user.target

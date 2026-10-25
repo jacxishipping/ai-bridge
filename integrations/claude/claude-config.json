@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "ai-bridge": {
+      "command": "/absolute/path/to/ai-bridge/.venv/bin/python",
+      "args": ["-m", "ai_bridge.server"],
+      "env": { "AI_BRIDGE_WORKSPACE": "/home/YOUR_USER/ai-bridge-workspace" }
+    }
+  }
+}

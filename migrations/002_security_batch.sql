@@ -1,0 +1,13 @@
+-- v0.3 security batch: mirror of the new SQLite tables/columns for Postgres.
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS token_expires_at DOUBLE PRECISION;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS token_issued_at DOUBLE PRECISION;
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
+  salt TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer',
+  created_at DOUBLE PRECISION NOT NULL, disabled INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY, username TEXT NOT NULL, role TEXT NOT NULL,
+  expires_at DOUBLE PRECISION NOT NULL, created_at DOUBLE PRECISION NOT NULL);
+CREATE TABLE IF NOT EXISTS policies (
+  id SERIAL PRIMARY KEY, version INTEGER NOT NULL,
+  policy_json TEXT NOT NULL, created_by TEXT, created_at DOUBLE PRECISION NOT NULL, note TEXT);

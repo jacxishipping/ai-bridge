@@ -1,0 +1,17 @@
+[Unit]
+Description=AI Bridge control plane
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=ai-bridge
+Group=ai-bridge
+WorkingDirectory=/opt/ai-bridge
+EnvironmentFile=/etc/ai-bridge/control.env
+ExecStart=/opt/ai-bridge/.venv/bin/python -m ai_bridge.control
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target

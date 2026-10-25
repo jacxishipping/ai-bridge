@@ -1,0 +1,104 @@
+Metadata-Version: 2.4
+Name: ai-bridge
+Version: 0.3.0
+Summary: Security-first, cross-platform AI-to-computer control platform over MCP
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: mcp<2.0.0,>=1.6.0
+Requires-Dist: fastapi>=0.110
+Requires-Dist: uvicorn>=0.29
+Requires-Dist: pydantic>=2.6
+Requires-Dist: psutil>=5.9
+Requires-Dist: httpx>=0.27
+Requires-Dist: cryptography>=42.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: ruff>=0.4; extra == "dev"
+Provides-Extra: desktop
+Requires-Dist: Pillow>=10.0; extra == "desktop"
+Dynamic: license-file
+
+# AI Bridge — universal AI-to-computer control platform (v0.2.0)
+
+Connect authorized AI assistants and coding agents (Claude, Codex, Gemini
+CLI, other MCP clients, and ChatGPT via supported remote MCP) to Linux
+and Windows computers their owners authorize them to control — through
+one consistent, policy-enforced MCP tool interface.
+
+**This is not a remote root shell.** There is no `run_any_command`, no
+arbitrary PowerShell endpoint, and no tool that can grant itself
+privileges. See `docs/security.md` and `docs/threat-model.md` first.
+
+## What v0.2 does
+- **MCP server** (stdio + Streamable HTTP): system info, resources,
+  workspace list/read/search/create/edit/move/delete, service status,
+  logs, processes, disk/memory, Docker, git, tests, linter, backup,
+  staging deploy, task submit/status/result/cancel, approvals, desktop
+  (opt-in), device list/status.
+- **Risk tiers, enforced server-side**: 1 read-only, 2 low-risk,
+  3 sensitive (opt-in or approval), 4 high-risk (always human approval).
+- **Remote control plane** (FastAPI): device enrollment with a
+  one-time token (hashed at rest), revocation, task queue, agent polling
+  (outbound only, bounded backoff), approvals, audit log, emergency stop.
+- **Linux agent** (systemd, unprivileged) and **Windows agent**
+  (service account + separate interactive desktop helper).
+- **Dashboard** (React/TypeScript): login, devices, tasks, approvals,
+  audit, emergency stop.
+- **Tests**: unit, integration, security, and end-to-end (see below).
+
+## Quick start (local MCP, Linux)
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev]"
+mkdir -p "$HOME/ai-bridge-workspace"
+export AI_BRIDGE_WORKSPACE="$HOME/ai-bridge-workspace"
+pytest -q
+python -m ai_bridge.server   # stdio; driven by your MCP client
+```
+MCP client config: copy `integrations/generic-mcp/mcp-config.json` and
+replace the paths. Per-client configs: `integrations/{claude,codex,gemini,chatgpt}/`.
+
+## Control plane + dashboard
+```bash
+export AI_BRIDGE_ADMIN_TOKEN="$(python -c "import secrets; print(secrets.token_urlsafe(32))")"
+python -m ai_bridge.control          # :8000, loopback
+# dashboard (separate terminal):
+cd apps/dashboard && npm install && npm run dev   # :5173
+```
+Enroll a device in the dashboard, copy its one-time token, and start an
+agent: `python agents/linux/agent_main.py --device-token <token>`.
+Full steps: `docs/installation-linux.md`, `docs/installation-windows.md`,
+`docs/remote-access.md` (TLS proxy — required for any remote exposure).
+
+## Repository layout
+```
+src/ai_bridge/        core: security, policy, workspace, diagnostics, execution, tools, server, control/
+agents/               linux/ windows/ common/ (poller)
+apps/                 control-api/ (uvicorn entrypoint)  dashboard/ (React+TS)
+integrations/         chatgpt/ codex/ claude/ gemini/ generic-mcp/
+deployment/           docker/ systemd/ linux/ windows/
+docs/                 architecture, threat-model, security, install, mcp-clients, remote-access, operations, troubleshooting, api-reference, implementation-status
+migrations/           001_initial.sql (Postgres mirror of the SQLite schema)
+tests/                unit/ integration/ security/ e2e/ (+ starter tests in tests/*.py)
+```
+
+## Gap analysis vs. the starter ZIP (Milestone 0)
+The starter (10 files, ~300 lines) had only a stdio server with 4 tools
+(`system_info`, `list_workspace`, `read_workspace_file`,
+`run_diagnostic_task`), fixed read-only diagnostics, and path tests.
+It lacked: writes, policy tiers, approvals, audit persistence, remote
+enrollment/control plane, dashboard, Windows agent, desktop control,
+HTTP transport, rate limiting, redaction, and backups. All of those are
+added in v0.2 except the items honestly marked incomplete in
+`docs/implementation-status.md` (signed updates, OIDC, macOS, Windows
+execution on a Windows host, Postgres runtime wiring).
+
+## Safety notes
+- Run as an unprivileged user. Never run the agent as root/SYSTEM.
+- Keep secrets, SSH keys, `.env`, and production data OUTSIDE the workspace.
+- Never paste tokens or secrets into chat; use `.env` with `chmod 600`
+  (see `.env.example`) or a secret manager.
+- The starter's original files were preserved and hardened, not deleted:
+  `security.py` (now with secret-name blocking + redaction),
+  `tasks.py` (now a compatibility shim), `server.py` (now the full tool set).

@@ -1,0 +1,22 @@
+# Control plane + dashboard dev stack. Postgres is provided for production
+# use; the app defaults to SQLite unless you wire DATABASE_URL yourself
+# (see migrations/001_initial.sql). Do not expose :8000 publicly without
+# the TLS reverse proxy in docs/remote-access.md.
+services:
+  control-api:
+    build: { context: ., dockerfile: deployment/docker/Dockerfile }
+    ports: ["127.0.0.1:8000:8000"]
+    environment:
+      - AI_BRIDGE_ADMIN_TOKEN=${AI_BRIDGE_ADMIN_TOKEN:?Set AI_BRIDGE_ADMIN_TOKEN in .env}
+      - AI_BRIDGE_WORKSPACE=/workspace
+    volumes: ["./ai-bridge-workspace:/workspace"]
+  postgres:
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=ai_bridge
+      - POSTGRES_USER=ai_bridge
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes: ["ai-bridge-pg:/var/lib/postgresql/data"]
+    profiles: ["production"]
+volumes:
+  ai-bridge-pg:
