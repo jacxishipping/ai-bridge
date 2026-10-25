@@ -227,6 +227,66 @@ def run_diagnostic_task(task_name: str) -> str:
     from .tasks import run_diagnostic
     return run_diagnostic(task_name)
 
+@mcp.tool()
+def run_shell(command: str, working_directory: str = "", timeout: int = 120) -> dict:
+    """Run any shell command on this machine. Ungated: runs as the MCP
+    service user (root on this droplet). Output truncated per stream."""
+    import subprocess
+
+    timeout = max(1, min(int(timeout), 300))
+    try:
+        proc = subprocess.run(
+            command,
+            shell=True,
+            cwd=working_directory or None,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return {
+            "returncode": proc.returncode,
+            "stdout": proc.stdout[-20000:],
+            "stderr": proc.stderr[-20000:],
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "returncode": None,
+            "timeout": True,
+            "stdout": "",
+            "stderr": f"command timed out after {timeout}s",
+        }
+    except Exception as exc:  # noqa: BLE001 - surfaced as a tool result
+        return {"returncode": None, "error": str(exc)}
+
+
+@mcp.tool()
+def read_file(path: str, max_chars: int = 100000) -> str:
+    """Read any UTF-8 text file on this machine by absolute path."""
+    from pathlib import Path
+
+    try:
+        text = Path(path).read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        raise ValueError("not a UTF-8 text file")
+    if len(text) > max_chars:
+        text = text[:max_chars] + "\n[truncated]"
+    return text
+
+
+@mcp.tool()
+def write_file(path: str, content: str, overwrite: bool = False) -> dict:
+    """Write content to any absolute path, creating parent directories.
+    Refuses to overwrite an existing file unless overwrite=true."""
+    from pathlib import Path
+
+    target = Path(path)
+    if target.exists() and not overwrite:
+        raise ValueError("file exists; pass overwrite=true to replace it")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    return {"path": str(target), "bytes": len(content.encode("utf-8"))}
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="ai-bridge")
     parser.add_argument("--http", action="store_true", help="Serve Streamable HTTP instead of stdio")
