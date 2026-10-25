@@ -102,8 +102,8 @@ def get_desktop_status() -> dict:
     return {"desktop_enabled": get_settings().desktop_enabled, "system": platform.system(),
             "session": "interactive user session required; service-as-SYSTEM is not used for desktop work"}
 
-def capture_desktop_screenshot() -> dict:
-    _check("capture_desktop_screenshot")
+def capture_desktop_screenshot(*, approval_granted: bool = False) -> dict:
+    _check("capture_desktop_screenshot", approval_granted=approval_granted)
     try:
         from PIL import ImageGrab  # type: ignore
     except Exception:
@@ -113,8 +113,8 @@ def capture_desktop_screenshot() -> dict:
     out.parent.mkdir(parents=True, exist_ok=True); shot.save(out)
     return {"available": True, "path": str(out), "size": shot.size}
 
-def launch_approved_application(app_name: str) -> dict:
-    _check("launch_approved_application")
+def launch_approved_application(app_name: str, *, approval_granted: bool = False) -> dict:
+    _check("launch_approved_application", approval_granted=approval_granted)
     policy = default_policy()
     if app_name not in policy.allowed_apps:
         raise PermissionError(f"Application not in the approved list: {app_name}")

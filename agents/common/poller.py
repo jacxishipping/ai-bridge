@@ -17,13 +17,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from ai_bridge.control.dispatch import dispatch
 from ai_bridge.policy import Policy
+from ai_bridge.tools import default_policy
 
 
 class Poller:
     def __init__(self, control_url: str, device_token: str, *, policy: Policy | None = None):
         self.control_url = control_url.rstrip("/")
         self.device_token = device_token
-        self.policy = policy or Policy()
+        # No explicit policy: use the agent-local policy built from the
+        # agent process environment (AI_BRIDGE_DESKTOP_ENABLED,
+        # AI_BRIDGE_ALLOWED_APPS, ...). A bare Policy() default here
+        # silently closed the desktop gate for every agent, no matter
+        # what the environment said -- the status tool reads the env
+        # flag directly, so it reported true while dispatch denied.
+        self.policy = policy if policy is not None else default_policy()
         self.backoff = 2.0
 
     def _req(self, method: str, path: str, payload: dict | None = None) -> dict:
