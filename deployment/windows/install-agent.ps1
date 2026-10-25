@@ -17,8 +17,15 @@ if (-not (Get-LocalUser -Name $User -ErrorAction SilentlyContinue)) {
     exit 1
 }
 py -3 -m venv "$env:ProgramData\ai-bridge\.venv"
+# Resolve the repo root from this script's location so the install works
+# no matter which folder the installer is launched from, and so the
+# scheduled task gets an ABSOLUTE agent path (scheduled tasks do not
+# start in the repo folder, so a relative script path fails instantly).
+$RepoRoot = (Resolve-Path "$PSScriptRoot\..\..").Path
+Set-Location $RepoRoot
 & "$env:ProgramData\ai-bridge\.venv\Scripts\python.exe" -m pip install -e .
-$taskCmd = "'$env:ProgramData\ai-bridge\.venv\Scripts\python.exe' agents\windows\agent_main.py --control-url $ControlUrl --device-token $DeviceToken"
+$AgentPath = Join-Path $RepoRoot "agents\windows\agent_main.py"
+$taskCmd = "'$env:ProgramData\ai-bridge\.venv\Scripts\python.exe' '$AgentPath' --control-url $ControlUrl --device-token $DeviceToken"
 schtasks /create /tn "AI Bridge Agent" /tr $taskCmd /sc onstart /ru $User /rl limited /f
 Write-Host "Agent scheduled to run as '$User'. Start it with: schtasks /run /tn 'AI Bridge Agent'"
 Write-Host "Desktop automation is a separate interactive helper (agents/windows/desktop_helper.py) and must be started in a logged-in session."
