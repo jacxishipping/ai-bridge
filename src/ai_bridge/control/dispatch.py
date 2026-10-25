@@ -44,7 +44,7 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         "deploy_application": lambda a: tools.deploy_application(a.get("project_directory", "."), a.get("target_directory", "deploy-staging")),
         "get_desktop_status": lambda a: tools.get_desktop_status(),
         "capture_desktop_screenshot": lambda a: tools.capture_desktop_screenshot(approval_granted=approval_granted),
-        "launch_approved_application": lambda a: tools.launch_approved_application(a["app_name"], approval_granted=approval_granted),
+        "launch_approved_application": lambda a: tools.launch_approved_application(a["app_name"], approval_granted=approval_granted, url=a.get("url")),
         "install_package": lambda a: tools.install_package(a["package_id"], a.get("version"), approval_granted=approval_granted),
     }
     handler = handlers.get(tool)

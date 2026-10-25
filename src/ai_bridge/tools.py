@@ -113,17 +113,27 @@ def capture_desktop_screenshot(*, approval_granted: bool = False) -> dict:
     out.parent.mkdir(parents=True, exist_ok=True); shot.save(out)
     return {"available": True, "path": str(out), "size": shot.size}
 
-def launch_approved_application(app_name: str, *, approval_granted: bool = False) -> dict:
+def launch_approved_application(app_name: str, *, approval_granted: bool = False, url: str | None = None) -> dict:
     _check("launch_approved_application", approval_granted=approval_granted)
     policy = default_policy()
     if app_name not in policy.allowed_apps:
         raise PermissionError(f"Application not in the approved list: {app_name}")
+    # Optional URL argument (e.g. open a site in an allowlisted browser).
+    # It is passed as a single argv element with shell=False, so it cannot
+    # inject extra flags -- and it must be a plain http(s) URL, nothing else.
+    argv = [app_name]
+    if url is not None:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError(f"URL argument must be an http(s) URL: {url}")
+        argv.append(url)
     import subprocess
     try:
-        subprocess.Popen([app_name], shell=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(argv, shell=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except FileNotFoundError:
         raise ValueError(f"Approved application not found: {app_name}")
-    return {"launched": app_name}
+    return {"launched": app_name, "url": url} if url is not None else {"launched": app_name}
 
 # --- Software installation (Windows agent only, approval-gated) -----------
 _PACKAGE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+$")
