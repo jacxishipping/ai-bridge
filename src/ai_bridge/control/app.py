@@ -86,7 +86,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     db_path = db_path or (data_dir / "control.db")
     conn = dbmod.connect(db_path)
     app = FastAPI(title="AI Bridge Control Plane", version="0.3.0")
-    app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+    app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "http://201.79.36.129"],
                        allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     app.state.conn = conn
     app.state.admin_token = token
