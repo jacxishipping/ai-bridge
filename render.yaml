@@ -1,0 +1,33 @@
+# Render Blueprint for AI Bridge (test deployment).
+# How to use: push this repo to GitHub/GitLab, connect it in Render, and
+# create a Blueprint from render.yaml. Set AI_BRIDGE_ADMIN_TOKEN in the
+# Render dashboard (marked sync: false, so it is never in this file).
+# NOTE for testing: the control plane stores state in SQLite on the
+# service's ephemeral disk, so devices/tasks/audit reset on redeploy.
+# For a durable deployment, wire Postgres (see migrations/) instead.
+services:
+  - type: web
+    name: ai-bridge-control
+    runtime: docker
+    dockerfilePath: ./deployment/docker/Dockerfile
+    plan: free
+    region: frankfurt
+    healthCheckPath: /health
+    envVars:
+      - key: AI_BRIDGE_ADMIN_TOKEN
+        sync: false
+      - key: AI_BRIDGE_DEVICE_TOKEN_TTL_DAYS
+        value: "7"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+  - type: static
+    name: ai-bridge-dashboard
+    buildCommand: cd apps/dashboard && npm install && npm run build
+    staticPublishPath: ./apps/dashboard/dist
+    plan: free
+    envVars:
+      # Set this AFTER the control service exists, to its onrender.com URL,
+      # then redeploy the static site. Until then, run the dashboard locally
+      # with VITE_API_URL=<control-url>.
+      - key: VITE_API_URL
+        sync: false

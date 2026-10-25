@@ -85,7 +85,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     data_dir = Path(os.environ.get("AI_BRIDGE_DATA_DIR", str(Path.home() / ".ai-bridge")))
     db_path = db_path or (data_dir / "control.db")
     conn = dbmod.connect(db_path)
-    app = FastAPI(title="AI Bridge Control Plane", version="0.2.0")
+    app = FastAPI(title="AI Bridge Control Plane", version="0.3.0")
     app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
                        allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     app.state.conn = conn
@@ -142,7 +142,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "version": "0.2.0", "emergency_stop": app.state.emergency_stop}
+        return {"status": "ok", "version": "0.3.0", "emergency_stop": app.state.emergency_stop}
 
     @app.post("/api/devices/enroll")
     def enroll(body: EnrollIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
