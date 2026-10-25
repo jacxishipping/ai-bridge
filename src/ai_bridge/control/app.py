@@ -514,6 +514,14 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         conn.commit()
         return {"device_id": row["id"], "emergency_stop": app.state.emergency_stop}
 
+    @app.get("/api/agent/whoami")
+    def whoami(x_device_token: str | None = Header(default=None)):
+        # Read-only device-token check, for the OAuth gateway's device
+        # binding step. Unlike heartbeat it touches no device state, so
+        # validating a token never makes a device look freshly seen.
+        row = device_row(x_device_token)
+        return {"device_id": row["id"]}
+
     @app.post("/api/agent/rotate")
     def rotate_token(x_device_token: str | None = Header(default=None)):
         row = device_row(x_device_token)

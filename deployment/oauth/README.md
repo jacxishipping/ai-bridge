@@ -60,3 +60,26 @@ location = /mcp {
   proxy is public, behind TLS.
 - The approval page is the only human-facing part: whoever holds the
   admin token can authorize clients. Guard it accordingly.
+
+## Device-bound sessions
+
+An OAuth client can be bound to one enrolled device at approval time:
+on the approval page, besides the admin token, paste a device token.
+The gateway validates it against the control plane's read-only
+`GET /api/agent/whoami` endpoint and stores the device_id on the client
+record (blank keeps any existing binding; re-approval without a token
+never silently unbinds).
+
+Effect: `/internal/verify` returns the bound `device_id` for that
+client's access tokens, and the MCP server routes that session's tool
+calls to the device as control-plane tasks instead of running droplet
+tools. Bound sessions expose the device's toolset (system info, service
+status, `install_package`, …); droplet-only tools (`run_shell`,
+`read_file`, `write_file`) are refused in bound sessions, and Tier-3
+device tools still go through dashboard approval first. Long device
+tasks that outlast the MCP call return `status: running` with a
+`task_id` for a later `get_task_result` check. Unbound sessions
+(including raw admin-token access) keep the previous droplet behavior.
+The binding lives on the client record, so refresh-token rotation keeps
+it; to bind an existing connection, re-run the OAuth flow and enter
+the device token at approval.

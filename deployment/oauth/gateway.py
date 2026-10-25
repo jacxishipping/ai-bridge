@@ -7,6 +7,9 @@ token-verification endpoint used by nginx auth_request for /mcp.
 Secrets are never logged. Only SHA-256 hashes of codes/tokens are stored.
 The admin token (from the environment) is the only approval credential:
 entering it on the approval page authorizes a client. No user accounts.
+An optional device token on the approval page binds the client to one
+device: MCP sessions for that client then run tools on that device
+instead of the droplet (see the MCP server's device routing).
 """
 
 import base64
@@ -25,7 +28,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 ISSUER = os.environ.get("AI_BRIDGE_OAUTH_ISSUER", "https://jxiptvplayer.app")
 RESOURCE = ISSUER + "/mcp"
-DB_PATH = Path("/etc/ai-bridge-oauth/oauth.db")
+DB_PATH = Path(os.environ.get("AI_BRIDGE_OAUTH_DB", "/etc/ai-bridge-oauth/oauth.db"))
 CODE_TTL = 600
 ACCESS_TTL = 3600
 REFRESH_TTL = 30 * 24 * 3600
@@ -71,6 +74,12 @@ def init_db():
         );
         """
     )
+    # Migration: clients approved before device binding existed have no
+    # device_id column; add it idempotently (fails silently if present).
+    try:
+        conn.execute("ALTER TABLE clients ADD COLUMN device_id TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -170,24 +179,51 @@ async def register(request: Request):
 
 # ---------------------------------------------------------------- authorization
 
-def approval_form(params: dict, error: str = "") -> str:
+def approval_form(params: dict, error: str = "", current_binding: str = "") -> str:
     hidden = "".join(
         f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">'
         for k, v in params.items()
     )
     err_html = f'<p style="color:red">{html.escape(error)}</p>' if error else ""
+    binding_html = (
+        f'<p>Currently bound to device: <b>{html.escape(current_binding)}</b>. '
+        "Enter a different device token below to re-bind, or leave it blank to keep this binding.</p>"
+        if current_binding else ""
+    )
     return f"""<!doctype html><html><body>
 <h2>Authorize AI Bridge MCP access</h2>
 <p>Client <b>{html.escape(params.get("client_name", params.get("client_id", "")))}</b>
 wants access to the AI Bridge MCP server ({html.escape(RESOURCE)}).</p>
 <p>Enter the admin token to approve. It is checked once and never stored.</p>
+{binding_html}
 {err_html}
 <form method="post" action="/oauth/authorize">
 {hidden}
 <label>Admin token: <input type="password" name="admin_token" required></label><br><br>
+<label>Device token (optional): <input type="password" name="device_token"></label><br>
+<small>Bind this connection to one device: MCP tools will then run on that
+device instead of the droplet. Leave blank for an unbound connection
+(droplet tools, as before).</small><br><br>
 <button type="submit" name="action" value="approve">Approve</button>
 <button type="submit" name="action" value="deny">Deny</button>
 </form></body></html>"""
+
+
+def resolve_device_token(token: str) -> str | None:
+    """Validate a device token against the control plane's read-only
+    whoami endpoint. Returns the device_id, or None if invalid.
+    The endpoint touches no device state (unlike heartbeat)."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    url = os.environ.get("AI_BRIDGE_CONTROL_URL", "http://127.0.0.1:8000").rstrip("/") + "/api/agent/whoami"
+    req = urllib.request.Request(url, headers={"X-Device-Token": token})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read() or b"{}").get("device_id")
+    except Exception:
+        return None
 
 
 def redirect_with(uri: str, params: dict) -> RedirectResponse:
@@ -231,7 +267,11 @@ def authorize_get(
         "code_challenge_method": code_challenge_method,
         "client_name": row["client_name"] or client_id,
     }
-    return HTMLResponse(approval_form(params))
+    try:
+        current_binding = row["device_id"] or ""
+    except (IndexError, KeyError):
+        current_binding = ""
+    return HTMLResponse(approval_form(params, current_binding=current_binding))
 
 
 @app.post("/oauth/authorize")
@@ -243,6 +283,7 @@ def authorize_post(
     code_challenge: str = Form(""),
     code_challenge_method: str = Form(""),
     admin_token: str = Form(""),
+    device_token: str = Form(""),
     action: str = Form(""),
 ):
     if action == "deny":
@@ -259,8 +300,26 @@ def authorize_post(
             "code_challenge_method": code_challenge_method,
         }
         return HTMLResponse(approval_form(params, "Invalid admin token."), status_code=401)
+    # Optional device binding: a valid device token binds this client to
+    # that device. Blank keeps any existing binding (re-approval without
+    # a token never silently unbinds a client).
+    binding = None
+    if device_token:
+        binding = resolve_device_token(device_token)
+        if binding is None:
+            params = {
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "scope": scope,
+                "state": state,
+                "code_challenge": code_challenge,
+                "code_challenge_method": code_challenge_method,
+            }
+            return HTMLResponse(approval_form(params, "Invalid device token."), status_code=401)
     code = secrets.token_urlsafe(32)
     conn = connect()
+    if binding:
+        conn.execute("UPDATE clients SET device_id=? WHERE client_id=?", (binding, client_id))
     conn.execute(
         "INSERT INTO codes (code_hash, client_id, redirect_uri, challenge,"
         " challenge_method, scope, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -390,13 +449,19 @@ def verify(authorization: str | None = Header(default=None)):
     if authorization and authorization.startswith("Bearer "):
         presented = authorization[7:].strip()
         if admin_ok(presented):
-            return {"ok": True}
+            # Raw admin token: unbound (droplet tools, as before).
+            return {"ok": True, "device_id": None}
         conn = connect()
         row = conn.execute(
             "SELECT * FROM tokens WHERE token_hash=? AND kind='access'",
             (digest(presented),),
         ).fetchone()
-        conn.close()
         if row and not row["revoked"] and row["expires_at"] >= int(time.time()):
-            return {"ok": True}
+            crow = conn.execute(
+                "SELECT device_id FROM clients WHERE client_id=?", (row["client_id"],)
+            ).fetchone()
+            conn.close()
+            device_id = crow["device_id"] if crow and crow["device_id"] else None
+            return {"ok": True, "device_id": device_id, "client_id": row["client_id"]}
+        conn.close()
     return JSONResponse({"ok": False}, status_code=401)
