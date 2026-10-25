@@ -113,6 +113,37 @@ def capture_desktop_screenshot(*, approval_granted: bool = False) -> dict:
     out.parent.mkdir(parents=True, exist_ok=True); shot.save(out)
     return {"available": True, "path": str(out), "size": shot.size}
 
+def _resolve_app_executable(app_name: str) -> str:
+    """Resolve an allowlisted app name to an executable path (Windows).
+
+    Plain names resolve through PATH when Popen runs. When that fails on
+    Windows, fall back to the App Paths registry keys -- the mechanism
+    Windows itself uses to resolve names like chrome/opera/msedge typed
+    in Start > Run. Browsers installed outside PATH (Chrome's
+    C:\\Program Files\\Google\\Chrome\\Application, Opera's install dir)
+    register there, so the allowlist names keep working as typed.
+    Returns the input unchanged off Windows, for full paths, or when no
+    App Paths entry exists; the allowlist check on the *name* still
+    gates the launch either way.
+    """
+    if os.name != "nt" or "\\" in app_name or "/" in app_name:
+        return app_name
+    try:
+        import winreg
+    except ImportError:
+        return app_name
+    key_name = app_name[:-4] if app_name.lower().endswith(".exe") else app_name
+    for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            with winreg.OpenKey(root, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{key_name}.exe") as key:
+                path, _ = winreg.QueryValueEx(key, "")
+                if path:
+                    return path
+        except OSError:
+            continue
+    return app_name
+
+
 def launch_approved_application(app_name: str, *, approval_granted: bool = False, url: str | None = None) -> dict:
     _check("launch_approved_application", approval_granted=approval_granted)
     policy = default_policy()
@@ -132,7 +163,14 @@ def launch_approved_application(app_name: str, *, approval_granted: bool = False
     try:
         subprocess.Popen(argv, shell=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except FileNotFoundError:
-        raise ValueError(f"Approved application not found: {app_name}")
+        resolved = _resolve_app_executable(app_name)
+        if resolved == app_name:
+            raise ValueError(f"Approved application not found: {app_name}")
+        argv[0] = resolved
+        try:
+            subprocess.Popen(argv, shell=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except FileNotFoundError:
+            raise ValueError(f"Approved application not found: {app_name}")
     return {"launched": app_name, "url": url} if url is not None else {"launched": app_name}
 
 # --- Software installation (Windows agent only, approval-gated) -----------
