@@ -95,8 +95,17 @@ class TaskRunner:
                 return
             with self._sem:
                 # Sandbox: minimal env, workspace cwd, hard resource limits.
-                # No network namespace is enforced here (see docs/security.md:
-                # use a container or proxy egress allowlist for that layer).
+                # Network egress: when AI_BRIDGE_TASK_NETNS=1, the task runs
+                # in a fresh network namespace with only loopback (fail-closed:
+                # refuses to run if `unshare` is unavailable). This applies to
+                # the bounded task runner only, not to the ungated MCP shell.
+                if os.environ.get("AI_BRIDGE_TASK_NETNS", "") == "1":
+                    import shutil
+
+                    if shutil.which("unshare") is None:
+                        raise ValueError("AI_BRIDGE_TASK_NETNS=1 but 'unshare' is not available; refusing to run without network isolation.")
+                    argv = ["unshare", "--net", "--map-root-user", "sh", "-c",
+                            "ip link set lo up 2>/dev/null; exec \"$@\"", "sh", *argv]
                 def _limits():
                     try:
                         import resource

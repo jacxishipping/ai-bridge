@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.aibridge.agent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>REPO_PATH/agents/macos/agent_main.py</string>
+        <string>--control-url</string>
+        <string>CONTROL_URL</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>AI_BRIDGE_DEVICE_TOKEN</key>
+        <string>DEVICE_TOKEN</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/ai-bridge-agent.out</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/ai-bridge-agent.err</string>
+</dict>
+</plist>

@@ -9,6 +9,7 @@ export default function App() {
   const [tok, setTok] = useState(token());
   const [deviceName, setDeviceName] = useState("");
   const [enrolled, setEnrolled] = useState<any>(null);
+  const [oidcEnabled, setOidcEnabled] = useState(false);
 
   async function load(v: View = view) {
     setErr("");
@@ -18,6 +19,16 @@ export default function App() {
     } catch (e: any) { setErr(e.message); setData(null); }
   }
   useEffect(() => { if (tok || sessionToken()) load(); }, [view, tok]);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const st = params.get("session_token");
+    if (st) {
+      localStorage.setItem("ai_bridge_session_token", st);
+      setTok("session");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    api.oidcConfigured().then(r => setOidcEnabled(!!r.enabled)).catch(() => {});
+  }, []);
 
   if (!tok && !sessionToken()) return (
     <main style={{ fontFamily: "system-ui", maxWidth: 480, margin: "4rem auto", padding: 16 }}>
@@ -33,6 +44,10 @@ export default function App() {
         <button style={{ marginTop: 8, padding: "8px 16px" }}>Sign in</button>
       </form>
       <p style={{ color: "#666", fontSize: 13 }}>The token is stored only in this browser. Never paste device tokens or API keys into chat.</p>
+      {oidcEnabled && <>
+        <p style={{ color: "#666", fontSize: 13 }}>Or sign in with single sign-on:</p>
+        <button style={{ marginTop: 8, padding: "8px 16px" }} onClick={() => api.oidcLogin()}>Log in with SSO</button>
+      </>}
     </main>
   );
 

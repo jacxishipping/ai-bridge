@@ -24,4 +24,6 @@ export const api = {
   login: (username: string, password: string) => fetch(BASE + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) }).then(async r => { if (!r.ok) throw new Error("Login failed"); return r.json(); }),
   policies: () => call("/api/policies"),
   createPolicy: (allow_tier3: boolean) => call("/api/policies", "POST", { allow_tier3, desktop_enabled: false, allowed_apps: [], allowed_services: [], note: "Set from dashboard" }),
+  oidcConfigured: () => fetch(BASE + "/api/auth/oidc/configured").then(r => r.json()),
+  oidcLogin: () => { window.location.href = BASE + "/api/auth/oidc/login"; },
 };

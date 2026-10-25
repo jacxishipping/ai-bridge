@@ -86,7 +86,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     db_path = db_path or (data_dir / "control.db")
     conn = dbmod.connect(db_path)
     app = FastAPI(title="AI Bridge Control Plane", version="0.3.0")
-    app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "http://201.79.36.129"],
+    app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "http://201.79.36.129", "https://jxiptvplayer.app"],
                        allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     app.state.conn = conn
     app.state.admin_token = token
@@ -290,6 +290,78 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         conn.commit()
         audit(user["username"], "", "login", {}, "allowed")
         return {"session_token": session_token, "username": user["username"], "role": user["role"], "expires_at": expires}
+
+    # --- Auth: OIDC (dormant unless AI_BRIDGE_OIDC_* are set) ------------
+    @app.get("/api/auth/oidc/configured")
+    def oidc_configured():
+        from . import oidc as oidcmod
+
+        return {"enabled": oidcmod.oidc_config() is not None}
+
+    @app.get("/api/auth/oidc/login")
+    def oidc_login():
+        from . import oidc as oidcmod
+        from fastapi.responses import RedirectResponse
+
+        if oidcmod.oidc_config() is None:
+            raise HTTPException(status_code=400, detail="OIDC is not configured.")
+        url, _, _ = oidcmod.new_login()
+        return RedirectResponse(url, status_code=302)
+
+    @app.get("/api/auth/oidc/callback")
+    def oidc_callback(code: str = "", state: str = ""):
+        from urllib.parse import urlencode
+
+        import httpx
+        from fastapi.responses import RedirectResponse
+
+        from . import oidc as oidcmod
+
+        cfg = oidcmod.oidc_config()
+        if cfg is None:
+            raise HTTPException(status_code=400, detail="OIDC is not configured.")
+        pending = oidcmod.pop_pending(state)
+        if pending is None or not code:
+            raise HTTPException(status_code=400, detail="Invalid or expired login attempt.")
+        doc = oidcmod.discovery()
+        resp = httpx.post(
+            doc["token_endpoint"],
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": cfg["redirect_uri"],
+                "client_id": cfg["client_id"],
+                "client_secret": cfg["client_secret"],
+            },
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=401, detail="OIDC code exchange failed.")
+        tokens = resp.json()
+        claims = oidcmod.verify_id_token(tokens["id_token"], pending["nonce"])
+        username = claims.get("email") or claims.get("preferred_username") or claims.get("sub")
+        if not username:
+            raise HTTPException(status_code=400, detail="No usable identity in ID token.")
+        username = str(username)[:200]
+        user = conn.execute("SELECT * FROM users WHERE username=? AND disabled=0", (username,)).fetchone()
+        if user is None:
+            conn.execute(
+                "INSERT INTO users (id, username, password_hash, salt, role, created_at) VALUES (?,?,?,?,?,?)",
+                (uuid.uuid4().hex[:12], username, "oidc-only-" + secrets.token_hex(16), authmod.new_salt(), "viewer", dbmod.now()),
+            )
+            conn.commit()
+            user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+        session_token = secrets.token_urlsafe(32)
+        expires = dbmod.now() + 8 * 3600
+        conn.execute(
+            "INSERT INTO sessions (token_hash, username, role, expires_at, created_at) VALUES (?,?,?,?,?)",
+            (dbmod.hash_token(session_token), user["username"], user["role"], expires, dbmod.now()),
+        )
+        conn.commit()
+        audit(user["username"], "", "oidc_login", {}, "allowed")
+        dashboard = cfg["dashboard_url"].rstrip("/") + "/"
+        sep = "&" if "?" in dashboard else "?"
+        return RedirectResponse(dashboard + sep + urlencode({"session_token": session_token}), status_code=302)
 
     @app.post("/api/auth/users")
     def create_user(body: UserIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):

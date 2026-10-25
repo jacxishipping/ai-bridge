@@ -16,11 +16,13 @@
   (`python -m ai_bridge.updates sign`); the agent's `--check-update`
   verifies the signature before downloading anything. No silent auto-install.
 - Sandboxing (v0.3): tasks run with a minimal environment, workspace cwd,
-  and CPU/memory/file-size limits. Network egress control is NOT yet
-  enforced in-process — use a container or proxy allowlist for that layer.
-- OIDC and plane-side mTLS are NOT yet implemented. Do not claim otherwise
-  in deployment docs; use a TLS reverse proxy with client-cert verification
-  for mTLS until the plane supports it natively.
+  and CPU/memory/file-size limits. Network egress control is opt-in via
+  AI_BRIDGE_TASK_NETNS=1, which runs bounded-runner tasks in a fresh
+  network namespace with only loopback (fail-closed if `unshare` is
+  unavailable). The ungated MCP shell is intentionally outside this sandbox.
+- OIDC is implemented (provider-gated: set AI_BRIDGE_OIDC_* to activate).
+  Plane-side mTLS is still not native; use a TLS reverse proxy with
+  client-cert verification for mTLS, as deployed in operations.
 - Audit: every control-plane decision is stored in `audit` (SQLite dev,
   Postgres prod) and every local tool decision can be appended via
   `ai_bridge.audit.audit_event` to a JSONL file. Results are redacted.

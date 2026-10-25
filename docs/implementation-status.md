@@ -7,7 +7,15 @@
 - Signed releases: Ed25519 manifest signing/verification in `src/ai_bridge/updates.py` + agent `--check-update` (verifies before any download; installation remains an operator step).
 - Sandboxed task execution: minimal env (secrets dropped), workspace cwd, CPU/memory/file-size rlimits.
 - Dashboard: username/password login alongside the admin token, plus a Policies view.
-- Still NOT implemented (honest): OIDC provider integration, mTLS at the plane itself (use a TLS reverse proxy with client-cert verification — see docs/remote-access.md), network-namespace egress control, macOS agent, Windows-on-Windows execution.
+- Implemented since v0.3 (needs activation or a machine to verify):
+  OIDC login (provider-gated via AI_BRIDGE_OIDC_*; crypto verified offline,
+  full flow needs a registered provider app), network-namespace egress
+  control for the bounded task runner (AI_BRIDGE_TASK_NETNS=1, fail-closed),
+  mTLS at the reverse proxy (optional client-cert verification on /api/,
+  untrusted certs rejected), macOS agent code + launchd unit (not yet run
+  on a Mac). Still NOT verified: Windows-on-Windows execution (the agent
+  code imports and degrades honestly off Windows, but needs a Windows host
+  to run), and plane-side mTLS (reverse proxy remains the mTLS layer).
 
 Implemented and tested on Linux (this environment, pytest run — see CHANGELOG):
 - MCP stdio server + Streamable HTTP entrypoint; tools list/call verified
