@@ -42,6 +42,7 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "capture_desktop_screenshot": RiskTier.SENSITIVE,
     "launch_approved_application": RiskTier.SENSITIVE,
     "perform_approved_ui_action": RiskTier.SENSITIVE,
+    "install_package": RiskTier.SENSITIVE,
     "delete_workspace_file": RiskTier.HIGH_RISK, "submit_task": RiskTier.SENSITIVE,
     "request_approval": RiskTier.LOW_RISK, "approve_task": RiskTier.HIGH_RISK,
     "cancel_task": RiskTier.LOW_RISK,
@@ -81,7 +82,10 @@ def decide(policy: Policy, tool: str, *, approval_granted: bool = False,
         if tool in {"capture_desktop_screenshot", "launch_approved_application",
                     "perform_approved_ui_action"} and not policy.desktop_enabled:
             return Decision(False, reason="Desktop automation is not enabled.")
-        if not policy.allow_tier3 and tool not in {"submit_task", "create_backup"}:
+        # A human approval record for this task is itself the Tier-3
+        # opt-in: without it, an approved task would be re-denied by the
+        # agent after the control plane released it (see next_task).
+        if not policy.allow_tier3 and not approval_granted and tool not in {"submit_task", "create_backup"}:
             return Decision(False, needs_approval=True,
                             reason="Sensitive operation requires Tier-3 opt-in or approval.")
         if tier > policy.max_tier_unattended and not approval_granted:

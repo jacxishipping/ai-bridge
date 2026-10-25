@@ -12,9 +12,9 @@ For a persistent install, see deployment/windows/install-agent.ps1
 agents/windows/desktop_helper.py in a LOGGED-IN user session, never as
 SYSTEM.
 
-NOT yet run on Windows: this entrypoint mirrors the Linux/macOS agents
-and the Windows backends are platform-guarded, but end-to-end execution
-on a Windows host is still unverified.
+End-to-end execution on Windows was verified 2026-10-25 (Windows
+Server 2025: heartbeat, task dispatch, system-info and service-status
+tasks, and the scheduled-task service install).
 """
 from __future__ import annotations
 

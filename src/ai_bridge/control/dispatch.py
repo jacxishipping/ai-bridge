@@ -45,6 +45,7 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         "get_desktop_status": lambda a: tools.get_desktop_status(),
         "capture_desktop_screenshot": lambda a: tools.capture_desktop_screenshot(),
         "launch_approved_application": lambda a: tools.launch_approved_application(a["app_name"]),
+        "install_package": lambda a: tools.install_package(a["package_id"], a.get("version"), approval_granted=approval_granted),
     }
     handler = handlers.get(tool)
     if handler is None:

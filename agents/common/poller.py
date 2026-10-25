@@ -50,7 +50,8 @@ class Poller:
         task_id = task["id"]
         try:
             args = json.loads(task.get("args_json") or "{}")
-            result = dispatch(task["tool"], args, policy=self.policy)
+            result = dispatch(task["tool"], args, policy=self.policy,
+                              approval_granted=bool(task.get("approval_granted")))
             status, text = "completed", json.dumps(result, default=str)[:8000]
         except PermissionError as exc:
             status, text = "failed", f"denied: {exc}"

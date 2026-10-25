@@ -13,6 +13,7 @@ const TOOLS = [
   "create_backup", "deploy_application", "capture_desktop_screenshot",
   "launch_approved_application", "perform_approved_ui_action",
   "delete_workspace_file", "submit_task", "request_approval", "approve_task", "cancel_task",
+  "install_package",
 ];
 
 function fmt(ts: any): string {
@@ -84,6 +85,7 @@ export default function App() {
   const [enrolled, setEnrolled] = useState<any>(null);
   const [taskDevice, setTaskDevice] = useState("");
   const [taskTool, setTaskTool] = useState("get_system_info");
+  const [taskArgs, setTaskArgs] = useState("");
   const [taskStatus, setTaskStatus] = useState("all");
   const [auditQuery, setAuditQuery] = useState("");
   const [auditTool, setAuditTool] = useState("all");
@@ -246,7 +248,7 @@ export default function App() {
 
       {view === "tasks" && <div style={{ display: "grid", gap: 12 }}>
         <Card title="New task">
-          <form onSubmit={async e => { e.preventDefault(); try { const r = await api.submitTask(taskDevice, taskTool); alert(`Task ${r.task_id} → ${r.status}`); load(); } catch (ex: any) { alert(ex.message); } }}>
+          <form onSubmit={async e => { e.preventDefault(); try { let args: any = {}; if (taskArgs.trim()) { try { args = JSON.parse(taskArgs); } catch { alert("Args must be valid JSON, e.g. {\"package_id\": \"Microsoft.VisualStudioCode\"}"); return; } } const r = await api.submitTask(taskDevice, taskTool, args); alert(`Task ${r.task_id} → ${r.status}`); load(); } catch (ex: any) { alert(ex.message); } }}>
             <select value={taskDevice} onChange={e => setTaskDevice(e.target.value)} required>
               <option value="">Select device…</option>
               {devices.filter(d => !d.revoked).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -254,6 +256,7 @@ export default function App() {
             <select value={taskTool} onChange={e => setTaskTool(e.target.value)}>
               {TOOLS.map(t => <option key={t} value={t}>{t}</option>)}
             </select>{" "}
+            <input value={taskArgs} onChange={e => setTaskArgs(e.target.value)} placeholder='Args JSON, e.g. {"package_id": "Microsoft.VisualStudioCode"}' style={{ width: 340 }} />{" "}
             <button>Submit task</button>
             <span style={{ fontSize: 12, color: "#666", marginLeft: 8 }}>High-risk tools need approval first.</span>
           </form>

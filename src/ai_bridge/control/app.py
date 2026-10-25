@@ -536,7 +536,18 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             return {"task": None}
         conn.execute("UPDATE tasks SET status='running', updated_at=? WHERE id=?", (dbmod.now(), task["id"]))
         conn.commit()
-        return {"task": dict(task)}
+        out = dict(task)
+        # Tell the agent whether a human approved this task. Tasks that
+        # never needed approval carry no approval_id (granted); approved
+        # tasks carry an approved record. Without this, the agent's own
+        # policy check would re-deny an approved Tier-3 task.
+        ap = out.get("approval_id")
+        if ap:
+            ap_row = conn.execute("SELECT status FROM approvals WHERE id=?", (ap,)).fetchone()
+            out["approval_granted"] = bool(ap_row and ap_row["status"] == "approved")
+        else:
+            out["approval_granted"] = True
+        return {"task": out}
 
     @app.post("/api/agent/tasks/{task_id}/result")
     def task_result(task_id: str, body: TaskResultIn, x_device_token: str | None = Header(default=None)):

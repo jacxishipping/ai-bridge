@@ -14,7 +14,7 @@ export const api = {
   enroll: (name: string) => call("/api/devices/enroll", "POST", { name }),
   revoke: (id: string) => call(`/api/devices/${id}/revoke`, "POST", {}),
   tasks: () => call("/api/tasks"),
-  submitTask: (device_id: string, tool: string) => call("/api/tasks", "POST", { device_id, tool, args: {} }),
+  submitTask: (device_id: string, tool: string, args: any = {}) => call("/api/tasks", "POST", { device_id, tool, args }),
   cancelTask: (id: string) => call(`/api/tasks/${id}/cancel`, "POST", {}),
   approvals: () => call("/api/approvals"),
   decide: (id: string, decision: string) => call(`/api/approvals/${id}/decide`, "POST", { decision }),

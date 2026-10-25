@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
+import subprocess
 import time
 import uuid
 import zipfile
@@ -122,3 +124,41 @@ def launch_approved_application(app_name: str) -> dict:
     except FileNotFoundError:
         raise ValueError(f"Approved application not found: {app_name}")
     return {"launched": app_name}
+
+# --- Software installation (Windows agent only, approval-gated) -----------
+_PACKAGE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+$")
+_VERSION_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+def install_package(package_id: str, version: str | None = None, *, approval_granted: bool = False) -> dict:
+    """Install a package on a Windows agent via winget.
+
+    Tier-3 (sensitive): the control plane holds the task in
+    needs_approval until a human approves it, and dispatch() passes
+    that approval through here. Policy is enforced by dispatch() and
+    re-checked here so direct calls stay gated too.
+    The package id is validated and passed as a fixed argv list
+    (shell=False) — no shell text from arguments is ever executed.
+    Winget ids are Publisher.App (e.g. Microsoft.VisualStudioCode).
+    """
+    _check("install_package", approval_granted=approval_granted)
+    if not isinstance(package_id, str) or not _PACKAGE_ID_RE.match(package_id):
+        raise ValueError("package_id must look like a winget id (Publisher.App, letters/digits/dot/dash/underscore only).")
+    if version is not None and (not isinstance(version, str) or not _VERSION_RE.match(version)):
+        raise ValueError("version must be letters/digits/dot/dash/underscore only.")
+    if platform.system() != "Windows":
+        return {"available": False, "note": "install_package is Windows-only (winget); this host is not Windows."}
+    if shutil.which("winget") is None:
+        return {"available": False,
+                "note": "winget not found on this machine. Install App Installer (winget) from the Microsoft Store first."}
+    argv = ["winget", "install", "--id", package_id, "-e",
+            "--accept-source-agreements", "--accept-package-agreements"]
+    if version:
+        argv += ["--version", version]
+    try:
+        proc = subprocess.run(argv, shell=False, capture_output=True, text=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"winget install of {package_id} timed out after 900s.")
+    output = ((proc.stdout or "") + (proc.stderr or "")).strip()[:8000]
+    if proc.returncode != 0:
+        raise RuntimeError(f"winget install of {package_id} failed (exit {proc.returncode}): {output}")
+    return {"installed": package_id, "version": version, "output": output}
