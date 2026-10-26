@@ -217,3 +217,4 @@ def test_poller_auto_rotates_expiring_token(monkeypatch, tmp_path):
     poller.run_once()
     assert poller.device_token == "rotated-new-token"
     assert token_file.read_text(encoding="utf-8") == "rotated-new-token"
+
