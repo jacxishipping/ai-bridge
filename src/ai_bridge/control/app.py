@@ -153,6 +153,7 @@ class TaskUpdateIn(BaseModel):
 
 class ApprovalUpdateIn(BaseModel):
     reason: str | None = None
+    status: str | None = None
 
 
 class OAuthClientUpdateIn(BaseModel):
@@ -204,8 +205,8 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             raise HTTPException(status_code=403, detail=f"Role '{role}' cannot perform this action (requires {min_role}).")
         return actor
 
-    def require_admin(x_admin_token: str | None, x_session_token: str | None = None) -> None:
-        require_role("admin", x_admin_token, x_session_token)
+    def require_admin(x_admin_token: str | None, x_session_token: str | None = None):
+        return require_role("admin", x_admin_token, x_session_token)
 
     def get_current_policy() -> dict:
         row = conn.execute("SELECT policy_json FROM policies ORDER BY version DESC LIMIT 1").fetchone()
@@ -401,7 +402,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         valid_statuses = {"queued", "running", "needs_approval", "completed", "failed", "cancelled", "timed_out"}
         if status not in valid_statuses:
             raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
-        if status == "queued" and row["approval_id"]:
+        if status == "queued" and row["approval_id"] and tier_enum.value >= 3:
             ap = conn.execute("SELECT status, expires_at FROM approvals WHERE id=?", (row["approval_id"],)).fetchone()
             if ap and ap["status"] != "approved":
                 raise HTTPException(status_code=409, detail="Task approval is not approved; create a new task to request approval again.")
@@ -484,14 +485,15 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         if row["expires_at"] is not None and row["expires_at"] <= dbmod.now():
             expire_pending_approvals()
             raise HTTPException(status_code=409, detail="Approval has expired.")
-        conn.execute("UPDATE approvals SET status=?, decided_by=?, decided_at=? WHERE id=? AND status='pending'", (body.decision, actor, dbmod.now(), approval_id))
+        now = dbmod.now()
+        conn.execute("UPDATE approvals SET status=?, decided_by=?, decided_at=? WHERE id=? AND status='pending'", (body.decision, actor, now, approval_id))
         if row["task_id"]:
             new_status = "queued" if body.decision == "approved" else "cancelled"
-            conn.execute("UPDATE tasks SET status=?, updated_at=? WHERE id=?", (new_status, dbmod.now(), row["task_id"]))
+            conn.execute("UPDATE tasks SET status=?, updated_at=? WHERE id=?", (new_status, now, row["task_id"]))
         conn.commit()
         notify_tasks()
         audit(actor, "", "decide_approval", {"approval_id": approval_id, "decision": body.decision, "reason": body.reason}, "allowed")
-        return {"approval_id": approval_id, "status": body.decision}
+        return {"approval_id": approval_id, "status": body.decision, "decided_by": actor, "decided_at": now}
 
     @app.put("/api/approvals/{approval_id}")
     def update_approval(approval_id: str, body: ApprovalUpdateIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -532,6 +534,10 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         else:
             rows = conn.execute("SELECT * FROM audit WHERE tenant=? ORDER BY ts DESC LIMIT 500", (tenant,)).fetchall()
         return [dict(r) for r in rows]
+
+    @app.api_route("/api/audit/{audit_id}", methods=["PUT", "DELETE"])
+    def immutable_audit(audit_id: int):
+        raise HTTPException(status_code=405, detail="Audit records are immutable and cannot be modified or deleted.")
 
     @app.get("/api/audit/export")
     def export_audit(tenant: str = "default", since: float | None = None, until: float | None = None,
