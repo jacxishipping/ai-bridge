@@ -51,7 +51,6 @@ export const api = {
   deleteApproval: (id: string) => call(`/api/approvals/${encodeURIComponent(id)}`, "DELETE"),
   audit: () => call("/api/audit"),
   exportAudit: () => call("/api/audit/export"),
-  logout: () => call("/api/auth/logout", "POST", {}),
   emergencyStop: () => call("/api/emergency-stop", "POST", {}),
   emergencyClear: () => call("/api/emergency-stop/clear", "POST", {}),
   login: (username: string, password: string) => fetch(BASE + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) }).then(async r => { if (!r.ok) throw new Error("Login failed"); return r.json(); }),
