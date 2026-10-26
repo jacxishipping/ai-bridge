@@ -140,15 +140,22 @@ class Poller:
         except Exception as exc:
             status, text = "failed", f"{type(exc).__name__}: {exc}"
         self._req("POST", f"/api/agent/tasks/{task_id}/result", {"status": status, "result": text})
+        print(f"[{time.strftime('%H:%M:%S')}] Task {task_id} ({task['tool']}) -> {status}", flush=True)
         self.backoff = 2.0
         return {"task": task_id, "status": status}
 
     def run_forever(self) -> None:
+        print(f"[{time.strftime('%H:%M:%S')}] AI Bridge Agent polling {self.control_url} ...", flush=True)
+        had_error = False
         while True:
             try:
                 out = self.run_once(wait=15)
+                if had_error:
+                    print(f"[{time.strftime('%H:%M:%S')}] Agent reconnected to control plane (OK).", flush=True)
+                    had_error = False
                 time.sleep(0.1 if out.get("task") else 0.5)
             except Exception as exc:
-                print(f"Agent error (retry in {self.backoff:.0f}s): {exc}")
+                had_error = True
+                print(f"[{time.strftime('%H:%M:%S')}] Agent error (retry in {self.backoff:.0f}s): {exc}", flush=True)
                 time.sleep(self.backoff)
                 self.backoff = min(self.backoff * 2, 60.0)
