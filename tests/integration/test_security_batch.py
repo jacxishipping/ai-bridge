@@ -23,8 +23,10 @@ def enroll(c):
 
 def test_users_roles_and_sessions():
     c, app = client()
-    # Bootstrap: first user can be created without auth.
-    r = c.post("/api/auth/users", json={"username": "alice", "password": "correct-horse-123", "role": "viewer"})
+    # Unauthenticated user creation is rejected when admin token is configured
+    assert c.post("/api/auth/users", json={"username": "alice", "password": "correct-horse-123", "role": "viewer"}).status_code == 401
+    # First user can be created with admin auth.
+    r = c.post("/api/auth/users", json={"username": "alice", "password": "correct-horse-123", "role": "viewer"}, headers={"X-Admin-Token": ADMIN})
     assert r.status_code == 200, r.text
     # Second user requires admin.
     r = c.post("/api/auth/users", json={"username": "bob", "password": "correct-horse-123", "role": "operator"})
@@ -84,7 +86,7 @@ def test_policy_versioning_and_tier3_gating():
 
 def test_session_logout_revokes_token():
     c, app = client()
-    c.post("/api/auth/users", json={"username": "logout-user", "password": "correct-horse-123", "role": "viewer"})
+    c.post("/api/auth/users", json={"username": "logout-user", "password": "correct-horse-123", "role": "viewer"}, headers={"X-Admin-Token": ADMIN})
     login = c.post("/api/auth/login", json={"username": "logout-user", "password": "correct-horse-123"}).json()
     headers = {"X-Session-Token": login["session_token"]}
     assert c.get("/api/auth/me", headers=headers).status_code == 200
@@ -113,3 +115,12 @@ def test_signed_updates():
     sig = sign_manifest(manifest, priv)
     assert verify_manifest(manifest, sig, pub) is True
     assert verify_manifest({**manifest, "version": "9.9.9"}, sig, pub) is False
+
+
+def test_bootstrap_user_creation(monkeypatch):
+    monkeypatch.setenv("AI_BRIDGE_ALLOW_BOOTSTRAP", "1")
+    c, app = client()
+    r = c.post("/api/auth/users", json={"username": "bootstrapped", "password": "correct-horse-123", "role": "admin"})
+    assert r.status_code == 200
+    r2 = c.post("/api/auth/users", json={"username": "second", "password": "correct-horse-123", "role": "viewer"})
+    assert r2.status_code == 401

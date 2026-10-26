@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import ipaddress
 import json
 import os
 import secrets
@@ -35,12 +36,46 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from ..policy import TOOL_TIERS
+from ..security import redact, redact_obj
 from . import auth as authmod
 from . import db as dbmod
 
 _RATE: dict[str, list[float]] = {}
 _RATE_LOCK = threading.Lock()
 MAX_RESULT_CHARS = 512_000
+_DUMMY_SALT = "0" * 32
+_DUMMY_HASH = "0" * 64
+
+
+def _validate_webhook_url(url: str) -> None:
+    if not url:
+        return
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc or not parsed.hostname:
+        raise HTTPException(status_code=400, detail="webhook_url must be an http(s) URL.")
+    host = parsed.hostname.lower()
+    if host in ("localhost", "127.0.0.1", "::1", "metadata.google.internal") or host.endswith(".localhost"):
+        raise HTTPException(status_code=400, detail="Loopback and metadata webhooks are not allowed.")
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+            raise HTTPException(status_code=400, detail="Private/loopback IP webhooks are not allowed.")
+    except ValueError:
+        pass
+
+
+def _valid_oauth_redirect_uri(uri: str) -> bool:
+    try:
+        p = urllib.parse.urlparse(uri)
+    except Exception:
+        return False
+    if p.fragment or not p.netloc or not p.hostname:
+        return False
+    if p.scheme == "https":
+        return True
+    if p.scheme == "http" and p.hostname in ("localhost", "127.0.0.1"):
+        return True
+    return False
 
 
 def _rate_limit(key: str, limit: int = 120, window: int = 60) -> None:
@@ -57,13 +92,18 @@ def send_webhook_notification(webhook_url: str, event: dict, timeout: int = 10) 
     url = (webhook_url or "").strip()
     if not url:
         return {"ok": False, "error": "No webhook URL configured."}
+    try:
+        _validate_webhook_url(url)
+    except HTTPException as exc:
+        return {"ok": False, "error": exc.detail}
+    safe_args = redact_obj(event.get("args") or {})
     text = (
         f"[AI Bridge Approval Required]\n"
         f"Tool: {event.get('tool')} (Tier {event.get('tier')})\n"
         f"Device: {event.get('device_name') or event.get('device_id')}\n"
         f"Task ID: {event.get('task_id')}\n"
         f"Approval ID: {event.get('approval_id')}\n"
-        f"Args: {json.dumps(event.get('args') or {})[:300]}"
+        f"Args: {json.dumps(safe_args)[:300]}"
     )
     payload: dict = {
         "text": text,
@@ -75,7 +115,7 @@ def send_webhook_notification(webhook_url: str, event: dict, timeout: int = 10) 
         "device_name": event.get("device_name"),
         "tool": event.get("tool"),
         "tier": event.get("tier"),
-        "args": event.get("args") or {},
+        "args": safe_args,
     }
     parsed = urllib.parse.urlparse(url)
     if "api.telegram.org" in (parsed.netloc or ""):
@@ -194,7 +234,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             user = conn.execute("SELECT * FROM users WHERE username=? AND disabled=0", (row["username"],)).fetchone()
             if user is None:
                 raise HTTPException(status_code=401, detail="User disabled or deleted.")
-            return row["username"], row["role"]
+            return user["username"], user["role"]
         if token and authmod.legacy_admin_enabled() and x_admin_token and hmac.compare_digest(x_admin_token, token):
             return "admin-token", "admin"
         raise HTTPException(status_code=401, detail="Authentication required.")
@@ -239,14 +279,14 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
 
     @app.post("/api/devices/enroll")
     def enroll(body: EnrollIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
-        require_admin(x_admin_token, x_session_token)
+        actor = require_admin(x_admin_token, x_session_token)
         device_id = uuid.uuid4().hex[:12]
         device_token = secrets.token_urlsafe(32)
         issued = dbmod.now(); expires = issued + device_ttl_days * 86400
         conn.execute("INSERT INTO devices (id, name, hostname, os, tenant, token_hash, created_at, token_issued_at, token_expires_at) VALUES (?,?,?,?,?,?,?,?,?)",
                      (device_id, body.name, body.hostname, body.os, body.tenant, dbmod.hash_token(device_token), issued, issued, expires))
         conn.commit()
-        audit("admin", device_id, "enroll_device", body.model_dump(), "allowed", tenant=body.tenant)
+        audit(actor, device_id, "enroll_device", body.model_dump(), "allowed", tenant=body.tenant)
         # Token is shown exactly once here; only its hash is stored.
         return {"device_id": device_id, "device_token": device_token, "token_expires_at": expires,
                 "token_ttl_days": device_ttl_days,
@@ -303,7 +343,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
 
     @app.post("/api/tasks")
     def submit_task(body: TaskIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
-        require_role("operator", x_admin_token, x_session_token)
+        actor = require_role("operator", x_admin_token, x_session_token)
         if app.state.emergency_stop:
             raise HTTPException(status_code=403, detail="Emergency stop is active; no new tasks accepted.")
         row = conn.execute("SELECT * FROM devices WHERE id=? AND tenant=? AND revoked=0", (body.device_id, body.tenant)).fetchone()
@@ -328,7 +368,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                      " VALUES (?,?,?,?,?,?,?,?,?,?)",
                      (task_id, body.device_id, body.tenant, body.tool, json.dumps(body.args), tier.value, status, approval_id, dbmod.now(), dbmod.now()))
         conn.commit()
-        audit("admin", body.device_id, body.tool, body.args, status, tenant=body.tenant)
+        audit(actor, body.device_id, body.tool, body.args, status, tenant=body.tenant)
         if status == "queued":
             notify_tasks()
         elif status == "needs_approval":
@@ -389,7 +429,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
 
     @app.put("/api/tasks/{task_id}")
     def update_task(task_id: str, body: TaskUpdateIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
-        actor = require_role("operator", x_admin_token, x_session_token)
+        actor = require_role("admin", x_admin_token, x_session_token)
         row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Task not found.")
@@ -402,15 +442,33 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         valid_statuses = {"queued", "running", "needs_approval", "completed", "failed", "cancelled", "timed_out"}
         if status not in valid_statuses:
             raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
-        if status == "queued" and row["approval_id"] and tier_enum.value >= 3:
-            ap = conn.execute("SELECT status, expires_at FROM approvals WHERE id=?", (row["approval_id"],)).fetchone()
-            if ap and ap["status"] != "approved":
+        if status == "queued" and app.state.emergency_stop:
+            raise HTTPException(status_code=403, detail="Emergency stop is active; cannot queue tasks.")
+
+        policy = get_current_policy()
+        needs_approval = tier_enum.value >= 4 or (tier_enum.value == 3 and not policy.get("allow_tier3", False))
+        payload_changed = (tool != row["tool"]) or (args_json != row["args_json"])
+        already_ran = row["status"] in {"running", "completed", "failed", "timed_out"}
+        approval_id = row["approval_id"]
+
+        if payload_changed or (status == "queued" and already_ran):
+            if approval_id:
+                approval_id = None
+
+        if status == "queued" and needs_approval:
+            if not approval_id:
+                raise HTTPException(status_code=409, detail="Task requires approval before queuing.")
+            ap = conn.execute("SELECT status, expires_at, tool FROM approvals WHERE id=?", (approval_id,)).fetchone()
+            if ap is None or ap["status"] != "approved":
                 raise HTTPException(status_code=409, detail="Task approval is not approved; create a new task to request approval again.")
-            if ap and ap["expires_at"] is not None and ap["expires_at"] <= dbmod.now():
+            if ap["expires_at"] is not None and ap["expires_at"] <= dbmod.now():
                 raise HTTPException(status_code=409, detail="Task approval has expired.")
+            if ap["tool"] and ap["tool"] != tool:
+                raise HTTPException(status_code=409, detail="Task approval tool mismatch.")
+
         conn.execute(
-            "UPDATE tasks SET tool=?, args_json=?, tier=?, status=?, updated_at=? WHERE id=?",
-            (tool, args_json, tier_enum.value, status, dbmod.now(), task_id),
+            "UPDATE tasks SET tool=?, args_json=?, tier=?, status=?, approval_id=?, updated_at=? WHERE id=?",
+            (tool, args_json, tier_enum.value, status, approval_id, dbmod.now(), task_id),
         )
         conn.commit()
         if status == "queued":
@@ -580,7 +638,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     # --- Settings: Webhook notifications ----------------------------------
     @app.get("/api/settings/webhook")
     def get_webhook_setting(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
-        require_role("viewer", x_admin_token, x_session_token)
+        require_admin(x_admin_token, x_session_token)
         url = get_webhook_url()
         return {"webhook_url": url, "configured": bool(url)}
 
@@ -588,8 +646,8 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     def set_webhook_setting(body: WebhookIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         actor = require_role("admin", x_admin_token, x_session_token)
         url = (body.webhook_url or "").strip()
-        if url and not (url.startswith("http://") or url.startswith("https://")):
-            raise HTTPException(status_code=400, detail="webhook_url must start with http:// or https://")
+        if url:
+            _validate_webhook_url(url)
         conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('webhook_url', ?)", (url,))
         conn.commit()
         audit(actor, "", "set_webhook", {"configured": bool(url)}, "allowed")
@@ -601,6 +659,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         url = get_webhook_url()
         if not url:
             raise HTTPException(status_code=400, detail="No webhook URL configured.")
+        _validate_webhook_url(url)
         res = send_webhook_notification(url, {
             "event": "webhook_test",
             "approval_id": "test-approval",
@@ -617,7 +676,10 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     @app.post("/api/auth/login")
     def login(body: LoginIn):
         user = conn.execute("SELECT * FROM users WHERE username=? AND disabled=0", (body.username,)).fetchone()
-        if user is None or not authmod.verify_password(body.password, user["salt"], user["password_hash"]):
+        if user is None:
+            authmod.verify_password(body.password, _DUMMY_SALT, _DUMMY_HASH)
+            raise HTTPException(status_code=401, detail="Invalid username or password.")
+        if not authmod.verify_password(body.password, user["salt"], user["password_hash"]):
             raise HTTPException(status_code=401, detail="Invalid username or password.")
         session_token = secrets.token_urlsafe(32)
         expires = dbmod.now() + 8 * 3600
@@ -675,61 +737,77 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         pending = oidcmod.pop_pending(state)
         if pending is None or not code:
             raise HTTPException(status_code=400, detail="Invalid or expired login attempt.")
-        doc = oidcmod.discovery()
-        resp = httpx.post(
-            doc["token_endpoint"],
-            data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": cfg["redirect_uri"],
-                "client_id": cfg["client_id"],
-                "client_secret": cfg["client_secret"],
-            },
-            timeout=15,
-        )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=401, detail="OIDC code exchange failed.")
-        tokens = resp.json()
-        claims = oidcmod.verify_id_token(tokens["id_token"], pending["nonce"])
-        username = claims.get("email") or claims.get("preferred_username") or claims.get("sub")
-        if not username:
-            raise HTTPException(status_code=400, detail="No usable identity in ID token.")
-        username = str(username)[:200]
-        user = conn.execute("SELECT * FROM users WHERE username=? AND disabled=0", (username,)).fetchone()
-        if user is None:
-            conn.execute(
-                "INSERT INTO users (id, username, password_hash, salt, role, created_at) VALUES (?,?,?,?,?,?)",
-                (uuid.uuid4().hex[:12], username, "oidc-only-" + secrets.token_hex(16), authmod.new_salt(), "viewer", dbmod.now()),
+        try:
+            doc = oidcmod.discovery()
+            resp = httpx.post(
+                doc["token_endpoint"],
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": cfg["redirect_uri"],
+                    "client_id": cfg["client_id"],
+                    "client_secret": cfg["client_secret"],
+                },
+                timeout=15,
             )
-            conn.commit()
+            if resp.status_code != 200:
+                raise HTTPException(status_code=401, detail="OIDC code exchange failed.")
+            tokens = resp.json()
+            claims = oidcmod.verify_id_token(tokens["id_token"], pending["nonce"])
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=401, detail=f"OIDC token verification failed: {exc}") from exc
+
+        email_verified = bool(claims.get("email_verified"))
+        email = claims.get("email")
+        if email and email_verified:
+            username = str(email)[:200]
+        else:
+            sub = claims.get("sub") or claims.get("preferred_username")
+            if not sub:
+                raise HTTPException(status_code=400, detail="No usable identity in ID token.")
+            username = f"oidc:{sub}"[:200]
+
+        with conn.transaction():
             user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
-        session_token = secrets.token_urlsafe(32)
-        expires = dbmod.now() + 8 * 3600
-        conn.execute(
-            "INSERT INTO sessions (token_hash, username, role, expires_at, created_at) VALUES (?,?,?,?,?)",
-            (dbmod.hash_token(session_token), user["username"], user["role"], expires, dbmod.now()),
-        )
-        conn.commit()
-        audit(user["username"], "", "oidc_login", {}, "allowed")
+            if user is not None and user["disabled"]:
+                raise HTTPException(status_code=403, detail="User account is disabled.")
+            if user is None:
+                conn.execute(
+                    "INSERT INTO users (id, username, password_hash, salt, role, created_at) VALUES (?,?,?,?,?,?)",
+                    (uuid.uuid4().hex[:12], username, "oidc-only-" + secrets.token_hex(16), authmod.new_salt(), "viewer", dbmod.now()),
+                )
+                user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+            session_token = secrets.token_urlsafe(32)
+            expires = dbmod.now() + 8 * 3600
+            conn.execute(
+                "INSERT INTO sessions (token_hash, username, role, expires_at, created_at) VALUES (?,?,?,?,?)",
+                (dbmod.hash_token(session_token), user["username"], user["role"], expires, dbmod.now()),
+            )
+            audit(user["username"], "", "oidc_login", {}, "allowed")
+
         dashboard = cfg["dashboard_url"].rstrip("/") + "/"
-        sep = "&" if "?" in dashboard else "?"
-        return RedirectResponse(dashboard + sep + urlencode({"session_token": session_token}), status_code=302)
+        return RedirectResponse(dashboard + "#" + urlencode({"session_token": session_token}), status_code=302)
 
     @app.post("/api/auth/users")
     def create_user(body: UserIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
-        existing = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
-        if existing > 0:
-            require_admin(x_admin_token, x_session_token)
-        if body.role not in authmod.ROLES:
-            raise HTTPException(status_code=400, detail=f"Unknown role: {body.role}")
-        salt = authmod.new_salt()
-        try:
-            conn.execute("INSERT INTO users (id, username, password_hash, salt, role, created_at) VALUES (?,?,?,?,?,?)",
-                         (uuid.uuid4().hex[:12], body.username, authmod.hash_password(body.password, salt), salt, body.role, dbmod.now()))
-            conn.commit()
-        except Exception:
-            raise HTTPException(status_code=400, detail="Username already exists.")
-        audit("admin", "", "create_user", {"username": body.username, "role": body.role}, "allowed")
+        with conn.transaction():
+            existing = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+            allow_bootstrap = bool(os.environ.get("AI_BRIDGE_ALLOW_BOOTSTRAP"))
+            if (token and not allow_bootstrap) or existing > 0:
+                actor = require_admin(x_admin_token, x_session_token)
+            else:
+                actor = "bootstrap"
+            if body.role not in authmod.ROLES:
+                raise HTTPException(status_code=400, detail=f"Unknown role: {body.role}")
+            salt = authmod.new_salt()
+            try:
+                conn.execute("INSERT INTO users (id, username, password_hash, salt, role, created_at) VALUES (?,?,?,?,?,?)",
+                             (uuid.uuid4().hex[:12], body.username, authmod.hash_password(body.password, salt), salt, body.role, dbmod.now()))
+            except Exception:
+                raise HTTPException(status_code=400, detail="Username already exists.")
+            audit(actor, "", "create_user", {"username": body.username, "role": body.role}, "allowed")
         return {"username": body.username, "role": body.role}
 
     @app.get("/api/auth/users")
@@ -878,6 +956,12 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                 raise HTTPException(status_code=404, detail="OAuth client not found.")
             cname = body.client_name.strip() if body.client_name is not None and body.client_name.strip() else row["client_name"]
             ruris = body.redirect_uris.strip() if body.redirect_uris is not None and body.redirect_uris.strip() else row["redirect_uris"]
+            if body.redirect_uris is not None:
+                uris = [u.strip() for u in ruris.splitlines() if u.strip()]
+                if not uris or not all(_valid_oauth_redirect_uri(u) for u in uris):
+                    odb.close()
+                    raise HTTPException(status_code=400, detail="Invalid redirect_uris: all URIs must be https:// or http://localhost/127.0.0.1.")
+                ruris = "\n".join(uris)
             odb.execute("UPDATE clients SET client_name=?, redirect_uris=? WHERE client_id=?", (cname, ruris, client_id))
             odb.commit()
             odb.close()
@@ -913,10 +997,11 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     def service_logs(service: str = "control", lines: int = 100, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         """Recent log tail for one service. Admin/operator viewers only in
         practice (viewer role + dashboard auth); lines are capped."""
+        import collections
         import shutil
         import subprocess
 
-        require_role("viewer", x_admin_token, x_session_token)
+        require_role("admin", x_admin_token, x_session_token)
         lines = max(10, min(int(lines), 200))
         units = {"control": "ai-bridge-control", "mcp": "ai-bridge-mcp", "oauth": "ai-bridge-oauth"}
         if service in units:
@@ -925,12 +1010,12 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                 return {"service": service, "lines": ["journalctl not available on this host."]}
             proc = subprocess.run([journal, "-u", units[service], "-n", str(lines), "--no-pager"],
                                   capture_output=True, text=True, timeout=15)
-            return {"service": service, "lines": (proc.stdout or "").splitlines()[-lines:]}
+            return {"service": service, "lines": [redact(line) for line in (proc.stdout or "").splitlines()[-lines:]]}
         if service == "nginx":
             try:
                 with open("/var/log/nginx/access.log", errors="replace") as handle:
-                    all_lines = handle.readlines()
-                wanted = [line.rstrip("\n") for line in all_lines if "/mcp" in line or "/api/" in line]
+                    tail = collections.deque(handle, maxlen=2000)
+                wanted = [redact(line.rstrip("\n")) for line in tail if "/mcp" in line or "/api/" in line]
                 return {"service": service, "lines": wanted[-lines:]}
             except OSError as exc:
                 return {"service": service, "lines": [f"nginx access log unavailable: {exc}"]}
@@ -973,28 +1058,42 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         row = device_row(x_device_token)
         wait_sec = max(0.0, min(float(wait or 0.0), 25.0))
         deadline = time.time() + wait_sec
+        task = None
         while True:
             if app.state.emergency_stop:
                 return {"task": None, "emergency_stop": True}
-            task = conn.execute("SELECT * FROM tasks WHERE device_id=? AND status='queued' ORDER BY created_at ASC LIMIT 1", (row["id"],)).fetchone()
-            if task is not None:
-                break
+            with conn.transaction():
+                candidate = conn.execute(
+                    "SELECT * FROM tasks WHERE device_id=? AND status='queued' ORDER BY created_at ASC LIMIT 1",
+                    (row["id"],),
+                ).fetchone()
+                if candidate is not None:
+                    cur = conn.execute(
+                        "UPDATE tasks SET status='running', updated_at=? WHERE id=? AND status='queued'",
+                        (dbmod.now(), candidate["id"]),
+                    )
+                    if cur.rowcount == 1:
+                        task = candidate
+                        break
             rem = deadline - time.time()
             if wait_sec <= 0 or rem <= 0:
                 return {"task": None}
             await asyncio.sleep(min(0.15, rem))
-        conn.execute("UPDATE tasks SET status='running', updated_at=? WHERE id=?", (dbmod.now(), task["id"]))
-        conn.commit()
         out = dict(task)
-        # Tell the agent whether a human approved this task. Tasks below Tier 4
-        # that never needed approval carry no approval_id (granted); approved
-        # tasks carry an approved record. Tier-4 tasks ALWAYS require an approved record.
+        # Tell the agent whether a human approved this task. Only approved records
+        # that match the tool and have not expired grant approval.
         ap = out.get("approval_id")
         if ap:
-            ap_row = conn.execute("SELECT status FROM approvals WHERE id=?", (ap,)).fetchone()
-            out["approval_granted"] = bool(ap_row and ap_row["status"] == "approved")
+            ap_row = conn.execute("SELECT status, expires_at, tool FROM approvals WHERE id=?", (ap,)).fetchone()
+            now_ts = dbmod.now()
+            out["approval_granted"] = bool(
+                ap_row
+                and ap_row["status"] == "approved"
+                and (ap_row["expires_at"] is None or ap_row["expires_at"] > now_ts)
+                and ap_row["tool"] == out["tool"]
+            )
         else:
-            out["approval_granted"] = bool((out.get("tier") or 1) < 4)
+            out["approval_granted"] = False
         out["policy"] = get_current_policy()
         return {"task": out}
 
@@ -1015,9 +1114,23 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
 
     @app.middleware("http")
     async def rate_limit_middleware(request: Request, call_next):
-        key = request.headers.get("x-admin-token") or request.headers.get("x-device-token") or request.client.host if request.client else "anon"
+        client_ip = request.client.host if request.client else "anon"
+        path = request.url.path
+        if path in ("/api/auth/login", "/api/auth/oidc/login", "/api/auth/oidc/callback"):
+            key = f"auth:{client_ip}"
+            limit = 30
+        else:
+            admin_hdr = request.headers.get("x-admin-token")
+            dev_hdr = request.headers.get("x-device-token")
+            sess_hdr = request.headers.get("x-session-token")
+            token_val = admin_hdr or dev_hdr or sess_hdr
+            key = f"tok:{dbmod.hash_token(token_val)[:16]}" if token_val else f"ip:{client_ip}"
+            limit = 120
+        with _RATE_LOCK:
+            if len(_RATE) > 4096:
+                _RATE.clear()
         try:
-            _rate_limit(key)
+            _rate_limit(key, limit=limit)
         except HTTPException as exc:
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
         return await call_next(request)

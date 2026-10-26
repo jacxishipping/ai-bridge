@@ -12,8 +12,10 @@ def _int(name: str, default: int) -> int:
     except ValueError:
         return default
 
+
 def _bool(name: str, default: bool = False) -> bool:
     return os.environ.get(name, "1" if default else "0").strip().lower() in {"1", "true", "yes", "on"}
+
 
 class Settings:
     workspace: Path
@@ -33,7 +35,7 @@ class Settings:
     data_dir: Path
 
     def __init__(self) -> None:
-        raw = os.environ.get("AI_BRIDGE_WORKSPACE", str(Path.home() / "ai-bridge-workspace"))
+        raw = os.path.expandvars(os.environ.get("AI_BRIDGE_WORKSPACE", str(Path.home() / "ai-bridge-workspace")))
         self.workspace = Path(raw).expanduser()
         self.max_read_bytes = _int("AI_BRIDGE_MAX_READ_BYTES", 128_000)
         self.max_output_bytes = _int("AI_BRIDGE_MAX_OUTPUT_BYTES", 64_000)
@@ -48,8 +50,9 @@ class Settings:
         self.tenant_id = os.environ.get("AI_BRIDGE_TENANT", "default")
         self.desktop_enabled = _bool("AI_BRIDGE_DESKTOP_ENABLED", False)
         self.allow_tier3 = _bool("AI_BRIDGE_ALLOW_TIER3", False)
-        data = os.environ.get("AI_BRIDGE_DATA_DIR", str(Path.home() / ".ai-bridge"))
+        data = os.path.expandvars(os.environ.get("AI_BRIDGE_DATA_DIR", str(Path.home() / ".ai-bridge")))
         self.data_dir = Path(data).expanduser()
+
 
 def get_settings() -> Settings:
     return Settings()

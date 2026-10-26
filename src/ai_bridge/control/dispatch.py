@@ -13,6 +13,7 @@ from ..policy import TOOL_TIERS, Policy, RiskTier, decide
 
 def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
              approval_granted: bool = False, is_admin: bool = False):
+    explicit_policy = policy
     policy = policy or tools.default_policy()
     # Approval records in the control plane can only be decided by an admin,
     # so an approved task released to an agent carries admin authorization.
@@ -34,13 +35,13 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         "edit_workspace_file": lambda a: workspace.edit_workspace_file(a["relative_path"], a["old_text"], a["new_text"]),
         "move_workspace_file": lambda a: workspace.move_workspace_file(a["source"], a["destination"]),
         "delete_workspace_file": lambda a: workspace.delete_workspace_file(a["relative_path"]),
-        "get_service_status": lambda a: diagnostics.service_status(a["service"]),
+        "get_service_status": lambda a: tools.get_service_status(a["service"], policy=policy),
         "get_recent_logs": lambda a: diagnostics.recent_logs(a.get("source", "system"), a.get("lines", 50)),
         "list_processes": lambda a: diagnostics.list_processes(a.get("limit", 50)),
         "list_docker_containers": lambda a: diagnostics.list_docker_containers(),
         "git_status": lambda a: git_ops.git_status(a.get("relative_directory", ".")),
         "git_diff": lambda a: git_ops.git_diff(a.get("relative_directory", ".")),
-        "run_project_tests": lambda a: tools.run_project_tests(a.get("test_command", "pytest"), a.get("timeout", 120)),
+        "run_project_tests": lambda a: tools.run_project_tests(a.get("test_command", "pytest"), a.get("timeout", 120), policy=policy),
         "run_linter": lambda a: tools.run_linter(a.get("timeout", 60)),
         "create_backup": lambda a: tools.create_backup(a.get("relative_directory", "."), approval_granted=approval_granted, policy=policy),
         "deploy_application": lambda a: tools.deploy_application(a.get("project_directory", "."), a.get("target_directory", "deploy-staging"), approval_granted=approval_granted, policy=policy),
@@ -58,7 +59,12 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
             approval_granted=approval_granted,
             policy=policy,
         ),
-        "install_package": lambda a: tools.install_package(a["package_id"], a.get("version"), approval_granted=approval_granted),
+        "install_package": lambda a: tools.install_package(
+            a["package_id"],
+            a.get("version"),
+            approval_granted=approval_granted,
+            **({"policy": explicit_policy} if explicit_policy is not None else {}),
+        ),
         "run_shell": lambda a: tools.run_shell(
             a["command"],
             working_directory=a.get("working_directory", ""),

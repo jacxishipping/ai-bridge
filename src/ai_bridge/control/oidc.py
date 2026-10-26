@@ -9,8 +9,8 @@ Configure with environment variables:
 
 Flow: dashboard -> GET /api/auth/oidc/login -> provider -> callback ->
 ID-token verified against the provider JWKS (RS256, iss/aud/exp/nonce) ->
-local user matched by email (auto-provisioned as viewer on first login) ->
-session token -> redirect to the dashboard with ?session_token=.
+local user matched by verified email or OIDC subject ->
+session token -> redirect to the dashboard with #session_token=.
 
 Only SHA-256 hashes of session tokens are stored. No provider secrets are
 logged. Without all four variables set, OIDC is disabled and the login
@@ -96,7 +96,10 @@ def verify_id_token(id_token: str, expected_nonce: str) -> dict:
 
     cfg = oidc_config()
     assert cfg is not None
-    header_b64, payload_b64, sig_b64 = id_token.split(".")
+    parts = id_token.split(".")
+    if len(parts) != 3:
+        raise ValueError("malformed ID token")
+    header_b64, payload_b64, sig_b64 = parts
     header = json.loads(_b64url(header_b64.encode()))
     claims = json.loads(_b64url(payload_b64.encode()))
     if header.get("alg") != "RS256":
@@ -129,7 +132,9 @@ def verify_id_token(id_token: str, expected_nonce: str) -> dict:
     now = time.time()
     if claims.get("iss") != cfg["issuer"]:
         raise ValueError("bad issuer")
-    if claims.get("aud") != cfg["client_id"]:
+    aud = claims.get("aud")
+    aud_ok = (cfg["client_id"] in aud) if isinstance(aud, list) else (aud == cfg["client_id"])
+    if not aud_ok:
         raise ValueError("bad audience")
     if claims.get("exp", 0) < now:
         raise ValueError("ID token expired")

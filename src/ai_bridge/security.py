@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 from .config import get_settings
 
@@ -19,19 +20,33 @@ MAX_READ_BYTES = 128_000
 MAX_OUTPUT_BYTES = 64_000
 # Names/patterns that look like credentials. Blocked from workspace reads.
 _SECRET_NAME_RE = re.compile(
-    r"(^|\.)(env|pem|key|pfx|p12|kdbx)$|id_rsa|id_ed25519|\.pem$|\.key$|"
-    r"credentials|secret|private[_-]?key|token", re.IGNORECASE)
+    r"(^|\.)env(\..+)?$|(^|\.)(pem|key|pfx|p12|kdbx|npmrc|netrc)$|"
+    r"id_(rsa|ed25519|ecdsa|dsa)|agent_gui\.json$|"
+    r"credentials|secret|private[_-]?key|token",
+    re.IGNORECASE,
+)
+_BEARER_RE = re.compile(
+    r"(?i)(authorization[\"']?\s*[:=]\s*[\"']?bearer\s+)([^\s\"',;}{]+)"
+)
 _REDACT_RE = re.compile(
-    r"(?i)(api[_-]?key|password|passwd|token|secret|authorization)\s*[:=]\s*"
-    r"([\"']?)([^\s\"',;]{4,})([\"']?)")
+    r"(?i)(api[_-]?key|password|passwd|token|secret|client_secret|authorization)"
+    r"([\"']?\s*[:=]\s*[\"']?)([^\s\"',;}{]{4,})"
+)
+_SECRET_KEY_RE = re.compile(
+    r"(?i)^(api[_-]?key|password|passwd|.*token|.*secret|authorization|credential.*)$"
+)
+_PRESERVE_KEYS = frozenset({"image_base64", "mime_type"})
+
 
 def workspace_root() -> Path:
     return get_settings().workspace.resolve()
+
 
 def ensure_workspace() -> Path:
     root = workspace_root()
     root.mkdir(parents=True, exist_ok=True)
     return root
+
 
 def confined_path(relative_path: str, root: Path | None = None) -> Path:
     """Resolve a relative path, rejecting traversal and symlink escape."""
@@ -51,8 +66,10 @@ def confined_path(relative_path: str, root: Path | None = None) -> Path:
         raise ValueError("Path escapes the configured workspace.")
     return resolved
 
+
 def is_secret_name(path: Path) -> bool:
     return bool(_SECRET_NAME_RE.search(path.name))
+
 
 def read_workspace_text(relative_path: str, max_bytes: int | None = None) -> str:
     path = confined_path(relative_path)
@@ -65,15 +82,42 @@ def read_workspace_text(relative_path: str, max_bytes: int | None = None) -> str
         raise ValueError(f"File exceeds the {limit}-byte read limit.")
     return path.read_text(encoding="utf-8", errors="replace")
 
+
 def redact(text: str) -> str:
     """Replace secret-looking values; never leak tokens into logs/results."""
     if not isinstance(text, str):
         text = str(text)
-    return _REDACT_RE.sub(lambda m: f"{m.group(1)}=***REDACTED***", text)
+    out = _BEARER_RE.sub(lambda m: f"{m.group(1)}***REDACTED***", text)
+    return _REDACT_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}***REDACTED***", out)
+
+
+def redact_obj(value: Any) -> Any:
+    """Recursively redact secret keys and inline secret patterns in JSON-like structures."""
+    if isinstance(value, dict):
+        cleaned: dict[Any, Any] = {}
+        for k, v in value.items():
+            key_str = str(k)
+            if key_str in _PRESERVE_KEYS:
+                cleaned[k] = v
+            elif _SECRET_KEY_RE.match(key_str):
+                cleaned[k] = "***REDACTED***" if v not in (None, "") else v
+            else:
+                cleaned[k] = redact_obj(v)
+        return cleaned
+    if isinstance(value, list):
+        return [redact_obj(item) for item in value]
+    if isinstance(value, tuple):
+        return [redact_obj(item) for item in value]
+    if isinstance(value, str):
+        return redact(value)
+    return value
+
 
 def truncate_output(text: str, limit: int | None = None) -> str:
     lim = limit if limit is not None else get_settings().max_output_bytes
     text = redact(text)
-    if len(text.encode("utf-8", "replace")) > lim:
-        return text[:lim] + f"\n[output truncated at {lim} bytes]"
+    encoded = text.encode("utf-8", "replace")
+    if len(encoded) > lim:
+        clipped = encoded[:lim].decode("utf-8", "ignore")
+        return clipped + f"\n[output truncated at {lim} bytes]"
     return text

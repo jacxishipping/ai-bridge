@@ -23,7 +23,12 @@ def test_install_package_is_tier3_and_approval_gated():
 
 def test_install_package_rejects_bad_ids(monkeypatch):
     monkeypatch.setattr(tools, "_check", lambda *a, **k: None)
+    monkeypatch.setattr(tools.platform, "system", lambda: "Windows")
     for bad in ["", "calc", "a b", "x; rm -rf /", "a|b", "a&&b", "../evil", "a/b"]:
+        with pytest.raises(ValueError):
+            tools.install_package(bad, approval_granted=True)
+    monkeypatch.setattr(tools.platform, "system", lambda: "Linux")
+    for bad in ["", "-y", "a b", "x; rm -rf /", "a|b", "a&&b", "../evil", "a/b"]:
         with pytest.raises(ValueError):
             tools.install_package(bad, approval_granted=True)
 

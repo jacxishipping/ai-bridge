@@ -28,6 +28,7 @@ from mcp.server.fastmcp import FastMCP
 
 from . import diagnostics, git_ops, tools, workspace
 from .device_routing import (
+    BindingError,
     cancel_device_task,
     get_device,
     get_device_task,
@@ -36,7 +37,8 @@ from .device_routing import (
     run_device_tool,
 )
 from .execution import RUNNER
-from .security import read_workspace_text
+from .policy import TOOL_TIERS
+from .security import is_secret_name, read_workspace_text, redact
 
 # Local approval store: approvals are created via request_approval and
 # granted only by approve_task with the admin token (hmac compare) or by
@@ -58,8 +60,8 @@ def _consume_local_approval(tool_name: str) -> bool:
 
 
 def _require_host_tools_enabled() -> None:
-    if os.environ.get("AI_BRIDGE_DISABLE_HOST_TOOLS", "0") == "1":
-        raise PermissionError("Unconfined host tools are disabled (AI_BRIDGE_DISABLE_HOST_TOOLS=1).")
+    if os.environ.get("AI_BRIDGE_DISABLE_HOST_TOOLS", "1") != "0":
+        raise PermissionError("Unconfined host tools are disabled by default (set AI_BRIDGE_DISABLE_HOST_TOOLS=0 to enable).")
 
 
 mcp = FastMCP("ai-bridge")
@@ -89,19 +91,30 @@ def _session_key() -> str:
     return hashlib.sha256(tok.encode()).hexdigest()[:16]
 
 
+def _oauth_bound_device() -> str | None:
+    """Validate HTTP bearer token on every call; return locked device_id if OAuth-bound."""
+    tok = _bearer_token()
+    if not tok:
+        return None
+    admin_tok = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
+    if admin_tok and hmac.compare_digest(tok, admin_tok):
+        return None
+    return resolve_binding(VERIFY_URL, tok)
+
+
 def _session_device() -> str | None:
     """Device_id active for this MCP call, or None for unbound/local calls.
 
-    Checks any explicit select_device() override for this session first,
-    then falls back to the OAuth gateway binding when running over HTTP."""
+    OAuth gateway bindings are always enforced first and cannot be overridden
+    by select_device(). Unbound sessions check _SELECTED_DEVICE."""
+    bound = _oauth_bound_device()
+    if bound is not None:
+        return bound
     key = _session_key()
     if key in _SELECTED_DEVICE:
         chosen = _SELECTED_DEVICE[key]
         return None if chosen in (None, "", "local") else chosen
-    tok = _bearer_token()
-    if not tok:
-        return None
-    return resolve_binding(VERIFY_URL, tok)
+    return None
 
 
 def _admin_token() -> str:
@@ -138,24 +151,29 @@ def device_aware(dispatch_name: str | None = None, *, bound: str = "route"):
                                        dispatch_name or fn.__name__, dict(kwargs))
             if bound == "control":
                 name = fn.__name__
-                if name == "get_task_status":
-                    t = get_device_task(CONTROL_URL, admin, kwargs["task_id"])
-                    return {"task_id": t.get("id"), "status": t.get("status")}
-                if name == "get_task_result":
-                    t = get_device_task(CONTROL_URL, admin, kwargs["task_id"])
-                    try:
-                        out = json.loads(t.get("result") or "")
-                    except Exception:
-                        out = t.get("result") or ""
-                    return {"task_id": t.get("id"), "status": t.get("status"), "output": out}
-                if name == "cancel_task":
-                    t = cancel_device_task(CONTROL_URL, admin, kwargs["task_id"])
-                    return {"task_id": t.get("id"), "cancelled": t.get("status") == "cancelled"}
+                locked_dev = _oauth_bound_device()
+                if name in {"get_task_status", "get_task_result", "cancel_task"}:
+                    tid = args[0] if args else kwargs["task_id"]
+                    t_check = get_device_task(CONTROL_URL, admin, tid)
+                    if locked_dev and t_check.get("device_id") and t_check.get("device_id") != device:
+                        raise PermissionError("Task belongs to another device.")
+                    if name == "get_task_status":
+                        return {"task_id": t_check.get("id") or tid, "status": t_check.get("status")}
+                    if name == "get_task_result":
+                        try:
+                            out = json.loads(t_check.get("result") or "")
+                        except Exception:
+                            out = t_check.get("result") or ""
+                        return {"task_id": t_check.get("id") or tid, "status": t_check.get("status"), "output": out}
+                    t = cancel_device_task(CONTROL_URL, admin, tid)
+                    return {"task_id": t.get("task_id") or t.get("id") or tid, "cancelled": t.get("status") == "cancelled"}
                 if name == "list_devices":
                     return fn(*args, **kwargs)
                 if name == "get_device_status":
-                    did = kwargs.get("device_id", "local")
+                    did = args[0] if args else kwargs.get("device_id", "local")
                     target = device if did in ("local", "", device) else did
+                    if locked_dev and target != locked_dev:
+                        raise PermissionError("Session is bound to a single device.")
                     d = get_device(CONTROL_URL, admin, target)
                     if d is None:
                         raise ValueError(f"Unknown device: {target}")
@@ -212,6 +230,7 @@ def search_workspace(query: str, relative_directory: str = ".") -> list[dict]:
 @device_aware()
 def create_workspace_file(relative_path: str, content: str, overwrite: bool = False) -> dict:
     """Create a file inside the workspace (Tier 2). Atomic write."""
+    tools._check("create_workspace_file")
     return workspace.create_workspace_file(relative_path, content, overwrite)
 
 @mcp.tool()
@@ -251,7 +270,7 @@ def delete_workspace_file(relative_path: str) -> dict:
 @device_aware()
 def get_service_status(service: str) -> dict:
     """Check whether a named service is active (allowlisted name only)."""
-    return diagnostics.service_status(service)
+    return tools.get_service_status(service)
 
 @mcp.tool()
 @device_aware()
@@ -313,7 +332,10 @@ def deploy_application(project_directory: str = ".", target_directory: str = "de
 @device_aware(bound="unavailable")
 def submit_task(task_name: str, timeout: int = 30) -> dict:
     """Submit an allowlisted diagnostic/task to the bounded task runner."""
-    r = RUNNER.submit(task_name, timeout=timeout)
+    tools._check("submit_task")
+    if task_name in TOOL_TIERS:
+        tools._check(task_name)
+    r = RUNNER.submit(task_name, timeout=timeout, allowed_test_commands=tools.default_policy().allowed_test_commands)
     return {"task_id": r.task_id, "name": task_name, "status": r.status}
 
 @mcp.tool()
@@ -405,22 +427,27 @@ def perform_approved_ui_action(
 @device_aware(bound="control")
 def list_devices() -> list[dict]:
     """List local and control-plane enrolled devices, marking the active target device."""
+    locked = _oauth_bound_device()
     active = _session_device() or "local"
-    info = tools.get_system_info()
-    out: list[dict] = [{
-        "device_id": "local",
-        "name": "local",
-        "hostname": info["machine"],
-        "system": info["system"],
-        "status": "online",
-        "workspace": info["workspace"],
-        "active": active == "local",
-    }]
+    out: list[dict] = []
+    if not locked:
+        info = tools.get_system_info()
+        out.append({
+            "device_id": "local",
+            "name": "local",
+            "hostname": info["machine"],
+            "system": info["system"],
+            "status": "online",
+            "workspace": info["workspace"],
+            "active": active == "local",
+        })
     token = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
     if token:
         try:
             for d in list_all_devices(CONTROL_URL, token):
                 did = d.get("id")
+                if locked and did != locked:
+                    continue
                 out.append({
                     "device_id": did,
                     "name": d.get("name"),
@@ -439,7 +466,14 @@ def select_device(device_id: str) -> dict:
     """Switch the active target device for this MCP session by device_id,
     device name, hostname, or 'local' (to run tools on the MCP host/droplet)."""
     target = (device_id or "").strip()
+    locked = _oauth_bound_device()
+    if locked is not None and target != locked:
+        raise PermissionError(
+            f"Session is permanently bound to device '{locked}' via OAuth and cannot switch devices."
+        )
     key = _session_key()
+    if len(_SELECTED_DEVICE) >= 1024 and key not in _SELECTED_DEVICE:
+        _SELECTED_DEVICE.pop(next(iter(_SELECTED_DEVICE)), None)
     if not target or target.lower() == "local":
         _SELECTED_DEVICE[key] = "local"
         return {
@@ -510,14 +544,18 @@ def run_shell(command: str, working_directory: str = "", timeout: int = 0) -> di
 @mcp.tool()
 @device_aware(bound="unavailable")
 def read_file(path: str, max_chars: int = 100000) -> str:
-    """Read any UTF-8 text file on this machine by absolute path."""
+    """Read any UTF-8 text file on this machine by absolute path (host tools opt-in required)."""
     from pathlib import Path
 
     _require_host_tools_enabled()
+    target = Path(path).expanduser()
+    if is_secret_name(target):
+        raise ValueError("Refusing to read a file whose name suggests it holds secrets.")
     try:
-        text = Path(path).read_bytes().decode("utf-8")
+        text = target.read_bytes().decode("utf-8")
     except UnicodeDecodeError:
         raise ValueError("not a UTF-8 text file")
+    text = redact(text)
     if len(text) > max_chars:
         text = text[:max_chars] + "\n[truncated]"
     return text
@@ -526,12 +564,14 @@ def read_file(path: str, max_chars: int = 100000) -> str:
 @mcp.tool()
 @device_aware(bound="unavailable")
 def write_file(path: str, content: str, overwrite: bool = False) -> dict:
-    """Write content to any absolute path, creating parent directories.
+    """Write content to any absolute path, creating parent directories (host tools opt-in required).
     Refuses to overwrite an existing file unless overwrite=true."""
     from pathlib import Path
 
     _require_host_tools_enabled()
-    target = Path(path)
+    target = Path(path).expanduser()
+    if is_secret_name(target):
+        raise ValueError("Refusing to write a file whose name suggests it holds secrets.")
     if target.exists() and not overwrite:
         raise ValueError("file exists; pass overwrite=true to replace it")
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -555,6 +595,50 @@ def install_package(package_id: str, version: str | None = None) -> dict:
     return run_device_tool(CONTROL_URL, _admin_token(), device, "install_package", args)
 
 
+class _BearerAuthMiddleware:
+    """Enforce bearer token authentication on Streamable HTTP unless AI_BRIDGE_HTTP_ALLOW_ANON=1."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http" or os.environ.get("AI_BRIDGE_HTTP_ALLOW_ANON") == "1":
+            await self.app(scope, receive, send)
+            return
+        headers = {k.decode("latin1").lower(): v.decode("latin1") for k, v in scope.get("headers", [])}
+        auth = headers.get("authorization", "")
+        tok = auth[7:].strip() if auth.startswith("Bearer ") else ""
+        authorized = False
+        admin_tok = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
+        if tok:
+            if admin_tok and hmac.compare_digest(tok, admin_tok):
+                authorized = True
+            else:
+                try:
+                    resolve_binding(VERIFY_URL, tok)
+                    authorized = True
+                except BindingError:
+                    authorized = False
+        if not authorized:
+            body = b'{"detail":"Missing or invalid bearer token"}'
+            await send({
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                    (b"www-authenticate", b"Bearer"),
+                ],
+            })
+            await send({"type": "http.response.body", "body": body})
+            return
+        await self.app(scope, receive, send)
+
+
+def create_http_app():
+    return _BearerAuthMiddleware(mcp.streamable_http_app())
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="ai-bridge")
     parser.add_argument("--http", action="store_true", help="Serve Streamable HTTP instead of stdio")
@@ -562,11 +646,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--host", default=os.environ.get("AI_BRIDGE_MCP_HOST", "127.0.0.1"))
     args = parser.parse_args(argv)
     if args.http or os.environ.get("AI_BRIDGE_HTTP") == "1":
-        # FastMCP's Streamable HTTP app; bearer check is enforced by the
-        # control-plane / reverse proxy in production (see docs/remote-access.md).
-        # For local dev, bind loopback only by default.
         import uvicorn
-        app = mcp.streamable_http_app()
+        app = create_http_app()
         uvicorn.run(app, host=args.host, port=args.port, log_level="info")
     else:
         mcp.run(transport="stdio")

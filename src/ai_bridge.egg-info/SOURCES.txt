@@ -4,6 +4,7 @@ pyproject.toml
 src/ai_bridge/__init__.py
 src/ai_bridge/audit.py
 src/ai_bridge/config.py
+src/ai_bridge/device_routing.py
 src/ai_bridge/diagnostics.py
 src/ai_bridge/execution.py
 src/ai_bridge/git_ops.py
@@ -26,5 +27,6 @@ src/ai_bridge/control/app.py
 src/ai_bridge/control/auth.py
 src/ai_bridge/control/db.py
 src/ai_bridge/control/dispatch.py
+src/ai_bridge/control/oidc.py
 tests/test_security.py
 tests/test_tasks.py

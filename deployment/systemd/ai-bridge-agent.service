@@ -16,7 +16,7 @@ RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/home/ai-bridge/ai-bridge-workspace /var/lib/ai-bridge
+ReadWritePaths=/home/ai-bridge/ai-bridge-workspace /var/lib/ai-bridge /etc/ai-bridge /home/ai-bridge/.ai-bridge
 
 [Install]
 WantedBy=multi-user.target

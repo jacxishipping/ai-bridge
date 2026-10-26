@@ -10,12 +10,15 @@ versioned policies. Existing databases are migrated in connect().
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import sqlite3
 import threading
 import time
 from pathlib import Path
+
+from ..security import redact, redact_obj
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS devices (
@@ -47,7 +50,30 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS policies (
   id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL,
   policy_json TEXT NOT NULL, created_by TEXT, created_at REAL NOT NULL, note TEXT);
+CREATE INDEX IF NOT EXISTS idx_devices_token_hash ON devices(token_hash);
+CREATE INDEX IF NOT EXISTS idx_tasks_device_status ON tasks(device_id, status);
+CREATE INDEX IF NOT EXISTS idx_approvals_task_id ON approvals(task_id);
+CREATE INDEX IF NOT EXISTS idx_audit_tenant_ts ON audit(tenant, ts DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_policies_version ON policies(version);
 """
+
+
+class _LockedResult:
+    """Materialized query result so no raw sqlite3.Cursor is read outside LockedConnection._lock."""
+
+    def __init__(self, rows: list[sqlite3.Row], rowcount: int, lastrowid: int | None) -> None:
+        self._rows = rows
+        self.rowcount = rowcount
+        self.lastrowid = lastrowid
+
+    def fetchone(self) -> sqlite3.Row | None:
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self) -> list[sqlite3.Row]:
+        return list(self._rows)
+
+    def __iter__(self):
+        return iter(self._rows)
 
 
 class LockedConnection:
@@ -57,9 +83,21 @@ class LockedConnection:
         self._conn = conn
         self._lock = threading.RLock()
 
-    def execute(self, sql: str, parameters: tuple | list = ()):
+    @contextlib.contextmanager
+    def transaction(self):
         with self._lock:
-            return self._conn.execute(sql, parameters)
+            try:
+                yield self
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def execute(self, sql: str, parameters: tuple | list = ()) -> _LockedResult:
+        with self._lock:
+            cur = self._conn.execute(sql, parameters)
+            rows = cur.fetchall()
+            return _LockedResult(rows, cur.rowcount, cur.lastrowid)
 
     def executescript(self, sql_script: str):
         with self._lock:
@@ -97,15 +135,20 @@ def connect(db_path: Path) -> LockedConnection:
     raw.commit()
     return LockedConnection(raw)
 
+
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
 
 def now() -> float:
     return time.time()
 
+
 def audit(conn: LockedConnection | sqlite3.Connection, *, tenant: str, actor: str, device_id: str,
           tool: str, args: dict, decision: str, result: str = "") -> None:
+    safe_args = redact_obj(json.loads(json.dumps(args or {}, default=str)))
+    safe_result = redact(result or "")[:2000]
     conn.execute("INSERT INTO audit (ts, tenant, actor, device_id, tool, args_json, decision, result)"
                  " VALUES (?,?,?,?,?,?,?,?)",
-                 (now(), tenant, actor, device_id, tool, json.dumps(args, default=str), decision, result[:2000]))
+                 (now(), tenant, actor, device_id, tool, json.dumps(safe_args, default=str), decision, safe_result))
     conn.commit()

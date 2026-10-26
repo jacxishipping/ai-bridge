@@ -23,12 +23,12 @@ from .config import get_settings
 from .security import truncate_output
 
 
-def _validate_test_command(command: str) -> list[str]:
+def _validate_test_command(command: str, allowed_commands: frozenset[str] | set[str] | None = None) -> list[str]:
     # Only exact, well-known test invocations; no flags that run code
     # outside the workspace (e.g. no -k injection beyond a safe token).
     allowed = {"pytest": ["pytest", "-q"], "npm test": ["npm", "test", "--silent"],
                "go test": ["go", "test", "./..."]}
-    if command not in allowed:
+    if command not in allowed or (allowed_commands is not None and command not in allowed_commands):
         raise ValueError(f"Test command not allowlisted: {command!r}")
     return allowed[command]
 
@@ -59,22 +59,26 @@ class TaskRunner:
         self._sem = threading.Semaphore(get_settings().max_concurrent_tasks)
 
     def submit(self, name: str, *, timeout: int = 30, cwd: str | None = None,
-               test_command: str = "pytest") -> TaskResult:
+               test_command: str = "pytest",
+               allowed_test_commands: frozenset[str] | set[str] | None = None) -> TaskResult:
         if name not in TASK_REGISTRY:
             raise ValueError(f"Task not allowed. Choose one of: {', '.join(sorted(TASK_REGISTRY))}")
+        if name == "run_project_tests":
+            _validate_test_command(test_command, allowed_test_commands)
         timeout = max(1, min(timeout, get_settings().max_timeout_s))
         task_id = uuid.uuid4().hex[:12]
         result = TaskResult(task_id=task_id, name=name, status="pending", started_at=time.time())
         with self._lock:
             self._tasks[task_id] = result
-        threading.Thread(target=self._run, args=(result, name, timeout, cwd, test_command),
+        threading.Thread(target=self._run, args=(result, name, timeout, cwd, test_command, allowed_test_commands),
                          daemon=True).start()
         return result
 
-    def _argv(self, name: str, test_command: str) -> list[str] | None:
+    def _argv(self, name: str, test_command: str,
+              allowed_test_commands: frozenset[str] | set[str] | None = None) -> list[str] | None:
         # None means "implemented in Python, not a subprocess".
         if name == "run_project_tests":
-            return _validate_test_command(test_command)
+            return _validate_test_command(test_command, allowed_test_commands)
         if name == "run_linter":
             return [sys.executable, "-m", "ruff", "check", "."]
         if name == "uptime":
@@ -83,10 +87,14 @@ class TaskRunner:
             return ["free", "-h"]
         return None  # disk_usage / cpu_summary handled by diagnostics
 
-    def _run(self, result: TaskResult, name: str, timeout: int, cwd: str | None, test_command: str) -> None:
-        result.status = "running"
+    def _run(self, result: TaskResult, name: str, timeout: int, cwd: str | None,
+             test_command: str, allowed_test_commands: frozenset[str] | set[str] | None = None) -> None:
+        with self._lock:
+            if result.status == "cancelled":
+                return
+            result.status = "running"
         try:
-            argv = self._argv(name, test_command)
+            argv = self._argv(name, test_command, allowed_test_commands)
             if argv is None:
                 from . import diagnostics
                 if name == "disk_usage":
@@ -150,14 +158,20 @@ class TaskRunner:
                     out, _ = proc.communicate(timeout=timeout)
                     result.output = truncate_output(out or "")
                     result.returncode = proc.returncode
-                    result.status = "completed" if proc.returncode == 0 else "failed"
+                    with self._lock:
+                        if result.status != "cancelled":
+                            result.status = "completed" if proc.returncode == 0 else "failed"
                 except subprocess.TimeoutExpired:
                     self._kill(proc)
                     result.output = f"Task timed out after {timeout}s."
-                    result.status = "timed_out"
+                    with self._lock:
+                        if result.status != "cancelled":
+                            result.status = "timed_out"
         except Exception as exc:  # keep the runner alive; record the failure
             result.output = truncate_output(f"{type(exc).__name__}: {exc}")
-            result.status = "failed"
+            with self._lock:
+                if result.status != "cancelled":
+                    result.status = "failed"
         finally:
             result.finished_at = time.time()
             with self._lock:
@@ -184,15 +198,14 @@ class TaskRunner:
         with self._lock:
             proc = self._procs.get(task_id)
             result = self._tasks.get(task_id)
+            if proc is not None or (result is not None and result.status in {"pending", "running"}):
+                if result is not None:
+                    result.status = "cancelled"
+            else:
+                return False
         if proc is not None:
             self._kill(proc)
-            if result is not None:
-                result.status = "cancelled"
-            return True
-        if result is not None and result.status in {"pending", "running"}:
-            result.status = "cancelled"
-            return True
-        return False
+        return True
 
     def get(self, task_id: str) -> TaskResult | None:
         return self._tasks.get(task_id)

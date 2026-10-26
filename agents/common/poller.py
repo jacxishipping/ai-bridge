@@ -9,6 +9,7 @@ off 2s -> 4s -> ... capped at 60s, resetting on the next success.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -60,7 +61,17 @@ class Poller:
     def _save_token(self, token: str) -> None:
         try:
             self.token_file.parent.mkdir(parents=True, exist_ok=True)
-            self.token_file.write_text(token, encoding="utf-8")
+            tmp_file = self.token_file.with_name(f"{self.token_file.name}.tmp")
+            tmp_file.write_text(token, encoding="utf-8")
+            try:
+                os.chmod(tmp_file, 0o600)
+            except OSError:
+                pass
+            tmp_file.replace(self.token_file)
+            try:
+                os.chmod(self.token_file, 0o600)
+            except OSError:
+                pass
         except OSError:
             pass
 
@@ -106,11 +117,16 @@ class Poller:
         base = self._explicit_policy if self._explicit_policy is not None else default_policy()
         if not isinstance(remote_policy, dict):
             return base
+        remote_apps = remote_policy.get("allowed_apps")
+        if remote_apps:
+            allowed_apps = base.allowed_apps & frozenset(remote_apps) if base.allowed_apps else frozenset(remote_apps)
+        else:
+            allowed_apps = base.allowed_apps
         return Policy(
-            allow_writes=base.allow_writes,
+            allow_writes=base.allow_writes and bool(remote_policy.get("allow_writes", True)),
             allow_tier3=base.allow_tier3 or bool(remote_policy.get("allow_tier3")),
-            desktop_enabled=base.desktop_enabled or bool(remote_policy.get("desktop_enabled")),
-            allowed_apps=base.allowed_apps | frozenset(remote_policy.get("allowed_apps") or []),
+            desktop_enabled=base.desktop_enabled and bool(remote_policy.get("desktop_enabled", True)),
+            allowed_apps=allowed_apps,
             allowed_services=base.allowed_services | frozenset(remote_policy.get("allowed_services") or []),
             allowed_test_commands=base.allowed_test_commands,
             max_tier_unattended=base.max_tier_unattended,

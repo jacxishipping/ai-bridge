@@ -78,6 +78,14 @@ def init_db():
         conn.execute("ALTER TABLE clients ADD COLUMN device_id TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE codes ADD COLUMN device_id TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE tokens ADD COLUMN device_id TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -95,9 +103,17 @@ def admin_ok(token: str | None) -> bool:
 
 
 def valid_redirect_uri(uri: str) -> bool:
-    return uri.startswith("https://") or uri.startswith(
-        ("http://localhost", "http://127.0.0.1")
-    )
+    try:
+        p = urlparse(uri)
+    except Exception:
+        return False
+    if p.fragment or not p.netloc or not p.hostname:
+        return False
+    if p.scheme == "https":
+        return True
+    if p.scheme == "http" and p.hostname in ("localhost", "127.0.0.1"):
+        return True
+    return False
 
 
 def err(error: str, status: int = 400):
@@ -761,12 +777,13 @@ def authorize_get(
     conn.close()
     if row is None:
         return HTMLResponse(_error_page("Unknown OAuth Client", "The client_id provided is not registered with this AI Bridge gateway."), status_code=400)
+    registered_uris = row["redirect_uris"].split("\n")
+    if not redirect_uri or redirect_uri not in registered_uris or not valid_redirect_uri(redirect_uri):
+        return HTMLResponse(_error_page("Redirect URI Not Registered", "The redirect_uri in this request does not match the client registration."), status_code=400)
     if response_type != "code":
         return redirect_with(
             redirect_uri, {"error": "unsupported_response_type", "state": state}
         )
-    if redirect_uri not in row["redirect_uris"].split("\n"):
-        return HTMLResponse(_error_page("Redirect URI Not Registered", "The redirect_uri in this request does not match the client registration."), status_code=400)
     if code_challenge and code_challenge_method not in ("S256",):
         return redirect_with(
             redirect_uri, {"error": "invalid_request", "state": state}
@@ -800,6 +817,17 @@ def authorize_post(
     device_token: str = Form(""),
     action: str = Form(""),
 ):
+    conn = connect()
+    row = conn.execute(
+        "SELECT * FROM clients WHERE client_id=?", (client_id,)
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return HTMLResponse(_error_page("Unknown OAuth Client", "The client_id provided is not registered with this AI Bridge gateway."), status_code=400)
+    registered_uris = row["redirect_uris"].split("\n")
+    if not redirect_uri or redirect_uri not in registered_uris or not valid_redirect_uri(redirect_uri):
+        return HTMLResponse(_error_page("Redirect URI Not Registered", "The redirect_uri in this request does not match the client registration."), status_code=400)
+
     if action == "deny":
         return redirect_with(
             redirect_uri, {"error": "access_denied", "state": state}
@@ -811,7 +839,7 @@ def authorize_post(
         "state": state,
         "code_challenge": code_challenge,
         "code_challenge_method": code_challenge_method,
-        "client_name": client_name or client_id,
+        "client_name": client_name or row["client_name"] or client_id,
     }
     if not admin_ok(admin_token):
         return HTMLResponse(approval_form(params, "Invalid admin token."), status_code=401)
@@ -831,7 +859,7 @@ def authorize_post(
     conn.execute("UPDATE clients SET device_id=? WHERE client_id=?", (binding, client_id))
     conn.execute(
         "INSERT INTO codes (code_hash, client_id, redirect_uri, challenge,"
-        " challenge_method, scope, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        " challenge_method, scope, created_at, device_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (
             digest(code),
             client_id,
@@ -840,6 +868,7 @@ def authorize_post(
             code_challenge_method,
             scope,
             int(time.time()),
+            binding,
         ),
     )
     conn.commit()
@@ -849,20 +878,20 @@ def authorize_post(
 
 # ---------------------------------------------------------------- tokens
 
-def issue_pair(client_id: str, scope: str) -> dict:
+def issue_pair(client_id: str, scope: str, device_id: str = "") -> dict:
     now = int(time.time())
     access = secrets.token_urlsafe(32)
     refresh = secrets.token_urlsafe(32)
     conn = connect()
     conn.execute(
         "INSERT INTO tokens (token_hash, kind, client_id, scope, created_at,"
-        " expires_at) VALUES (?, 'access', ?, ?, ?, ?)",
-        (digest(access), client_id, scope, now, now + ACCESS_TTL),
+        " expires_at, device_id) VALUES (?, 'access', ?, ?, ?, ?, ?)",
+        (digest(access), client_id, scope, now, now + ACCESS_TTL, device_id),
     )
     conn.execute(
         "INSERT INTO tokens (token_hash, kind, client_id, scope, created_at,"
-        " expires_at) VALUES (?, 'refresh', ?, ?, ?, ?)",
-        (digest(refresh), client_id, scope, now, now + REFRESH_TTL),
+        " expires_at, device_id) VALUES (?, 'refresh', ?, ?, ?, ?, ?)",
+        (digest(refresh), client_id, scope, now, now + REFRESH_TTL, device_id),
     )
     conn.commit()
     conn.close()
@@ -915,8 +944,10 @@ def token(
             conn.close()
             return err("invalid_grant")
         scope = row["scope"]
+        row_keys = row.keys() if hasattr(row, "keys") else []
+        dev_id = row["device_id"] if "device_id" in row_keys and row["device_id"] else ""
         conn.close()
-        return issue_pair(client_id, scope)
+        return issue_pair(client_id, scope, device_id=dev_id)
     if grant_type == "refresh_token":
         row = conn.execute(
             "SELECT * FROM tokens WHERE token_hash=? AND kind='refresh'",
@@ -934,8 +965,10 @@ def token(
         )
         conn.commit()
         scope = row["scope"]
+        row_keys = row.keys() if hasattr(row, "keys") else []
+        dev_id = row["device_id"] if "device_id" in row_keys and row["device_id"] else ""
         conn.close()
-        return issue_pair(client_id, scope)
+        return issue_pair(client_id, scope, device_id=dev_id)
     conn.close()
     return err("unsupported_grant_type")
 
@@ -970,7 +1003,13 @@ def verify(authorization: str | None = Header(default=None)):
                 "SELECT device_id FROM clients WHERE client_id=?", (row["client_id"],)
             ).fetchone()
             conn.close()
-            device_id = crow["device_id"] if crow and crow["device_id"] else None
+            if crow is None:
+                return JSONResponse({"ok": False}, status_code=401)
+            row_keys = row.keys() if hasattr(row, "keys") else []
+            tok_dev = row["device_id"] if "device_id" in row_keys and row["device_id"] else None
+            device_id = tok_dev or crow["device_id"] or None
+            if not device_id:
+                return JSONResponse({"ok": False}, status_code=401)
             return {"ok": True, "device_id": device_id, "client_id": row["client_id"]}
         conn.close()
     return JSONResponse({"ok": False}, status_code=401)

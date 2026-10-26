@@ -12,14 +12,16 @@ Requires-Dist: pydantic>=2.6
 Requires-Dist: psutil>=5.9
 Requires-Dist: httpx>=0.27
 Requires-Dist: cryptography>=42.0
+Requires-Dist: python-multipart>=0.0.9
 Provides-Extra: dev
 Requires-Dist: pytest>=8.0; extra == "dev"
 Requires-Dist: ruff>=0.4; extra == "dev"
+Requires-Dist: Pillow>=10.0; extra == "dev"
 Provides-Extra: desktop
 Requires-Dist: Pillow>=10.0; extra == "desktop"
 Dynamic: license-file
 
-# AI Bridge — universal AI-to-computer control platform (v0.2.0)
+# AI Bridge — universal AI-to-computer control platform (v0.3.0)
 
 Connect authorized AI assistants and coding agents (Claude, Codex, Gemini
 CLI, other MCP clients, and ChatGPT via supported remote MCP) to Linux
@@ -30,7 +32,7 @@ one consistent, policy-enforced MCP tool interface.
 arbitrary PowerShell endpoint, and no tool that can grant itself
 privileges. See `docs/security.md` and `docs/threat-model.md` first.
 
-## What v0.2 does
+## What v0.3 does (security batch)
 - **MCP server** (stdio + Streamable HTTP): system info, resources,
   workspace list/read/search/create/edit/move/delete, service status,
   logs, processes, disk/memory, Docker, git, tests, linter, backup,
@@ -43,8 +45,10 @@ privileges. See `docs/security.md` and `docs/threat-model.md` first.
   (outbound only, bounded backoff), approvals, audit log, emergency stop.
 - **Linux agent** (systemd, unprivileged) and **Windows agent**
   (service account + separate interactive desktop helper).
-- **Dashboard** (React/TypeScript): login, devices, tasks, approvals,
-  audit, emergency stop.
+- **Dashboard** (React/TypeScript): user login or admin token, devices, tasks, approvals,
+  audit, emergency stop, versioned policies.
+- **Security batch**: expiring/rotatable device tokens, local users and roles, versioned policies,
+  Ed25519 signed-update verification, sandboxed task execution.
 - **Tests**: unit, integration, security, and end-to-end (see below).
 
 ## Quick start (local MCP, Linux)

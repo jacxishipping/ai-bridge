@@ -5,16 +5,14 @@ type View = "overview" | "devices" | "tasks" | "approvals" | "audit" | "policies
 type Theme = "light" | "dark";
 
 const TOOLS = [
-  "list_devices", "select_device", "get_device_status", "get_system_info", "get_resource_usage",
-  "list_workspace", "read_workspace_file", "search_workspace", "get_service_status",
-  "get_recent_logs", "list_processes", "get_disk_usage", "get_memory_usage",
-  "list_docker_containers", "git_status", "git_diff", "get_task_status",
-  "get_task_result", "get_desktop_status", "create_workspace_file",
-  "run_project_tests", "run_linter", "edit_workspace_file", "move_workspace_file",
-  "create_backup", "deploy_application", "capture_desktop_screenshot",
-  "launch_approved_application", "perform_approved_ui_action",
-  "delete_workspace_file", "submit_task", "request_approval", "approve_task", "cancel_task",
-  "install_package",
+  "get_system_info", "get_resource_usage", "get_disk_usage", "get_memory_usage",
+  "list_workspace", "read_workspace_file", "search_workspace", "create_workspace_file",
+  "edit_workspace_file", "move_workspace_file", "delete_workspace_file",
+  "get_service_status", "get_recent_logs", "list_processes", "list_docker_containers",
+  "git_status", "git_diff", "run_project_tests", "run_linter",
+  "create_backup", "deploy_application", "get_desktop_status",
+  "capture_desktop_screenshot", "launch_approved_application", "perform_approved_ui_action",
+  "install_package", "run_shell",
 ];
 
 const TASK_PRESETS: Array<{ label: string; tool: string; args: string }> = [
@@ -24,6 +22,7 @@ const TASK_PRESETS: Array<{ label: string; tool: string; args: string }> = [
   { label: "Resource Usage", tool: "get_resource_usage", args: "{}" },
   { label: "Top Processes", tool: "list_processes", args: '{"limit": 20}' },
   { label: "Launch Chrome", tool: "launch_approved_application", args: '{"app_name": "chrome"}' },
+  { label: "Run Shell", tool: "run_shell", args: '{"command": "echo hello"}' },
 ];
 
 const VIEW_META: Record<View, { title: string; subtitle: string; group: "ops" | "gov" }> = {
@@ -195,10 +194,13 @@ function parseTaskResult(raw: string): { parsed: any; imageBase64: string | null
     const obj = JSON.parse(raw);
     if (obj && typeof obj === "object" && typeof obj.image_base64 === "string" && obj.image_base64.length > 0) {
       const clone = { ...obj, image_base64: `[base64 image: ${obj.image_base64.length} chars]` };
+      const rawMime = typeof obj.mime_type === "string" ? obj.mime_type.toLowerCase() : "";
+      const validMimes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+      const mimeType = validMimes.includes(rawMime) ? rawMime : "image/jpeg";
       return {
         parsed: obj,
         imageBase64: obj.image_base64,
-        mimeType: obj.mime_type || "image/jpeg",
+        mimeType,
         displayText: JSON.stringify(clone, null, 2),
       };
     }
@@ -346,7 +348,11 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const st = params.get("session_token");
+    let st = params.get("session_token");
+    if (!st && window.location.hash) {
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      st = hashParams.get("session_token");
+    }
     if (st) {
       localStorage.setItem("ai_bridge_session_token", st);
       setTok("session");
@@ -427,12 +433,20 @@ export default function App() {
 
           {authTab === "token" ? (
             <form
-              onSubmit={e => {
+              onSubmit={async e => {
                 e.preventDefault();
                 const v = (e.target as any).t.value.trim();
                 if (!v) return;
+                setErr("");
                 localStorage.setItem("ai_bridge_admin_token", v);
-                setTok(v);
+                try {
+                  const m = await api.me();
+                  setMe(m);
+                  setTok(v);
+                } catch {
+                  localStorage.removeItem("ai_bridge_admin_token");
+                  setErr("Invalid administrator token.");
+                }
               }}
               style={{ display: "grid", gap: 12 }}
             >
@@ -605,6 +619,7 @@ export default function App() {
               localStorage.removeItem("ai_bridge_admin_token");
               localStorage.removeItem("ai_bridge_session_token");
               setTok("");
+              setMe(null);
             }}
           >
             Sign out

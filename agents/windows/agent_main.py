@@ -1,6 +1,6 @@
 """Windows agent entrypoint.
 
-  python agents\\windows\\agent_main.py --control-url https://your-domain ^
+  python agents\windows\agent_main.py --control-url https://your-domain ^
       --device-token <token-from-enrollment> [--once]
 
 Same polling contract as the Linux/macOS agents: outbound-only loop
@@ -37,8 +37,7 @@ def main() -> None:
     parser.add_argument("--signature-url", default="")
     parser.add_argument("--public-key", default="")
     args = parser.parse_args()
-    if not args.device_token:
-        parser.error("A device token is required (--device-token or AI_BRIDGE_DEVICE_TOKEN).")
+
     if args.check_update:
         if not (args.manifest_url and args.signature_url and args.public_key):
             parser.error("--check-update requires --manifest-url, --signature-url and --public-key.")
@@ -54,6 +53,10 @@ def main() -> None:
         ok = verify_manifest(manifest, signature, Path(args.public_key))
         print(f"update manifest {manifest.get('name')} {manifest.get('version')}: {'VERIFIED' if ok else 'SIGNATURE INVALID - refusing'}")
         raise SystemExit(0 if ok else 1)
+
+    if not args.device_token:
+        parser.error("A device token is required (--device-token or AI_BRIDGE_DEVICE_TOKEN).")
+
     from common.poller import Poller
 
     poller = Poller(args.control_url, args.device_token)

@@ -259,7 +259,7 @@ def test_edit_and_delete_records():
     assert exported.status_code == 200 and exported.json()["count"] > 0
     aud_list = c.get("/api/audit", headers=hdr).json()
     assert len(aud_list) > 0
-    aud_id = aud_list[0]["id"]
+    assert aud_list[0]["id"] > 0
 
     # 5. Delete device
     assert c.delete(f"/api/devices/{did}", headers=hdr).status_code == 200

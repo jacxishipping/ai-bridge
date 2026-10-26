@@ -9,6 +9,7 @@ from __future__ import annotations
 import platform
 import shutil
 import subprocess
+from collections.abc import Collection
 
 from .security import truncate_output
 
@@ -24,10 +25,12 @@ def _run(argv: list[str], timeout: int = 10) -> str:
         return f"unavailable: {type(exc).__name__}"
     return truncate_output((c.stdout + c.stderr).strip() or f"exit={c.returncode}")
 
+
 def system_info() -> dict:
     return {"system": platform.system(), "release": platform.release(),
             "version": platform.version(), "machine": platform.machine(),
             "python": platform.python_version(), "processor": platform.processor()}
+
 
 def resource_usage() -> dict:
     try:
@@ -44,12 +47,15 @@ def resource_usage() -> dict:
                 "disk_total_bytes": total, "disk_used_bytes": used, "disk_free_bytes": free,
                 "note": "psutil unavailable; install psutil for CPU/memory detail"}
 
+
 def disk_usage(path: str = "/") -> dict:
     total, used, free = shutil.disk_usage(path)
     return {"path": path, "total_bytes": total, "used_bytes": used, "free_bytes": free}
 
+
 def memory_usage() -> dict:
     return resource_usage()
+
 
 def list_processes(limit: int = 50) -> list[dict]:
     try:
@@ -63,14 +69,18 @@ def list_processes(limit: int = 50) -> list[dict]:
     except Exception:
         return [{"note": "psutil unavailable; process list requires psutil"}]
 
-def service_status(service: str) -> dict:
+
+def service_status(service: str, *, allowed_services: Collection[str] | None = None) -> dict:
     if not service or len(service) > 100 or any(c in service for c in ";/|&$`\\\"' \t\n"):
         raise ValueError("Invalid service name.")
+    if allowed_services and service not in allowed_services:
+        raise PermissionError(f"Service is not in the allowed_services policy list: {service}")
     if platform.system() == "Windows":
         out = _run(["sc", "query", service])
         return {"service": service, "system": "Windows", "output": out}
     out = _run(["systemctl", "is-active", service])
     return {"service": service, "system": platform.system(), "output": out}
+
 
 def recent_logs(source: str = "system", lines: int = 50) -> str:
     lines = max(1, min(lines, 200))
@@ -82,6 +92,7 @@ def recent_logs(source: str = "system", lines: int = 50) -> str:
     if source == "system":
         return _run(["journalctl", "--no-pager", "-n", str(lines)], timeout=15)
     raise ValueError("Unknown log source. Use 'system'.")
+
 
 def list_docker_containers() -> list[dict] | dict:
     if shutil.which("docker") is None:

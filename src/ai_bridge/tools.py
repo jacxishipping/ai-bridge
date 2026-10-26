@@ -20,7 +20,7 @@ from . import diagnostics
 from .config import get_settings
 from .execution import RUNNER
 from .policy import Policy, decide
-from .security import confined_path, is_secret_name, workspace_root
+from .security import confined_path, is_secret_name, redact, workspace_root
 
 
 def default_policy() -> Policy:
@@ -45,6 +45,23 @@ def get_system_info() -> dict:
 def get_resource_usage() -> dict:
     _check("get_resource_usage"); return diagnostics.resource_usage()
 
+
+def get_service_status(service: str, *, policy: Policy | None = None) -> dict:
+    eff_policy = policy or default_policy()
+    _check("get_service_status", policy=eff_policy)
+    return diagnostics.service_status(service, allowed_services=eff_policy.allowed_services)
+
+
+def _is_safe_workspace_file(p, root) -> bool:
+    if ".ai-bridge-backups" in p.parts or p.is_symlink() or not p.is_file() or is_secret_name(p):
+        return False
+    try:
+        resolved = p.resolve()
+    except OSError:
+        return False
+    return resolved == root or root in resolved.parents
+
+
 def create_backup(relative_directory: str = ".", *, approval_granted: bool = False, policy: Policy | None = None) -> dict:
     _check("create_backup", approval_granted=approval_granted, policy=policy)
     src = confined_path(relative_directory)
@@ -56,7 +73,7 @@ def create_backup(relative_directory: str = ".", *, approval_granted: bool = Fal
     dest = out_dir / name
     with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
         for p in sorted(src.rglob("*")):
-            if ".ai-bridge-backups" in p.parts or not p.is_file() or is_secret_name(p):
+            if not _is_safe_workspace_file(p, root):
                 continue
             try:
                 zf.write(p, p.relative_to(src))
@@ -73,19 +90,24 @@ def deploy_application(project_directory: str = ".", target_directory: str = "de
     src = confined_path(project_directory); dst = confined_path(target_directory)
     if dst.resolve() == src.resolve():
         raise ValueError("Target must differ from the project directory.")
+    root = workspace_root()
     dst.mkdir(parents=True, exist_ok=True)
     copied = 0
     for p in sorted(src.rglob("*")):
-        if ".ai-bridge-backups" in p.parts or not p.is_file() or is_secret_name(p):
+        if not _is_safe_workspace_file(p, root):
+            continue
+        if dst == p or dst in p.parents:
             continue
         rel = p.relative_to(src); out = dst / rel
         out.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(p, out); copied += 1
     return {"backup": backup["backup"], "target": target_directory, "files_copied": copied,
             "note": "Staging deploy inside the workspace only."}
 
-def run_project_tests(test_command: str = "pytest", timeout: int = 120) -> dict:
-    _check("run_project_tests")
-    result = RUNNER.submit("run_project_tests", timeout=timeout, test_command=test_command)
+def run_project_tests(test_command: str = "pytest", timeout: int = 120, *, policy: Policy | None = None) -> dict:
+    eff_policy = policy or default_policy()
+    _check("run_project_tests", policy=eff_policy)
+    result = RUNNER.submit("run_project_tests", timeout=timeout, test_command=test_command,
+                           allowed_test_commands=eff_policy.allowed_test_commands)
     deadline = time.time() + min(timeout, 300) + 5
     while time.time() < deadline and result.status in {"pending", "running"}:
         time.sleep(0.2)
@@ -235,7 +257,7 @@ def _resolve_app_executable(app_name: str) -> str:
 def launch_approved_application(app_name: str, *, approval_granted: bool = False, url: str | None = None, policy: Policy | None = None) -> dict:
     eff_policy = policy or default_policy()
     _check("launch_approved_application", approval_granted=approval_granted, policy=eff_policy)
-    allowed = eff_policy.allowed_apps | default_policy().allowed_apps
+    allowed = eff_policy.allowed_apps
     if app_name not in allowed:
         raise PermissionError(f"Application not in the approved list: {app_name}")
     # Optional URL argument (e.g. open a site in an allowlisted browser).
@@ -452,7 +474,18 @@ def perform_approved_ui_action(
             raise ValueError(f"{action} requires a 'key' string.")
         diagnostics._run(["xdotool", "key", "--", key.strip()])
         return {"action": action, "key": key.strip()}
-    return {"action": action, "note": "Action completed."}
+    if action == "focus_window":
+        if not title or not title.strip():
+            raise ValueError("focus_window requires a non-empty 'title' substring.")
+        out = diagnostics._run(["xdotool", "search", "--onlyvisible", "--name", title.strip(), "windowactivate"])
+        return {"action": "focus_window", "focused": title.strip(), "output": out}
+    if action == "scroll":
+        if x is not None and y is not None:
+            diagnostics._run(["xdotool", "mousemove", str(int(x)), str(int(y))])
+        btn = "5" if int(delta or -120) < 0 else "4"
+        diagnostics._run(["xdotool", "click", btn])
+        return {"action": "scroll", "delta": int(delta or -120)}
+    raise ValueError(f"Unsupported UI action: {action!r}")
 
 # --- Software installation & shell execution (approval-gated, Tier-3) -----
 _PACKAGE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+$")
@@ -541,6 +574,13 @@ def install_package(package_id: str, version: str | None = None, *, approval_gra
     return {"installed": pkg_name, "version": version, "manager": mgr, "output": output}
 
 
+_SCRUB_ENV_KEYS = frozenset({
+    "AI_BRIDGE_ADMIN_TOKEN",
+    "AI_BRIDGE_DEVICE_TOKEN",
+    "AI_BRIDGE_OIDC_CLIENT_SECRET",
+})
+
+
 def run_shell(
     command: str,
     working_directory: str = "",
@@ -552,35 +592,48 @@ def run_shell(
 ) -> dict:
     """Run a shell command on this host. Tier-3 sensitive tool gated by policy / approval."""
     _check("run_shell", approval_granted=approval_granted, is_admin=is_admin, policy=policy)
-    timeout_arg = None if timeout <= 0 else int(timeout)
+    timeout_arg = min(int(timeout), 3600) if timeout and int(timeout) > 0 else 300
     cwd = None
     if working_directory:
         try:
             cwd = str(confined_path(working_directory))
-        except Exception:
-            if os.path.isabs(working_directory) and os.path.isdir(working_directory):
+        except ValueError:
+            host_tools_enabled = os.environ.get("AI_BRIDGE_DISABLE_HOST_TOOLS", "1") == "0"
+            if host_tools_enabled and is_admin and os.path.isabs(working_directory) and os.path.isdir(working_directory):
                 cwd = working_directory
+            else:
+                raise
+    else:
+        try:
+            ws = workspace_root()
+            if ws.is_dir():
+                cwd = str(ws)
+        except Exception:
+            cwd = None
+
+    child_env = {k: v for k, v in os.environ.items() if k not in _SCRUB_ENV_KEYS}
 
     try:
         proc = subprocess.run(
             command,
             shell=True,
             cwd=cwd,
+            env=child_env,
             capture_output=True,
             text=True,
             timeout=timeout_arg,
         )
         return {
             "returncode": proc.returncode,
-            "stdout": (proc.stdout or "")[-20000:],
-            "stderr": (proc.stderr or "")[-20000:],
+            "stdout": redact((proc.stdout or "")[-20000:]),
+            "stderr": redact((proc.stderr or "")[-20000:]),
         }
     except subprocess.TimeoutExpired:
         return {
             "returncode": None,
             "timeout": True,
             "stdout": "",
-            "stderr": f"command timed out after {timeout}s",
+            "stderr": f"command timed out after {timeout_arg}s",
         }
     except Exception as exc:  # noqa: BLE001
-        return {"returncode": None, "error": str(exc)}
+        return {"returncode": None, "error": redact(str(exc))}

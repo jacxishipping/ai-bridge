@@ -16,6 +16,12 @@
 
 set -eo pipefail
 
+SERVICE_NAME="${SERVICE_NAME:-ai-bridge-agent.service}"
+CURL_SEC_FLAGS=()
+if [ "${AI_BRIDGE_INSECURE_TLS:-0}" = "1" ]; then
+    CURL_SEC_FLAGS+=("-k")
+fi
+
 # --- Color formatting --------------------------------------------------------
 if [ -t 1 ]; then
     RED='\033[0;31m'
@@ -336,7 +342,7 @@ EOF
 check_health() {
     local url="$1"
     local resp
-    resp=$(curl -sk --connect-timeout 5 --max-time 10 "${url%/}/health" 2>/dev/null || echo "")
+    resp=$(curl -s "${CURL_SEC_FLAGS[@]}" --connect-timeout 5 --max-time 10 "${url%/}/health" 2>/dev/null || echo "")
     if [[ "$resp" == *"\"status\""* && "$resp" == *"\"ok\""* ]]; then
         return 0
     fi
@@ -347,7 +353,7 @@ validate_token() {
     local url="$1"
     local token="$2"
     local resp
-    resp=$(curl -sk --connect-timeout 5 --max-time 10 -H "X-Device-Token: $token" "${url%/}/api/agent/whoami" 2>/dev/null || echo "")
+    resp=$(curl -s "${CURL_SEC_FLAGS[@]}" --connect-timeout 5 --max-time 10 -H "X-Device-Token: $token" "${url%/}/api/agent/whoami" 2>/dev/null || echo "")
     if [[ "$resp" == *"\"device_id\""* ]]; then
         echo "$resp"
         return 0
@@ -366,7 +372,7 @@ enroll_device() {
     payload="{\"name\":\"${dev_name}\",\"hostname\":\"${host_name}\",\"os\":\"linux\",\"tenant\":\"default\"}"
 
     local resp
-    resp=$(curl -sk --connect-timeout 8 --max-time 15 \
+    resp=$(curl -s "${CURL_SEC_FLAGS[@]}" --connect-timeout 8 --max-time 15 \
         -H "X-Admin-Token: ${admin_token}" \
         -H "Content-Type: application/json" \
         -d "$payload" \
@@ -747,7 +753,7 @@ cmd_rotate_token() {
 
     log_info "Requesting token rotation from $ctrl_url/api/agent/rotate ..."
     local resp
-    resp=$(curl -sk -X POST -H "X-Device-Token: $dev_tok" "${ctrl_url%/}/api/agent/rotate" 2>/dev/null || echo "")
+    resp=$(curl -s "${CURL_SEC_FLAGS[@]}" -X POST -H "X-Device-Token: $dev_tok" "${ctrl_url%/}/api/agent/rotate" 2>/dev/null || echo "")
 
     if [[ "$resp" == *"\"device_token\""* ]]; then
         local new_tok
