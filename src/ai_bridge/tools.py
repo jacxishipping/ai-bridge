@@ -454,12 +454,14 @@ def perform_approved_ui_action(
         return {"action": action, "key": key.strip()}
     return {"action": action, "note": "Action completed."}
 
-# --- Software installation (Windows agent only, approval-gated) -----------
+# --- Software installation & shell execution (approval-gated, Tier-3) -----
 _PACKAGE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+$")
+_LINUX_PKG_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._+-]*$")
 _VERSION_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
+
 def install_package(package_id: str, version: str | None = None, *, approval_granted: bool = False, policy: Policy | None = None) -> dict:
-    """Install a package on a Windows agent via winget.
+    """Install a package on a Windows agent (winget) or Linux/WSL agent (apt/dnf/pacman/apk).
 
     Tier-3 (sensitive): the control plane holds the task in
     needs_approval until a human approves it, and dispatch() passes
@@ -467,27 +469,117 @@ def install_package(package_id: str, version: str | None = None, *, approval_gra
     re-checked here so direct calls stay gated too.
     The package id is validated and passed as a fixed argv list
     (shell=False) — no shell text from arguments is ever executed.
-    Winget ids are Publisher.App (e.g. Microsoft.VisualStudioCode).
     """
     _check("install_package", approval_granted=approval_granted, policy=policy)
-    if not isinstance(package_id, str) or not _PACKAGE_ID_RE.match(package_id):
-        raise ValueError("package_id must look like a winget id (Publisher.App, letters/digits/dot/dash/underscore only).")
+    if not isinstance(package_id, str) or not package_id.strip():
+        raise ValueError("package_id must be a non-empty string.")
+    package_id = package_id.strip()
+
     if version is not None and (not isinstance(version, str) or not _VERSION_RE.match(version)):
         raise ValueError("version must be letters/digits/dot/dash/underscore only.")
-    if platform.system() != "Windows":
-        return {"available": False, "note": "install_package is Windows-only (winget); this host is not Windows."}
-    if shutil.which("winget") is None:
-        return {"available": False,
-                "note": "winget not found on this machine. Install App Installer (winget) from the Microsoft Store first."}
-    argv = ["winget", "install", "--id", package_id, "-e",
-            "--accept-source-agreements", "--accept-package-agreements"]
-    if version:
-        argv += ["--version", version]
+
+    current_os = platform.system()
+
+    if current_os == "Windows":
+        if not _PACKAGE_ID_RE.match(package_id):
+            raise ValueError("package_id must look like a winget id (Publisher.App, letters/digits/dot/dash/underscore only).")
+        if shutil.which("winget") is None:
+            return {"available": False,
+                    "note": "winget not found on this machine. Install App Installer (winget) from the Microsoft Store first."}
+        argv = ["winget", "install", "--id", package_id, "-e",
+                "--accept-source-agreements", "--accept-package-agreements"]
+        if version:
+            argv += ["--version", version]
+        try:
+            proc = subprocess.run(argv, shell=False, capture_output=True, text=True, timeout=900)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"winget install of {package_id} timed out after 900s.")
+        output = ((proc.stdout or "") + (proc.stderr or "")).strip()[:8000]
+        if proc.returncode != 0:
+            raise RuntimeError(f"winget install of {package_id} failed (exit {proc.returncode}): {output}")
+        return {"installed": package_id, "version": version, "manager": "winget", "output": output}
+
+    # Linux / WSL / Darwin
+    pkg_name = package_id.split(".")[-1] if ("." in package_id and not _LINUX_PKG_RE.match(package_id)) else package_id
+    if not _LINUX_PKG_RE.match(pkg_name):
+        raise ValueError(f"Invalid package name {package_id!r}: letters, digits, dot, dash, underscore, plus only.")
+
+    is_root = os.geteuid() == 0 if hasattr(os, "geteuid") else False
+    sudo_prefix = [] if is_root else (["sudo", "-n"] if shutil.which("sudo") else [])
+
+    env = dict(os.environ)
+    env["DEBIAN_FRONTEND"] = "noninteractive"
+
+    if shutil.which("apt-get"):
+        target_spec = f"{pkg_name}={version}" if version else pkg_name
+        argv = [*sudo_prefix, "apt-get", "install", "-y", target_spec]
+        mgr = "apt-get"
+    elif shutil.which("dnf"):
+        target_spec = f"{pkg_name}-{version}" if version else pkg_name
+        argv = [*sudo_prefix, "dnf", "install", "-y", target_spec]
+        mgr = "dnf"
+    elif shutil.which("yum"):
+        target_spec = f"{pkg_name}-{version}" if version else pkg_name
+        argv = [*sudo_prefix, "yum", "install", "-y", target_spec]
+        mgr = "yum"
+    elif shutil.which("pacman"):
+        argv = [*sudo_prefix, "pacman", "-S", "--noconfirm", pkg_name]
+        mgr = "pacman"
+    elif shutil.which("apk"):
+        argv = [*sudo_prefix, "apk", "add", pkg_name]
+        mgr = "apk"
+    else:
+        return {"available": False, "note": "install_package found no supported package manager (apt-get, dnf, yum, pacman, apk)."}
+
     try:
-        proc = subprocess.run(argv, shell=False, capture_output=True, text=True, timeout=900)
+        proc = subprocess.run(argv, shell=False, capture_output=True, text=True, timeout=900, env=env)
     except subprocess.TimeoutExpired:
-        raise RuntimeError(f"winget install of {package_id} timed out after 900s.")
+        raise RuntimeError(f"{mgr} install of {pkg_name} timed out after 900s.")
     output = ((proc.stdout or "") + (proc.stderr or "")).strip()[:8000]
     if proc.returncode != 0:
-        raise RuntimeError(f"winget install of {package_id} failed (exit {proc.returncode}): {output}")
-    return {"installed": package_id, "version": version, "output": output}
+        raise RuntimeError(f"{mgr} install of {pkg_name} failed (exit {proc.returncode}): {output}")
+    return {"installed": pkg_name, "version": version, "manager": mgr, "output": output}
+
+
+def run_shell(
+    command: str,
+    working_directory: str = "",
+    timeout: int = 0,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Run a shell command on this host. Tier-3 sensitive tool gated by policy / approval."""
+    _check("run_shell", approval_granted=approval_granted, policy=policy)
+    timeout_arg = None if timeout <= 0 else int(timeout)
+    cwd = None
+    if working_directory:
+        try:
+            cwd = str(confined_path(working_directory))
+        except Exception:
+            if os.path.isabs(working_directory) and os.path.isdir(working_directory):
+                cwd = working_directory
+
+    try:
+        proc = subprocess.run(
+            command,
+            shell=True,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_arg,
+        )
+        return {
+            "returncode": proc.returncode,
+            "stdout": (proc.stdout or "")[-20000:],
+            "stderr": (proc.stderr or "")[-20000:],
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "returncode": None,
+            "timeout": True,
+            "stdout": "",
+            "stderr": f"command timed out after {timeout}s",
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"returncode": None, "error": str(exc)}

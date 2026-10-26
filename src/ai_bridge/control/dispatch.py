@@ -59,6 +59,13 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
             policy=policy,
         ),
         "install_package": lambda a: tools.install_package(a["package_id"], a.get("version"), approval_granted=approval_granted),
+        "run_shell": lambda a: tools.run_shell(
+            a["command"],
+            working_directory=a.get("working_directory", ""),
+            timeout=int(a.get("timeout", 0)),
+            approval_granted=approval_granted,
+            policy=policy,
+        ),
     }
     handler = handlers.get(tool)
     if handler is None:

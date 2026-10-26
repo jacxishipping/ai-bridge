@@ -1,4 +1,4 @@
-"""Tests for install_package (Windows agent, winget) and the approval
+"""Tests for install_package (Windows agent, winget; Linux/WSL, apt/dnf) and the approval
 path it depends on: a human approval must unlock a Tier-3 tool on the
 agent, otherwise an approved task is re-denied after release."""
 import pytest
@@ -56,8 +56,33 @@ def test_install_package_reports_winget_failure(monkeypatch):
 def test_install_package_unavailable_off_windows(monkeypatch):
     monkeypatch.setattr(tools, "_check", lambda *a, **k: None)
     monkeypatch.setattr(tools.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(tools.shutil, "which", lambda name: None)
     out = tools.install_package("Microsoft.VisualStudioCode", approval_granted=True)
     assert out["available"] is False
+
+
+def test_install_package_linux_apt_get(monkeypatch):
+    monkeypatch.setattr(tools, "_check", lambda *a, **k: None)
+    monkeypatch.setattr(tools.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(tools.shutil, "which", lambda name: "/usr/bin/apt-get" if name == "apt-get" else None)
+    seen = {}
+    def fake_run(argv, **kwargs):
+        seen["argv"] = argv
+        assert kwargs.get("shell") is False
+        return FakeProc(out="Setting up curl ...")
+    monkeypatch.setattr(tools.subprocess, "run", fake_run)
+    out = tools.install_package("curl", approval_granted=True)
+    assert out["installed"] == "curl"
+    assert out["manager"] == "apt-get"
+    assert "apt-get" in seen["argv"]
+    assert "curl" in seen["argv"]
+
+
+def test_run_shell_via_dispatch(monkeypatch):
+    monkeypatch.setattr(tools, "_check", lambda *a, **k: None)
+    out = dispatch("run_shell", {"command": "echo hello-from-agent"}, approval_granted=True)
+    assert out["returncode"] == 0
+    assert "hello-from-agent" in out["stdout"]
 
 
 def test_dispatch_passes_approval_to_install(monkeypatch):

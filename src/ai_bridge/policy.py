@@ -43,6 +43,7 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "launch_approved_application": RiskTier.SENSITIVE,
     "perform_approved_ui_action": RiskTier.SENSITIVE,
     "install_package": RiskTier.SENSITIVE,
+    "run_shell": RiskTier.SENSITIVE,
     "delete_workspace_file": RiskTier.HIGH_RISK, "submit_task": RiskTier.SENSITIVE,
     "request_approval": RiskTier.LOW_RISK, "approve_task": RiskTier.HIGH_RISK,
     "cancel_task": RiskTier.LOW_RISK,

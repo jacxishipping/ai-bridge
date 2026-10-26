@@ -494,39 +494,13 @@ def run_diagnostic_task(task_name: str) -> str:
     return run_diagnostic(task_name)
 
 @mcp.tool()
-@device_aware(bound="unavailable")
+@device_aware()
 def run_shell(command: str, working_directory: str = "", timeout: int = 0) -> dict:
-    """Run any shell command on this machine. Ungated: runs as the MCP
-    service user (root on this droplet). timeout=0 (default) means no
-    time limit: the call returns when the command finishes or fails.
-    A positive timeout still caps the run. Output truncated per stream."""
-    import subprocess
-
-    _require_host_tools_enabled()
-    timeout_arg = None if timeout <= 0 else int(timeout)
-    try:
-        proc = subprocess.run(
-            command,
-            shell=True,
-            cwd=working_directory or None,
-            capture_output=True,
-            text=True,
-            timeout=timeout_arg,
-        )
-        return {
-            "returncode": proc.returncode,
-            "stdout": proc.stdout[-20000:],
-            "stderr": proc.stderr[-20000:],
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "returncode": None,
-            "timeout": True,
-            "stdout": "",
-            "stderr": f"command timed out after {timeout}s",
-        }
-    except Exception as exc:  # noqa: BLE001 - surfaced as a tool result
-        return {"returncode": None, "error": str(exc)}
+    """Run a shell command on the selected target device (e.g. Linux, WSL, Windows) or local host.
+    Tier-3 sensitive tool: executed on the target device via control-plane dispatch.
+    timeout=0 (default) means standard execution without time limit. Output truncated per stream."""
+    approved = _consume_local_approval("run_shell")
+    return tools.run_shell(command, working_directory, timeout, approval_granted=approved)
 
 
 @mcp.tool()
@@ -563,15 +537,14 @@ def write_file(path: str, content: str, overwrite: bool = False) -> dict:
 
 @mcp.tool()
 def install_package(package_id: str, version: str | None = None) -> dict:
-    """Install a package on the bound device via winget (Windows).
-    Requires a device-bound MCP session; unbound sessions cannot install
-    on a device. Tier-3: the call returns needs_approval until an admin
-    approves it in the dashboard, then re-check with get_task_result."""
+    """Install a software package on the target device (or local host).
+    Supports Linux & WSL (apt-get on Ubuntu/Debian, dnf on Fedora/RHEL, pacman on Arch, apk on Alpine)
+    and Windows (winget).
+    Tier-3 sensitive tool: requires approval in dashboard or policy opt-in (AI_BRIDGE_ALLOW_TIER3=1)."""
     device = _session_device()
     if device is None:
-        return {"available": False,
-                "note": "install_package requires a device-bound MCP session: "
-                        "call select_device() or approve the connection with a device token, then call again."}
+        approved = _consume_local_approval("install_package")
+        return tools.install_package(package_id, version, approval_granted=approved)
     args = {"package_id": package_id}
     if version:
         args["version"] = version
