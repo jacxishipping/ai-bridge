@@ -16,6 +16,7 @@ Rate limiting: 120 requests/minute per token/IP (in-memory, per process).
 """
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import os
@@ -295,7 +296,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         return [dict(r) for r in rows]
 
     @app.get("/api/tasks/{task_id}")
-    def get_task(task_id: str, wait: float = 0.0, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+    async def get_task(task_id: str, wait: float = 0.0, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         require_role("viewer", x_admin_token, x_session_token)
         wait_sec = max(0.0, min(float(wait or 0.0), 25.0))
         deadline = time.time() + wait_sec
@@ -308,8 +309,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             rem = deadline - time.time()
             if rem <= 0:
                 return dict(row)
-            with task_cond:
-                task_cond.wait(timeout=min(1.0, rem))
+            await asyncio.sleep(min(0.15, rem))
 
     @app.post("/api/tasks/{task_id}/cancel")
     def cancel_task(task_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -672,7 +672,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                 "note": "Old token is invalid immediately. Store the new token securely."}
 
     @app.get("/api/agent/tasks/next")
-    def next_task(wait: float = 0.0, x_device_token: str | None = Header(default=None)):
+    async def next_task(wait: float = 0.0, x_device_token: str | None = Header(default=None)):
         row = device_row(x_device_token)
         wait_sec = max(0.0, min(float(wait or 0.0), 25.0))
         deadline = time.time() + wait_sec
@@ -685,8 +685,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             rem = deadline - time.time()
             if wait_sec <= 0 or rem <= 0:
                 return {"task": None}
-            with task_cond:
-                task_cond.wait(timeout=min(1.0, rem))
+            await asyncio.sleep(min(0.15, rem))
         conn.execute("UPDATE tasks SET status='running', updated_at=? WHERE id=?", (dbmod.now(), task["id"]))
         conn.commit()
         out = dict(task)

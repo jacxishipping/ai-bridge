@@ -1,4 +1,8 @@
-const BASE = (import.meta as any).env?.VITE_API_URL || "http://127.0.0.1:8000";
+const defaultBase =
+  typeof window !== "undefined" && window.location.port !== "5173"
+    ? window.location.origin
+    : "http://127.0.0.1:8000";
+const BASE = (import.meta as any).env?.VITE_API_URL || defaultBase;
 export function token() { return localStorage.getItem("ai_bridge_admin_token") || ""; }
 export function sessionToken() { return localStorage.getItem("ai_bridge_session_token") || ""; }
 async function call(path: string, method = "GET", body?: unknown) {

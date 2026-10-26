@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import threading
 import time
 from pathlib import Path
 
@@ -47,18 +48,48 @@ CREATE TABLE IF NOT EXISTS policies (
   policy_json TEXT NOT NULL, created_by TEXT, created_at REAL NOT NULL, note TEXT);
 """
 
-def connect(db_path: Path) -> sqlite3.Connection:
+
+class LockedConnection:
+    """Thread-safe wrapper around sqlite3.Connection for multi-threaded FastAPI routes."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+        self._lock = threading.RLock()
+
+    def execute(self, sql: str, parameters: tuple | list = ()):
+        with self._lock:
+            return self._conn.execute(sql, parameters)
+
+    def executescript(self, sql_script: str):
+        with self._lock:
+            return self._conn.executescript(sql_script)
+
+    def commit(self) -> None:
+        with self._lock:
+            self._conn.commit()
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    def __getattr__(self, name: str):
+        return getattr(self._conn, name)
+
+
+def connect(db_path: Path) -> LockedConnection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path), check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.executescript(SCHEMA)
+    raw = sqlite3.connect(str(db_path), check_same_thread=False, timeout=15.0)
+    raw.row_factory = sqlite3.Row
+    raw.execute("PRAGMA journal_mode=WAL")
+    raw.execute("PRAGMA busy_timeout=5000")
+    raw.executescript(SCHEMA)
     # Migrate databases created by v0.2 (which lacked these columns).
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(devices)")}
+    cols = {r[1] for r in raw.execute("PRAGMA table_info(devices)")}
     for col, ddl in [("token_expires_at", "REAL"), ("token_issued_at", "REAL")]:
         if col not in cols:
-            conn.execute(f"ALTER TABLE devices ADD COLUMN {col} {ddl}")
-    conn.commit()
-    return conn
+            raw.execute(f"ALTER TABLE devices ADD COLUMN {col} {ddl}")
+    raw.commit()
+    return LockedConnection(raw)
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
@@ -66,7 +97,7 @@ def hash_token(token: str) -> str:
 def now() -> float:
     return time.time()
 
-def audit(conn: sqlite3.Connection, *, tenant: str, actor: str, device_id: str,
+def audit(conn: LockedConnection | sqlite3.Connection, *, tenant: str, actor: str, device_id: str,
           tool: str, args: dict, decision: str, result: str = "") -> None:
     conn.execute("INSERT INTO audit (ts, tenant, actor, device_id, tool, args_json, decision, result)"
                  " VALUES (?,?,?,?,?,?,?,?)",
