@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   approval_id TEXT, created_at DOUBLE PRECISION NOT NULL, updated_at DOUBLE PRECISION NOT NULL);
 CREATE TABLE IF NOT EXISTS approvals (
   id TEXT PRIMARY KEY, task_id TEXT, tool TEXT, reason TEXT,
-  status TEXT NOT NULL DEFAULT 'pending', created_at DOUBLE PRECISION NOT NULL, decided_by TEXT);
+  status TEXT NOT NULL DEFAULT 'pending', created_at DOUBLE PRECISION NOT NULL, decided_by TEXT,
+  expires_at DOUBLE PRECISION, decided_at DOUBLE PRECISION, policy_version INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS audit (
   id SERIAL PRIMARY KEY, ts DOUBLE PRECISION NOT NULL, tenant TEXT,
   actor TEXT, device_id TEXT, tool TEXT, args_json TEXT, decision TEXT, result TEXT);

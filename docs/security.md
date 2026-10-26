@@ -9,6 +9,9 @@
   dashboard or with the admin token. An AI asking for approval does not
   grant it. A task cannot approve itself. Tier-3 tasks also need approval
   unless the current versioned policy (`/api/policies`) allows Tier 3.
+  Control-plane approvals expire after one hour by default (configurable
+  with `AI_BRIDGE_APPROVAL_TTL_SECONDS`); expired tasks are cancelled and
+  cannot be re-queued without creating a fresh request.
 - Accounts (v0.3): local users with PBKDF2 hashes and 8-hour sessions;
   roles viewer/operator/admin. Device tokens expire (7 days default) and
   rotate via `/api/agent/rotate` (old token dies immediately).
@@ -26,6 +29,8 @@
 - Audit: every control-plane decision is stored in `audit` (SQLite dev,
   Postgres prod) and every local tool decision can be appended via
   `ai_bridge.audit.audit_event` to a JSONL file. Results are redacted.
+  The control-plane API is append-only for audit events, offers an admin
+  JSONL export, and supports explicit retention pruning (30-day minimum).
 - Secrets: never committed, never in logs, never returned by tools.
   `.env` is gitignored; use `chmod 600 .env`. Tokens are hashed at rest.
 - TLS: remote endpoints must sit behind a TLS reverse proxy with a

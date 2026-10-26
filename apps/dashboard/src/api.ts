@@ -48,17 +48,14 @@ export const api = {
     call(`/api/tasks${status && status !== "all" ? `?status=${encodeURIComponent(status)}` : ""}`, "DELETE"),
   approvals: () => call("/api/approvals"),
   decide: (id: string, decision: string) => call(`/api/approvals/${id}/decide`, "POST", { decision }),
-  updateApproval: (id: string, body: { reason?: string; status?: string }) =>
-    call(`/api/approvals/${encodeURIComponent(id)}`, "PUT", body),
   deleteApproval: (id: string) => call(`/api/approvals/${encodeURIComponent(id)}`, "DELETE"),
   audit: () => call("/api/audit"),
-  updateAudit: (id: number, body: { actor?: string; tool?: string; decision?: string; result?: string }) =>
-    call(`/api/audit/${id}`, "PUT", body),
-  deleteAudit: (id: number) => call(`/api/audit/${id}`, "DELETE"),
-  clearAudit: () => call("/api/audit", "DELETE"),
+  exportAudit: () => call("/api/audit/export"),
+  logout: () => call("/api/auth/logout", "POST", {}),
   emergencyStop: () => call("/api/emergency-stop", "POST", {}),
   emergencyClear: () => call("/api/emergency-stop/clear", "POST", {}),
   login: (username: string, password: string) => fetch(BASE + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) }).then(async r => { if (!r.ok) throw new Error("Login failed"); return r.json(); }),
+  logout: () => call("/api/auth/logout", "POST", {}),
   policies: () => call("/api/policies"),
   policyHistory: () => call("/api/policies/history"),
   updatePolicyVersion: (version: number, p: { allow_tier3: boolean; desktop_enabled: boolean; allowed_apps: string[]; allowed_services: string[]; note?: string }) =>

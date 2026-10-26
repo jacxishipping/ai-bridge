@@ -5,4 +5,5 @@
 - [~] Milestone 4 — Windows agent: code written, NOT executed on Windows here
 - [x] Milestone 5 — dashboard (source): login, devices, tasks, approvals, audit, emergency stop
 - [x] Milestone 6 — integrations: Claude/Codex/Gemini/generic MCP configs + honest ChatGPT notes
-- [ ] v0.3 — OIDC, short-lived device tokens + mTLS, signed updates, Postgres wiring, macOS agent, Windows-on-Windows verification, HTTP MCP round-trip test
+- [~] v0.3 — OIDC, short-lived device tokens, signed updates, approval expiry/context, API append-only audit with export/retention, session revocation, policy simulation
+- [ ] Remaining validation — native plane-side mTLS, Postgres runtime wiring, macOS agent verification, Windows-on-Windows verification, live MCP-over-HTTP round-trip, clean production deployment test

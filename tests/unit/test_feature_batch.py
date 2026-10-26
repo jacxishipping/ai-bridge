@@ -235,9 +235,12 @@ def test_edit_and_delete_records():
     aid = task["approval_id"]
     upd_task = c.put(f"/api/tasks/{tid}", json={"tool": "get_system_info", "args": {}, "status": "queued"}, headers=hdr)
     assert upd_task.status_code == 200 and upd_task.json()["tool"] == "get_system_info"
+    gated = c.post("/api/tasks", json={"device_id": did, "tool": "delete_workspace_file", "args": {"relative_path": "x.txt"}}, headers=hdr).json()
+    assert c.put(f"/api/tasks/{gated['task_id']}", json={"status": "queued"}, headers=hdr).status_code == 409
 
-    upd_app = c.put(f"/api/approvals/{aid}", json={"reason": "Edited reason", "status": "approved"}, headers=hdr)
+    upd_app = c.put(f"/api/approvals/{aid}", json={"reason": "Edited reason"}, headers=hdr)
     assert upd_app.status_code == 200 and upd_app.json()["reason"] == "Edited reason"
+    assert c.put(f"/api/approvals/{aid}", json={"status": "approved"}, headers=hdr).status_code == 400
 
     assert c.delete(f"/api/approvals/{aid}", headers=hdr).status_code == 200
     assert c.delete(f"/api/tasks/{tid}", headers=hdr).status_code == 200
@@ -249,13 +252,14 @@ def test_edit_and_delete_records():
     assert upd_pol.status_code == 200 and upd_pol.json()["policy"]["allow_tier3"] is True
     assert c.delete(f"/api/policies/{ver}", headers=hdr).status_code == 200
 
-    # 4. Edit and delete an audit event
+    # 4. Audit is immutable through the API and can be exported
+    assert c.put("/api/audit/1", json={"actor": "tampered"}, headers=hdr).status_code == 405
+    assert c.delete("/api/audit/1", headers=hdr).status_code == 405
+    exported = c.get("/api/audit/export", headers=hdr)
+    assert exported.status_code == 200 and exported.json()["count"] > 0
     aud_list = c.get("/api/audit", headers=hdr).json()
     assert len(aud_list) > 0
     aud_id = aud_list[0]["id"]
-    upd_aud = c.put(f"/api/audit/{aud_id}", json={"actor": "custom-admin", "decision": "reviewed", "result": "verified"}, headers=hdr)
-    assert upd_aud.status_code == 200 and upd_aud.json()["actor"] == "custom-admin"
-    assert c.delete(f"/api/audit/{aud_id}", headers=hdr).status_code == 200
 
     # 5. Delete device
     assert c.delete(f"/api/devices/{did}", headers=hdr).status_code == 200

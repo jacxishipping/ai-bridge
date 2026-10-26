@@ -7,6 +7,11 @@
 - Signed releases: Ed25519 manifest signing/verification in `src/ai_bridge/updates.py` + agent `--check-update` (verifies before any download; installation remains an operator step).
 - Sandboxed task execution: minimal env (secrets dropped), workspace cwd, CPU/memory/file-size rlimits.
 - Dashboard: username/password login alongside the admin token, plus a Policies view.
+- Control-plane hardening follow-up: approval context includes task args,
+  device, tier, and policy version; decisions record the authenticated actor
+  and expire after a configurable TTL. Audit records are append-only through
+  the API, with export and explicit retention pruning. Session logout revokes
+  the server-side session; policy simulation previews proposed tier gates.
 - Implemented since v0.3 (needs activation or a machine to verify):
   OIDC login (provider-gated via AI_BRIDGE_OIDC_*; crypto verified offline,
   full flow needs a registered provider app), network-namespace egress

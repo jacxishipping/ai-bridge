@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   approval_id TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS approvals (
   id TEXT PRIMARY KEY, task_id TEXT, tool TEXT, reason TEXT,
-  status TEXT NOT NULL DEFAULT 'pending', created_at REAL NOT NULL, decided_by TEXT);
+  status TEXT NOT NULL DEFAULT 'pending', created_at REAL NOT NULL, decided_by TEXT,
+  expires_at REAL, decided_at REAL, policy_version INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS audit (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, tenant TEXT,
   actor TEXT, device_id TEXT, tool TEXT, args_json TEXT, decision TEXT, result TEXT);
@@ -88,6 +89,11 @@ def connect(db_path: Path) -> LockedConnection:
     for col, ddl in [("token_expires_at", "REAL"), ("token_issued_at", "REAL")]:
         if col not in cols:
             raw.execute(f"ALTER TABLE devices ADD COLUMN {col} {ddl}")
+    approval_cols = {r[1] for r in raw.execute("PRAGMA table_info(approvals)")}
+    approval_additions = {"expires_at": "REAL", "decided_at": "REAL", "policy_version": "INTEGER NOT NULL DEFAULT 0"}
+    for col, ddl in approval_additions.items():
+        if col not in approval_cols:
+            raw.execute(f"ALTER TABLE approvals ADD COLUMN {col} {ddl}")
     raw.commit()
     return LockedConnection(raw)
 

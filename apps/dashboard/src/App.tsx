@@ -48,7 +48,7 @@ const VIEW_META: Record<View, { title: string; subtitle: string; group: "ops" | 
     group: "ops",
   },
   audit: {
-    title: "Immutable Audit Trail",
+    title: "Append-only Audit Trail",
     subtitle: "Every tool invocation, policy change, and approval decision recorded with actor and tenant context.",
     group: "gov",
   },
@@ -242,7 +242,7 @@ export default function App() {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
   const [editModal, setEditModal] = useState<{
-    kind: "device" | "task" | "approval" | "audit" | "policy" | "oauth_client";
+    kind: "device" | "task" | "policy" | "oauth_client";
     data: any;
   } | null>(null);
 
@@ -600,7 +600,8 @@ export default function App() {
           <button
             type="button"
             className="f2-btn f2-btn-subtle f2-btn-sm"
-            onClick={() => {
+            onClick={async () => {
+              try { if (sessionToken()) await api.logout(); } catch { /* local sign-out still clears an unavailable session */ }
               localStorage.removeItem("ai_bridge_admin_token");
               localStorage.removeItem("ai_bridge_session_token");
               setTok("");
@@ -1310,7 +1311,10 @@ export default function App() {
                         <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>· requested {rel(a.created_at)}</span>
                       </div>
                       <div style={{ fontSize: 13, color: "var(--colorNeutralForeground2)" }}>
-                        {a.reason} {a.task_id && <span style={{ color: "var(--colorNeutralForeground3)" }}>· Task <code>{a.task_id}</code></span>}
+                        {a.reason} · Device <b>{a.device_name || a.device_id || "—"}</b> · Tier {a.tier ?? "—"} · Policy v{a.policy_version ?? 0}
+                        {a.expires_at && <span> · expires {rel(a.expires_at)}</span>}
+                        {a.task_id && <span style={{ color: "var(--colorNeutralForeground3)" }}> · Task <code>{a.task_id}</code></span>}
+                        {a.args && <pre style={{ margin: "6px 0 0", whiteSpace: "pre-wrap", fontSize: 12 }}>{JSON.stringify(a.args, null, 2)}</pre>}
                       </div>
                     </div>
 
@@ -1351,23 +1355,6 @@ export default function App() {
                       )}
                       <button
                         type="button"
-                        className="f2-btn f2-btn-sm"
-                        onClick={() =>
-                          setEditModal({
-                            kind: "approval",
-                            data: {
-                              id: a.id,
-                              tool: a.tool || "",
-                              reason: a.reason || "",
-                              status: a.status || "pending",
-                            },
-                          })
-                        }
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
                         className="f2-btn f2-btn-danger f2-btn-sm"
                         onClick={async () => {
                           if (confirm(`Delete approval record ${a.id} (${a.tool})?`)) {
@@ -1395,25 +1382,11 @@ export default function App() {
           {view === "audit" && (
             <Card
               title={`Audit Trail (${filteredAudit.length} events shown)`}
-              action={
-                <button
-                  type="button"
-                  className="f2-btn f2-btn-danger f2-btn-sm"
-                  onClick={async () => {
-                    if (confirm("Clear all audit log records?")) {
-                      try {
-                        const r = await api.clearAudit();
-                        setNotice({ intent: "info", text: `Cleared ${r.deleted_count} audit event(s).` });
-                        load();
-                      } catch (ex: any) {
-                        setErr(`Clear audit failed: ${ex.message}`);
-                      }
-                    }
-                  }}
-                >
-                  Clear Audit Log
-                </button>
-              }
+              action={<button type="button" className="f2-btn f2-btn-sm" onClick={async () => {
+                try { const data = await api.exportAudit(); const blob = new Blob([data.events.map((e: any) => JSON.stringify(e)).join("\n")], { type: "application/x-ndjson" });
+                  const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "ai-bridge-audit.jsonl"; link.click(); URL.revokeObjectURL(url);
+                } catch (ex: any) { setErr(`Audit export failed: ${ex.message}`); }
+              }}>Export JSONL</button>}
             >
               <div style={{ marginBottom: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <input
@@ -1440,7 +1413,6 @@ export default function App() {
                       <th>Device</th>
                       <th>Tool / Action</th>
                       <th>Decision</th>
-                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1451,45 +1423,6 @@ export default function App() {
                         <td><code>{a.device_id ? String(a.device_id).slice(0, 8) : "—"}</code></td>
                         <td><code>{a.tool}</code></td>
                         <td><Badge value={a.decision || "?"} /></td>
-                        <td>
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <button
-                              type="button"
-                              className="f2-btn f2-btn-sm"
-                              onClick={() =>
-                                setEditModal({
-                                  kind: "audit",
-                                  data: {
-                                    id: a.id,
-                                    actor: a.actor || "",
-                                    tool: a.tool || "",
-                                    decision: a.decision || "allowed",
-                                    result: a.result || "",
-                                  },
-                                })
-                              }
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              className="f2-btn f2-btn-danger f2-btn-sm"
-                              onClick={async () => {
-                                if (confirm(`Delete audit event #${a.id} (${a.tool})?`)) {
-                                  try {
-                                    await api.deleteAudit(a.id);
-                                    setNotice({ intent: "info", text: `Deleted audit event #${a.id}.` });
-                                    load();
-                                  } catch (ex: any) {
-                                    setErr(`Delete audit failed: ${ex.message}`);
-                                  }
-                                }
-                              }}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -2026,20 +1959,6 @@ export default function App() {
                       status: d.status,
                     });
                     setNotice({ intent: "success", text: `Updated task ${d.id} (${d.tool} → ${d.status}).` });
-                  } else if (editModal.kind === "approval") {
-                    await api.updateApproval(d.id, {
-                      reason: d.reason,
-                      status: d.status,
-                    });
-                    setNotice({ intent: "success", text: `Updated approval ${d.id} (${d.status}).` });
-                  } else if (editModal.kind === "audit") {
-                    await api.updateAudit(d.id, {
-                      actor: d.actor,
-                      tool: d.tool,
-                      decision: d.decision,
-                      result: d.result,
-                    });
-                    setNotice({ intent: "success", text: `Updated audit record #${d.id}.` });
                   } else if (editModal.kind === "policy") {
                     await api.updatePolicyVersion(d.version, {
                       allow_tier3: !!d.allow_tier3,
@@ -2144,75 +2063,6 @@ export default function App() {
                   </div>
                 </>
               )}
-
-              {editModal.kind === "approval" && (
-                <>
-                  <div>
-                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Reason / Note</label>
-                    <input
-                      className="f2-input"
-                      style={{ width: "100%" }}
-                      value={editModal.data.reason}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, reason: e.target.value } })}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Decision Status</label>
-                    <select
-                      className="f2-select"
-                      style={{ width: "100%" }}
-                      value={editModal.data.status}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, status: e.target.value } })}
-                    >
-                      {["pending", "approved", "denied"].map(s => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
-                  </div>
-                </>
-              )}
-
-              {editModal.kind === "audit" && (
-                <>
-                  <div>
-                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Actor</label>
-                    <input
-                      className="f2-input"
-                      style={{ width: "100%" }}
-                      value={editModal.data.actor}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, actor: e.target.value } })}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Tool / Action</label>
-                    <input
-                      className="f2-input"
-                      style={{ width: "100%" }}
-                      value={editModal.data.tool}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, tool: e.target.value } })}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Decision</label>
-                    <input
-                      className="f2-input"
-                      style={{ width: "100%" }}
-                      value={editModal.data.decision}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, decision: e.target.value } })}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Result / Audit Note</label>
-                    <input
-                      className="f2-input"
-                      style={{ width: "100%" }}
-                      value={editModal.data.result}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, result: e.target.value } })}
-                    />
-                  </div>
-                </>
-              )}
-
               {editModal.kind === "policy" && (
                 <>
                   <label className="f2-switch-label">

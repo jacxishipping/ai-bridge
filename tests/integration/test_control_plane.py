@@ -60,10 +60,13 @@ def test_tier4_requires_approval_then_queues_and_dispatches(monkeypatch, tmp_pat
                headers={"X-Admin-Token": ADMIN}).json()
     assert t["status"] == "needs_approval" and t["approval_id"]
     approvals = c.get("/api/approvals", headers={"X-Admin-Token": ADMIN}).json()
-    assert any(a["id"] == t["approval_id"] for a in approvals)
+    approval = next(a for a in approvals if a["id"] == t["approval_id"])
+    assert approval["device_id"] == dev["device_id"] and approval["tier"] == 4
+    assert approval["args"] == {"relative_path": "x.txt"} and approval["expires_at"] > approval["created_at"]
     d = c.post(f"/api/approvals/{t['approval_id']}/decide", json={"decision": "approved"},
                headers={"X-Admin-Token": ADMIN}).json()
     assert d["status"] == "approved"
+    assert d["decided_by"] == "admin-token" and d["decided_at"]
     got = c.get(f"/api/tasks/{t['task_id']}", headers={"X-Admin-Token": ADMIN}).json()
     assert got["status"] == "queued"
     # Agent fetches the approved task and executes it via dispatch().

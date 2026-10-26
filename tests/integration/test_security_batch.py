@@ -74,6 +74,38 @@ def test_policy_versioning_and_tier3_gating():
     hist = c.get("/api/policies/history", headers={"X-Admin-Token": ADMIN}).json()
     assert len(hist) == 1 and hist[0]["version"] == 1
 
+    simulated = c.post("/api/policies/simulate", json={"allow_tier3": True, "desktop_enabled": False,
+                      "allowed_apps": [], "allowed_services": [], "note": "preview"}, headers={"X-Admin-Token": ADMIN})
+    assert simulated.status_code == 200
+    tools = {item["tool"]: item for item in simulated.json()["tools"]}
+    assert tools["run_shell"]["allowed_unattended"] is True
+    assert tools["delete_workspace_file"]["requires_approval"] is True
+
+
+def test_session_logout_revokes_token():
+    c, app = client()
+    c.post("/api/auth/users", json={"username": "logout-user", "password": "correct-horse-123", "role": "viewer"})
+    login = c.post("/api/auth/login", json={"username": "logout-user", "password": "correct-horse-123"}).json()
+    headers = {"X-Session-Token": login["session_token"]}
+    assert c.get("/api/auth/me", headers=headers).status_code == 200
+    assert c.post("/api/auth/logout", headers=headers).status_code == 200
+    assert c.get("/api/auth/me", headers=headers).status_code == 401
+
+
+def test_approval_expiry_closes_task(monkeypatch):
+    c, app = client()
+    dev = enroll(c)
+    task = c.post("/api/tasks", json={"device_id": dev["device_id"], "tool": "delete_workspace_file",
+                    "args": {"relative_path": "x"}}, headers={"X-Admin-Token": ADMIN}).json()
+    conn = c.app.state.conn
+    conn.execute("UPDATE approvals SET expires_at=? WHERE id=?", (0, task["approval_id"]))
+    conn.commit()
+    approvals = c.get("/api/approvals", headers={"X-Admin-Token": ADMIN}).json()
+    record = next(a for a in approvals if a["id"] == task["approval_id"])
+    assert record["status"] == "expired" and record["decided_by"] == "system"
+    assert c.get(f"/api/tasks/{task['task_id']}", headers={"X-Admin-Token": ADMIN}).json()["status"] == "cancelled"
+    assert c.post(f"/api/approvals/{task['approval_id']}/decide", json={"decision": "approved"}, headers={"X-Admin-Token": ADMIN}).status_code == 409
+
 def test_signed_updates():
     d = Path(tempfile.mkdtemp())
     priv, pub = generate_keypair(d)

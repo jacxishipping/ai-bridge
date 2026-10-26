@@ -112,6 +112,7 @@ class TaskIn(BaseModel):
 
 class ApprovalDecision(BaseModel):
     decision: str  # approved | denied
+    reason: str = ""
 
 class TaskResultIn(BaseModel):
     status: str
@@ -152,14 +153,6 @@ class TaskUpdateIn(BaseModel):
 
 class ApprovalUpdateIn(BaseModel):
     reason: str | None = None
-    status: str | None = None
-
-
-class AuditUpdateIn(BaseModel):
-    actor: str | None = None
-    tool: str | None = None
-    decision: str | None = None
-    result: str | None = None
 
 
 class OAuthClientUpdateIn(BaseModel):
@@ -324,8 +317,11 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         policy = get_current_policy()
         if tier.value >= 4 or (tier.value == 3 and not policy.get("allow_tier3", False)):
             approval_id = uuid.uuid4().hex[:12]
-            conn.execute("INSERT INTO approvals (id, task_id, tool, reason, created_at) VALUES (?,?,?,?,?)",
-                         (approval_id, task_id, body.tool, f"Tier-{tier.value} operation requires human approval.", dbmod.now()))
+            approval_ttl = max(60, int(os.environ.get("AI_BRIDGE_APPROVAL_TTL_SECONDS", "3600")))
+            policy_row = conn.execute("SELECT MAX(version) AS version FROM policies").fetchone()
+            policy_version = policy_row["version"] or 0
+            conn.execute("INSERT INTO approvals (id, task_id, tool, reason, created_at, expires_at, policy_version) VALUES (?,?,?,?,?,?,?)",
+                         (approval_id, task_id, body.tool, f"Tier-{tier.value} operation requires human approval.", dbmod.now(), dbmod.now() + approval_ttl, policy_version))
             status = "needs_approval"
         conn.execute("INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, approval_id, created_at, updated_at)"
                      " VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -346,6 +342,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                     "tool": body.tool,
                     "tier": tier.value,
                     "args": body.args,
+                    "policy_version": policy_version,
                 }
                 threading.Thread(target=send_webhook_notification, args=(wh_url, evt), daemon=True).start()
         return {"task_id": task_id, "status": status, "tier": tier.value, "approval_id": approval_id}
@@ -404,6 +401,12 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         valid_statuses = {"queued", "running", "needs_approval", "completed", "failed", "cancelled", "timed_out"}
         if status not in valid_statuses:
             raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+        if status == "queued" and row["approval_id"]:
+            ap = conn.execute("SELECT status, expires_at FROM approvals WHERE id=?", (row["approval_id"],)).fetchone()
+            if ap and ap["status"] != "approved":
+                raise HTTPException(status_code=409, detail="Task approval is not approved; create a new task to request approval again.")
+            if ap and ap["expires_at"] is not None and ap["expires_at"] <= dbmod.now():
+                raise HTTPException(status_code=409, detail="Task approval has expired.")
         conn.execute(
             "UPDATE tasks SET tool=?, args_json=?, tier=?, status=?, updated_at=? WHERE id=?",
             (tool, args_json, tier_enum.value, status, dbmod.now(), task_id),
@@ -441,24 +444,53 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     @app.get("/api/approvals")
     def list_approvals(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         require_role("viewer", x_admin_token, x_session_token)
+        expire_pending_approvals()
         rows = conn.execute("SELECT * FROM approvals ORDER BY created_at DESC LIMIT 200").fetchall()
-        return [dict(r) for r in rows]
+        return [approval_detail(r) for r in rows]
+
+    def expire_pending_approvals() -> None:
+        now = dbmod.now()
+        rows = conn.execute("SELECT id, task_id FROM approvals WHERE status='pending' AND expires_at IS NOT NULL AND expires_at<=?", (now,)).fetchall()
+        for row in rows:
+            conn.execute("UPDATE approvals SET status='expired', decided_by='system', decided_at=? WHERE id=? AND status='pending'", (now, row["id"]))
+            if row["task_id"]:
+                conn.execute("UPDATE tasks SET status='cancelled', updated_at=? WHERE id=? AND status='needs_approval'", (now, row["task_id"]))
+            audit("system", "", "expire_approval", {"approval_id": row["id"]}, "expired")
+        if rows:
+            conn.commit()
+
+    def approval_detail(row) -> dict:
+        data = dict(row)
+        if data.get("task_id"):
+            task = conn.execute("SELECT device_id, tenant, tool, args_json, tier FROM tasks WHERE id=?", (data["task_id"],)).fetchone()
+            if task:
+                data.update({"device_id": task["device_id"], "tenant": task["tenant"], "tool": task["tool"],
+                             "args": json.loads(task["args_json"] or "{}"), "tier": task["tier"]})
+                device = conn.execute("SELECT name FROM devices WHERE id=?", (task["device_id"],)).fetchone()
+                data["device_name"] = device["name"] if device else None
+        return data
 
     @app.post("/api/approvals/{approval_id}/decide")
     def decide_approval(approval_id: str, body: ApprovalDecision, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
-        require_admin(x_admin_token, x_session_token)
+        actor = require_admin(x_admin_token, x_session_token)
+        expire_pending_approvals()
         if body.decision not in {"approved", "denied"}:
             raise HTTPException(status_code=400, detail="decision must be approved or denied.")
         row = conn.execute("SELECT * FROM approvals WHERE id=?", (approval_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Approval not found.")
-        conn.execute("UPDATE approvals SET status=?, decided_by='admin' WHERE id=?", (body.decision, approval_id))
+        if row["status"] != "pending":
+            raise HTTPException(status_code=409, detail=f"Approval is already {row['status']}.")
+        if row["expires_at"] is not None and row["expires_at"] <= dbmod.now():
+            expire_pending_approvals()
+            raise HTTPException(status_code=409, detail="Approval has expired.")
+        conn.execute("UPDATE approvals SET status=?, decided_by=?, decided_at=? WHERE id=? AND status='pending'", (body.decision, actor, dbmod.now(), approval_id))
         if row["task_id"]:
             new_status = "queued" if body.decision == "approved" else "cancelled"
             conn.execute("UPDATE tasks SET status=?, updated_at=? WHERE id=?", (new_status, dbmod.now(), row["task_id"]))
         conn.commit()
         notify_tasks()
-        audit("admin", "", "decide_approval", {"approval_id": approval_id, "decision": body.decision}, "allowed")
+        audit(actor, "", "decide_approval", {"approval_id": approval_id, "decision": body.decision, "reason": body.reason}, "allowed")
         return {"approval_id": approval_id, "status": body.decision}
 
     @app.put("/api/approvals/{approval_id}")
@@ -468,21 +500,23 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         if row is None:
             raise HTTPException(status_code=404, detail="Approval not found.")
         reason = body.reason if body.reason is not None else row["reason"]
-        status = body.status.strip() if body.status is not None and body.status.strip() else row["status"]
-        if status not in {"pending", "approved", "denied"}:
-            raise HTTPException(status_code=400, detail="status must be pending, approved, or denied.")
-        conn.execute("UPDATE approvals SET reason=?, status=?, decided_by=? WHERE id=?", (reason, status, actor, approval_id))
-        if row["task_id"]:
-            t_status = "queued" if status == "approved" else ("cancelled" if status == "denied" else "needs_approval")
-            conn.execute("UPDATE tasks SET status=?, updated_at=? WHERE id=?", (t_status, dbmod.now(), row["task_id"]))
+        if body.status is not None:
+            raise HTTPException(status_code=400, detail="Use POST /api/approvals/{id}/decide to decide an approval.")
+        if row["status"] != "pending":
+            raise HTTPException(status_code=409, detail=f"Approval is already {row['status']}.")
+        conn.execute("UPDATE approvals SET reason=? WHERE id=? AND status='pending'", (reason, approval_id))
         conn.commit()
-        notify_tasks()
-        audit(actor, "", "update_approval", {"approval_id": approval_id, "status": status}, "allowed")
-        return dict(conn.execute("SELECT * FROM approvals WHERE id=?", (approval_id,)).fetchone())
+        audit(actor, "", "update_approval", {"approval_id": approval_id, "reason_updated": body.reason is not None}, "allowed")
+        return approval_detail(conn.execute("SELECT * FROM approvals WHERE id=?", (approval_id,)).fetchone())
 
     @app.delete("/api/approvals/{approval_id}")
     def delete_approval(approval_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         actor = require_role("admin", x_admin_token, x_session_token)
+        row = conn.execute("SELECT task_id, status FROM approvals WHERE id=?", (approval_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Approval not found.")
+        if row["task_id"] and row["status"] == "pending":
+            conn.execute("UPDATE tasks SET status='cancelled', updated_at=? WHERE id=? AND status='needs_approval'", (dbmod.now(), row["task_id"]))
         cur = conn.execute("DELETE FROM approvals WHERE id=?", (approval_id,))
         conn.commit()
         if cur.rowcount == 0:
@@ -499,38 +533,27 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             rows = conn.execute("SELECT * FROM audit WHERE tenant=? ORDER BY ts DESC LIMIT 500", (tenant,)).fetchall()
         return [dict(r) for r in rows]
 
-    @app.put("/api/audit/{audit_id}")
-    def update_audit_record(audit_id: int, body: AuditUpdateIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+    @app.get("/api/audit/export")
+    def export_audit(tenant: str = "default", since: float | None = None, until: float | None = None,
+                     x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         require_role("admin", x_admin_token, x_session_token)
-        row = conn.execute("SELECT * FROM audit WHERE id=?", (audit_id,)).fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail="Audit record not found.")
-        actor_val = body.actor.strip() if body.actor is not None and body.actor.strip() else row["actor"]
-        tool_val = body.tool.strip() if body.tool is not None and body.tool.strip() else row["tool"]
-        decision_val = body.decision.strip() if body.decision is not None and body.decision.strip() else row["decision"]
-        result_val = body.result if body.result is not None else (row["result"] or "")
-        conn.execute(
-            "UPDATE audit SET actor=?, tool=?, decision=?, result=? WHERE id=?",
-            (actor_val, tool_val, decision_val, result_val[:2000], audit_id),
-        )
-        conn.commit()
-        return dict(conn.execute("SELECT * FROM audit WHERE id=?", (audit_id,)).fetchone())
+        clauses, params = ["tenant=?"], [tenant]
+        if since is not None:
+            clauses.append("ts>=?"); params.append(since)
+        if until is not None:
+            clauses.append("ts<=?"); params.append(until)
+        rows = conn.execute("SELECT * FROM audit WHERE " + " AND ".join(clauses) + " ORDER BY ts ASC LIMIT 10000", tuple(params)).fetchall()
+        return {"format": "jsonl", "count": len(rows), "events": [dict(r) for r in rows]}
 
-    @app.delete("/api/audit/{audit_id}")
-    def delete_audit_record(audit_id: int, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
-        require_role("admin", x_admin_token, x_session_token)
-        cur = conn.execute("DELETE FROM audit WHERE id=?", (audit_id,))
+    @app.post("/api/audit/retention")
+    def apply_audit_retention(days: int = 365, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_admin(x_admin_token, x_session_token)
+        days = max(30, min(int(days), 3650))
+        cutoff = dbmod.now() - days * 86400
+        cur = conn.execute("DELETE FROM audit WHERE ts<?", (cutoff,))
         conn.commit()
-        if cur.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Audit record not found.")
-        return {"audit_id": audit_id, "deleted": True}
-
-    @app.delete("/api/audit")
-    def clear_audit_records(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
-        require_role("admin", x_admin_token, x_session_token)
-        cur = conn.execute("DELETE FROM audit")
-        conn.commit()
-        return {"deleted_count": cur.rowcount}
+        audit(actor, "", "audit_retention", {"days": days, "deleted_count": cur.rowcount}, "allowed")
+        return {"retention_days": days, "deleted_count": cur.rowcount}
 
     @app.post("/api/emergency-stop")
     def emergency_stop(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -602,6 +625,16 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     def me(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         actor, role = auth_context(x_admin_token, x_session_token)
         return {"username": actor, "role": role}
+
+    @app.post("/api/auth/logout")
+    def logout(x_session_token: str | None = Header(default=None)):
+        if not x_session_token:
+            raise HTTPException(status_code=401, detail="Session token required.")
+        cur = conn.execute("DELETE FROM sessions WHERE token_hash=?", (dbmod.hash_token(x_session_token),))
+        conn.commit()
+        if not cur.rowcount:
+            raise HTTPException(status_code=401, detail="Invalid or expired session.")
+        return {"logged_out": True}
 
     # --- Auth: OIDC (dormant unless AI_BRIDGE_OIDC_* are set) ------------
     @app.get("/api/auth/oidc/configured")
@@ -725,6 +758,17 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         require_role("viewer", x_admin_token, x_session_token)
         rows = conn.execute("SELECT version, policy_json, created_by, created_at, note FROM policies ORDER BY version DESC LIMIT 100").fetchall()
         return [dict(r) for r in rows]
+
+    @app.post("/api/policies/simulate")
+    def simulate_policy(body: PolicyIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("admin", x_admin_token, x_session_token)
+        current = get_current_policy()
+        scenarios = []
+        for tool, tier in sorted(TOOL_TIERS.items()):
+            requires_approval = tier.value >= 4 or (tier.value == 3 and not body.allow_tier3)
+            scenarios.append({"tool": tool, "tier": tier.value, "allowed_unattended": not requires_approval,
+                              "requires_approval": requires_approval})
+        return {"current_policy": current, "proposed_policy": body.model_dump(), "tools": scenarios}
 
     @app.put("/api/policies/{version}")
     def update_policy_version(version: int, body: PolicyIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
