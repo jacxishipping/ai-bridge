@@ -1,14 +1,31 @@
-const defaultBase =
-  typeof window !== "undefined" && window.location.port !== "5173"
+const envBase = (import.meta as any).env?.VITE_API_URL || "";
+const isProdOrigin =
+  typeof window !== "undefined" &&
+  window.location.port !== "5173" &&
+  window.location.hostname !== "localhost" &&
+  window.location.hostname !== "127.0.0.1";
+const BASE =
+  isProdOrigin
     ? window.location.origin
-    : "http://127.0.0.1:8000";
-const BASE = (import.meta as any).env?.VITE_API_URL || defaultBase;
+    : envBase || (typeof window !== "undefined" && window.location.port !== "5173" ? window.location.origin : "http://127.0.0.1:8000");
+
 export function token() { return localStorage.getItem("ai_bridge_admin_token") || ""; }
 export function sessionToken() { return localStorage.getItem("ai_bridge_session_token") || ""; }
+
 async function call(path: string, method = "GET", body?: unknown) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (sessionToken()) headers["X-Session-Token"] = sessionToken(); else if (token()) headers["X-Admin-Token"] = token();
-  const res = await fetch(BASE + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const st = sessionToken();
+  const at = token();
+  if (st) headers["X-Session-Token"] = st;
+  else if (at) headers["X-Admin-Token"] = at;
+  let res = await fetch(BASE + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  if (res.status === 401 && st && at) {
+    // Expired session token in localStorage; clear it and retry with admin token
+    localStorage.removeItem("ai_bridge_session_token");
+    delete headers["X-Session-Token"];
+    headers["X-Admin-Token"] = at;
+    res = await fetch(BASE + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  }
   if (!res.ok) throw new Error(`${method} ${path} -> ${res.status}`);
   return res.json();
 }

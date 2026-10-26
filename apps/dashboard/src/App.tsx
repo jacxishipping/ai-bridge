@@ -280,13 +280,18 @@ export default function App() {
     try {
       api.me().then(setMe).catch(() => {});
       if (v === "overview") {
+        let firstErr = "";
+        const captureErr = (fallback: any) => (e: any) => {
+          if (!firstErr && e?.message) firstErr = e.message;
+          return fallback;
+        };
         const [h, c, d, t, a, ap] = await Promise.all([
           api.health().catch(() => null),
-          api.connections().catch(() => null),
-          api.devices().catch(() => []),
-          api.tasks().catch(() => []),
-          api.audit().catch(() => []),
-          api.approvals().catch(() => []),
+          api.connections().catch(captureErr(null)),
+          api.devices().catch(captureErr([])),
+          api.tasks().catch(captureErr([])),
+          api.audit().catch(captureErr([])),
+          api.approvals().catch(captureErr([])),
         ]);
         setHealth(h);
         setConnections(c);
@@ -294,6 +299,7 @@ export default function App() {
         setTasks(t);
         setAudit(a);
         setApprovals(ap);
+        if (firstErr) setErr(firstErr);
       } else if (v === "devices") {
         setDevices(await api.devices());
       } else if (v === "tasks") {
