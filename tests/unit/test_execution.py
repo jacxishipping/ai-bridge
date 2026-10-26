@@ -25,11 +25,21 @@ def test_disk_task_completes():
     assert "total" in r.output or "disk" in r.output.lower() or "total_bytes" in r.output
 
 def test_timeout_task():
-    # A Python-implemented task cannot hang; subprocess timeout is covered
-    # by the runner's communicate(timeout=...) path in integration tests.
+    # Subprocess execution must not crash with preexec_fn ValueError on Windows.
     r = RUNNER.submit("uptime", timeout=10)
     for _ in range(50):
         if r.status not in {"pending", "running"}:
             break
         time.sleep(0.1)
-    assert r.status in {"completed", "failed"}  # uptime may be absent on some hosts
+    assert r.status in {"completed", "failed"}  # uptime may be absent on Windows
+    assert "preexec_fn" not in r.output
+
+def test_subprocess_linter_runs_cross_platform(tmp_path):
+    (tmp_path / "ok.py").write_text("x = 1\n", encoding="utf-8")
+    r = RUNNER.submit("run_linter", timeout=30, cwd=str(tmp_path))
+    for _ in range(100):
+        if r.status not in {"pending", "running"}:
+            break
+        time.sleep(0.1)
+    assert r.status == "completed", r.output
+    assert r.returncode == 0

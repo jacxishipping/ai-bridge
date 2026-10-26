@@ -83,6 +83,8 @@ def create_workspace_file(relative_path: str, content: str, overwrite: bool = Fa
     if len(content.encode("utf-8")) > get_settings().max_read_bytes * 4:
         raise ValueError("Content exceeds the write size limit.")
     path = confined_path(relative_path)
+    if is_secret_name(path):
+        raise ValueError("Refusing to write a file whose name suggests it holds secrets.")
     if path.exists() and not overwrite:
         raise ValueError("File already exists; pass overwrite=true to replace it.")
     if path.exists():
@@ -92,6 +94,8 @@ def create_workspace_file(relative_path: str, content: str, overwrite: bool = Fa
 
 def edit_workspace_file(relative_path: str, old_text: str, new_text: str) -> dict:
     path = confined_path(relative_path)
+    if is_secret_name(path):
+        raise ValueError("Refusing to edit a file whose name suggests it holds secrets.")
     if not path.is_file():
         raise ValueError("File does not exist.")
     backup = _backup(path)
@@ -103,6 +107,8 @@ def edit_workspace_file(relative_path: str, old_text: str, new_text: str) -> dic
 
 def move_workspace_file(source: str, destination: str) -> dict:
     src = confined_path(source); dst = confined_path(destination)
+    if is_secret_name(src) or is_secret_name(dst):
+        raise ValueError("Refusing to move a file whose name suggests it holds secrets.")
     if not src.exists():
         raise ValueError("Source does not exist.")
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -111,6 +117,8 @@ def move_workspace_file(source: str, destination: str) -> dict:
 
 def delete_workspace_file(relative_path: str) -> dict:
     path = confined_path(relative_path)
+    if is_secret_name(path):
+        raise ValueError("Refusing to delete a file whose name suggests it holds secrets.")
     if not path.is_file():
         raise ValueError("File does not exist.")
     backup = _backup(path)  # recoverable delete: backup first, always

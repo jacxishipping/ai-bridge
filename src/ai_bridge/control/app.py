@@ -78,7 +78,7 @@ class PolicyIn(BaseModel):
     desktop_enabled: bool = False
     allowed_apps: list[str] = []
     allowed_services: list[str] = []
-    note: str = "" 
+    note: str = ""
 
 def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -> FastAPI:
     token = admin_token or os.environ.get("AI_BRIDGE_ADMIN_TOKEN")
@@ -193,7 +193,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         if tier.value >= 4 or (tier.value == 3 and not policy.get("allow_tier3", False)):
             approval_id = uuid.uuid4().hex[:12]
             conn.execute("INSERT INTO approvals (id, task_id, tool, reason, created_at) VALUES (?,?,?,?,?)",
-                         (approval_id, task_id, body.tool, "Tier-4 operation requires human approval.", dbmod.now()))
+                         (approval_id, task_id, body.tool, f"Tier-{tier.value} operation requires human approval.", dbmod.now()))
             status = "needs_approval"
         conn.execute("INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, approval_id, created_at, updated_at)"
                      " VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -305,8 +305,9 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
 
     @app.get("/api/auth/oidc/login")
     def oidc_login():
-        from . import oidc as oidcmod
         from fastapi.responses import RedirectResponse
+
+        from . import oidc as oidcmod
 
         if oidcmod.oidc_config() is None:
             raise HTTPException(status_code=400, detail="OIDC is not configured.")
@@ -545,16 +546,16 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         conn.execute("UPDATE tasks SET status='running', updated_at=? WHERE id=?", (dbmod.now(), task["id"]))
         conn.commit()
         out = dict(task)
-        # Tell the agent whether a human approved this task. Tasks that
-        # never needed approval carry no approval_id (granted); approved
-        # tasks carry an approved record. Without this, the agent's own
-        # policy check would re-deny an approved Tier-3 task.
+        # Tell the agent whether a human approved this task. Tasks below Tier 4
+        # that never needed approval carry no approval_id (granted); approved
+        # tasks carry an approved record. Tier-4 tasks ALWAYS require an approved record.
         ap = out.get("approval_id")
         if ap:
             ap_row = conn.execute("SELECT status FROM approvals WHERE id=?", (ap,)).fetchone()
             out["approval_granted"] = bool(ap_row and ap_row["status"] == "approved")
         else:
-            out["approval_granted"] = True
+            out["approval_granted"] = bool((out.get("tier") or 1) < 4)
+        out["policy"] = get_current_policy()
         return {"task": out}
 
     @app.post("/api/agent/tasks/{task_id}/result")

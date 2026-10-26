@@ -1,8 +1,9 @@
+import zipfile
 from pathlib import Path
 
 import pytest
 
-from ai_bridge import workspace
+from ai_bridge import tools, workspace
 
 
 @pytest.fixture(autouse=True)
@@ -32,7 +33,23 @@ def test_symlink_escape_omitted_from_listing(ws):
     names = [i["name"] for i in workspace.list_workspace(".")]
     assert "escape" not in names
 
-def test_secret_named_file_not_readable(ws):
+def test_secret_named_file_not_readable_or_mutable(ws):
     (ws / ".env").write_text("API_KEY=abc123")
+    (ws / "normal.txt").write_text("safe")
     with pytest.raises(ValueError):
         workspace.read_workspace_text(".env")
+    with pytest.raises(ValueError):
+        workspace.create_workspace_file(".env", "NEW=1", overwrite=True)
+    with pytest.raises(ValueError):
+        workspace.edit_workspace_file(".env", "API_KEY=abc123", "API_KEY=xyz")
+    with pytest.raises(ValueError):
+        workspace.move_workspace_file(".env", "renamed.txt")
+    with pytest.raises(ValueError):
+        workspace.move_workspace_file("normal.txt", "id_rsa")
+    with pytest.raises(ValueError):
+        workspace.delete_workspace_file(".env")
+    # Backups and staging deploys must also exclude secret-named files.
+    b = tools.create_backup(".")
+    with zipfile.ZipFile(ws / b["backup"]) as zf:
+        assert ".env" not in zf.namelist()
+        assert "normal.txt" in zf.namelist()

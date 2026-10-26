@@ -8,8 +8,11 @@ Cancellation kills the whole process group.
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
+import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -73,7 +76,7 @@ class TaskRunner:
         if name == "run_project_tests":
             return _validate_test_command(test_command)
         if name == "run_linter":
-            return ["python", "-m", "ruff", "check", "."]
+            return [sys.executable, "-m", "ruff", "check", "."]
         if name == "uptime":
             return ["uptime"]
         if name == "memory_summary":
@@ -100,8 +103,6 @@ class TaskRunner:
                 # refuses to run if `unshare` is unavailable). This applies to
                 # the bounded task runner only, not to the ungated MCP shell.
                 if os.environ.get("AI_BRIDGE_TASK_NETNS", "") == "1":
-                    import shutil
-
                     if shutil.which("unshare") is None:
                         raise ValueError("AI_BRIDGE_TASK_NETNS=1 but 'unshare' is not available; refusing to run without network isolation.")
                     argv = ["unshare", "--net", "--map-root-user", "sh", "-c",
@@ -114,14 +115,35 @@ class TaskRunner:
                         resource.setrlimit(resource.RLIMIT_FSIZE, (100 * 1024**2, 100 * 1024**2))
                     except Exception:
                         pass
-                run_cwd = cwd or str(_Path(os.environ.get("AI_BRIDGE_WORKSPACE", "/tmp")).expanduser())
-                # PATH is inherited so venv tools (pytest) resolve; all other env
-                # vars (which may carry secrets) are deliberately dropped.
-                clean_env = {"PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"), "HOME": run_cwd, "LANG": "C.UTF-8"}
-                proc = subprocess.Popen(argv, shell=False, stdout=subprocess.PIPE,
-                                        stderr=subprocess.STDOUT, text=True,
-                                        cwd=run_cwd, start_new_session=True,
-                                        env=clean_env, preexec_fn=_limits)
+                default_ws = os.environ.get("AI_BRIDGE_WORKSPACE") or tempfile.gettempdir()
+                run_cwd_path = _Path(cwd or default_ws).expanduser()
+                run_cwd_path.mkdir(parents=True, exist_ok=True)
+                run_cwd = str(run_cwd_path)
+                # Prepend active Python scripts dir so venv tools (pytest, ruff) resolve.
+                py_dir = str(_Path(sys.executable).parent)
+                raw_path = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+                full_path = f"{py_dir}{os.pathsep}{raw_path}"
+                clean_env = {"PATH": full_path, "HOME": run_cwd, "LANG": "C.UTF-8"}
+                if os.name == "nt":
+                    for k in ("SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP",
+                              "USERPROFILE", "LOCALAPPDATA", "APPDATA"):
+                        if k in os.environ:
+                            clean_env[k] = os.environ[k]
+                resolved_bin = shutil.which(argv[0], path=clean_env["PATH"])
+                if resolved_bin:
+                    argv = [resolved_bin, *argv[1:]]
+                popen_kwargs: dict = {
+                    "shell": False,
+                    "stdout": subprocess.PIPE,
+                    "stderr": subprocess.STDOUT,
+                    "text": True,
+                    "cwd": run_cwd,
+                    "start_new_session": True,
+                    "env": clean_env,
+                }
+                if os.name != "nt":
+                    popen_kwargs["preexec_fn"] = _limits
+                proc = subprocess.Popen(argv, **popen_kwargs)
                 with self._lock:
                     self._procs[result.task_id] = proc
                 try:
@@ -143,6 +165,13 @@ class TaskRunner:
 
     @staticmethod
     def _kill(proc: subprocess.Popen) -> None:
+        if os.name == "nt":
+            try:
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                               shell=False, capture_output=True, timeout=5)
+                return
+            except Exception:
+                pass
         try:
             os.killpg(proc.pid, signal.SIGTERM)
         except Exception:

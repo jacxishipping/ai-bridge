@@ -6,17 +6,17 @@ run against a throwaway SQLite file instead of /etc/ai-bridge-oauth.
 import os
 import sqlite3
 import sys
+import tempfile
 import time
 from pathlib import Path
 
-os.environ["AI_BRIDGE_OAUTH_DB"] = "/tmp/ai-bridge-test-oauth.db"
+DB = Path(tempfile.gettempdir()) / "ai-bridge-test-oauth.db"
+os.environ["AI_BRIDGE_OAUTH_DB"] = str(DB)
 os.environ["AI_BRIDGE_ADMIN_TOKEN"] = "test-admin"
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "deployment" / "oauth"))
 
 import gateway  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-
-DB = Path("/tmp/ai-bridge-test-oauth.db")
 
 
 def _fresh_client():

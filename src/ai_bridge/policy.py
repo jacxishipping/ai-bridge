@@ -88,7 +88,8 @@ def decide(policy: Policy, tool: str, *, approval_granted: bool = False,
         if not policy.allow_tier3 and not approval_granted and tool not in {"submit_task", "create_backup"}:
             return Decision(False, needs_approval=True,
                             reason="Sensitive operation requires Tier-3 opt-in or approval.")
-        if tier > policy.max_tier_unattended and not approval_granted:
+        effective_ceiling = max(policy.max_tier_unattended, 3) if (policy.allow_tier3 or tool in {"submit_task", "create_backup"}) else policy.max_tier_unattended
+        if tier > effective_ceiling and not approval_granted:
             return Decision(False, needs_approval=True,
                             reason="Operation exceeds the unattended tier ceiling.")
     if tier == RiskTier.LOW_RISK and tool in {"create_workspace_file"} and not policy.allow_writes:

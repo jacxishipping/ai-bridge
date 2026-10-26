@@ -40,6 +40,21 @@ from .security import read_workspace_text
 # the control-plane dashboard. AI text alone never grants approval.
 _APPROVALS: dict[str, dict] = {}
 
+
+def _consume_local_approval(tool_name: str) -> bool:
+    """Consume one approved local approval record for tool_name, if any."""
+    for rec in _APPROVALS.values():
+        if rec.get("tool") == tool_name and rec.get("status") == "approved":
+            rec["status"] = "used"
+            return True
+    return False
+
+
+def _require_host_tools_enabled() -> None:
+    if os.environ.get("AI_BRIDGE_DISABLE_HOST_TOOLS", "0") == "1":
+        raise PermissionError("Unconfined host tools are disabled (AI_BRIDGE_DISABLE_HOST_TOOLS=1).")
+
+
 mcp = FastMCP("ai-bridge")
 
 VERIFY_URL = os.environ.get("AI_BRIDGE_GATEWAY_VERIFY_URL", "http://127.0.0.1:8002/internal/verify")
@@ -57,9 +72,9 @@ def _session_device() -> str | None:
     session that was meant to be device-scoped."""
     try:
         ctx = mcp.get_context()
+        req = getattr(getattr(ctx, "request_context", None), "request", None)
     except Exception:
         return None
-    req = getattr(getattr(ctx, "request_context", None), "request", None)
     if req is None:
         return None
     auth = (req.headers.get("authorization") or "")
@@ -183,7 +198,8 @@ def edit_workspace_file(relative_path: str, old_text: str, new_text: str) -> dic
     """Edit a workspace file; a backup is taken first (Tier 3, opt-in)."""
     from .policy import decide
     from .tools import default_policy
-    d = decide(default_policy(), "edit_workspace_file")
+    approved = _consume_local_approval("edit_workspace_file")
+    d = decide(default_policy(), "edit_workspace_file", approval_granted=approved)
     if not d.allowed:
         raise PermissionError(d.reason + " Set AI_BRIDGE_ALLOW_TIER3=1 or use the approval queue.")
     return workspace.edit_workspace_file(relative_path, old_text, new_text)
@@ -194,7 +210,8 @@ def move_workspace_file(source: str, destination: str) -> dict:
     """Move/rename a file inside the workspace (Tier 3, opt-in)."""
     from .policy import decide
     from .tools import default_policy
-    d = decide(default_policy(), "move_workspace_file")
+    approved = _consume_local_approval("move_workspace_file")
+    d = decide(default_policy(), "move_workspace_file", approval_granted=approved)
     if not d.allowed:
         raise PermissionError(d.reason)
     return workspace.move_workspace_file(source, destination)
@@ -203,8 +220,10 @@ def move_workspace_file(source: str, destination: str) -> dict:
 @device_aware()
 def delete_workspace_file(relative_path: str) -> dict:
     """Delete a workspace file. Requires a prior approval (Tier 4)."""
-    raise PermissionError("delete_workspace_file requires an approval: call request_approval, "
-                          "then approve_task with the admin token, then retry via the control plane.")
+    if not _consume_local_approval("delete_workspace_file"):
+        raise PermissionError("delete_workspace_file requires an approval: call request_approval, "
+                              "then approve_task with the admin token, then retry.")
+    return workspace.delete_workspace_file(relative_path)
 
 @mcp.tool()
 @device_aware()
@@ -265,7 +284,8 @@ def create_backup(relative_directory: str = ".") -> dict:
 @device_aware()
 def deploy_application(project_directory: str = ".", target_directory: str = "deploy-staging") -> dict:
     """Staging deploy inside the workspace (backup first). Not a production deploy."""
-    return tools.deploy_application(project_directory, target_directory)
+    approved = _consume_local_approval("deploy_application")
+    return tools.deploy_application(project_directory, target_directory, approval_granted=approved)
 
 @mcp.tool()
 @device_aware(bound="unavailable")
@@ -371,6 +391,7 @@ def run_shell(command: str, working_directory: str = "", timeout: int = 0) -> di
     A positive timeout still caps the run. Output truncated per stream."""
     import subprocess
 
+    _require_host_tools_enabled()
     timeout_arg = None if timeout <= 0 else int(timeout)
     try:
         proc = subprocess.run(
@@ -403,6 +424,7 @@ def read_file(path: str, max_chars: int = 100000) -> str:
     """Read any UTF-8 text file on this machine by absolute path."""
     from pathlib import Path
 
+    _require_host_tools_enabled()
     try:
         text = Path(path).read_bytes().decode("utf-8")
     except UnicodeDecodeError:
@@ -419,6 +441,7 @@ def write_file(path: str, content: str, overwrite: bool = False) -> dict:
     Refuses to overwrite an existing file unless overwrite=true."""
     from pathlib import Path
 
+    _require_host_tools_enabled()
     target = Path(path)
     if target.exists() and not overwrite:
         raise ValueError("file exists; pass overwrite=true to replace it")

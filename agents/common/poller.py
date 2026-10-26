@@ -24,12 +24,7 @@ class Poller:
     def __init__(self, control_url: str, device_token: str, *, policy: Policy | None = None):
         self.control_url = control_url.rstrip("/")
         self.device_token = device_token
-        # No explicit policy: use the agent-local policy built from the
-        # agent process environment (AI_BRIDGE_DESKTOP_ENABLED,
-        # AI_BRIDGE_ALLOWED_APPS, ...). A bare Policy() default here
-        # silently closed the desktop gate for every agent, no matter
-        # what the environment said -- the status tool reads the env
-        # flag directly, so it reported true while dispatch denied.
+        self._explicit_policy = policy
         self.policy = policy if policy is not None else default_policy()
         self.backoff = 2.0
 
@@ -47,6 +42,20 @@ class Poller:
     def heartbeat(self) -> dict:
         return self._req("POST", "/api/agent/heartbeat", {})
 
+    def _effective_policy(self, remote_policy: dict | None) -> Policy:
+        base = self._explicit_policy if self._explicit_policy is not None else default_policy()
+        if not isinstance(remote_policy, dict):
+            return base
+        return Policy(
+            allow_writes=base.allow_writes,
+            allow_tier3=base.allow_tier3 or bool(remote_policy.get("allow_tier3")),
+            desktop_enabled=base.desktop_enabled or bool(remote_policy.get("desktop_enabled")),
+            allowed_apps=base.allowed_apps | frozenset(remote_policy.get("allowed_apps") or []),
+            allowed_services=base.allowed_services | frozenset(remote_policy.get("allowed_services") or []),
+            allowed_test_commands=base.allowed_test_commands,
+            max_tier_unattended=base.max_tier_unattended,
+        )
+
     def run_once(self) -> dict:
         self.heartbeat()
         nxt = self._req("GET", "/api/agent/tasks/next")
@@ -57,7 +66,8 @@ class Poller:
         task_id = task["id"]
         try:
             args = json.loads(task.get("args_json") or "{}")
-            result = dispatch(task["tool"], args, policy=self.policy,
+            eff_policy = self._effective_policy(task.get("policy"))
+            result = dispatch(task["tool"], args, policy=eff_policy,
                               approval_granted=bool(task.get("approval_granted")))
             status, text = "completed", json.dumps(result, default=str)[:8000]
         except PermissionError as exc:
