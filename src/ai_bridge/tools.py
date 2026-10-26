@@ -547,10 +547,11 @@ def run_shell(
     timeout: int = 0,
     *,
     approval_granted: bool = False,
+    is_admin: bool = False,
     policy: Policy | None = None,
 ) -> dict:
     """Run a shell command on this host. Tier-3 sensitive tool gated by policy / approval."""
-    _check("run_shell", approval_granted=approval_granted, policy=policy)
+    _check("run_shell", approval_granted=approval_granted, is_admin=is_admin, policy=policy)
     timeout_arg = None if timeout <= 0 else int(timeout)
     cwd = None
     if working_directory:

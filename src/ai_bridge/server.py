@@ -499,8 +499,12 @@ def run_shell(command: str, working_directory: str = "", timeout: int = 0) -> di
     """Run a shell command on the selected target device (e.g. Linux, WSL, Windows) or local host.
     Tier-3 sensitive tool: executed on the target device via control-plane dispatch.
     timeout=0 (default) means standard execution without time limit. Output truncated per stream."""
+    _require_host_tools_enabled()
     approved = _consume_local_approval("run_shell")
-    return tools.run_shell(command, working_directory, timeout, approval_granted=approved)
+    admin_tok = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
+    bearer = _bearer_token()
+    is_admin = bool(admin_tok and bearer and hmac.compare_digest(bearer, admin_tok))
+    return tools.run_shell(command, working_directory, timeout, approval_granted=approved, is_admin=is_admin)
 
 
 @mcp.tool()
