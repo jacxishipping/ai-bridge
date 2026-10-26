@@ -11,7 +11,7 @@ Auth:
   only matches devices in its own tenant.
 
 Endpoints: /health, /api/devices, /api/tasks, /api/approvals,
-/api/audit, /api/emergency-stop, /api/agent/* (polling).
+/api/audit, /api/emergency-stop, /api/settings/webhook, /api/agent/* (polling).
 Rate limiting: 120 requests/minute per token/IP (in-memory, per process).
 """
 from __future__ import annotations
@@ -22,6 +22,9 @@ import os
 import secrets
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 from pathlib import Path
 
@@ -36,6 +39,8 @@ from . import db as dbmod
 
 _RATE: dict[str, list[float]] = {}
 _RATE_LOCK = threading.Lock()
+MAX_RESULT_CHARS = 512_000
+
 
 def _rate_limit(key: str, limit: int = 120, window: int = 60) -> None:
     now = time.time()
@@ -44,6 +49,53 @@ def _rate_limit(key: str, limit: int = 120, window: int = 60) -> None:
         bucket.append(now); _RATE[key] = bucket
         if len(bucket) > limit:
             raise HTTPException(status_code=429, detail="Rate limit exceeded.")
+
+
+def send_webhook_notification(webhook_url: str, event: dict, timeout: int = 10) -> dict:
+    """Send a JSON notification to a Slack, Discord, Telegram Bot, or generic webhook URL."""
+    url = (webhook_url or "").strip()
+    if not url:
+        return {"ok": False, "error": "No webhook URL configured."}
+    text = (
+        f"[AI Bridge Approval Required]\n"
+        f"Tool: {event.get('tool')} (Tier {event.get('tier')})\n"
+        f"Device: {event.get('device_name') or event.get('device_id')}\n"
+        f"Task ID: {event.get('task_id')}\n"
+        f"Approval ID: {event.get('approval_id')}\n"
+        f"Args: {json.dumps(event.get('args') or {})[:300]}"
+    )
+    payload: dict = {
+        "text": text,
+        "content": text,
+        "event": event.get("event", "approval_requested"),
+        "approval_id": event.get("approval_id"),
+        "task_id": event.get("task_id"),
+        "device_id": event.get("device_id"),
+        "device_name": event.get("device_name"),
+        "tool": event.get("tool"),
+        "tier": event.get("tier"),
+        "args": event.get("args") or {},
+    }
+    parsed = urllib.parse.urlparse(url)
+    if "api.telegram.org" in (parsed.netloc or ""):
+        qs = urllib.parse.parse_qs(parsed.query)
+        if "chat_id" in qs and qs["chat_id"]:
+            payload["chat_id"] = qs["chat_id"][0]
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/json", "User-Agent": "AI-Bridge-Control/0.3"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            status = getattr(resp, "status", 200)
+            return {"ok": 200 <= status < 300, "status": status}
+    except urllib.error.HTTPError as exc:
+        return {"ok": False, "status": exc.code, "error": f"HTTP {exc.code}"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+
 
 class EnrollIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
@@ -80,6 +132,9 @@ class PolicyIn(BaseModel):
     allowed_services: list[str] = []
     note: str = ""
 
+class WebhookIn(BaseModel):
+    webhook_url: str = ""
+
 def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -> FastAPI:
     token = admin_token or os.environ.get("AI_BRIDGE_ADMIN_TOKEN")
     data_dir = Path(os.environ.get("AI_BRIDGE_DATA_DIR", str(Path.home() / ".ai-bridge")))
@@ -91,6 +146,18 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     app.state.conn = conn
     app.state.admin_token = token
     app.state.emergency_stop = False
+    task_cond = threading.Condition()
+    app.state.task_cond = task_cond
+
+    def notify_tasks() -> None:
+        with task_cond:
+            task_cond.notify_all()
+
+    def get_webhook_url() -> str:
+        row = conn.execute("SELECT value FROM settings WHERE key='webhook_url'").fetchone()
+        if row is not None and row["value"] is not None:
+            return str(row["value"]).strip()
+        return os.environ.get("AI_BRIDGE_WEBHOOK_URL", "").strip()
 
     def auth_context(x_admin_token: str | None, x_session_token: str | None = None):
         """Return (actor, role). Session tokens outrank the legacy admin token."""
@@ -200,6 +267,22 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                      (task_id, body.device_id, body.tenant, body.tool, json.dumps(body.args), tier.value, status, approval_id, dbmod.now(), dbmod.now()))
         conn.commit()
         audit("admin", body.device_id, body.tool, body.args, status, tenant=body.tenant)
+        if status == "queued":
+            notify_tasks()
+        elif status == "needs_approval":
+            wh_url = get_webhook_url()
+            if wh_url:
+                evt = {
+                    "event": "approval_requested",
+                    "approval_id": approval_id,
+                    "task_id": task_id,
+                    "device_id": body.device_id,
+                    "device_name": row["name"],
+                    "tool": body.tool,
+                    "tier": tier.value,
+                    "args": body.args,
+                }
+                threading.Thread(target=send_webhook_notification, args=(wh_url, evt), daemon=True).start()
         return {"task_id": task_id, "status": status, "tier": tier.value, "approval_id": approval_id}
 
     @app.get("/api/tasks")
@@ -212,12 +295,21 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         return [dict(r) for r in rows]
 
     @app.get("/api/tasks/{task_id}")
-    def get_task(task_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+    def get_task(task_id: str, wait: float = 0.0, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         require_role("viewer", x_admin_token, x_session_token)
-        row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail="Task not found.")
-        return dict(row)
+        wait_sec = max(0.0, min(float(wait or 0.0), 25.0))
+        deadline = time.time() + wait_sec
+        while True:
+            row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Task not found.")
+            if wait_sec <= 0 or row["status"] in {"completed", "failed", "cancelled", "timed_out", "needs_approval"}:
+                return dict(row)
+            rem = deadline - time.time()
+            if rem <= 0:
+                return dict(row)
+            with task_cond:
+                task_cond.wait(timeout=min(1.0, rem))
 
     @app.post("/api/tasks/{task_id}/cancel")
     def cancel_task(task_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -229,6 +321,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             return {"task_id": task_id, "status": row["status"]}
         conn.execute("UPDATE tasks SET status='cancelled', updated_at=? WHERE id=?", (dbmod.now(), task_id))
         conn.commit()
+        notify_tasks()
         audit("admin", row["device_id"], "cancel_task", {"task_id": task_id}, "allowed")
         return {"task_id": task_id, "status": "cancelled"}
 
@@ -251,6 +344,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             new_status = "queued" if body.decision == "approved" else "cancelled"
             conn.execute("UPDATE tasks SET status=?, updated_at=? WHERE id=?", (new_status, dbmod.now(), row["task_id"]))
         conn.commit()
+        notify_tasks()
         audit("admin", "", "decide_approval", {"approval_id": approval_id, "decision": body.decision}, "allowed")
         return {"approval_id": approval_id, "status": body.decision}
 
@@ -267,6 +361,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     def emergency_stop(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         require_admin(x_admin_token, x_session_token)
         app.state.emergency_stop = True
+        notify_tasks()
         audit("admin", "", "emergency_stop", {}, "allowed")
         return {"emergency_stop": True}
 
@@ -274,8 +369,45 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     def emergency_clear(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         require_admin(x_admin_token, x_session_token)
         app.state.emergency_stop = False
+        notify_tasks()
         audit("admin", "", "emergency_stop_clear", {}, "allowed")
         return {"emergency_stop": False}
+
+    # --- Settings: Webhook notifications ----------------------------------
+    @app.get("/api/settings/webhook")
+    def get_webhook_setting(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("viewer", x_admin_token, x_session_token)
+        url = get_webhook_url()
+        return {"webhook_url": url, "configured": bool(url)}
+
+    @app.post("/api/settings/webhook")
+    def set_webhook_setting(body: WebhookIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        url = (body.webhook_url or "").strip()
+        if url and not (url.startswith("http://") or url.startswith("https://")):
+            raise HTTPException(status_code=400, detail="webhook_url must start with http:// or https://")
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('webhook_url', ?)", (url,))
+        conn.commit()
+        audit(actor, "", "set_webhook", {"configured": bool(url)}, "allowed")
+        return {"webhook_url": url, "configured": bool(url)}
+
+    @app.post("/api/settings/webhook/test")
+    def test_webhook_setting(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("admin", x_admin_token, x_session_token)
+        url = get_webhook_url()
+        if not url:
+            raise HTTPException(status_code=400, detail="No webhook URL configured.")
+        res = send_webhook_notification(url, {
+            "event": "webhook_test",
+            "approval_id": "test-approval",
+            "task_id": "test-task",
+            "device_id": "test-device",
+            "device_name": "test-device",
+            "tool": "test_webhook",
+            "tier": 3,
+            "args": {"test": True},
+        })
+        return res
 
     # --- Auth: local users / sessions ------------------------------------
     @app.post("/api/auth/login")
@@ -513,7 +645,11 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         row = device_row(x_device_token)
         conn.execute("UPDATE devices SET status='online', last_seen=? WHERE id=?", (dbmod.now(), row["id"]))
         conn.commit()
-        return {"device_id": row["id"], "emergency_stop": app.state.emergency_stop}
+        return {
+            "device_id": row["id"],
+            "emergency_stop": app.state.emergency_stop,
+            "token_expires_at": row["token_expires_at"],
+        }
 
     @app.get("/api/agent/whoami")
     def whoami(x_device_token: str | None = Header(default=None)):
@@ -536,13 +672,21 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                 "note": "Old token is invalid immediately. Store the new token securely."}
 
     @app.get("/api/agent/tasks/next")
-    def next_task(x_device_token: str | None = Header(default=None)):
+    def next_task(wait: float = 0.0, x_device_token: str | None = Header(default=None)):
         row = device_row(x_device_token)
-        if app.state.emergency_stop:
-            return {"task": None, "emergency_stop": True}
-        task = conn.execute("SELECT * FROM tasks WHERE device_id=? AND status='queued' ORDER BY created_at ASC LIMIT 1", (row["id"],)).fetchone()
-        if task is None:
-            return {"task": None}
+        wait_sec = max(0.0, min(float(wait or 0.0), 25.0))
+        deadline = time.time() + wait_sec
+        while True:
+            if app.state.emergency_stop:
+                return {"task": None, "emergency_stop": True}
+            task = conn.execute("SELECT * FROM tasks WHERE device_id=? AND status='queued' ORDER BY created_at ASC LIMIT 1", (row["id"],)).fetchone()
+            if task is not None:
+                break
+            rem = deadline - time.time()
+            if wait_sec <= 0 or rem <= 0:
+                return {"task": None}
+            with task_cond:
+                task_cond.wait(timeout=min(1.0, rem))
         conn.execute("UPDATE tasks SET status='running', updated_at=? WHERE id=?", (dbmod.now(), task["id"]))
         conn.commit()
         out = dict(task)
@@ -566,8 +710,10 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             raise HTTPException(status_code=404, detail="Task not found for this device.")
         if body.status not in {"completed", "failed", "cancelled", "timed_out"}:
             raise HTTPException(status_code=400, detail="Invalid result status.")
-        conn.execute("UPDATE tasks SET status=?, result=?, updated_at=? WHERE id=?", (body.status, body.result[:8000], dbmod.now(), task_id))
+        conn.execute("UPDATE tasks SET status=?, result=?, updated_at=? WHERE id=?",
+                     (body.status, body.result[:MAX_RESULT_CHARS], dbmod.now(), task_id))
         conn.commit()
+        notify_tasks()
         audit("device", row["id"], task["tool"], json.loads(task["args_json"] or "{}"), body.status, body.result[:500], tenant=task["tenant"])
         return {"task_id": task_id, "status": body.status}
 

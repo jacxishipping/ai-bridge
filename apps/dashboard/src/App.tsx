@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api, token, sessionToken } from "./api";
 
 type View = "overview" | "devices" | "tasks" | "approvals" | "audit" | "policies" | "connections" | "logs";
 
 const TOOLS = [
-  "list_devices", "get_device_status", "get_system_info", "get_resource_usage",
+  "list_devices", "select_device", "get_device_status", "get_system_info", "get_resource_usage",
   "list_workspace", "read_workspace_file", "search_workspace", "get_service_status",
   "get_recent_logs", "list_processes", "get_disk_usage", "get_memory_usage",
   "list_docker_containers", "git_status", "git_diff", "get_task_status",
@@ -66,6 +66,25 @@ function countBy(rows: any[], key: string): Record<string, number> {
   return out;
 }
 
+function parseTaskResult(raw: string): { parsed: any; imageBase64: string | null; mimeType: string; displayText: string } {
+  if (!raw) return { parsed: null, imageBase64: null, mimeType: "image/jpeg", displayText: "(empty)" };
+  try {
+    const obj = JSON.parse(raw);
+    if (obj && typeof obj === "object" && typeof obj.image_base64 === "string" && obj.image_base64.length > 0) {
+      const clone = { ...obj, image_base64: `[base64 image: ${obj.image_base64.length} chars]` };
+      return {
+        parsed: obj,
+        imageBase64: obj.image_base64,
+        mimeType: obj.mime_type || "image/jpeg",
+        displayText: JSON.stringify(clone, null, 2),
+      };
+    }
+    return { parsed: obj, imageBase64: null, mimeType: "image/jpeg", displayText: JSON.stringify(obj, null, 2) };
+  } catch {
+    return { parsed: null, imageBase64: null, mimeType: "image/jpeg", displayText: raw };
+  }
+}
+
 export default function App() {
   const [view, setView] = useState<View>("overview");
   const [err, setErr] = useState("");
@@ -87,11 +106,21 @@ export default function App() {
   const [taskTool, setTaskTool] = useState("get_system_info");
   const [taskArgs, setTaskArgs] = useState("");
   const [taskStatus, setTaskStatus] = useState("all");
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [auditQuery, setAuditQuery] = useState("");
   const [auditTool, setAuditTool] = useState("all");
   const [logService, setLogService] = useState("control");
   const [logCount, setLogCount] = useState(100);
   const [autoRefresh, setAutoRefresh] = useState(false);
+
+  // Policy editor state
+  const [polTier3, setPolTier3] = useState(false);
+  const [polDesktop, setPolDesktop] = useState(false);
+  const [polApps, setPolApps] = useState("");
+  const [polServices, setPolServices] = useState("");
+  const [polNote, setPolNote] = useState("");
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookMsg, setWebhookMsg] = useState("");
 
   async function load(v: View = view) {
     setErr("");
@@ -108,7 +137,20 @@ export default function App() {
       else if (v === "tasks") { setTasks(await api.tasks()); setDevices(await api.devices()); }
       else if (v === "approvals") setApprovals(await api.approvals());
       else if (v === "audit") setAudit(await api.audit());
-      else if (v === "policies") { setPolicy(await api.policies()); setPolicyHistory(await api.policyHistory()); }
+      else if (v === "policies") {
+        const [pol, hist, wh] = await Promise.all([
+          api.policies(),
+          api.policyHistory(),
+          api.getWebhook().catch(() => ({ webhook_url: "" })),
+        ]);
+        setPolicy(pol);
+        setPolicyHistory(hist);
+        setPolTier3(!!pol?.policy?.allow_tier3);
+        setPolDesktop(!!pol?.policy?.desktop_enabled);
+        setPolApps((pol?.policy?.allowed_apps || []).join(", "));
+        setPolServices((pol?.policy?.allowed_services || []).join(", "));
+        setWebhookUrl(wh?.webhook_url || "");
+      }
       else if (v === "connections") { setConnections(await api.connections()); setHealth(await api.health().catch(() => null)); }
       else if (v === "logs") { const r = await api.logs(logService, logCount); setLogLines(r.lines || []); }
     } catch (e: any) { setErr(e.message); }
@@ -256,7 +298,7 @@ export default function App() {
             <select value={taskTool} onChange={e => setTaskTool(e.target.value)}>
               {TOOLS.map(t => <option key={t} value={t}>{t}</option>)}
             </select>{" "}
-            <input value={taskArgs} onChange={e => setTaskArgs(e.target.value)} placeholder='Args JSON, e.g. {"package_id": "Microsoft.VisualStudioCode"}' style={{ width: 340 }} />{" "}
+            <input value={taskArgs} onChange={e => setTaskArgs(e.target.value)} placeholder='Args JSON, e.g. {"action": "list_windows"}' style={{ width: 340 }} />{" "}
             <button>Submit task</button>
             <span style={{ fontSize: 12, color: "#666", marginLeft: 8 }}>High-risk tools need approval first.</span>
           </form>
@@ -266,12 +308,51 @@ export default function App() {
             <button key={s} onClick={() => setTaskStatus(s)} style={{ fontWeight: taskStatus === s ? 700 : 400, marginRight: 4 }}>{s}</button>
           ))}</div>
           <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
-            <thead><tr style={{ textAlign: "left", color: "#666" }}><th>ID</th><th>Device</th><th>Tool</th><th>Tier</th><th>Status</th><th>Created</th><th></th></tr></thead>
-            <tbody>{filteredTasks.slice(0, 100).map(t => <tr key={t.id} style={{ borderTop: "1px solid #eee" }}>
-              <td>{String(t.id).slice(0, 8)}</td><td>{deviceNameOf(t.device_id)}</td><td>{t.tool}</td><td>{t.tier ?? "—"}</td>
-              <td><Badge value={t.status} /></td><td>{rel(t.created_at)}</td>
-              <td>{!["completed", "failed", "cancelled"].includes(t.status) && <button onClick={async () => { await api.cancelTask(t.id); load(); }}>Cancel</button>}</td>
-            </tr>)}</tbody>
+            <thead><tr style={{ textAlign: "left", color: "#666" }}><th>ID</th><th>Device</th><th>Tool</th><th>Tier</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody>{filteredTasks.slice(0, 100).map(t => {
+              const isOpen = expandedTaskId === t.id;
+              const info = isOpen ? parseTaskResult(t.result || "") : null;
+              return <Fragment key={t.id}>
+                <tr style={{ borderTop: "1px solid #eee", background: isOpen ? "#f5f8fc" : undefined }}>
+                  <td><code>{String(t.id).slice(0, 8)}</code></td>
+                  <td>{deviceNameOf(t.device_id)}</td>
+                  <td><b>{t.tool}</b></td>
+                  <td>{t.tier ?? "—"}</td>
+                  <td><Badge value={t.status} /></td>
+                  <td>{rel(t.created_at)}</td>
+                  <td style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => setExpandedTaskId(isOpen ? null : t.id)}>{isOpen ? "Hide" : "Inspect"}</button>
+                    {!["completed", "failed", "cancelled"].includes(t.status) && <button onClick={async () => { await api.cancelTask(t.id); load(); }}>Cancel</button>}
+                  </td>
+                </tr>
+                {isOpen && info && <tr style={{ background: "#f9fbfd" }}>
+                  <td colSpan={7} style={{ padding: 12, borderTop: "1px dashed #ddd" }}>
+                    <div style={{ marginBottom: 6, fontSize: 12, color: "#555" }}>
+                      <b>Full Task ID:</b> <code>{t.id}</code> · <b>Updated:</b> {fmt(t.updated_at)}
+                      {t.approval_id && <> · <b>Approval ID:</b> <code>{t.approval_id}</code></>}
+                    </div>
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#444" }}>Arguments:</div>
+                      <pre style={{ margin: "4px 0", background: "#eee", padding: 8, borderRadius: 4, fontSize: 12, overflowX: "auto" }}>{t.args_json || "{}"}</pre>
+                    </div>
+                    {info.imageBase64 && <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#444", marginBottom: 4 }}>
+                        Captured Screenshot ({info.parsed?.width}×{info.parsed?.height}):
+                      </div>
+                      <img
+                        src={`data:${info.mimeType};base64,${info.imageBase64}`}
+                        alt="Desktop Screenshot"
+                        style={{ maxWidth: "100%", maxHeight: 520, borderRadius: 6, border: "1px solid #ccc", display: "block" }}
+                      />
+                    </div>}
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#444" }}>Result:</div>
+                      <pre style={{ margin: "4px 0", background: "#111", color: "#ddd", padding: 8, borderRadius: 4, fontSize: 12, maxHeight: 320, overflow: "auto", whiteSpace: "pre-wrap" }}>{info.displayText}</pre>
+                    </div>
+                  </td>
+                </tr>}
+              </Fragment>;
+            })}</tbody>
           </table>
         </Card>
       </div>}
@@ -304,20 +385,90 @@ export default function App() {
       </Card>}
 
       {view === "policies" && <div style={{ display: "grid", gap: 12 }}>
-        <Card title={`Current policy (v${policy?.version ?? "?"})`}>
-          {policy ? <>
-            <p style={{ fontSize: 13 }}>Tier-3 allowed: <b>{String(policy.policy?.allow_tier3)}</b> · Desktop enabled: <b>{String(policy.policy?.desktop_enabled)}</b></p>
-            <p style={{ fontSize: 13 }}>Allowed apps: {(policy.policy?.allowed_apps || []).join(", ") || "none"}</p>
-            <p style={{ fontSize: 13 }}>Allowed services: {(policy.policy?.allowed_services || []).join(", ") || "none"}</p>
-            <button onClick={async () => { const cur = policy.policy?.allow_tier3; await api.createPolicy(!cur); load(); }}>Toggle Tier-3 (currently {String(policy.policy?.allow_tier3)})</button>
-          </> : <p style={{ color: "#666", fontSize: 13 }}>Loading…</p>}
+        <Card title={`Policy Editor (Active: v${policy?.version ?? "?"})`}>
+          {policy ? <form onSubmit={async e => {
+            e.preventDefault();
+            try {
+              const allowed_apps = polApps.split(",").map(s => s.trim()).filter(Boolean);
+              const allowed_services = polServices.split(",").map(s => s.trim()).filter(Boolean);
+              await api.createPolicy({
+                allow_tier3: polTier3,
+                desktop_enabled: polDesktop,
+                allowed_apps,
+                allowed_services,
+                note: polNote || "Updated via dashboard policy editor",
+              });
+              setPolNote("");
+              await load();
+            } catch (ex: any) {
+              alert(`Failed to save policy: ${ex.message}`);
+            }
+          }} style={{ display: "grid", gap: 10, fontSize: 13 }}>
+            <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input type="checkbox" checked={polTier3} onChange={e => setPolTier3(e.target.checked)} />
+                <b>Allow Tier-3 operations unattended</b> (skip approval queue for Tier-3 tools)
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input type="checkbox" checked={polDesktop} onChange={e => setPolDesktop(e.target.checked)} />
+                <b>Desktop Automation Enabled</b> (screenshots, app launch, UI actions)
+              </label>
+            </div>
+            <div>
+              <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Allowed Applications (comma-separated):</label>
+              <input value={polApps} onChange={e => setPolApps(e.target.value)} placeholder="chrome, code, notepad, msedge, firefox, terminal" style={{ width: "100%", padding: 6 }} />
+            </div>
+            <div>
+              <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Allowed Services (comma-separated):</label>
+              <input value={polServices} onChange={e => setPolServices(e.target.value)} placeholder="nginx, docker, ssh, postgresql, redis" style={{ width: "100%", padding: 6 }} />
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input value={polNote} onChange={e => setPolNote(e.target.value)} placeholder="Version note (optional)" style={{ flex: 1, padding: 6 }} />
+              <button type="submit" style={{ padding: "6px 14px", fontWeight: 600 }}>Save New Policy Version</button>
+            </div>
+          </form> : <p style={{ color: "#666", fontSize: 13 }}>Loading…</p>}
         </Card>
+
+        <Card title="Approval Webhook Notifications (Slack / Discord / Telegram / Generic)">
+          <div style={{ display: "grid", gap: 8, fontSize: 13 }}>
+            <p style={{ margin: 0, color: "#555" }}>
+              Receive an instant HTTP POST notification whenever a task enters <code>needs_approval</code>. Supports Slack/Discord webhook URLs, Telegram Bot URLs (<code>https://api.telegram.org/botTOKEN/sendMessage?chat_id=ID</code>), or any custom JSON webhook.
+            </p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input
+                value={webhookUrl}
+                onChange={e => setWebhookUrl(e.target.value)}
+                placeholder="https://hooks.slack.com/services/... or https://discord.com/api/webhooks/..."
+                style={{ flex: 1, minWidth: 280, padding: 6 }}
+              />
+              <button onClick={async () => {
+                try {
+                  const r = await api.setWebhook(webhookUrl);
+                  setWebhookMsg(r.configured ? "Webhook saved." : "Webhook cleared.");
+                } catch (ex: any) {
+                  setWebhookMsg(`Save failed: ${ex.message}`);
+                }
+              }}>Save Webhook</button>
+              <button onClick={async () => {
+                try {
+                  setWebhookMsg("Sending test notification…");
+                  const r = await api.testWebhook();
+                  setWebhookMsg(r.ok ? `Test succeeded (HTTP ${r.status}).` : `Test failed: ${r.error || "unknown error"}`);
+                } catch (ex: any) {
+                  setWebhookMsg(`Test failed: ${ex.message}`);
+                }
+              }} disabled={!webhookUrl.trim()}>Send Test</button>
+            </div>
+            {webhookMsg && <div style={{ color: "#1a4d8f", fontWeight: 600 }}>{webhookMsg}</div>}
+          </div>
+        </Card>
+
         <Card title="Policy history">
           <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
             <thead><tr style={{ textAlign: "left", color: "#666" }}><th>Version</th><th>Created</th><th>By</th><th>Note</th><th>Summary</th></tr></thead>
             <tbody>{policyHistory.map(p => { let pol: any = {}; try { pol = JSON.parse(p.policy_json); } catch { /* keep empty */ } return <tr key={p.version} style={{ borderTop: "1px solid #eee" }}>
               <td>v{p.version}</td><td>{fmt(p.created_at)}</td><td>{p.created_by || "—"}</td><td>{p.note || "—"}</td>
-              <td>tier3={String(pol.allow_tier3)} desktop={String(pol.desktop_enabled)}</td>
+              <td>tier3={String(pol.allow_tier3)} desktop={String(pol.desktop_enabled)} apps=[{(pol.allowed_apps || []).join(", ")}]</td>
             </tr>; })}</tbody>
           </table>
         </Card>

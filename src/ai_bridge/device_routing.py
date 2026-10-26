@@ -1,7 +1,7 @@
 """Device-bound MCP routing.
 
 When an MCP session is bound to a device (via the OAuth gateway's
-device binding), tool calls for that session are executed as
+device binding or select_device), tool calls for that session are executed as
 control-plane tasks on the device instead of running on the droplet.
 Unbound sessions keep the previous behavior (droplet-local tools).
 
@@ -40,14 +40,14 @@ def resolve_binding(verify_url: str, bearer_token: str, timeout: int = 10) -> st
     return data.get("device_id") or None
 
 
-def _api(method: str, url: str, admin_token: str, payload: dict | None = None) -> dict:
+def _api(method: str, url: str, admin_token: str, payload: dict | None = None, timeout: int = 20) -> dict | list:
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(
         url, data=data, method=method,
         headers={"X-Admin-Token": admin_token, "Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read() or b"{}")
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"control plane returned HTTP {exc.code} for {method} {url}")
@@ -71,36 +71,48 @@ def run_device_tool(control_url: str, admin_token: str, device_id: str,
     base = control_url.rstrip("/")
     task = _api("POST", f"{base}/api/tasks", admin_token,
                 {"device_id": device_id, "tool": tool, "args": args or {}})
-    task_id = task.get("task_id")
-    if task.get("status") == "needs_approval":
+    task_id = task.get("task_id") if isinstance(task, dict) else None
+    if isinstance(task, dict) and task.get("status") == "needs_approval":
         return {"status": "needs_approval", "task_id": task_id,
+                "approval_id": task.get("approval_id"),
                 "note": "This operation needs approval in the dashboard (Approvals tab). "
                         "Approve it, then check the result with get_task_result."}
     if not task_id:
         return {"status": "failed", "note": f"could not submit task to device: {task}"}
     deadline = time.time() + wait_seconds
     while time.time() < deadline:
-        cur = get_device_task(control_url, admin_token, task_id)
+        cur = get_device_task(control_url, admin_token, task_id, wait=10)
         st = cur.get("status")
         if st in {"completed", "failed", "cancelled"}:
             return {"status": st, "task_id": task_id, "result": _parse_result(cur.get("result") or "")}
-        time.sleep(2)
+        time.sleep(0.2)
     return {"status": "running", "task_id": task_id,
             "note": "Still running on the device; check the result with get_task_result."}
 
 
-def get_device_task(control_url: str, admin_token: str, task_id: str) -> dict:
-    return _api("GET", f"{control_url.rstrip('/')}/api/tasks/{task_id}", admin_token)
+def get_device_task(control_url: str, admin_token: str, task_id: str, wait: int = 0) -> dict:
+    url = f"{control_url.rstrip('/')}/api/tasks/{task_id}"
+    if wait > 0:
+        url += f"?wait={wait}"
+    res = _api("GET", url, admin_token, timeout=max(15, wait + 5))
+    return res if isinstance(res, dict) else {}
 
 
 def cancel_device_task(control_url: str, admin_token: str, task_id: str) -> dict:
-    return _api("POST", f"{control_url.rstrip('/')}/api/tasks/{task_id}/cancel", admin_token)
+    res = _api("POST", f"{control_url.rstrip('/')}/api/tasks/{task_id}/cancel", admin_token)
+    return res if isinstance(res, dict) else {}
+
+
+def list_all_devices(control_url: str, admin_token: str) -> list[dict]:
+    devices = _api("GET", f"{control_url.rstrip('/')}/api/devices", admin_token)
+    if isinstance(devices, list):
+        return [d for d in devices if isinstance(d, dict) and not d.get("revoked")]
+    return []
 
 
 def get_device(control_url: str, admin_token: str, device_id: str) -> dict | None:
-    devices = _api("GET", f"{control_url.rstrip('/')}/api/devices", admin_token)
-    if isinstance(devices, list):
-        for d in devices:
-            if d.get("id") == device_id:
-                return d
+    devices = list_all_devices(control_url, admin_token)
+    for d in devices:
+        if d.get("id") == device_id:
+            return d
     return None

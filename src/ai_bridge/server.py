@@ -10,14 +10,16 @@ AI_BRIDGE_HTTP_ALLOW_ANON=1 is set for local development only.
 
 Device-bound sessions: when the caller's bearer token belongs to an
 OAuth client bound to a device (see the OAuth gateway's device token
-field), tools marked with @device_aware run on that device via
-control-plane tasks instead of on the droplet. Unbound sessions keep
-the previous droplet-local behavior.
+field), or when the caller selects a target device via select_device(),
+tools marked with @device_aware run on that device via control-plane
+tasks instead of on the droplet. Unbound sessions keep the droplet-local
+behavior.
 """
 from __future__ import annotations
 
 import argparse
 import functools
+import hashlib
 import hmac
 import json
 import os
@@ -29,6 +31,7 @@ from .device_routing import (
     cancel_device_task,
     get_device,
     get_device_task,
+    list_all_devices,
     resolve_binding,
     run_device_tool,
 )
@@ -39,6 +42,10 @@ from .security import read_workspace_text
 # granted only by approve_task with the admin token (hmac compare) or by
 # the control-plane dashboard. AI text alone never grants approval.
 _APPROVALS: dict[str, dict] = {}
+
+# Per-session active device override set via select_device().
+# Maps session key -> device_id (or "local" to force local execution).
+_SELECTED_DEVICE: dict[str, str | None] = {}
 
 
 def _consume_local_approval(tool_name: str) -> bool:
@@ -61,15 +68,7 @@ VERIFY_URL = os.environ.get("AI_BRIDGE_GATEWAY_VERIFY_URL", "http://127.0.0.1:80
 CONTROL_URL = os.environ.get("AI_BRIDGE_CONTROL_URL", "http://127.0.0.1:8000")
 
 
-def _session_device() -> str | None:
-    """Device_id bound to this MCP call, or None for unbound/local calls.
-
-    Uses the FastMCP instance's request context (SDK 1.x): in streamable
-    HTTP mode it carries the Starlette request and its Authorization
-    header; in stdio mode, or outside a request, there is no HTTP
-    request, so the call is unbound. A resolution failure raises
-    (fail closed) rather than silently running droplet tools for a
-    session that was meant to be device-scoped."""
+def _bearer_token() -> str | None:
     try:
         ctx = mcp.get_context()
         req = getattr(getattr(ctx, "request_context", None), "request", None)
@@ -80,7 +79,29 @@ def _session_device() -> str | None:
     auth = (req.headers.get("authorization") or "")
     if not auth.startswith("Bearer "):
         return None
-    return resolve_binding(VERIFY_URL, auth[7:].strip())
+    return auth[7:].strip() or None
+
+
+def _session_key() -> str:
+    tok = _bearer_token()
+    if not tok:
+        return "default"
+    return hashlib.sha256(tok.encode()).hexdigest()[:16]
+
+
+def _session_device() -> str | None:
+    """Device_id active for this MCP call, or None for unbound/local calls.
+
+    Checks any explicit select_device() override for this session first,
+    then falls back to the OAuth gateway binding when running over HTTP."""
+    key = _session_key()
+    if key in _SELECTED_DEVICE:
+        chosen = _SELECTED_DEVICE[key]
+        return None if chosen in (None, "", "local") else chosen
+    tok = _bearer_token()
+    if not tok:
+        return None
+    return resolve_binding(VERIFY_URL, tok)
 
 
 def _admin_token() -> str:
@@ -111,7 +132,7 @@ def device_aware(dispatch_name: str | None = None, *, bound: str = "route"):
             if bound == "unavailable":
                 raise ValueError(
                     "This tool acts on the droplet only and is not available "
-                    "in a device-bound MCP session.")
+                    "while a remote device is selected. Call select_device('local') first.")
             if bound == "route":
                 return run_device_tool(CONTROL_URL, admin, device,
                                        dispatch_name or fn.__name__, dict(kwargs))
@@ -131,15 +152,16 @@ def device_aware(dispatch_name: str | None = None, *, bound: str = "route"):
                     t = cancel_device_task(CONTROL_URL, admin, kwargs["task_id"])
                     return {"task_id": t.get("id"), "cancelled": t.get("status") == "cancelled"}
                 if name == "list_devices":
-                    d = get_device(CONTROL_URL, admin, device)
-                    return [{"device_id": d.get("id"), "name": d.get("name"),
-                             "status": d.get("status")}] if d else []
+                    return fn(*args, **kwargs)
                 if name == "get_device_status":
                     did = kwargs.get("device_id", "local")
-                    if did not in ("local", device):
-                        raise ValueError("This session is bound to a single device.")
-                    d = get_device(CONTROL_URL, admin, device)
-                    return {"device_id": device, "status": (d or {}).get("status")}
+                    target = device if did in ("local", "", device) else did
+                    d = get_device(CONTROL_URL, admin, target)
+                    if d is None:
+                        raise ValueError(f"Unknown device: {target}")
+                    return {"device_id": d.get("id"), "name": d.get("name"),
+                            "hostname": d.get("hostname"), "os": d.get("os"),
+                            "status": d.get("status"), "last_seen": d.get("last_seen")}
             return fn(*args, **kwargs)
         return wrapper
     return deco
@@ -355,25 +377,114 @@ def capture_desktop_screenshot() -> dict:
 
 @mcp.tool()
 @device_aware()
-def launch_approved_application(app_name: str) -> dict:
+def launch_approved_application(app_name: str, url: str | None = None) -> dict:
     """Launch an application from the admin-approved list only."""
-    return tools.launch_approved_application(app_name)
+    approved = _consume_local_approval("launch_approved_application")
+    return tools.launch_approved_application(app_name, approval_granted=approved, url=url)
+
+@mcp.tool()
+@device_aware()
+def perform_approved_ui_action(
+    action: str,
+    x: int | None = None,
+    y: int | None = None,
+    text: str | None = None,
+    key: str | None = None,
+    title: str | None = None,
+    delta: int = -120,
+) -> dict:
+    """Perform a structured desktop UI action (list_windows, focus_window,
+    move_mouse, click, double_click, right_click, scroll, type_text,
+    press_key/hotkey). Requires desktop_enabled and Tier-3 permission."""
+    approved = _consume_local_approval("perform_approved_ui_action")
+    return tools.perform_approved_ui_action(
+        action, x=x, y=y, text=text, key=key, title=title, delta=delta, approval_granted=approved
+    )
 
 @mcp.tool()
 @device_aware(bound="control")
 def list_devices() -> list[dict]:
-    """Local mode: this machine is the only enrolled device."""
+    """List local and control-plane enrolled devices, marking the active target device."""
+    active = _session_device() or "local"
     info = tools.get_system_info()
-    return [{"device_id": "local", "hostname": info["machine"], "system": info["system"],
-             "status": "online", "workspace": info["workspace"]}]
+    out: list[dict] = [{
+        "device_id": "local",
+        "name": "local",
+        "hostname": info["machine"],
+        "system": info["system"],
+        "status": "online",
+        "workspace": info["workspace"],
+        "active": active == "local",
+    }]
+    token = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
+    if token:
+        try:
+            for d in list_all_devices(CONTROL_URL, token):
+                did = d.get("id")
+                out.append({
+                    "device_id": did,
+                    "name": d.get("name"),
+                    "hostname": d.get("hostname"),
+                    "os": d.get("os"),
+                    "status": d.get("status"),
+                    "last_seen": d.get("last_seen"),
+                    "active": did == active,
+                })
+        except Exception:
+            pass
+    return out
+
+@mcp.tool()
+def select_device(device_id: str) -> dict:
+    """Switch the active target device for this MCP session by device_id,
+    device name, hostname, or 'local' (to run tools on the MCP host/droplet)."""
+    target = (device_id or "").strip()
+    key = _session_key()
+    if not target or target.lower() == "local":
+        _SELECTED_DEVICE[key] = "local"
+        return {
+            "selected_device": "local",
+            "mode": "local",
+            "note": "Device-aware tools will now execute locally on the MCP host.",
+        }
+    admin = _admin_token()
+    devices = list_all_devices(CONTROL_URL, admin)
+    matched = None
+    for d in devices:
+        if d.get("id") == target:
+            matched = d
+            break
+    if matched is None:
+        low = target.lower()
+        for d in devices:
+            if (d.get("name") or "").lower() == low or (d.get("hostname") or "").lower() == low:
+                matched = d
+                break
+    if matched is None:
+        raise ValueError(f"Unknown device '{target}'. Call list_devices() to see available devices.")
+    _SELECTED_DEVICE[key] = matched["id"]
+    return {
+        "selected_device": matched["id"],
+        "name": matched.get("name"),
+        "hostname": matched.get("hostname"),
+        "os": matched.get("os"),
+        "status": matched.get("status"),
+        "mode": "remote",
+    }
 
 @mcp.tool()
 @device_aware(bound="control")
 def get_device_status(device_id: str = "local") -> dict:
-    """Status of a device (local mode: only 'local')."""
-    if device_id != "local":
-        raise ValueError("Local mode only knows device 'local'; use the control plane for remote devices.")
-    return {"device_id": "local", "status": "online", **tools.get_resource_usage()}
+    """Status of a device ('local' or an enrolled control-plane device_id)."""
+    if device_id == "local":
+        return {"device_id": "local", "status": "online", **tools.get_resource_usage()}
+    token = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
+    if token:
+        d = get_device(CONTROL_URL, token, device_id)
+        if d is not None:
+            return {"device_id": d.get("id"), "name": d.get("name"), "status": d.get("status"),
+                    "hostname": d.get("hostname"), "os": d.get("os"), "last_seen": d.get("last_seen")}
+    raise ValueError("Local mode only knows device 'local'; use the control plane for remote devices.")
 
 @mcp.tool()
 @device_aware(bound="unavailable")
@@ -460,7 +571,7 @@ def install_package(package_id: str, version: str | None = None) -> dict:
     if device is None:
         return {"available": False,
                 "note": "install_package requires a device-bound MCP session: "
-                        "approve the connection with a device token, then call again."}
+                        "call select_device() or approve the connection with a device token, then call again."}
     args = {"package_id": package_id}
     if version:
         args["version"] = version

@@ -1,4 +1,5 @@
-"""Agent poller: outbound-only loop with bounded exponential backoff.
+"""Agent poller: outbound-only loop with long-polling, auto token rotation,
+and bounded exponential backoff.
 
 The agent never listens on a port. It heartbeats, asks for the next
 queued task, executes it through ai_bridge.control.dispatch
@@ -19,28 +20,87 @@ from ai_bridge.control.dispatch import dispatch
 from ai_bridge.policy import Policy
 from ai_bridge.tools import default_policy
 
+MAX_RESULT_CHARS = 512_000
+ROTATE_THRESHOLD_SECONDS = 2 * 86400  # Rotate when < 48h remaining
+
 
 class Poller:
-    def __init__(self, control_url: str, device_token: str, *, policy: Policy | None = None):
+    def __init__(
+        self,
+        control_url: str,
+        device_token: str,
+        *,
+        policy: Policy | None = None,
+        token_file: Path | None = None,
+    ):
         self.control_url = control_url.rstrip("/")
         self.device_token = device_token
         self._explicit_policy = policy
         self.policy = policy if policy is not None else default_policy()
+        self.token_file = token_file or (Path.home() / ".ai-bridge" / "device.token")
         self.backoff = 2.0
 
-    def _req(self, method: str, path: str, payload: dict | None = None) -> dict:
+    def _req(self, method: str, path: str, payload: dict | None = None, timeout: int = 15) -> dict:
         data = json.dumps(payload).encode() if payload is not None else None
-        req = urllib.request.Request(self.control_url + path, data=data, method=method,
-                                     headers={"X-Device-Token": self.device_token,
-                                              "Content-Type": "application/json"})
+        req = urllib.request.Request(
+            self.control_url + path,
+            data=data,
+            method=method,
+            headers={
+                "X-Device-Token": self.device_token,
+                "Content-Type": "application/json",
+            },
+        )
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read() or b"{}")
         except urllib.error.HTTPError as exc:
             raise RuntimeError(f"Control plane returned HTTP {exc.code}")
 
+    def _save_token(self, token: str) -> None:
+        try:
+            self.token_file.parent.mkdir(parents=True, exist_ok=True)
+            self.token_file.write_text(token, encoding="utf-8")
+        except OSError:
+            pass
+
+    def _load_saved_token(self) -> str | None:
+        try:
+            if self.token_file.exists():
+                tok = self.token_file.read_text(encoding="utf-8").strip()
+                return tok or None
+        except OSError:
+            pass
+        return None
+
+    def rotate_token(self) -> str:
+        res = self._req("POST", "/api/agent/rotate", {})
+        new_tok = res.get("device_token")
+        if new_tok:
+            self.device_token = new_tok
+            self._save_token(new_tok)
+        return self.device_token
+
     def heartbeat(self) -> dict:
-        return self._req("POST", "/api/agent/heartbeat", {})
+        try:
+            hb = self._req("POST", "/api/agent/heartbeat", {})
+        except RuntimeError as exc:
+            if "HTTP 401" in str(exc):
+                saved = self._load_saved_token()
+                if saved and saved != self.device_token:
+                    self.device_token = saved
+                    hb = self._req("POST", "/api/agent/heartbeat", {})
+                else:
+                    raise
+            else:
+                raise
+        expires = hb.get("token_expires_at")
+        if isinstance(expires, (int, float)) and expires - time.time() < ROTATE_THRESHOLD_SECONDS:
+            try:
+                self.rotate_token()
+            except Exception:
+                pass
+        return hb
 
     def _effective_policy(self, remote_policy: dict | None) -> Policy:
         base = self._explicit_policy if self._explicit_policy is not None else default_policy()
@@ -56,9 +116,10 @@ class Poller:
             max_tier_unattended=base.max_tier_unattended,
         )
 
-    def run_once(self) -> dict:
+    def run_once(self, wait: int = 0) -> dict:
         self.heartbeat()
-        nxt = self._req("GET", "/api/agent/tasks/next")
+        path = f"/api/agent/tasks/next?wait={wait}" if wait > 0 else "/api/agent/tasks/next"
+        nxt = self._req("GET", path, timeout=max(15, wait + 5))
         task = nxt.get("task")
         if not task:
             self.backoff = 2.0
@@ -67,9 +128,13 @@ class Poller:
         try:
             args = json.loads(task.get("args_json") or "{}")
             eff_policy = self._effective_policy(task.get("policy"))
-            result = dispatch(task["tool"], args, policy=eff_policy,
-                              approval_granted=bool(task.get("approval_granted")))
-            status, text = "completed", json.dumps(result, default=str)[:8000]
+            result = dispatch(
+                task["tool"],
+                args,
+                policy=eff_policy,
+                approval_granted=bool(task.get("approval_granted")),
+            )
+            status, text = "completed", json.dumps(result, default=str)[:MAX_RESULT_CHARS]
         except PermissionError as exc:
             status, text = "failed", f"denied: {exc}"
         except Exception as exc:
@@ -81,8 +146,8 @@ class Poller:
     def run_forever(self) -> None:
         while True:
             try:
-                out = self.run_once()
-                time.sleep(1.0 if out.get("task") else 5.0)
+                out = self.run_once(wait=15)
+                time.sleep(0.1 if out.get("task") else 0.5)
             except Exception as exc:
                 print(f"Agent error (retry in {self.backoff:.0f}s): {exc}")
                 time.sleep(self.backoff)
