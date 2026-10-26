@@ -241,6 +241,10 @@ export default function App() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
+  const [editModal, setEditModal] = useState<{
+    kind: "device" | "task" | "approval" | "audit" | "policy" | "oauth_client";
+    data: any;
+  } | null>(null);
 
   // Policy editor state
   const [polTier3, setPolTier3] = useState(false);
@@ -264,6 +268,7 @@ export default function App() {
       } else if (e.key === "Escape") {
         setCmdOpen(false);
         setLightbox(null);
+        setEditModal(null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -919,8 +924,8 @@ export default function App() {
                               {d.token_expires_at ? rel(d.token_expires_at) : "—"}
                             </td>
                             <td>
-                              {!d.revoked && (
-                                <div style={{ display: "flex", gap: 6 }}>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {!d.revoked && (
                                   <button
                                     type="button"
                                     className="f2-btn f2-btn-primary f2-btn-sm"
@@ -931,6 +936,26 @@ export default function App() {
                                   >
                                     Dispatch →
                                   </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="f2-btn f2-btn-sm"
+                                  onClick={() =>
+                                    setEditModal({
+                                      kind: "device",
+                                      data: {
+                                        id: d.id,
+                                        name: d.name || "",
+                                        hostname: d.hostname || "",
+                                        os: d.os || "",
+                                        revoked: !!d.revoked,
+                                      },
+                                    })
+                                  }
+                                >
+                                  Edit
+                                </button>
+                                {!d.revoked && (
                                   <button
                                     type="button"
                                     className="f2-btn f2-btn-sm"
@@ -948,8 +973,25 @@ export default function App() {
                                   >
                                     Revoke
                                   </button>
-                                </div>
-                              )}
+                                )}
+                                <button
+                                  type="button"
+                                  className="f2-btn f2-btn-danger f2-btn-sm"
+                                  onClick={async () => {
+                                    if (confirm(`Permanently delete device "${d.name}" (${d.id})?`)) {
+                                      try {
+                                        await api.deleteDevice(d.id);
+                                        setNotice({ intent: "warning", text: `Deleted device ${d.name} (${d.id}).` });
+                                        load();
+                                      } catch (ex: any) {
+                                        setErr(`Delete failed: ${ex.message}`);
+                                      }
+                                    }
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -1037,7 +1079,7 @@ export default function App() {
               <Card
                 title={`Task Queue (${filteredTasks.length})`}
                 action={
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                     {["all", "queued", "running", "needs_approval", "completed", "failed", "cancelled"].map(s => (
                       <button
                         key={s}
@@ -1049,6 +1091,23 @@ export default function App() {
                         {s}
                       </button>
                     ))}
+                    <button
+                      type="button"
+                      className="f2-btn f2-btn-danger f2-btn-sm"
+                      onClick={async () => {
+                        if (confirm(`Clear ${taskStatus === "all" ? "all finished (completed/failed/cancelled)" : taskStatus} tasks?`)) {
+                          try {
+                            const r = await api.clearTasks(taskStatus);
+                            setNotice({ intent: "info", text: `Deleted ${r.deleted_count} task record(s).` });
+                            load();
+                          } catch (ex: any) {
+                            setErr(`Clear tasks failed: ${ex.message}`);
+                          }
+                        }
+                      }}
+                    >
+                      Clear {taskStatus === "all" ? "Finished" : taskStatus}
+                    </button>
                   </div>
                 }
               >
@@ -1079,13 +1138,30 @@ export default function App() {
                               <td><Badge value={t.status} /></td>
                               <td>{rel(t.created_at)}</td>
                               <td>
-                                <div style={{ display: "flex", gap: 6 }}>
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                                   <button
                                     type="button"
                                     className={isOpen ? "f2-btn f2-btn-primary f2-btn-sm" : "f2-btn f2-btn-sm"}
                                     onClick={() => setExpandedTaskId(isOpen ? null : t.id)}
                                   >
-                                    {isOpen ? "Hide Details" : "Inspect"}
+                                    {isOpen ? "Hide" : "Inspect"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="f2-btn f2-btn-sm"
+                                    onClick={() =>
+                                      setEditModal({
+                                        kind: "task",
+                                        data: {
+                                          id: t.id,
+                                          tool: t.tool || "capture_desktop_screenshot",
+                                          args_json: t.args_json || "{}",
+                                          status: t.status || "queued",
+                                        },
+                                      })
+                                    }
+                                  >
+                                    Edit
                                   </button>
                                   {!["completed", "failed", "cancelled"].includes(t.status) && (
                                     <button
@@ -1099,6 +1175,23 @@ export default function App() {
                                       Cancel
                                     </button>
                                   )}
+                                  <button
+                                    type="button"
+                                    className="f2-btn f2-btn-danger f2-btn-sm"
+                                    onClick={async () => {
+                                      if (confirm(`Delete task ${t.id} (${t.tool})?`)) {
+                                        try {
+                                          await api.deleteTask(t.id);
+                                          setNotice({ intent: "info", text: `Deleted task ${t.id}.` });
+                                          load();
+                                        } catch (ex: any) {
+                                          setErr(`Delete task failed: ${ex.message}`);
+                                        }
+                                      }
+                                    }}
+                                  >
+                                    Delete
+                                  </button>
                                 </div>
                               </td>
                             </tr>
@@ -1215,40 +1308,76 @@ export default function App() {
                       </div>
                     </div>
 
-                    {a.status === "pending" && (
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button
-                          type="button"
-                          className="f2-btn f2-btn-primary f2-btn-sm"
-                          onClick={async () => {
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {a.status === "pending" && (
+                        <>
+                          <button
+                            type="button"
+                            className="f2-btn f2-btn-primary f2-btn-sm"
+                            onClick={async () => {
+                              try {
+                                await api.decide(a.id, "approved");
+                                setNotice({ intent: "success", text: `Approved ${a.tool} (${a.id}). Task released to agent queue.` });
+                                load();
+                              } catch (ex: any) {
+                                setErr(`Approve failed: ${ex.message}`);
+                              }
+                            }}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            className="f2-btn f2-btn-danger f2-btn-sm"
+                            onClick={async () => {
+                              try {
+                                await api.decide(a.id, "denied");
+                                setNotice({ intent: "warning", text: `Denied ${a.tool} (${a.id}).` });
+                                load();
+                              } catch (ex: any) {
+                                setErr(`Deny failed: ${ex.message}`);
+                              }
+                            }}
+                          >
+                            Deny
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        className="f2-btn f2-btn-sm"
+                        onClick={() =>
+                          setEditModal({
+                            kind: "approval",
+                            data: {
+                              id: a.id,
+                              tool: a.tool || "",
+                              reason: a.reason || "",
+                              status: a.status || "pending",
+                            },
+                          })
+                        }
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="f2-btn f2-btn-danger f2-btn-sm"
+                        onClick={async () => {
+                          if (confirm(`Delete approval record ${a.id} (${a.tool})?`)) {
                             try {
-                              await api.decide(a.id, "approved");
-                              setNotice({ intent: "success", text: `Approved ${a.tool} (${a.id}). Task released to agent queue.` });
+                              await api.deleteApproval(a.id);
+                              setNotice({ intent: "info", text: `Deleted approval ${a.id}.` });
                               load();
                             } catch (ex: any) {
-                              setErr(`Approve failed: ${ex.message}`);
+                              setErr(`Delete approval failed: ${ex.message}`);
                             }
-                          }}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          className="f2-btn f2-btn-danger f2-btn-sm"
-                          onClick={async () => {
-                            try {
-                              await api.decide(a.id, "denied");
-                              setNotice({ intent: "warning", text: `Denied ${a.tool} (${a.id}).` });
-                              load();
-                            } catch (ex: any) {
-                              setErr(`Deny failed: ${ex.message}`);
-                            }
-                          }}
-                        >
-                          Deny
-                        </button>
-                      </div>
-                    )}
+                          }
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 ))}
                 {approvals.length === 0 && <p style={{ color: "var(--colorNeutralForeground3)", fontSize: 13 }}>No approval requests yet.</p>}
@@ -1258,7 +1387,28 @@ export default function App() {
 
           {/* ==================== AUDIT ==================== */}
           {view === "audit" && (
-            <Card title={`Audit Trail (${filteredAudit.length} events shown)`}>
+            <Card
+              title={`Audit Trail (${filteredAudit.length} events shown)`}
+              action={
+                <button
+                  type="button"
+                  className="f2-btn f2-btn-danger f2-btn-sm"
+                  onClick={async () => {
+                    if (confirm("Clear all audit log records?")) {
+                      try {
+                        const r = await api.clearAudit();
+                        setNotice({ intent: "info", text: `Cleared ${r.deleted_count} audit event(s).` });
+                        load();
+                      } catch (ex: any) {
+                        setErr(`Clear audit failed: ${ex.message}`);
+                      }
+                    }
+                  }}
+                >
+                  Clear Audit Log
+                </button>
+              }
+            >
               <div style={{ marginBottom: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <input
                   className="f2-input"
@@ -1284,6 +1434,7 @@ export default function App() {
                       <th>Device</th>
                       <th>Tool / Action</th>
                       <th>Decision</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1294,6 +1445,45 @@ export default function App() {
                         <td><code>{a.device_id ? String(a.device_id).slice(0, 8) : "—"}</code></td>
                         <td><code>{a.tool}</code></td>
                         <td><Badge value={a.decision || "?"} /></td>
+                        <td>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button
+                              type="button"
+                              className="f2-btn f2-btn-sm"
+                              onClick={() =>
+                                setEditModal({
+                                  kind: "audit",
+                                  data: {
+                                    id: a.id,
+                                    actor: a.actor || "",
+                                    tool: a.tool || "",
+                                    decision: a.decision || "allowed",
+                                    result: a.result || "",
+                                  },
+                                })
+                              }
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="f2-btn f2-btn-danger f2-btn-sm"
+                              onClick={async () => {
+                                if (confirm(`Delete audit event #${a.id} (${a.tool})?`)) {
+                                  try {
+                                    await api.deleteAudit(a.id);
+                                    setNotice({ intent: "info", text: `Deleted audit event #${a.id}.` });
+                                    load();
+                                  } catch (ex: any) {
+                                    setErr(`Delete audit failed: ${ex.message}`);
+                                  }
+                                }
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1460,6 +1650,7 @@ export default function App() {
                         <th>Author</th>
                         <th>Note</th>
                         <th>Configuration Summary</th>
+                        <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1478,6 +1669,46 @@ export default function App() {
                             <td>{p.note || "—"}</td>
                             <td>
                               <code>tier3={String(pol.allow_tier3)} desktop={String(pol.desktop_enabled)} apps=[{(pol.allowed_apps || []).join(", ")}]</code>
+                            </td>
+                            <td>
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <button
+                                  type="button"
+                                  className="f2-btn f2-btn-sm"
+                                  onClick={() =>
+                                    setEditModal({
+                                      kind: "policy",
+                                      data: {
+                                        version: p.version,
+                                        allow_tier3: !!pol.allow_tier3,
+                                        desktop_enabled: !!pol.desktop_enabled,
+                                        allowed_apps: (pol.allowed_apps || []).join(", "),
+                                        allowed_services: (pol.allowed_services || []).join(", "),
+                                        note: p.note || "",
+                                      },
+                                    })
+                                  }
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="f2-btn f2-btn-danger f2-btn-sm"
+                                  onClick={async () => {
+                                    if (confirm(`Delete policy version v${p.version}?`)) {
+                                      try {
+                                        await api.deletePolicyVersion(p.version);
+                                        setNotice({ intent: "info", text: `Deleted policy version v${p.version}.` });
+                                        load();
+                                      } catch (ex: any) {
+                                        setErr(`Delete policy failed: ${ex.message}`);
+                                      }
+                                    }
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -1552,17 +1783,58 @@ export default function App() {
                             <th>Client ID Prefix</th>
                             <th>Redirect URIs</th>
                             <th>Registered</th>
+                            <th>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {connections.chatgpt.clients.map((c: any, i: number) => (
-                            <tr key={i}>
-                              <td><b>{c.client_name || "MCP Client"}</b></td>
-                              <td><code>{c.client_id_prefix}…</code></td>
-                              <td style={{ wordBreak: "break-all", fontSize: 12 }}>{c.redirect_uris}</td>
-                              <td>{fmt(c.created_at)}</td>
-                            </tr>
-                          ))}
+                          {connections.chatgpt.clients.map((c: any, i: number) => {
+                            const cid = c.client_id || c.client_id_prefix;
+                            return (
+                              <tr key={i}>
+                                <td><b>{c.client_name || "MCP Client"}</b></td>
+                                <td><code>{c.client_id_prefix}…</code></td>
+                                <td style={{ wordBreak: "break-all", fontSize: 12 }}>{c.redirect_uris}</td>
+                                <td>{fmt(c.created_at)}</td>
+                                <td>
+                                  <div style={{ display: "flex", gap: 6 }}>
+                                    <button
+                                      type="button"
+                                      className="f2-btn f2-btn-sm"
+                                      onClick={() =>
+                                        setEditModal({
+                                          kind: "oauth_client",
+                                          data: {
+                                            client_id: cid,
+                                            client_name: c.client_name || "",
+                                            redirect_uris: c.redirect_uris || "",
+                                          },
+                                        })
+                                      }
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="f2-btn f2-btn-danger f2-btn-sm"
+                                      onClick={async () => {
+                                        if (confirm(`Delete OAuth client "${c.client_name || cid}" and revoke its tokens?`)) {
+                                          try {
+                                            await api.deleteOAuthClient(cid);
+                                            setNotice({ intent: "warning", text: `Deleted OAuth client ${c.client_name || cid}.` });
+                                            load();
+                                          } catch (ex: any) {
+                                            setErr(`Delete OAuth client failed: ${ex.message}`);
+                                          }
+                                        }
+                                      }}
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -1704,6 +1976,323 @@ export default function App() {
                 <span className="f2-kbd">Theme</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fluent 2 Edit Record Modal */}
+      {editModal && (
+        <div className="f2-modal-backdrop" onClick={() => setEditModal(null)}>
+          <div className="f2-modal" style={{ width: "100%", maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>
+                Edit {editModal.kind === "oauth_client" ? "OAuth Client" : editModal.kind.charAt(0).toUpperCase() + editModal.kind.slice(1)} Record
+              </h3>
+              <button type="button" className="f2-btn f2-btn-sm" onClick={() => setEditModal(null)}>
+                Close
+              </button>
+            </div>
+
+            <form
+              onSubmit={async e => {
+                e.preventDefault();
+                try {
+                  const d = editModal.data;
+                  if (editModal.kind === "device") {
+                    await api.updateDevice(d.id, {
+                      name: d.name,
+                      hostname: d.hostname,
+                      os: d.os,
+                      revoked: !!d.revoked,
+                    });
+                    setNotice({ intent: "success", text: `Updated device "${d.name}" (${d.id}).` });
+                  } else if (editModal.kind === "task") {
+                    let parsedArgs: any = {};
+                    try {
+                      parsedArgs = d.args_json?.trim() ? JSON.parse(d.args_json) : {};
+                    } catch {
+                      setErr("Task arguments must be valid JSON.");
+                      return;
+                    }
+                    await api.updateTask(d.id, {
+                      tool: d.tool,
+                      args: parsedArgs,
+                      status: d.status,
+                    });
+                    setNotice({ intent: "success", text: `Updated task ${d.id} (${d.tool} → ${d.status}).` });
+                  } else if (editModal.kind === "approval") {
+                    await api.updateApproval(d.id, {
+                      reason: d.reason,
+                      status: d.status,
+                    });
+                    setNotice({ intent: "success", text: `Updated approval ${d.id} (${d.status}).` });
+                  } else if (editModal.kind === "audit") {
+                    await api.updateAudit(d.id, {
+                      actor: d.actor,
+                      tool: d.tool,
+                      decision: d.decision,
+                      result: d.result,
+                    });
+                    setNotice({ intent: "success", text: `Updated audit record #${d.id}.` });
+                  } else if (editModal.kind === "policy") {
+                    await api.updatePolicyVersion(d.version, {
+                      allow_tier3: !!d.allow_tier3,
+                      desktop_enabled: !!d.desktop_enabled,
+                      allowed_apps: String(d.allowed_apps || "").split(",").map((s: string) => s.trim()).filter(Boolean),
+                      allowed_services: String(d.allowed_services || "").split(",").map((s: string) => s.trim()).filter(Boolean),
+                      note: d.note,
+                    });
+                    setNotice({ intent: "success", text: `Updated policy version v${d.version}.` });
+                  } else if (editModal.kind === "oauth_client") {
+                    await api.updateOAuthClient(d.client_id, {
+                      client_name: d.client_name,
+                      redirect_uris: d.redirect_uris,
+                    });
+                    setNotice({ intent: "success", text: `Updated OAuth client "${d.client_name}".` });
+                  }
+                  setEditModal(null);
+                  await load();
+                } catch (ex: any) {
+                  setErr(`Update failed: ${ex.message}`);
+                }
+              }}
+              style={{ display: "grid", gap: 12 }}
+            >
+              {editModal.kind === "device" && (
+                <>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Device Name</label>
+                    <input
+                      className="f2-input"
+                      style={{ width: "100%" }}
+                      value={editModal.data.name}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, name: e.target.value } })}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Hostname</label>
+                    <input
+                      className="f2-input"
+                      style={{ width: "100%" }}
+                      value={editModal.data.hostname}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, hostname: e.target.value } })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Operating System</label>
+                    <input
+                      className="f2-input"
+                      style={{ width: "100%" }}
+                      value={editModal.data.os}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, os: e.target.value } })}
+                    />
+                  </div>
+                  <label className="f2-switch-label" style={{ marginTop: 4 }}>
+                    <input
+                      type="checkbox"
+                      checked={!!editModal.data.revoked}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, revoked: e.target.checked } })}
+                      style={{ display: "none" }}
+                    />
+                    <span className="f2-switch" data-checked={String(!!editModal.data.revoked)} />
+                    <span>Revoked (uncheck to restore device access)</span>
+                  </label>
+                </>
+              )}
+
+              {editModal.kind === "task" && (
+                <>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Tool</label>
+                    <select
+                      className="f2-select"
+                      style={{ width: "100%" }}
+                      value={editModal.data.tool}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, tool: e.target.value } })}
+                    >
+                      {TOOLS.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Arguments (JSON)</label>
+                    <input
+                      className="f2-input"
+                      style={{ width: "100%", fontFamily: "var(--fontFamilyMonospace)" }}
+                      value={editModal.data.args_json}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, args_json: e.target.value } })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Status (set to "queued" to re-run)</label>
+                    <select
+                      className="f2-select"
+                      style={{ width: "100%" }}
+                      value={editModal.data.status}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, status: e.target.value } })}
+                    >
+                      {["queued", "running", "needs_approval", "completed", "failed", "cancelled"].map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {editModal.kind === "approval" && (
+                <>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Reason / Note</label>
+                    <input
+                      className="f2-input"
+                      style={{ width: "100%" }}
+                      value={editModal.data.reason}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, reason: e.target.value } })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Decision Status</label>
+                    <select
+                      className="f2-select"
+                      style={{ width: "100%" }}
+                      value={editModal.data.status}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, status: e.target.value } })}
+                    >
+                      {["pending", "approved", "denied"].map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {editModal.kind === "audit" && (
+                <>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Actor</label>
+                    <input
+                      className="f2-input"
+                      style={{ width: "100%" }}
+                      value={editModal.data.actor}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, actor: e.target.value } })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Tool / Action</label>
+                    <input
+                      className="f2-input"
+                      style={{ width: "100%" }}
+                      value={editModal.data.tool}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, tool: e.target.value } })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Decision</label>
+                    <input
+                      className="f2-input"
+                      style={{ width: "100%" }}
+                      value={editModal.data.decision}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, decision: e.target.value } })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Result / Audit Note</label>
+                    <input
+                      className="f2-input"
+                      style={{ width: "100%" }}
+                      value={editModal.data.result}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, result: e.target.value } })}
+                    />
+                  </div>
+                </>
+              )}
+
+              {editModal.kind === "policy" && (
+                <>
+                  <label className="f2-switch-label">
+                    <input
+                      type="checkbox"
+                      checked={!!editModal.data.allow_tier3}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, allow_tier3: e.target.checked } })}
+                      style={{ display: "none" }}
+                    />
+                    <span className="f2-switch" data-checked={String(!!editModal.data.allow_tier3)} />
+                    <span>Allow Tier-3 Operations Unattended</span>
+                  </label>
+                  <label className="f2-switch-label">
+                    <input
+                      type="checkbox"
+                      checked={!!editModal.data.desktop_enabled}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, desktop_enabled: e.target.checked } })}
+                      style={{ display: "none" }}
+                    />
+                    <span className="f2-switch" data-checked={String(!!editModal.data.desktop_enabled)} />
+                    <span>Enable Desktop Automation &amp; Vision</span>
+                  </label>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Allowed Apps (comma-separated)</label>
+                    <input
+                      className="f2-input"
+                      style={{ width: "100%" }}
+                      value={editModal.data.allowed_apps}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, allowed_apps: e.target.value } })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Allowed Services (comma-separated)</label>
+                    <input
+                      className="f2-input"
+                      style={{ width: "100%" }}
+                      value={editModal.data.allowed_services}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, allowed_services: e.target.value } })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Version Note</label>
+                    <input
+                      className="f2-input"
+                      style={{ width: "100%" }}
+                      value={editModal.data.note}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, note: e.target.value } })}
+                    />
+                  </div>
+                </>
+              )}
+
+              {editModal.kind === "oauth_client" && (
+                <>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Client Name</label>
+                    <input
+                      className="f2-input"
+                      style={{ width: "100%" }}
+                      value={editModal.data.client_name}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, client_name: e.target.value } })}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Redirect URIs</label>
+                    <input
+                      className="f2-input"
+                      style={{ width: "100%", fontFamily: "var(--fontFamilyMonospace)" }}
+                      value={editModal.data.redirect_uris}
+                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, redirect_uris: e.target.value } })}
+                      required
+                    />
+                  </div>
+                </>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+                <button type="button" className="f2-btn" onClick={() => setEditModal(null)}>
+                  Cancel
+                </button>
+                <button type="submit" className="f2-btn f2-btn-primary">
+                  Save Changes
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -136,6 +136,37 @@ class PolicyIn(BaseModel):
 class WebhookIn(BaseModel):
     webhook_url: str = ""
 
+
+class DeviceUpdateIn(BaseModel):
+    name: str | None = None
+    hostname: str | None = None
+    os: str | None = None
+    revoked: bool | None = None
+
+
+class TaskUpdateIn(BaseModel):
+    tool: str | None = None
+    args: dict | None = None
+    status: str | None = None
+
+
+class ApprovalUpdateIn(BaseModel):
+    reason: str | None = None
+    status: str | None = None
+
+
+class AuditUpdateIn(BaseModel):
+    actor: str | None = None
+    tool: str | None = None
+    decision: str | None = None
+    result: str | None = None
+
+
+class OAuthClientUpdateIn(BaseModel):
+    client_name: str | None = None
+    redirect_uris: str | None = None
+
+
 def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -> FastAPI:
     token = admin_token or os.environ.get("AI_BRIDGE_ADMIN_TOKEN")
     data_dir = Path(os.environ.get("AI_BRIDGE_DATA_DIR", str(Path.home() / ".ai-bridge")))
@@ -243,6 +274,39 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         audit("admin", device_id, "revoke_device", {}, "allowed")
         return {"device_id": device_id, "revoked": True}
 
+    @app.put("/api/devices/{device_id}")
+    def update_device(device_id: str, body: DeviceUpdateIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Device not found.")
+        name = body.name.strip() if body.name is not None and body.name.strip() else row["name"]
+        hostname = body.hostname.strip() if body.hostname is not None else (row["hostname"] or "")
+        os_val = body.os.strip() if body.os is not None else (row["os"] or "")
+        revoked = int(bool(body.revoked)) if body.revoked is not None else int(row["revoked"] or 0)
+        status = "revoked" if revoked else ("offline" if row["status"] == "revoked" else row["status"])
+        conn.execute(
+            "UPDATE devices SET name=?, hostname=?, os=?, revoked=?, status=? WHERE id=?",
+            (name, hostname, os_val, revoked, status, device_id),
+        )
+        conn.commit()
+        audit(actor, device_id, "update_device", {"name": name, "hostname": hostname, "os": os_val, "revoked": bool(revoked)}, "allowed")
+        updated = conn.execute(
+            "SELECT id, name, hostname, os, tenant, status, last_seen, revoked, created_at, token_expires_at FROM devices WHERE id=?",
+            (device_id,),
+        ).fetchone()
+        return dict(updated)
+
+    @app.delete("/api/devices/{device_id}")
+    def delete_device(device_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        cur = conn.execute("DELETE FROM devices WHERE id=?", (device_id,))
+        conn.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Device not found.")
+        audit(actor, device_id, "delete_device", {}, "allowed")
+        return {"device_id": device_id, "deleted": True}
+
     @app.post("/api/tasks")
     def submit_task(body: TaskIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         require_role("operator", x_admin_token, x_session_token)
@@ -325,6 +389,55 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         audit("admin", row["device_id"], "cancel_task", {"task_id": task_id}, "allowed")
         return {"task_id": task_id, "status": "cancelled"}
 
+    @app.put("/api/tasks/{task_id}")
+    def update_task(task_id: str, body: TaskUpdateIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Task not found.")
+        tool = body.tool.strip() if body.tool is not None and body.tool.strip() else row["tool"]
+        tier_enum = TOOL_TIERS.get(tool)
+        if tier_enum is None:
+            raise HTTPException(status_code=400, detail=f"Unknown tool: {tool}")
+        args_json = json.dumps(body.args) if body.args is not None else row["args_json"]
+        status = body.status.strip() if body.status is not None and body.status.strip() else row["status"]
+        valid_statuses = {"queued", "running", "needs_approval", "completed", "failed", "cancelled", "timed_out"}
+        if status not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+        conn.execute(
+            "UPDATE tasks SET tool=?, args_json=?, tier=?, status=?, updated_at=? WHERE id=?",
+            (tool, args_json, tier_enum.value, status, dbmod.now(), task_id),
+        )
+        conn.commit()
+        if status == "queued":
+            notify_tasks()
+        audit(actor, row["device_id"], "update_task", {"task_id": task_id, "tool": tool, "status": status}, "allowed")
+        updated = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+        return dict(updated)
+
+    @app.delete("/api/tasks/{task_id}")
+    def delete_task(task_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Task not found.")
+        conn.execute("DELETE FROM approvals WHERE task_id=?", (task_id,))
+        conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+        conn.commit()
+        audit(actor, row["device_id"], "delete_task", {"task_id": task_id}, "allowed")
+        return {"task_id": task_id, "deleted": True}
+
+    @app.delete("/api/tasks")
+    def clear_tasks(status: str | None = None, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        if status and status != "all":
+            cur = conn.execute("DELETE FROM tasks WHERE status=?", (status,))
+        else:
+            cur = conn.execute("DELETE FROM tasks WHERE status IN ('completed', 'failed', 'cancelled', 'timed_out')")
+        conn.commit()
+        audit(actor, "", "clear_tasks", {"status": status or "finished", "deleted_count": cur.rowcount}, "allowed")
+        return {"deleted_count": cur.rowcount}
+
     @app.get("/api/approvals")
     def list_approvals(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         require_role("viewer", x_admin_token, x_session_token)
@@ -348,6 +461,35 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         audit("admin", "", "decide_approval", {"approval_id": approval_id, "decision": body.decision}, "allowed")
         return {"approval_id": approval_id, "status": body.decision}
 
+    @app.put("/api/approvals/{approval_id}")
+    def update_approval(approval_id: str, body: ApprovalUpdateIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM approvals WHERE id=?", (approval_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Approval not found.")
+        reason = body.reason if body.reason is not None else row["reason"]
+        status = body.status.strip() if body.status is not None and body.status.strip() else row["status"]
+        if status not in {"pending", "approved", "denied"}:
+            raise HTTPException(status_code=400, detail="status must be pending, approved, or denied.")
+        conn.execute("UPDATE approvals SET reason=?, status=?, decided_by=? WHERE id=?", (reason, status, actor, approval_id))
+        if row["task_id"]:
+            t_status = "queued" if status == "approved" else ("cancelled" if status == "denied" else "needs_approval")
+            conn.execute("UPDATE tasks SET status=?, updated_at=? WHERE id=?", (t_status, dbmod.now(), row["task_id"]))
+        conn.commit()
+        notify_tasks()
+        audit(actor, "", "update_approval", {"approval_id": approval_id, "status": status}, "allowed")
+        return dict(conn.execute("SELECT * FROM approvals WHERE id=?", (approval_id,)).fetchone())
+
+    @app.delete("/api/approvals/{approval_id}")
+    def delete_approval(approval_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        cur = conn.execute("DELETE FROM approvals WHERE id=?", (approval_id,))
+        conn.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Approval not found.")
+        audit(actor, "", "delete_approval", {"approval_id": approval_id}, "allowed")
+        return {"approval_id": approval_id, "deleted": True}
+
     @app.get("/api/audit")
     def list_audit(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None), tenant: str = "default", tool: str | None = None):
         require_role("viewer", x_admin_token, x_session_token)
@@ -356,6 +498,39 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         else:
             rows = conn.execute("SELECT * FROM audit WHERE tenant=? ORDER BY ts DESC LIMIT 500", (tenant,)).fetchall()
         return [dict(r) for r in rows]
+
+    @app.put("/api/audit/{audit_id}")
+    def update_audit_record(audit_id: int, body: AuditUpdateIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("admin", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM audit WHERE id=?", (audit_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Audit record not found.")
+        actor_val = body.actor.strip() if body.actor is not None and body.actor.strip() else row["actor"]
+        tool_val = body.tool.strip() if body.tool is not None and body.tool.strip() else row["tool"]
+        decision_val = body.decision.strip() if body.decision is not None and body.decision.strip() else row["decision"]
+        result_val = body.result if body.result is not None else (row["result"] or "")
+        conn.execute(
+            "UPDATE audit SET actor=?, tool=?, decision=?, result=? WHERE id=?",
+            (actor_val, tool_val, decision_val, result_val[:2000], audit_id),
+        )
+        conn.commit()
+        return dict(conn.execute("SELECT * FROM audit WHERE id=?", (audit_id,)).fetchone())
+
+    @app.delete("/api/audit/{audit_id}")
+    def delete_audit_record(audit_id: int, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("admin", x_admin_token, x_session_token)
+        cur = conn.execute("DELETE FROM audit WHERE id=?", (audit_id,))
+        conn.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Audit record not found.")
+        return {"audit_id": audit_id, "deleted": True}
+
+    @app.delete("/api/audit")
+    def clear_audit_records(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("admin", x_admin_token, x_session_token)
+        cur = conn.execute("DELETE FROM audit")
+        conn.commit()
+        return {"deleted_count": cur.rowcount}
 
     @app.post("/api/emergency-stop")
     def emergency_stop(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -551,6 +726,31 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         rows = conn.execute("SELECT version, policy_json, created_by, created_at, note FROM policies ORDER BY version DESC LIMIT 100").fetchall()
         return [dict(r) for r in rows]
 
+    @app.put("/api/policies/{version}")
+    def update_policy_version(version: int, body: PolicyIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM policies WHERE version=?", (version,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Policy version not found.")
+        policy = body.model_dump()
+        conn.execute(
+            "UPDATE policies SET policy_json=?, note=? WHERE version=?",
+            (json.dumps(policy), body.note, version),
+        )
+        conn.commit()
+        audit(actor, "", "update_policy", {"version": version}, "allowed")
+        return {"version": version, "policy": policy, "note": body.note}
+
+    @app.delete("/api/policies/{version}")
+    def delete_policy_version(version: int, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        cur = conn.execute("DELETE FROM policies WHERE version=?", (version,))
+        conn.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Policy version not found.")
+        audit(actor, "", "delete_policy", {"version": version}, "allowed")
+        return {"version": version, "deleted": True}
+
     # --- Connections + logs (dashboard insight views) ---------------------
     @app.get("/api/connections")
     def connections(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -581,6 +781,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             odb.row_factory = sqlite3.Row
             for row in odb.execute("SELECT client_id, client_name, redirect_uris, created_at FROM clients ORDER BY created_at DESC"):
                 clients.append({
+                    "client_id": row["client_id"],
                     "client_id_prefix": row["client_id"][:16],
                     "client_name": row["client_name"],
                     "redirect_uris": row["redirect_uris"],
@@ -611,6 +812,52 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                 "last_token_at": last_token_at,
             },
         }
+
+    @app.put("/api/connections/clients/{client_id}")
+    def update_oauth_client(client_id: str, body: OAuthClientUpdateIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        import sqlite3
+
+        actor = require_role("admin", x_admin_token, x_session_token)
+        oauth_db = os.environ.get("AI_BRIDGE_OAUTH_DB", "/etc/ai-bridge-oauth/oauth.db")
+        try:
+            odb = sqlite3.connect(oauth_db, timeout=10.0)
+            odb.row_factory = sqlite3.Row
+            row = odb.execute("SELECT * FROM clients WHERE client_id=?", (client_id,)).fetchone()
+            if row is None:
+                odb.close()
+                raise HTTPException(status_code=404, detail="OAuth client not found.")
+            cname = body.client_name.strip() if body.client_name is not None and body.client_name.strip() else row["client_name"]
+            ruris = body.redirect_uris.strip() if body.redirect_uris is not None and body.redirect_uris.strip() else row["redirect_uris"]
+            odb.execute("UPDATE clients SET client_name=?, redirect_uris=? WHERE client_id=?", (cname, ruris, client_id))
+            odb.commit()
+            odb.close()
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"Failed to update OAuth client: {exc}") from exc
+        audit(actor, "", "update_oauth_client", {"client_id": client_id[:16], "client_name": cname}, "allowed")
+        return {"client_id": client_id, "client_name": cname, "redirect_uris": ruris}
+
+    @app.delete("/api/connections/clients/{client_id}")
+    def delete_oauth_client(client_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        import sqlite3
+
+        actor = require_role("admin", x_admin_token, x_session_token)
+        oauth_db = os.environ.get("AI_BRIDGE_OAUTH_DB", "/etc/ai-bridge-oauth/oauth.db")
+        try:
+            odb = sqlite3.connect(oauth_db, timeout=10.0)
+            odb.execute("DELETE FROM tokens WHERE client_id=?", (client_id,))
+            cur = odb.execute("DELETE FROM clients WHERE client_id=?", (client_id,))
+            odb.commit()
+            odb.close()
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="OAuth client not found.")
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"Failed to delete OAuth client: {exc}") from exc
+        audit(actor, "", "delete_oauth_client", {"client_id": client_id[:16]}, "allowed")
+        return {"client_id": client_id, "deleted": True}
 
     @app.get("/api/logs")
     def service_logs(service: str = "control", lines: int = 100, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):

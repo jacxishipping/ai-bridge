@@ -218,3 +218,46 @@ def test_poller_auto_rotates_expiring_token(monkeypatch, tmp_path):
     assert poller.device_token == "rotated-new-token"
     assert token_file.read_text(encoding="utf-8") == "rotated-new-token"
 
+
+def test_edit_and_delete_records():
+    c = _make_client()
+    hdr = {"X-Admin-Token": ADMIN}
+
+    # 1. Enroll, edit, and delete a device
+    dev = c.post("/api/devices/enroll", json={"name": "old-name", "hostname": "h1", "os": "Win11"}, headers=hdr).json()
+    did = dev["device_id"]
+    upd_dev = c.put(f"/api/devices/{did}", json={"name": "new-name", "hostname": "h2", "os": "Win11 Pro"}, headers=hdr)
+    assert upd_dev.status_code == 200 and upd_dev.json()["name"] == "new-name"
+
+    # 2. Submit, edit, and delete a task & approval
+    task = c.post("/api/tasks", json={"device_id": did, "tool": "delete_workspace_file", "args": {"relative_path": "x.txt"}}, headers=hdr).json()
+    tid = task["task_id"]
+    aid = task["approval_id"]
+    upd_task = c.put(f"/api/tasks/{tid}", json={"tool": "get_system_info", "args": {}, "status": "queued"}, headers=hdr)
+    assert upd_task.status_code == 200 and upd_task.json()["tool"] == "get_system_info"
+
+    upd_app = c.put(f"/api/approvals/{aid}", json={"reason": "Edited reason", "status": "approved"}, headers=hdr)
+    assert upd_app.status_code == 200 and upd_app.json()["reason"] == "Edited reason"
+
+    assert c.delete(f"/api/approvals/{aid}", headers=hdr).status_code == 200
+    assert c.delete(f"/api/tasks/{tid}", headers=hdr).status_code == 200
+
+    # 3. Create, edit, and delete a policy version
+    pol = c.post("/api/policies", json={"allow_tier3": False, "desktop_enabled": True, "allowed_apps": ["chrome"], "allowed_services": [], "note": "v1"}, headers=hdr).json()
+    ver = pol["version"]
+    upd_pol = c.put(f"/api/policies/{ver}", json={"allow_tier3": True, "desktop_enabled": True, "allowed_apps": ["chrome", "code"], "allowed_services": [], "note": "v1-edited"}, headers=hdr)
+    assert upd_pol.status_code == 200 and upd_pol.json()["policy"]["allow_tier3"] is True
+    assert c.delete(f"/api/policies/{ver}", headers=hdr).status_code == 200
+
+    # 4. Edit and delete an audit event
+    aud_list = c.get("/api/audit", headers=hdr).json()
+    assert len(aud_list) > 0
+    aud_id = aud_list[0]["id"]
+    upd_aud = c.put(f"/api/audit/{aud_id}", json={"actor": "custom-admin", "decision": "reviewed", "result": "verified"}, headers=hdr)
+    assert upd_aud.status_code == 200 and upd_aud.json()["actor"] == "custom-admin"
+    assert c.delete(f"/api/audit/{aud_id}", headers=hdr).status_code == 200
+
+    # 5. Delete device
+    assert c.delete(f"/api/devices/{did}", headers=hdr).status_code == 200
+
+
