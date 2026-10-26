@@ -5,11 +5,9 @@ flow with PKCE (S256), refresh-token rotation, revocation, and an internal
 token-verification endpoint used by nginx auth_request for /mcp.
 
 Secrets are never logged. Only SHA-256 hashes of codes/tokens are stored.
-The admin token (from the environment) is the only approval credential:
-entering it on the approval page authorizes a client. No user accounts.
-An optional device token on the approval page binds the client to one
-device: MCP sessions for that client then run tools on that device
-instead of the droplet (see the MCP server's device routing).
+Both the admin token (from the environment) and a valid enrolled device token
+are required on the approval page: every OAuth MCP client is bound to a
+specific enrolled device so MCP sessions always execute on that device.
 """
 
 import base64
@@ -21,7 +19,7 @@ import secrets
 import sqlite3
 import time
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from fastapi import FastAPI, Form, Header, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -179,34 +177,457 @@ async def register(request: Request):
 
 # ---------------------------------------------------------------- authorization
 
+_FLUENT2_STYLE = """
+:root, [data-theme="light"] {
+  --fontFamilyBase: "Segoe UI Variable", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", sans-serif;
+  --fontFamilyMonospace: "Cascadia Code", "Consolas", "SFMono-Regular", Menlo, monospace;
+  --colorBrandBackground: #0f6cbd;
+  --colorBrandBackgroundHover: #115ea3;
+  --colorBrandBackgroundPressed: #0c3b5e;
+  --colorBrandBackground2: #ebf3fc;
+  --colorBrandForeground1: #0f6cbd;
+  --colorBrandStroke2: #b4d6fa;
+  --colorCompoundBrandStroke: #0f6cbd;
+  --colorNeutralBackground1: #ffffff;
+  --colorNeutralBackground1Hover: #f5f5f5;
+  --colorNeutralBackground2: #fafafa;
+  --colorNeutralBackground3: #f5f5f5;
+  --colorNeutralForeground1: #242424;
+  --colorNeutralForeground2: #424242;
+  --colorNeutralForeground3: #616161;
+  --colorNeutralStroke1: #d1d1d1;
+  --colorNeutralStroke2: #e0e0e0;
+  --colorNeutralStrokeAccessible: #616161;
+  --colorStatusDangerBackground1: #fdf3f4;
+  --colorStatusDangerForeground1: #b10e1c;
+  --colorStatusDangerStroke1: #eeacb2;
+  --colorStatusSuccessBackground1: #f1faf1;
+  --colorStatusSuccessForeground1: #0e700e;
+  --colorStatusSuccessStroke1: #9fd89f;
+  --shadow4: 0 2px 4px rgba(0,0,0,0.14), 0 0 2px rgba(0,0,0,0.12);
+  --shadow16: 0 8px 16px rgba(0,0,0,0.14), 0 0 2px rgba(0,0,0,0.12);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --colorBrandBackground: #115ea3;
+    --colorBrandBackgroundHover: #0f6cbd;
+    --colorBrandBackgroundPressed: #0c3b5e;
+    --colorBrandBackground2: #0c3b5e;
+    --colorBrandForeground1: #479ef5;
+    --colorBrandStroke2: #0f548c;
+    --colorCompoundBrandStroke: #479ef5;
+    --colorNeutralBackground1: #292929;
+    --colorNeutralBackground1Hover: #383838;
+    --colorNeutralBackground2: #1f1f1f;
+    --colorNeutralBackground3: #141414;
+    --colorNeutralForeground1: #ffffff;
+    --colorNeutralForeground2: #d6d6d6;
+    --colorNeutralForeground3: #adadad;
+    --colorNeutralStroke1: #525252;
+    --colorNeutralStroke2: #3d3d3d;
+    --colorNeutralStrokeAccessible: #adadad;
+    --colorStatusDangerBackground1: #3b0509;
+    --colorStatusDangerForeground1: #eeacb2;
+    --colorStatusDangerStroke1: #860b16;
+    --colorStatusSuccessBackground1: #052505;
+    --colorStatusSuccessForeground1: #54b054;
+    --colorStatusSuccessStroke1: #107c10;
+    --shadow4: 0 2px 4px rgba(0,0,0,0.32), 0 0 2px rgba(0,0,0,0.24);
+    --shadow16: 0 8px 16px rgba(0,0,0,0.42), 0 0 2px rgba(0,0,0,0.32);
+  }
+}
+[data-theme="dark"] {
+  --colorBrandBackground: #115ea3;
+  --colorBrandBackgroundHover: #0f6cbd;
+  --colorBrandBackgroundPressed: #0c3b5e;
+  --colorBrandBackground2: #0c3b5e;
+  --colorBrandForeground1: #479ef5;
+  --colorBrandStroke2: #0f548c;
+  --colorCompoundBrandStroke: #479ef5;
+  --colorNeutralBackground1: #292929;
+  --colorNeutralBackground1Hover: #383838;
+  --colorNeutralBackground2: #1f1f1f;
+  --colorNeutralBackground3: #141414;
+  --colorNeutralForeground1: #ffffff;
+  --colorNeutralForeground2: #d6d6d6;
+  --colorNeutralForeground3: #adadad;
+  --colorNeutralStroke1: #525252;
+  --colorNeutralStroke2: #3d3d3d;
+  --colorNeutralStrokeAccessible: #adadad;
+  --colorStatusDangerBackground1: #3b0509;
+  --colorStatusDangerForeground1: #eeacb2;
+  --colorStatusDangerStroke1: #860b16;
+  --colorStatusSuccessBackground1: #052505;
+  --colorStatusSuccessForeground1: #54b054;
+  --colorStatusSuccessStroke1: #107c10;
+  --shadow4: 0 2px 4px rgba(0,0,0,0.32), 0 0 2px rgba(0,0,0,0.24);
+  --shadow16: 0 8px 16px rgba(0,0,0,0.42), 0 0 2px rgba(0,0,0,0.32);
+}
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  font-family: var(--fontFamilyBase);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--colorNeutralForeground1);
+  background-color: var(--colorNeutralBackground3);
+  -webkit-font-smoothing: antialiased;
+}
+.f2-card {
+  width: 100%;
+  max-width: 460px;
+  background-color: var(--colorNeutralBackground1);
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 12px;
+  box-shadow: var(--shadow16);
+  padding: 28px;
+}
+.f2-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.f2-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.f2-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #0f6cbd 0%, #2886de 55%, #479ef5 100%);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow4);
+}
+.f2-title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 600;
+}
+.f2-subtitle {
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: var(--colorNeutralForeground3);
+}
+.f2-meta-box {
+  background-color: var(--colorNeutralBackground2);
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.f2-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.f2-meta-label {
+  color: var(--colorNeutralForeground3);
+  font-size: 12px;
+  font-weight: 600;
+}
+.f2-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  background-color: var(--colorBrandBackground2);
+  color: var(--colorBrandForeground1);
+  border: 1px solid var(--colorBrandStroke2);
+}
+.f2-badge-success {
+  background-color: var(--colorStatusSuccessBackground1);
+  color: var(--colorStatusSuccessForeground1);
+  border-color: var(--colorStatusSuccessStroke1);
+}
+.f2-alert {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background-color: var(--colorStatusDangerBackground1);
+  border: 1px solid var(--colorStatusDangerStroke1);
+  color: var(--colorStatusDangerForeground1);
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 16px;
+}
+.f2-field {
+  margin-bottom: 16px;
+}
+.f2-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--colorNeutralForeground1);
+  margin-bottom: 5px;
+}
+.f2-req {
+  color: var(--colorStatusDangerForeground1);
+  font-size: 11px;
+  font-weight: 600;
+}
+.f2-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.f2-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 64px 0 12px;
+  border-radius: 4px;
+  border: 1px solid var(--colorNeutralStroke1);
+  border-bottom: 1px solid var(--colorNeutralStrokeAccessible);
+  background-color: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  font-family: var(--fontFamilyMonospace);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 120ms cubic-bezier(0.33, 0, 0.67, 1);
+}
+.f2-input:focus {
+  border-bottom: 2px solid var(--colorCompoundBrandStroke);
+}
+.f2-toggle-vis {
+  position: absolute;
+  right: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--colorNeutralForeground3);
+  font-family: var(--fontFamilyBase);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.f2-toggle-vis:hover {
+  background: var(--colorNeutralBackground1Hover);
+  color: var(--colorNeutralForeground1);
+}
+.f2-hint {
+  margin-top: 5px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--colorNeutralForeground3);
+}
+.f2-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 22px;
+}
+.f2-btn {
+  flex: 1;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 4px;
+  border: 1px solid var(--colorNeutralStroke1);
+  background-color: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  font-family: var(--fontFamilyBase);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms cubic-bezier(0.33, 0, 0.67, 1);
+}
+.f2-btn:hover {
+  background-color: var(--colorNeutralBackground1Hover);
+}
+.f2-btn-primary {
+  flex: 2;
+  background-color: var(--colorBrandBackground);
+  border-color: transparent;
+  color: #ffffff;
+}
+.f2-btn-primary:hover {
+  background-color: var(--colorBrandBackgroundHover);
+}
+.f2-btn-primary:active {
+  background-color: var(--colorBrandBackgroundPressed);
+}
+.f2-theme-btn {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 4px;
+  border: 1px solid var(--colorNeutralStroke2);
+  background: transparent;
+  color: var(--colorNeutralForeground2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.f2-theme-btn:hover {
+  background: var(--colorNeutralBackground1Hover);
+}
+code {
+  font-family: var(--fontFamilyMonospace);
+  font-size: 12px;
+}
+"""
+
+
+def _error_page(title: str, detail: str) -> str:
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>{html.escape(title)} — AI Bridge OAuth</title>
+  <style>{_FLUENT2_STYLE}</style>
+</head>
+<body>
+  <main class="f2-card">
+    <div class="f2-header">
+      <div class="f2-brand">
+        <span class="f2-logo">
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a.75.75 0 0 1 .33.08l6 3A.75.75 0 0 1 16.75 6v3.5c0 4.08-2.74 7.57-6.53 8.46a.98.98 0 0 1-.44 0C5.99 17.07 3.25 13.58 3.25 9.5V6a.75.75 0 0 1 .42-.67l6-3A.75.75 0 0 1 10 2Z"/></svg>
+        </span>
+        <span>AI Bridge OAuth Gateway</span>
+      </div>
+    </div>
+    <h1 class="f2-title">{html.escape(title)}</h1>
+    <div class="f2-alert" style="margin-top:12px">{html.escape(detail)}</div>
+  </main>
+</body>
+</html>"""
+
+
 def approval_form(params: dict, error: str = "", current_binding: str = "") -> str:
     hidden = "".join(
         f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">'
         for k, v in params.items()
     )
-    err_html = f'<p style="color:red">{html.escape(error)}</p>' if error else ""
-    binding_html = (
-        f'<p>Currently bound to device: <b>{html.escape(current_binding)}</b>. '
-        "Enter a different device token below to re-bind, or leave it blank to keep this binding.</p>"
-        if current_binding else ""
+    client_display = params.get("client_name") or params.get("client_id") or "MCP Client"
+    redirect_uri = params.get("redirect_uri") or ""
+    redirect_host = urlparse(redirect_uri).netloc or redirect_uri
+    err_html = f'<div class="f2-alert">{html.escape(error)}</div>' if error else ""
+    binding_row = (
+        f'<div class="f2-meta-row">'
+        f'<span class="f2-meta-label">EXISTING BINDING</span>'
+        f'<span class="f2-badge f2-badge-success">Device {html.escape(current_binding)}</span>'
+        f'</div>'
+        if current_binding
+        else ""
     )
-    return f"""<!doctype html><html><body>
-<h2>Authorize AI Bridge MCP access</h2>
-<p>Client <b>{html.escape(params.get("client_name", params.get("client_id", "")))}</b>
-wants access to the AI Bridge MCP server ({html.escape(RESOURCE)}).</p>
-<p>Enter the admin token to approve. It is checked once and never stored.</p>
-{binding_html}
-{err_html}
-<form method="post" action="/oauth/authorize">
-{hidden}
-<label>Admin token: <input type="password" name="admin_token" required></label><br><br>
-<label>Device token (optional): <input type="password" name="device_token"></label><br>
-<small>Bind this connection to one device: MCP tools will then run on that
-device instead of the droplet. Leave blank for an unbound connection
-(droplet tools, as before).</small><br><br>
-<button type="submit" name="action" value="approve">Approve</button>
-<button type="submit" name="action" value="deny">Deny</button>
-</form></body></html>"""
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Authorize MCP Connection — AI Bridge</title>
+  <style>{_FLUENT2_STYLE}</style>
+</head>
+<body>
+  <main class="f2-card">
+    <div class="f2-header">
+      <div class="f2-brand">
+        <span class="f2-logo">
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a.75.75 0 0 1 .33.08l6 3A.75.75 0 0 1 16.75 6v3.5c0 4.08-2.74 7.57-6.53 8.46a.98.98 0 0 1-.44 0C5.99 17.07 3.25 13.58 3.25 9.5V6a.75.75 0 0 1 .42-.67l6-3A.75.75 0 0 1 10 2Zm3.35 6.35a.5.5 0 0 0-.7-.7L9 11.29 7.35 9.65a.5.5 0 0 0-.7.7l2 2a.5.5 0 0 0 .7 0l4-4Z"/></svg>
+        </span>
+        <span>AI Bridge MCP Security</span>
+      </div>
+      <button type="button" class="f2-theme-btn" onclick="toggleTheme()">Theme</button>
+    </div>
+
+    <h1 class="f2-title">Authorize MCP Client</h1>
+    <p class="f2-subtitle">
+      Grant <b>{html.escape(client_display)}</b> access to your policy-governed AI Bridge device.
+    </p>
+
+    <div class="f2-meta-box">
+      <div class="f2-meta-row">
+        <span class="f2-meta-label">CLIENT APPLICATION</span>
+        <span class="f2-badge">{html.escape(client_display)}</span>
+      </div>
+      <div class="f2-meta-row">
+        <span class="f2-meta-label">MCP ENDPOINT</span>
+        <code>{html.escape(RESOURCE)}</code>
+      </div>
+      <div class="f2-meta-row">
+        <span class="f2-meta-label">CALLBACK HOST</span>
+        <code>{html.escape(redirect_host)}</code>
+      </div>
+      {binding_row}
+    </div>
+
+    {err_html}
+
+    <form method="post" action="/oauth/authorize" novalidate>
+      {hidden}
+
+      <div class="f2-field">
+        <label class="f2-label" for="admin_token">
+          <span>Administrator Token</span>
+          <span class="f2-req">Required</span>
+        </label>
+        <div class="f2-input-wrap">
+          <input id="admin_token" class="f2-input" type="password" name="admin_token" placeholder="Enter AI_BRIDGE_ADMIN_TOKEN…" autocomplete="off" required />
+          <button type="button" class="f2-toggle-vis" onclick="toggleVis('admin_token', this)">Show</button>
+        </div>
+        <div class="f2-hint">Verified once to authorize this OAuth client and never stored in the session.</div>
+      </div>
+
+      <div class="f2-field">
+        <label class="f2-label" for="device_token">
+          <span>Target Device Token</span>
+          <span class="f2-req">Required</span>
+        </label>
+        <div class="f2-input-wrap">
+          <input id="device_token" class="f2-input" type="password" name="device_token" placeholder="Enter enrolled device token…" autocomplete="off" required />
+          <button type="button" class="f2-toggle-vis" onclick="toggleVis('device_token', this)">Show</button>
+        </div>
+        <div class="f2-hint">
+          Binds this MCP connection to your enrolled machine so all tools execute on that device. Issue a token in <b>Dashboard → Devices → Enroll Device</b>.
+        </div>
+      </div>
+
+      <div class="f2-actions">
+        <button type="submit" name="action" value="deny" class="f2-btn" formnovalidate>Deny</button>
+        <button type="submit" name="action" value="approve" class="f2-btn f2-btn-primary">Approve &amp; Bind Device</button>
+      </div>
+    </form>
+  </main>
+
+  <script>
+    function toggleVis(id, btn) {{
+      var el = document.getElementById(id);
+      if (!el) return;
+      if (el.type === "password") {{ el.type = "text"; btn.textContent = "Hide"; }}
+      else {{ el.type = "password"; btn.textContent = "Show"; }}
+    }}
+    function toggleTheme() {{
+      var cur = document.documentElement.getAttribute("data-theme");
+      var next = cur === "dark" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+    }}
+  </script>
+</body>
+</html>"""
 
 
 def resolve_device_token(token: str) -> str | None:
@@ -247,13 +668,13 @@ def authorize_get(
     ).fetchone()
     conn.close()
     if row is None:
-        return HTMLResponse("<h2>Unknown client</h2>", status_code=400)
+        return HTMLResponse(_error_page("Unknown OAuth Client", "The client_id provided is not registered with this AI Bridge gateway."), status_code=400)
     if response_type != "code":
         return redirect_with(
             redirect_uri, {"error": "unsupported_response_type", "state": state}
         )
     if redirect_uri not in row["redirect_uris"].split("\n"):
-        return HTMLResponse("<h2>Redirect URI not registered</h2>", status_code=400)
+        return HTMLResponse(_error_page("Redirect URI Not Registered", "The redirect_uri in this request does not match the client registration."), status_code=400)
     if code_challenge and code_challenge_method not in ("S256",):
         return redirect_with(
             redirect_uri, {"error": "invalid_request", "state": state}
@@ -282,6 +703,7 @@ def authorize_post(
     state: str = Form(""),
     code_challenge: str = Form(""),
     code_challenge_method: str = Form(""),
+    client_name: str = Form(""),
     admin_token: str = Form(""),
     device_token: str = Form(""),
     action: str = Form(""),
@@ -290,36 +712,31 @@ def authorize_post(
         return redirect_with(
             redirect_uri, {"error": "access_denied", "state": state}
         )
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": scope,
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": code_challenge_method,
+        "client_name": client_name or client_id,
+    }
     if not admin_ok(admin_token):
-        params = {
-            "client_id": client_id,
-            "redirect_uri": redirect_uri,
-            "scope": scope,
-            "state": state,
-            "code_challenge": code_challenge,
-            "code_challenge_method": code_challenge_method,
-        }
         return HTMLResponse(approval_form(params, "Invalid admin token."), status_code=401)
-    # Optional device binding: a valid device token binds this client to
-    # that device. Blank keeps any existing binding (re-approval without
-    # a token never silently unbinds a client).
-    binding = None
-    if device_token:
-        binding = resolve_device_token(device_token)
-        if binding is None:
-            params = {
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "scope": scope,
-                "state": state,
-                "code_challenge": code_challenge,
-                "code_challenge_method": code_challenge_method,
-            }
-            return HTMLResponse(approval_form(params, "Invalid device token."), status_code=401)
+    # Device token is required on MCP OAuth approval so every OAuth session
+    # is bound to a specific enrolled device.
+    cleaned_device_token = (device_token or "").strip()
+    if not cleaned_device_token:
+        return HTMLResponse(
+            approval_form(params, "Device token is required to bind this MCP connection to an enrolled device."),
+            status_code=401,
+        )
+    binding = resolve_device_token(cleaned_device_token)
+    if binding is None:
+        return HTMLResponse(approval_form(params, "Invalid device token."), status_code=401)
     code = secrets.token_urlsafe(32)
     conn = connect()
-    if binding:
-        conn.execute("UPDATE clients SET device_id=? WHERE client_id=?", (binding, client_id))
+    conn.execute("UPDATE clients SET device_id=? WHERE client_id=?", (binding, client_id))
     conn.execute(
         "INSERT INTO codes (code_hash, client_id, redirect_uri, challenge,"
         " challenge_method, scope, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",

@@ -73,23 +73,27 @@ def test_approve_binds_device_and_verify_returns_it(monkeypatch):
     assert r.json()["device_id"] == "dev-123"
 
 
-def test_invalid_device_token_rejected_and_blank_keeps_binding(monkeypatch):
+def test_blank_or_invalid_device_token_rejected(monkeypatch):
     client = _fresh_client()
     cid = _register(client)
     monkeypatch.setattr(gateway, "resolve_device_token",
                         lambda t: "dev-123" if t == "good-token" else None)
-    r = _approve(client, cid, device_token="bad-token")
-    assert r.status_code == 401
-    assert "Invalid device token" in r.text
+
+    # Blank device token is rejected because device_token is required
+    r_blank = _approve(client, cid, device_token="")
+    assert r_blank.status_code == 401
+    assert "Device token is required" in r_blank.text
     assert _binding(cid) in ("", None)
 
-    r = _approve(client, cid, device_token="good-token")
-    assert r.status_code == 302
-    assert _binding(cid) == "dev-123"
+    # Invalid device token is rejected
+    r_bad = _approve(client, cid, device_token="bad-token")
+    assert r_bad.status_code == 401
+    assert "Invalid device token" in r_bad.text
+    assert _binding(cid) in ("", None)
 
-    # Re-approval without a device token keeps the existing binding.
-    r = _approve(client, cid, device_token="")
-    assert r.status_code == 302
+    # Valid device token succeeds and binds the client
+    r_ok = _approve(client, cid, device_token="good-token")
+    assert r_ok.status_code == 302
     assert _binding(cid) == "dev-123"
 
 
