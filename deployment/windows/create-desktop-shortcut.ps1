@@ -28,3 +28,4 @@ foreach ($Dir in @($DesktopDir, $StartMenuDir)) {
         Write-Host "Created shortcut: $ShortcutPath"
     }
 }
+
