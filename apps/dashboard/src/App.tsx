@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { api, token, sessionToken } from "./api";
 
 type View = "overview" | "devices" | "tasks" | "approvals" | "audit" | "policies" | "connections" | "logs";
+type Theme = "light" | "dark";
 
 const TOOLS = [
   "list_devices", "select_device", "get_device_status", "get_system_info", "get_resource_usage",
@@ -16,6 +17,58 @@ const TOOLS = [
   "install_package",
 ];
 
+const TASK_PRESETS: Array<{ label: string; tool: string; args: string }> = [
+  { label: "Capture Screenshot", tool: "capture_desktop_screenshot", args: "{}" },
+  { label: "List Open Windows", tool: "perform_approved_ui_action", args: '{"action": "list_windows"}' },
+  { label: "System Info", tool: "get_system_info", args: "{}" },
+  { label: "Resource Usage", tool: "get_resource_usage", args: "{}" },
+  { label: "Top Processes", tool: "list_processes", args: '{"limit": 20}' },
+  { label: "Launch Chrome", tool: "launch_approved_application", args: '{"app_name": "chrome"}' },
+];
+
+const VIEW_META: Record<View, { title: string; subtitle: string; group: "ops" | "gov" }> = {
+  overview: {
+    title: "Command Overview",
+    subtitle: "Real-time fleet telemetry, task throughput, and security posture across enrolled devices.",
+    group: "ops",
+  },
+  devices: {
+    title: "Enrolled Devices",
+    subtitle: "Manage outbound-polling Windows and Linux agents, inspect heartbeat status, and issue tokens.",
+    group: "ops",
+  },
+  tasks: {
+    title: "Task Queue & Vision Inspector",
+    subtitle: "Dispatch policy-governed tools, inspect JSON payloads, and view captured desktop screenshots.",
+    group: "ops",
+  },
+  approvals: {
+    title: "Human-in-the-Loop Approvals",
+    subtitle: "Review and authorize Tier-3 and Tier-4 operations requested by AI agents.",
+    group: "ops",
+  },
+  audit: {
+    title: "Immutable Audit Trail",
+    subtitle: "Every tool invocation, policy change, and approval decision recorded with actor and tenant context.",
+    group: "gov",
+  },
+  policies: {
+    title: "Security Policies & Webhooks",
+    subtitle: "Configure versioned execution guardrails, desktop automation permissions, and instant approval alerts.",
+    group: "gov",
+  },
+  connections: {
+    title: "MCP & OAuth Connections",
+    subtitle: "Monitor Streamable HTTP MCP endpoints, OAuth 2.0 gateway health, and connected AI clients.",
+    group: "gov",
+  },
+  logs: {
+    title: "Service Diagnostics & Logs",
+    subtitle: "Live systemd journal and reverse-proxy telemetry from the control plane.",
+    group: "gov",
+  },
+};
+
 function fmt(ts: any): string {
   if (!ts) return "—";
   const d = new Date(ts * 1000);
@@ -25,39 +78,88 @@ function fmt(ts: any): string {
 function rel(ts: any): string {
   if (!ts) return "never";
   const diff = Date.now() / 1000 - ts;
+  if (diff < 0) {
+    const rem = -diff;
+    if (rem < 3600) return `in ${Math.ceil(rem / 60)}m`;
+    if (rem < 86400) return `in ${Math.ceil(rem / 3600)}h`;
+    return `in ${Math.ceil(rem / 86400)}d`;
+  }
   if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} h ago`;
-  return `${Math.floor(diff / 86400)} d ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+/* Fluent 2 20px SVG Icons */
+function FluentIcon({ name }: { name: string }) {
+  const props = { width: 18, height: 18, viewBox: "0 0 20 20", fill: "currentColor" };
+  switch (name) {
+    case "overview":
+      return <svg {...props}><path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h4A1.5 1.5 0 0 1 10 4.5v4A1.5 1.5 0 0 1 8.5 10h-4A1.5 1.5 0 0 1 3 8.5v-4ZM11.5 3A1.5 1.5 0 0 0 10 4.5v4A1.5 1.5 0 0 0 11.5 10h4A1.5 1.5 0 0 0 17 8.5v-4A1.5 1.5 0 0 0 15.5 3h-4ZM3 11.5A1.5 1.5 0 0 1 4.5 10h4A1.5 1.5 0 0 1 10 11.5v4A1.5 1.5 0 0 1 8.5 17h-4A1.5 1.5 0 0 1 3 15.5v-4ZM11.5 10a1.5 1.5 0 0 0-1.5 1.5v4a1.5 1.5 0 0 0 1.5 1.5h4a1.5 1.5 0 0 0 1.5-1.5v-4a1.5 1.5 0 0 0-1.5-1.5h-4Z"/></svg>;
+    case "devices":
+      return <svg {...props}><path d="M4 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h4v1.5H5.5a.5.5 0 0 0 0 1h9a.5.5 0 0 0 0-1H12V14h4a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H4Zm0 1h12a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/></svg>;
+    case "tasks":
+      return <svg {...props}><path d="M6 3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H6Zm1.85 5.15a.5.5 0 0 1 .7 0l.95.94 2.65-2.64a.5.5 0 0 1 .7.7l-3 3a.5.5 0 0 1-.7 0l-1.3-1.3a.5.5 0 0 1 0-.7ZM7.5 13h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1Z"/></svg>;
+    case "approvals":
+      return <svg {...props}><path d="M10 2a.75.75 0 0 1 .33.08l6 3A.75.75 0 0 1 16.75 6v3.5c0 4.08-2.74 7.57-6.53 8.46a.98.98 0 0 1-.44 0C5.99 17.07 3.25 13.58 3.25 9.5V6a.75.75 0 0 1 .42-.67l6-3A.75.75 0 0 1 10 2Zm3.35 6.35a.5.5 0 0 0-.7-.7L9 11.29 7.35 9.65a.5.5 0 0 0-.7.7l2 2a.5.5 0 0 0 .7 0l4-4Z"/></svg>;
+    case "audit":
+      return <svg {...props}><path d="M4 4.5A1.5 1.5 0 0 1 5.5 3h6.88a1.5 1.5 0 0 1 1.06.44l2.12 2.12c.28.28.44.66.44 1.06V15.5A1.5 1.5 0 0 1 14.5 17h-9A1.5 1.5 0 0 1 4 15.5v-11Zm3 .5a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H7Zm0 3a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H7Zm0 3a.5.5 0 0 0 0 1h4a.5.5 0 0 0 0-1H7Z"/></svg>;
+    case "policies":
+      return <svg {...props}><path d="M10 2.5a3.5 3.5 0 0 0-3.5 3.5V8H5.5A1.5 1.5 0 0 0 4 9.5v6A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 14.5 8h-1V6A3.5 3.5 0 0 0 10 2.5ZM7.5 6a2.5 2.5 0 0 1 5 0v2h-5V6Zm2.5 5.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"/></svg>;
+    case "connections":
+      return <svg {...props}><path d="M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm-5.91 6.5h2.96c.05-1.92.54-3.65 1.32-4.8A6.01 6.01 0 0 0 4.09 9.5Zm2.96 1H4.09a6.01 6.01 0 0 0 4.28 4.8c-.78-1.15-1.27-2.88-1.32-4.8Zm1 0c.06 1.88.58 3.55 1.38 4.6a2.6 2.6 0 0 0 1.14 0c.8-1.05 1.32-2.72 1.38-4.6H8.05Zm3.9-1c-.06-1.88-.58-3.55-1.38-4.6a2.6 2.6 0 0 0-1.14 0c-.8 1.05-1.32 2.72-1.38 4.6h3.9Zm1 0h2.96a6.01 6.01 0 0 0-4.28-4.8c.78 1.15 1.27 2.88 1.32 4.8Zm0 1c-.05 1.92-.54 3.65-1.32 4.8a6.01 6.01 0 0 0 4.28-4.8h-2.96Z"/></svg>;
+    case "logs":
+      return <svg {...props}><path d="M3.5 4A1.5 1.5 0 0 0 2 5.5v9A1.5 1.5 0 0 0 3.5 16h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 16.5 4h-13Zm1.85 3.15 2.5 2.5a.5.5 0 0 1 0 .7l-2.5 2.5a.5.5 0 0 1-.7-.7L6.79 10 4.65 7.85a.5.5 0 0 1 .7-.7ZM9.5 12h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1 0-1Z"/></svg>;
+    case "theme":
+      return <svg {...props}><path d="M10 3.5a6.5 6.5 0 1 0 5.79 9.48.5.5 0 0 0-.64-.69A5.5 5.5 0 0 1 8.81 4.15a.5.5 0 0 0-.23-.96A6.5 6.5 0 0 0 10 3.5Z"/></svg>;
+    default:
+      return null;
+  }
 }
 
 function Badge({ value, tone }: { value: string; tone?: string }) {
-  const colors: Record<string, string> = {
-    green: "#0a7d33", red: "#b00", amber: "#8a5a00", grey: "#666", blue: "#1a4d8f",
-  };
-  const pick = tone || (value === "online" || value === "completed" || value === "approved" || value === "allowed"
-    ? "green" : value === "failed" || value === "denied" || value === "revoked" || value === "cancelled"
-    ? "red" : value === "pending" || value === "needs_approval" || value === "queued" || value === "running"
-    ? "amber" : "grey");
-  return <span style={{ background: colors[pick] + "22", color: colors[pick], border: `1px solid ${colors[pick]}55`, borderRadius: 12, padding: "1px 8px", fontSize: 12, fontWeight: 600 }}>{value}</span>;
+  const pick = tone || (
+    value === "online" || value === "completed" || value === "approved" || value === "allowed" || value === "up" || value === "live"
+      ? "green"
+      : value === "failed" || value === "denied" || value === "revoked" || value === "cancelled" || value === "down"
+      ? "red"
+      : value === "pending" || value === "needs_approval" || value === "queued" || value === "running"
+      ? "amber"
+      : "grey"
+  );
+  return (
+    <span className="f2-badge" data-tone={pick}>
+      <span className="f2-badge-dot" />
+      {value}
+    </span>
+  );
 }
 
-function Card({ title, children }: { title: string; children: any }) {
-  return <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12, background: "#fff" }}>
-    <h3 style={{ margin: "0 0 8px", fontSize: 15 }}>{title}</h3>
-    {children}
-  </section>;
+function Card({ title, action, children }: { title: string; action?: any; children: any }) {
+  return (
+    <section className="f2-card">
+      <div className="f2-card-header">
+        <h3 className="f2-card-title">{title}</h3>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
 }
 
 function Bar({ label, value, max }: { label: string; value: number; max: number }) {
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
-  return <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, fontSize: 13 }}>
-    <span style={{ width: 130, color: "#444" }}>{label}</span>
-    <div style={{ flex: 1, background: "#eee", borderRadius: 4, height: 14, overflow: "hidden" }}>
-      <div style={{ width: pct + "%", background: "#1a4d8f", height: "100%" }} />
+  return (
+    <div className="f2-bar-row">
+      <span style={{ width: 140, color: "var(--colorNeutralForeground2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={label}>
+        {label}
+      </span>
+      <div className="f2-bar-track">
+        <div className="f2-bar-fill" style={{ width: `${pct}%` }} />
+      </div>
+      <span style={{ width: 42, textAlign: "right", fontWeight: 600 }}>{value}</span>
     </div>
-    <span style={{ width: 40, textAlign: "right", fontWeight: 600 }}>{value}</span>
-  </div>;
+  );
 }
 
 function countBy(rows: any[], key: string): Record<string, number> {
@@ -87,7 +189,10 @@ function parseTaskResult(raw: string): { parsed: any; imageBase64: string | null
 
 export default function App() {
   const [view, setView] = useState<View>("overview");
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("ai_bridge_theme") as Theme) || "light");
+  const [authTab, setAuthTab] = useState<"token" | "user">("token");
   const [err, setErr] = useState("");
+  const [notice, setNotice] = useState<{ intent: "success" | "info" | "warning" | "error"; text: string } | null>(null);
   const [tok, setTok] = useState(token());
   const [oidcEnabled, setOidcEnabled] = useState(false);
   const [me, setMe] = useState<any>(null);
@@ -103,10 +208,11 @@ export default function App() {
   const [deviceName, setDeviceName] = useState("");
   const [enrolled, setEnrolled] = useState<any>(null);
   const [taskDevice, setTaskDevice] = useState("");
-  const [taskTool, setTaskTool] = useState("get_system_info");
-  const [taskArgs, setTaskArgs] = useState("");
+  const [taskTool, setTaskTool] = useState("capture_desktop_screenshot");
+  const [taskArgs, setTaskArgs] = useState("{}");
   const [taskStatus, setTaskStatus] = useState("all");
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null);
   const [auditQuery, setAuditQuery] = useState("");
   const [auditTool, setAuditTool] = useState("all");
   const [logService, setLogService] = useState("control");
@@ -120,7 +226,11 @@ export default function App() {
   const [polServices, setPolServices] = useState("");
   const [polNote, setPolNote] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
-  const [webhookMsg, setWebhookMsg] = useState("");
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("ai_bridge_theme", theme);
+  }, [theme]);
 
   async function load(v: View = view) {
     setErr("");
@@ -128,16 +238,34 @@ export default function App() {
       api.me().then(setMe).catch(() => {});
       if (v === "overview") {
         const [h, c, d, t, a, ap] = await Promise.all([
-          api.health().catch(() => null), api.connections().catch(() => null),
-          api.devices().catch(() => []), api.tasks().catch(() => []),
-          api.audit().catch(() => []), api.approvals().catch(() => []),
+          api.health().catch(() => null),
+          api.connections().catch(() => null),
+          api.devices().catch(() => []),
+          api.tasks().catch(() => []),
+          api.audit().catch(() => []),
+          api.approvals().catch(() => []),
         ]);
-        setHealth(h); setConnections(c); setDevices(d); setTasks(t); setAudit(a); setApprovals(ap);
-      } else if (v === "devices") setDevices(await api.devices());
-      else if (v === "tasks") { setTasks(await api.tasks()); setDevices(await api.devices()); }
-      else if (v === "approvals") setApprovals(await api.approvals());
-      else if (v === "audit") setAudit(await api.audit());
-      else if (v === "policies") {
+        setHealth(h);
+        setConnections(c);
+        setDevices(d);
+        setTasks(t);
+        setAudit(a);
+        setApprovals(ap);
+      } else if (v === "devices") {
+        setDevices(await api.devices());
+      } else if (v === "tasks") {
+        const [t, d] = await Promise.all([api.tasks(), api.devices()]);
+        setTasks(t);
+        setDevices(d);
+        if (!taskDevice && d.length > 0) {
+          const firstOnline = d.find((x: any) => !x.revoked && x.status === "online") || d.find((x: any) => !x.revoked);
+          if (firstOnline) setTaskDevice(firstOnline.id);
+        }
+      } else if (v === "approvals") {
+        setApprovals(await api.approvals());
+      } else if (v === "audit") {
+        setAudit(await api.audit());
+      } else if (v === "policies") {
         const [pol, hist, wh] = await Promise.all([
           api.policies(),
           api.policyHistory(),
@@ -150,13 +278,23 @@ export default function App() {
         setPolApps((pol?.policy?.allowed_apps || []).join(", "));
         setPolServices((pol?.policy?.allowed_services || []).join(", "));
         setWebhookUrl(wh?.webhook_url || "");
+      } else if (v === "connections") {
+        const [c, h] = await Promise.all([api.connections(), api.health().catch(() => null)]);
+        setConnections(c);
+        setHealth(h);
+      } else if (v === "logs") {
+        const r = await api.logs(logService, logCount);
+        setLogLines(r.lines || []);
       }
-      else if (v === "connections") { setConnections(await api.connections()); setHealth(await api.health().catch(() => null)); }
-      else if (v === "logs") { const r = await api.logs(logService, logCount); setLogLines(r.lines || []); }
-    } catch (e: any) { setErr(e.message); }
+    } catch (e: any) {
+      setErr(e.message);
+    }
   }
 
-  useEffect(() => { if (tok || sessionToken()) load(); }, [view, tok]);
+  useEffect(() => {
+    if (tok || sessionToken()) load();
+  }, [view, tok, logService, logCount]);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const st = params.get("session_token");
@@ -167,6 +305,7 @@ export default function App() {
     }
     api.oidcConfigured().then(r => setOidcEnabled(!!r.enabled)).catch(() => {});
   }, []);
+
   useEffect(() => {
     if (!autoRefresh || !(tok || sessionToken())) return;
     const id = setInterval(() => load(), 15000);
@@ -174,26 +313,126 @@ export default function App() {
   }, [autoRefresh, view, tok, logService, logCount]);
 
   const authed = !!(tok || sessionToken());
-  if (!authed) return (
-    <main style={{ fontFamily: "system-ui", maxWidth: 480, margin: "4rem auto", padding: 16 }}>
-      <h1>AI Bridge</h1><p>Sign in with the admin token from <code>AI_BRIDGE_ADMIN_TOKEN</code>.</p>
-      <form onSubmit={async e => { e.preventDefault(); const f = e.target as any; try { const s = await api.login(f.u.value, f.p.value); localStorage.setItem("ai_bridge_session_token", s.session_token); setTok("session"); } catch { alert("Login failed"); } }}>
-        <input name="u" placeholder="Username" style={{ width: "100%", padding: 8 }} />
-        <input name="p" type="password" placeholder="Password" style={{ width: "100%", padding: 8, marginTop: 4 }} />
-        <button style={{ marginTop: 8, padding: "8px 16px" }}>Sign in as user</button>
-      </form>
-      <p style={{ color: "#666", fontSize: 13 }}>Or sign in with the legacy admin token:</p>
-      <form onSubmit={e => { e.preventDefault(); const v = (e.target as any).t.value; localStorage.setItem("ai_bridge_admin_token", v); setTok(v); }}>
-        <input name="t" type="password" placeholder="Admin token" style={{ width: "100%", padding: 8 }} />
-        <button style={{ marginTop: 8, padding: "8px 16px" }}>Sign in</button>
-      </form>
-      {oidcEnabled && <>
-        <p style={{ color: "#666", fontSize: 13 }}>Or sign in with single sign-on:</p>
-        <button style={{ marginTop: 8, padding: "8px 16px" }} onClick={() => api.oidcLogin()}>Log in with SSO</button>
-      </>}
-      <p style={{ color: "#666", fontSize: 13 }}>The token is stored only in this browser. Never paste device tokens or API keys into chat.</p>
-    </main>
-  );
+  if (!authed) {
+    return (
+      <div className="f2-shell" style={{ justifyContent: "center", alignItems: "center", padding: 24 }}>
+        <div className="f2-card" style={{ width: "100%", maxWidth: 440, padding: 28, boxShadow: "var(--shadow16)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div className="f2-brand">
+              <span className="f2-brand-logo">
+                <FluentIcon name="approvals" />
+              </span>
+              <span>AI Bridge Control Plane</span>
+            </div>
+            <button
+              type="button"
+              className="f2-btn f2-btn-subtle f2-btn-sm"
+              onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+              title="Toggle Light / Dark theme"
+            >
+              <FluentIcon name="theme" /> {theme === "light" ? "Dark" : "Light"}
+            </button>
+          </div>
+
+          <h1 style={{ margin: "0 0 6px", fontSize: 22, fontWeight: 600 }}>Sign in to your fleet</h1>
+          <p style={{ margin: "0 0 20px", fontSize: 13, color: "var(--colorNeutralForeground3)" }}>
+            Policy-governed MCP gateway & remote device orchestration.
+          </p>
+
+          {oidcEnabled && (
+            <div style={{ marginBottom: 18 }}>
+              <button
+                type="button"
+                className="f2-btn f2-btn-primary"
+                style={{ width: "100%", height: 38 }}
+                onClick={() => api.oidcLogin()}
+              >
+                <FluentIcon name="connections" /> Continue with Google Single Sign-On
+              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "16px 0 0", color: "var(--colorNeutralForeground3)", fontSize: 12 }}>
+                <div style={{ flex: 1, height: 1, background: "var(--colorNeutralStroke2)" }} />
+                <span>or use direct credentials</span>
+                <div style={{ flex: 1, height: 1, background: "var(--colorNeutralStroke2)" }} />
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+            <button
+              type="button"
+              className="f2-chip"
+              data-active={String(authTab === "token")}
+              onClick={() => setAuthTab("token")}
+            >
+              Admin Token
+            </button>
+            <button
+              type="button"
+              className="f2-chip"
+              data-active={String(authTab === "user")}
+              onClick={() => setAuthTab("user")}
+            >
+              Username & Password
+            </button>
+          </div>
+
+          {authTab === "token" ? (
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                const v = (e.target as any).t.value.trim();
+                if (!v) return;
+                localStorage.setItem("ai_bridge_admin_token", v);
+                setTok(v);
+              }}
+              style={{ display: "grid", gap: 12 }}
+            >
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4, color: "var(--colorNeutralForeground2)" }}>
+                  Administrator Token (<code>AI_BRIDGE_ADMIN_TOKEN</code>)
+                </label>
+                <input name="t" type="password" className="f2-input" placeholder="Paste your admin token…" style={{ width: "100%" }} required />
+              </div>
+              <button type="submit" className="f2-btn f2-btn-primary" style={{ height: 36 }}>
+                Sign in with Admin Token
+              </button>
+            </form>
+          ) : (
+            <form
+              onSubmit={async e => {
+                e.preventDefault();
+                const f = e.target as any;
+                try {
+                  const s = await api.login(f.u.value, f.p.value);
+                  localStorage.setItem("ai_bridge_session_token", s.session_token);
+                  setTok("session");
+                } catch {
+                  setErr("Invalid username or password.");
+                }
+              }}
+              style={{ display: "grid", gap: 10 }}
+            >
+              <input name="u" className="f2-input" placeholder="Username" style={{ width: "100%" }} required />
+              <input name="p" type="password" className="f2-input" placeholder="Password" style={{ width: "100%" }} required />
+              <button type="submit" className="f2-btn f2-btn-primary" style={{ height: 36 }}>
+                Sign in as User
+              </button>
+            </form>
+          )}
+
+          {err && (
+            <div className="f2-messagebar" data-intent="error" style={{ marginTop: 14, marginBottom: 0 }}>
+              <span>{err}</span>
+            </div>
+          )}
+
+          <p style={{ margin: "18px 0 0", fontSize: 12, color: "var(--colorNeutralForeground3)", lineHeight: 1.5 }}>
+            Credentials are stored locally in your browser session. Never share device tokens in untrusted chats.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const online = devices.filter(d => d.status === "online" && !d.revoked);
   const taskByStatus = countBy(tasks, "status");
@@ -204,323 +443,1054 @@ export default function App() {
   const pending = approvals.filter(a => a.status === "pending");
   const maxTask = Math.max(1, ...Object.values(taskByStatus));
   const filteredTasks = taskStatus === "all" ? tasks : tasks.filter(t => t.status === taskStatus);
-  const filteredAudit = audit.filter(a => {
-    if (auditTool !== "all" && a.tool !== auditTool) return false;
-    if (!auditQuery) return true;
-    const hay = `${a.actor || ""} ${a.tool || ""} ${a.decision || ""} ${a.device_id || ""}`.toLowerCase();
-    return hay.includes(auditQuery.toLowerCase());
-  }).slice(0, 100);
+  const filteredAudit = audit
+    .filter(a => {
+      if (auditTool !== "all" && a.tool !== auditTool) return false;
+      if (!auditQuery) return true;
+      const hay = `${a.actor || ""} ${a.tool || ""} ${a.decision || ""} ${a.device_id || ""}`.toLowerCase();
+      return hay.includes(auditQuery.toLowerCase());
+    })
+    .slice(0, 100);
   const deviceNameOf = (id: string) => (devices.find(d => d.id === id)?.name || id || "").slice(0, 24);
   const origin = window.location.origin;
+  const meta = VIEW_META[view];
 
   return (
-    <main style={{ fontFamily: "system-ui", maxWidth: 1100, margin: "0 auto", padding: 16, background: "#f7f7f7", minHeight: "100vh" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <h1 style={{ margin: 0 }}>AI Bridge Dashboard</h1>
-        <span style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          {me && <span style={{ fontSize: 13 }}>Signed in as <b>{me.username}</b> ({me.role})</span>}
-          {health && <Badge value={health.emergency_stop ? "EMERGENCY STOP" : "live"} tone={health.emergency_stop ? "red" : "green"} />}
-          <label style={{ fontSize: 13 }}><input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} /> auto-refresh</label>
-          <button onClick={() => load()}>Refresh</button>
-          <button onClick={() => { localStorage.removeItem("ai_bridge_admin_token"); localStorage.removeItem("ai_bridge_session_token"); setTok(""); }}>Log out</button>
-          <button style={{ background: "#b00", color: "#fff" }} onClick={async () => { await api.emergencyStop(); alert("Emergency stop active: no new tasks will be accepted."); load(); }}>Emergency stop</button>
-          <button onClick={async () => { await api.emergencyClear(); alert("Emergency stop cleared."); load(); }}>Clear stop</button>
-        </span>
+    <div className="f2-shell">
+      {/* Fluent 2 Acrylic Top App Bar */}
+      <header className="f2-topbar">
+        <div className="f2-brand">
+          <span className="f2-brand-logo">
+            <FluentIcon name="approvals" />
+          </span>
+          <span>AI Bridge</span>
+          {health && (
+            <Badge
+              value={health.emergency_stop ? "EMERGENCY STOP" : "System Online"}
+              tone={health.emergency_stop ? "red" : "green"}
+            />
+          )}
+        </div>
+
+        <div className="f2-topbar-actions">
+          <label className="f2-switch-label" title="Poll control plane every 15 seconds">
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={e => setAutoRefresh(e.target.checked)}
+              style={{ display: "none" }}
+            />
+            <span className="f2-switch" data-checked={String(autoRefresh)} />
+            <span>Auto-refresh</span>
+          </label>
+
+          <button type="button" className="f2-btn f2-btn-sm" onClick={() => load()}>
+            Refresh
+          </button>
+
+          <button
+            type="button"
+            className="f2-btn f2-btn-sm"
+            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+            title="Switch between Fluent 2 Light and Dark themes"
+          >
+            <FluentIcon name="theme" /> {theme === "light" ? "Dark" : "Light"}
+          </button>
+
+          {health?.emergency_stop ? (
+            <button
+              type="button"
+              className="f2-btn f2-btn-primary f2-btn-sm"
+              onClick={async () => {
+                await api.emergencyClear();
+                setNotice({ intent: "success", text: "Emergency stop cleared. Task queue resumed." });
+                load();
+              }}
+            >
+              Resume Queue
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="f2-btn f2-btn-danger f2-btn-sm"
+              onClick={async () => {
+                await api.emergencyStop();
+                setNotice({ intent: "warning", text: "Emergency stop activated. New tasks are blocked." });
+                load();
+              }}
+            >
+              Emergency Stop
+            </button>
+          )}
+
+          {me && (
+            <span className="f2-persona" title={`Signed in as ${me.username} (${me.role})`}>
+              <span className="f2-avatar">{String(me.username || "A").slice(0, 2)}</span>
+              <span>
+                <b>{me.username}</b> <span style={{ color: "var(--colorNeutralForeground3)" }}>· {me.role}</span>
+              </span>
+            </span>
+          )}
+
+          <button
+            type="button"
+            className="f2-btn f2-btn-subtle f2-btn-sm"
+            onClick={() => {
+              localStorage.removeItem("ai_bridge_admin_token");
+              localStorage.removeItem("ai_bridge_session_token");
+              setTok("");
+            }}
+          >
+            Sign out
+          </button>
+        </div>
       </header>
-      <nav style={{ display: "flex", gap: 6, margin: "12px 0", flexWrap: "wrap" }}>
-        {(["overview", "devices", "tasks", "approvals", "audit", "policies", "connections", "logs"] as View[]).map(v => (
-          <button key={v} onClick={() => setView(v)} style={{ fontWeight: view === v ? 700 : 400, textTransform: "capitalize" }}>{v}{v === "approvals" && pending.length > 0 ? ` (${pending.length})` : ""}</button>
-        ))}
-      </nav>
-      {err && <p style={{ color: "#b00" }}>{err} — check that the control plane is reachable and the token is correct.</p>}
 
-      {view === "overview" && <div style={{ display: "grid", gap: 12 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
-          <Card title="Devices"><div style={{ fontSize: 28, fontWeight: 700 }}>{online.length} / {devices.length}</div><div style={{ fontSize: 13, color: "#666" }}>online</div></Card>
-          <Card title="Tasks"><div style={{ fontSize: 28, fontWeight: 700 }}>{tasks.length}</div><div style={{ fontSize: 13, color: "#666" }}>{taskByStatus["queued"] || 0} queued · {taskByStatus["completed"] || 0} done · {taskByStatus["failed"] || 0} failed</div></Card>
-          <Card title="Pending approvals"><div style={{ fontSize: 28, fontWeight: 700 }}>{pending.length}</div><div style={{ fontSize: 13, color: "#666" }}>need a human decision</div></Card>
-          <Card title="Audit (24 h)"><div style={{ fontSize: 28, fontWeight: 700 }}>{audit24h}</div><div style={{ fontSize: 13, color: "#666" }}>events in the last day</div></Card>
-          <Card title="ChatGPT link"><div style={{ fontSize: 15, fontWeight: 700 }}>{connections ? (connections.mcp.up ? "Connected" : "MCP down") : "…"}</div><div style={{ fontSize: 13, color: "#666" }}>{connections ? `${connections.chatgpt.clients.length} OAuth client(s) · ${connections.chatgpt.active_access_tokens} live token(s)` : "loading"}</div></Card>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
-          <Card title="Tasks by status">{Object.entries(taskByStatus).map(([k, v]) => <Bar key={k} label={k} value={v} max={maxTask} />)}</Card>
-          <Card title="Audit by decision">{Object.entries(auditByDecision).map(([k, v]) => <Bar key={k} label={k} value={v} max={Math.max(1, ...Object.values(auditByDecision))} />)}</Card>
-          <Card title="Most used tools">{topTools.map(([k, v]) => <Bar key={k} label={k} value={v} max={topTools[0]?.[1] || 1} />)}</Card>
-        </div>
-        <Card title="Recent activity">
-          {audit.slice(0, 10).map(a => <div key={a.id} style={{ fontSize: 13, padding: "4px 0", borderBottom: "1px solid #f0f0f0" }}>
-            <span style={{ color: "#666" }}>{rel(a.ts)}</span> · <b>{a.actor || "?"}</b> · {a.tool} · <Badge value={a.decision || "?"} />
-          </div>)}
-          {audit.length === 0 && <p style={{ color: "#666", fontSize: 13 }}>No audit events yet.</p>}
-        </Card>
-        <Card title="Devices at a glance">
-          {devices.map(d => <div key={d.id} style={{ fontSize: 13, padding: "4px 0", borderBottom: "1px solid #f0f0f0" }}>
-            <Badge value={d.revoked ? "revoked" : d.status} /> <b>{d.name}</b> <span style={{ color: "#666" }}>{d.hostname || ""} {d.os || ""} · last seen {rel(d.last_seen)}</span>
-          </div>)}
-          {devices.length === 0 && <p style={{ color: "#666", fontSize: 13 }}>No devices enrolled yet.</p>}
-        </Card>
-      </div>}
+      <div className="f2-body">
+        {/* Fluent 2 Navigation Drawer */}
+        <nav className="f2-nav" aria-label="Main Navigation">
+          <div className="f2-nav-section-label">Operations</div>
+          {(["overview", "devices", "tasks", "approvals"] as View[]).map(v => (
+            <button
+              key={v}
+              type="button"
+              className="f2-nav-item"
+              data-active={String(view === v)}
+              onClick={() => setView(v)}
+            >
+              <span className="f2-nav-item-icon">
+                <FluentIcon name={v} />
+              </span>
+              <span style={{ textTransform: "capitalize" }}>{v}</span>
+              {v === "approvals" && pending.length > 0 && (
+                <span className="f2-nav-counter" data-warn="true">{pending.length}</span>
+              )}
+              {v === "devices" && online.length > 0 && (
+                <span className="f2-nav-counter">{online.length}</span>
+              )}
+            </button>
+          ))}
 
-      {view === "devices" && <div style={{ display: "grid", gap: 12 }}>
-        <Card title="Enroll a device">
-          {me?.role === "viewer" && <p style={{ fontSize: 13, color: "#8a5a00" }}>Enrolling requires admin — your account is viewer. Log in with the admin token, or use an admin account.</p>}
-          <form onSubmit={async e => { e.preventDefault(); try { setEnrolled(await api.enroll(deviceName)); setDeviceName(""); load(); } catch (ex: any) { alert(`Enroll failed: ${ex.message}`); } }}>
-            <input value={deviceName} onChange={e => setDeviceName(e.target.value)} placeholder="New device name" required />
-            <button style={{ marginLeft: 8 }}>Enroll device</button>
-          </form>
-          {enrolled && <p style={{ background: "#ffe", padding: 8 }}><b>Device token (shown once — copy it now):</b> <code>{enrolled.device_token}</code><br />Device ID: {enrolled.device_id}</p>}
-        </Card>
-        <Card title={`Devices (${devices.length})`}>
-          <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
-            <thead><tr style={{ textAlign: "left", color: "#666" }}><th>Name</th><th>Host / OS</th><th>Status</th><th>Last seen</th><th>Token expires</th><th></th></tr></thead>
-            <tbody>{devices.map(d => {
-              const expSoon = d.token_expires_at && Date.now() / 1000 > d.token_expires_at - 86400;
-              return <tr key={d.id} style={{ borderTop: "1px solid #eee" }}>
-                <td><b>{d.name}</b><br /><span style={{ color: "#888" }}>{String(d.id).slice(0, 8)}</span></td>
-                <td>{d.hostname || "—"}<br /><span style={{ color: "#888" }}>{d.os || ""}</span></td>
-                <td><Badge value={d.revoked ? "revoked" : d.status} /></td>
-                <td>{rel(d.last_seen)}<br /><span style={{ color: "#888" }}>{fmt(d.last_seen)}</span></td>
-                <td style={{ color: expSoon ? "#b00" : undefined }}>{d.token_expires_at ? rel(d.token_expires_at) : "—"}</td>
-                <td>{!d.revoked && <button onClick={async () => { if (confirm(`Revoke device ${d.name}?`)) { try { await api.revoke(d.id); load(); } catch (ex: any) { alert(`Revoke failed: ${ex.message}`); } } }}>Revoke</button>}</td>
-              </tr>;
-            })}</tbody>
-          </table>
-        </Card>
-      </div>}
+          <div className="f2-nav-section-label" style={{ marginTop: 8 }}>Governance & Telemetry</div>
+          {(["policies", "audit", "connections", "logs"] as View[]).map(v => (
+            <button
+              key={v}
+              type="button"
+              className="f2-nav-item"
+              data-active={String(view === v)}
+              onClick={() => setView(v)}
+            >
+              <span className="f2-nav-item-icon">
+                <FluentIcon name={v} />
+              </span>
+              <span style={{ textTransform: "capitalize" }}>{v}</span>
+            </button>
+          ))}
+        </nav>
 
-      {view === "tasks" && <div style={{ display: "grid", gap: 12 }}>
-        <Card title="New task">
-          <form onSubmit={async e => { e.preventDefault(); try { let args: any = {}; if (taskArgs.trim()) { try { args = JSON.parse(taskArgs); } catch { alert("Args must be valid JSON, e.g. {\"package_id\": \"Microsoft.VisualStudioCode\"}"); return; } } const r = await api.submitTask(taskDevice, taskTool, args); alert(`Task ${r.task_id} → ${r.status}`); load(); } catch (ex: any) { alert(ex.message); } }}>
-            <select value={taskDevice} onChange={e => setTaskDevice(e.target.value)} required>
-              <option value="">Select device…</option>
-              {devices.filter(d => !d.revoked).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>{" "}
-            <select value={taskTool} onChange={e => setTaskTool(e.target.value)}>
-              {TOOLS.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>{" "}
-            <input value={taskArgs} onChange={e => setTaskArgs(e.target.value)} placeholder='Args JSON, e.g. {"action": "list_windows"}' style={{ width: 340 }} />{" "}
-            <button>Submit task</button>
-            <span style={{ fontSize: 12, color: "#666", marginLeft: 8 }}>High-risk tools need approval first.</span>
-          </form>
-        </Card>
-        <Card title={`Tasks (${filteredTasks.length})`}>
-          <div style={{ marginBottom: 8 }}>{["all", "queued", "running", "needs_approval", "completed", "failed", "cancelled"].map(s => (
-            <button key={s} onClick={() => setTaskStatus(s)} style={{ fontWeight: taskStatus === s ? 700 : 400, marginRight: 4 }}>{s}</button>
-          ))}</div>
-          <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
-            <thead><tr style={{ textAlign: "left", color: "#666" }}><th>ID</th><th>Device</th><th>Tool</th><th>Tier</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
-            <tbody>{filteredTasks.slice(0, 100).map(t => {
-              const isOpen = expandedTaskId === t.id;
-              const info = isOpen ? parseTaskResult(t.result || "") : null;
-              return <Fragment key={t.id}>
-                <tr style={{ borderTop: "1px solid #eee", background: isOpen ? "#f5f8fc" : undefined }}>
-                  <td><code>{String(t.id).slice(0, 8)}</code></td>
-                  <td>{deviceNameOf(t.device_id)}</td>
-                  <td><b>{t.tool}</b></td>
-                  <td>{t.tier ?? "—"}</td>
-                  <td><Badge value={t.status} /></td>
-                  <td>{rel(t.created_at)}</td>
-                  <td style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => setExpandedTaskId(isOpen ? null : t.id)}>{isOpen ? "Hide" : "Inspect"}</button>
-                    {!["completed", "failed", "cancelled"].includes(t.status) && <button onClick={async () => { await api.cancelTask(t.id); load(); }}>Cancel</button>}
-                  </td>
-                </tr>
-                {isOpen && info && <tr style={{ background: "#f9fbfd" }}>
-                  <td colSpan={7} style={{ padding: 12, borderTop: "1px dashed #ddd" }}>
-                    <div style={{ marginBottom: 6, fontSize: 12, color: "#555" }}>
-                      <b>Full Task ID:</b> <code>{t.id}</code> · <b>Updated:</b> {fmt(t.updated_at)}
-                      {t.approval_id && <> · <b>Approval ID:</b> <code>{t.approval_id}</code></>}
-                    </div>
-                    <div style={{ marginBottom: 8 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "#444" }}>Arguments:</div>
-                      <pre style={{ margin: "4px 0", background: "#eee", padding: 8, borderRadius: 4, fontSize: 12, overflowX: "auto" }}>{t.args_json || "{}"}</pre>
-                    </div>
-                    {info.imageBase64 && <div style={{ marginBottom: 8 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "#444", marginBottom: 4 }}>
-                        Captured Screenshot ({info.parsed?.width}×{info.parsed?.height}):
-                      </div>
-                      <img
-                        src={`data:${info.mimeType};base64,${info.imageBase64}`}
-                        alt="Desktop Screenshot"
-                        style={{ maxWidth: "100%", maxHeight: 520, borderRadius: 6, border: "1px solid #ccc", display: "block" }}
-                      />
-                    </div>}
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "#444" }}>Result:</div>
-                      <pre style={{ margin: "4px 0", background: "#111", color: "#ddd", padding: 8, borderRadius: 4, fontSize: 12, maxHeight: 320, overflow: "auto", whiteSpace: "pre-wrap" }}>{info.displayText}</pre>
-                    </div>
-                  </td>
-                </tr>}
-              </Fragment>;
-            })}</tbody>
-          </table>
-        </Card>
-      </div>}
-
-      {view === "approvals" && <Card title={`Approvals (${approvals.length})`}>
-        {approvals.map(a => <div key={a.id} style={{ border: "1px solid #eee", borderRadius: 6, padding: 8, marginBottom: 8, fontSize: 13 }}>
-          <Badge value={a.status} /> <b>{a.tool}</b> <span style={{ color: "#666" }}>{a.reason} · {rel(a.created_at)}</span>
-          {a.status === "pending" && <span style={{ float: "right" }}>
-            <button onClick={async () => { try { await api.decide(a.id, "approved"); load(); } catch (ex: any) { alert(`Decide failed: ${ex.message}`); } }}>Approve</button>{" "}
-            <button onClick={async () => { try { await api.decide(a.id, "denied"); load(); } catch (ex: any) { alert(`Decide failed: ${ex.message}`); } }}>Deny</button>
-          </span>}
-        </div>)}
-        {approvals.length === 0 && <p style={{ color: "#666", fontSize: 13 }}>No approvals yet.</p>}
-      </Card>}
-
-      {view === "audit" && <Card title={`Audit (${filteredAudit.length} shown)`}>
-        <div style={{ marginBottom: 8, display: "flex", gap: 8 }}>
-          <input value={auditQuery} onChange={e => setAuditQuery(e.target.value)} placeholder="Search actor, tool, decision…" style={{ flex: 1, padding: 6 }} />
-          <select value={auditTool} onChange={e => setAuditTool(e.target.value)}>
-            <option value="all">All tools</option>
-            {[...new Set(audit.map(a => a.tool).filter(Boolean))].map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </div>
-        <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
-          <thead><tr style={{ textAlign: "left", color: "#666" }}><th>Time</th><th>Actor</th><th>Device</th><th>Tool</th><th>Decision</th></tr></thead>
-          <tbody>{filteredAudit.map(a => <tr key={a.id} style={{ borderTop: "1px solid #eee" }}>
-            <td>{fmt(a.ts)}</td><td>{a.actor || "—"}</td><td>{a.device_id ? String(a.device_id).slice(0, 8) : "—"}</td><td>{a.tool}</td><td><Badge value={a.decision || "?"} /></td>
-          </tr>)}</tbody>
-        </table>
-      </Card>}
-
-      {view === "policies" && <div style={{ display: "grid", gap: 12 }}>
-        <Card title={`Policy Editor (Active: v${policy?.version ?? "?"})`}>
-          {policy ? <form onSubmit={async e => {
-            e.preventDefault();
-            try {
-              const allowed_apps = polApps.split(",").map(s => s.trim()).filter(Boolean);
-              const allowed_services = polServices.split(",").map(s => s.trim()).filter(Boolean);
-              await api.createPolicy({
-                allow_tier3: polTier3,
-                desktop_enabled: polDesktop,
-                allowed_apps,
-                allowed_services,
-                note: polNote || "Updated via dashboard policy editor",
-              });
-              setPolNote("");
-              await load();
-            } catch (ex: any) {
-              alert(`Failed to save policy: ${ex.message}`);
-            }
-          }} style={{ display: "grid", gap: 10, fontSize: 13 }}>
-            <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <input type="checkbox" checked={polTier3} onChange={e => setPolTier3(e.target.checked)} />
-                <b>Allow Tier-3 operations unattended</b> (skip approval queue for Tier-3 tools)
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <input type="checkbox" checked={polDesktop} onChange={e => setPolDesktop(e.target.checked)} />
-                <b>Desktop Automation Enabled</b> (screenshots, app launch, UI actions)
-              </label>
-            </div>
+        {/* Fluent 2 Workspace Canvas */}
+        <main className="f2-canvas">
+          <div className="f2-page-header">
             <div>
-              <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Allowed Applications (comma-separated):</label>
-              <input value={polApps} onChange={e => setPolApps(e.target.value)} placeholder="chrome, code, notepad, msedge, firefox, terminal" style={{ width: "100%", padding: 6 }} />
+              <h2 className="f2-page-title">{meta.title}</h2>
+              <p className="f2-page-subtitle">{meta.subtitle}</p>
             </div>
-            <div>
-              <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Allowed Services (comma-separated):</label>
-              <input value={polServices} onChange={e => setPolServices(e.target.value)} placeholder="nginx, docker, ssh, postgresql, redis" style={{ width: "100%", padding: 6 }} />
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input value={polNote} onChange={e => setPolNote(e.target.value)} placeholder="Version note (optional)" style={{ flex: 1, padding: 6 }} />
-              <button type="submit" style={{ padding: "6px 14px", fontWeight: 600 }}>Save New Policy Version</button>
-            </div>
-          </form> : <p style={{ color: "#666", fontSize: 13 }}>Loading…</p>}
-        </Card>
-
-        <Card title="Approval Webhook Notifications (Slack / Discord / Telegram / Generic)">
-          <div style={{ display: "grid", gap: 8, fontSize: 13 }}>
-            <p style={{ margin: 0, color: "#555" }}>
-              Receive an instant HTTP POST notification whenever a task enters <code>needs_approval</code>. Supports Slack/Discord webhook URLs, Telegram Bot URLs (<code>https://api.telegram.org/botTOKEN/sendMessage?chat_id=ID</code>), or any custom JSON webhook.
-            </p>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <input
-                value={webhookUrl}
-                onChange={e => setWebhookUrl(e.target.value)}
-                placeholder="https://hooks.slack.com/services/... or https://discord.com/api/webhooks/..."
-                style={{ flex: 1, minWidth: 280, padding: 6 }}
-              />
-              <button onClick={async () => {
-                try {
-                  const r = await api.setWebhook(webhookUrl);
-                  setWebhookMsg(r.configured ? "Webhook saved." : "Webhook cleared.");
-                } catch (ex: any) {
-                  setWebhookMsg(`Save failed: ${ex.message}`);
-                }
-              }}>Save Webhook</button>
-              <button onClick={async () => {
-                try {
-                  setWebhookMsg("Sending test notification…");
-                  const r = await api.testWebhook();
-                  setWebhookMsg(r.ok ? `Test succeeded (HTTP ${r.status}).` : `Test failed: ${r.error || "unknown error"}`);
-                } catch (ex: any) {
-                  setWebhookMsg(`Test failed: ${ex.message}`);
-                }
-              }} disabled={!webhookUrl.trim()}>Send Test</button>
-            </div>
-            {webhookMsg && <div style={{ color: "#1a4d8f", fontWeight: 600 }}>{webhookMsg}</div>}
           </div>
-        </Card>
 
-        <Card title="Policy history">
-          <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
-            <thead><tr style={{ textAlign: "left", color: "#666" }}><th>Version</th><th>Created</th><th>By</th><th>Note</th><th>Summary</th></tr></thead>
-            <tbody>{policyHistory.map(p => { let pol: any = {}; try { pol = JSON.parse(p.policy_json); } catch { /* keep empty */ } return <tr key={p.version} style={{ borderTop: "1px solid #eee" }}>
-              <td>v{p.version}</td><td>{fmt(p.created_at)}</td><td>{p.created_by || "—"}</td><td>{p.note || "—"}</td>
-              <td>tier3={String(pol.allow_tier3)} desktop={String(pol.desktop_enabled)} apps=[{(pol.allowed_apps || []).join(", ")}]</td>
-            </tr>; })}</tbody>
-          </table>
-        </Card>
-      </div>}
+          {err && (
+            <div className="f2-messagebar" data-intent="error">
+              <span><b>Connection issue:</b> {err}</span>
+              <button type="button" className="f2-btn f2-btn-sm" onClick={() => setErr("")}>Dismiss</button>
+            </div>
+          )}
 
-      {view === "connections" && <div style={{ display: "grid", gap: 12 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
-          <Card title="Control plane"><Badge value={health ? (health.emergency_stop ? "emergency stop" : "up") : "unknown"} /><p style={{ fontSize: 13 }}>Version {health?.version || "?"}</p><p style={{ fontSize: 13, wordBreak: "break-all" }}>{origin}/api</p></Card>
-          <Card title="MCP server (ChatGPT path)"><Badge value={connections ? (connections.mcp.up ? "up" : "down") : "unknown"} /><p style={{ fontSize: 13 }}>Loopback :{connections?.mcp.port || 8001} · proxied at</p><p style={{ fontSize: 13, wordBreak: "break-all" }}>{origin}/mcp</p></Card>
-          <Card title="OAuth gateway"><Badge value={connections ? (connections.oauth_gateway.up ? "up" : "down") : "unknown"} /><p style={{ fontSize: 13 }}>Loopback :{connections?.oauth_gateway.port || 8002}</p><p style={{ fontSize: 13 }}>Issues ChatGPT tokens, refresh rotation on</p></Card>
-          <Card title="Dashboard"><Badge value="up" tone="green" /><p style={{ fontSize: 13, wordBreak: "break-all" }}>{origin}/</p><p style={{ fontSize: 13 }}>Health: {origin}/health</p></Card>
+          {notice && (
+            <div className="f2-messagebar" data-intent={notice.intent}>
+              <span>{notice.text}</span>
+              <button type="button" className="f2-btn f2-btn-sm" onClick={() => setNotice(null)}>Dismiss</button>
+            </div>
+          )}
+
+          {/* ==================== OVERVIEW ==================== */}
+          {view === "overview" && (
+            <div style={{ display: "grid", gap: 16 }}>
+              <div className="f2-kpi-grid">
+                <div className="f2-kpi-card" onClick={() => setView("devices")}>
+                  <div className="f2-kpi-top">
+                    <span>ONLINE DEVICES</span>
+                    <span className="f2-kpi-icon"><FluentIcon name="devices" /></span>
+                  </div>
+                  <div className="f2-kpi-value">{online.length} <span style={{ fontSize: 16, color: "var(--colorNeutralForeground3)", fontWeight: 400 }}>/ {devices.length}</span></div>
+                  <div className="f2-kpi-meta">Active outbound-polling agents</div>
+                </div>
+
+                <div className="f2-kpi-card" onClick={() => setView("tasks")}>
+                  <div className="f2-kpi-top">
+                    <span>TOTAL TASKS</span>
+                    <span className="f2-kpi-icon"><FluentIcon name="tasks" /></span>
+                  </div>
+                  <div className="f2-kpi-value">{tasks.length}</div>
+                  <div className="f2-kpi-meta">
+                    {taskByStatus["completed"] || 0} completed · {taskByStatus["queued"] || 0} queued · {taskByStatus["failed"] || 0} failed
+                  </div>
+                </div>
+
+                <div className="f2-kpi-card" onClick={() => setView("approvals")}>
+                  <div className="f2-kpi-top">
+                    <span>PENDING APPROVALS</span>
+                    <span className="f2-kpi-icon"><FluentIcon name="approvals" /></span>
+                  </div>
+                  <div className="f2-kpi-value" style={{ color: pending.length > 0 ? "var(--colorStatusWarningForeground1)" : undefined }}>
+                    {pending.length}
+                  </div>
+                  <div className="f2-kpi-meta">Awaiting administrator decision</div>
+                </div>
+
+                <div className="f2-kpi-card" onClick={() => setView("audit")}>
+                  <div className="f2-kpi-top">
+                    <span>AUDIT EVENTS (24H)</span>
+                    <span className="f2-kpi-icon"><FluentIcon name="audit" /></span>
+                  </div>
+                  <div className="f2-kpi-value">{audit24h}</div>
+                  <div className="f2-kpi-meta">Recorded security & tool actions</div>
+                </div>
+
+                <div className="f2-kpi-card" onClick={() => setView("connections")}>
+                  <div className="f2-kpi-top">
+                    <span>MCP & OAUTH GATEWAY</span>
+                    <span className="f2-kpi-icon"><FluentIcon name="connections" /></span>
+                  </div>
+                  <div className="f2-kpi-value" style={{ fontSize: 20 }}>
+                    {connections ? (connections.mcp.up ? "Connected" : "MCP Offline") : "Loading…"}
+                  </div>
+                  <div className="f2-kpi-meta">
+                    {connections ? `${connections.chatgpt.clients.length} OAuth client(s) · ${connections.chatgpt.active_access_tokens} active token(s)` : "Checking ports…"}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 }}>
+                <Card title="Tasks by Status">
+                  {Object.entries(taskByStatus).map(([k, v]) => <Bar key={k} label={k} value={v} max={maxTask} />)}
+                  {Object.keys(taskByStatus).length === 0 && <p style={{ color: "var(--colorNeutralForeground3)", fontSize: 13 }}>No tasks recorded yet.</p>}
+                </Card>
+
+                <Card title="Audit Decisions">
+                  {Object.entries(auditByDecision).map(([k, v]) => (
+                    <Bar key={k} label={k} value={v} max={Math.max(1, ...Object.values(auditByDecision))} />
+                  ))}
+                  {Object.keys(auditByDecision).length === 0 && <p style={{ color: "var(--colorNeutralForeground3)", fontSize: 13 }}>No audit decisions yet.</p>}
+                </Card>
+
+                <Card title="Top Invoked Tools">
+                  {topTools.map(([k, v]) => <Bar key={k} label={k} value={v} max={topTools[0]?.[1] || 1} />)}
+                  {topTools.length === 0 && <p style={{ color: "var(--colorNeutralForeground3)", fontSize: 13 }}>No tool telemetry yet.</p>}
+                </Card>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", gap: 16 }}>
+                <Card
+                  title="Enrolled Fleet Status"
+                  action={<button type="button" className="f2-btn f2-btn-subtle f2-btn-sm" onClick={() => setView("devices")}>Manage devices →</button>}
+                >
+                  {devices.filter(d => !d.revoked).map(d => (
+                    <div key={d.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--colorNeutralStroke3)", fontSize: 13 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <Badge value={d.status} />
+                        <div>
+                          <b>{d.name}</b> <code style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>{String(d.id).slice(0, 8)}</code>
+                          <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>{d.hostname || "—"} · {d.os || "OS unknown"}</div>
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>seen {rel(d.last_seen)}</span>
+                    </div>
+                  ))}
+                  {devices.length === 0 && <p style={{ color: "var(--colorNeutralForeground3)", fontSize: 13 }}>No devices enrolled yet.</p>}
+                </Card>
+
+                <Card
+                  title="Recent Audit Stream"
+                  action={<button type="button" className="f2-btn f2-btn-subtle f2-btn-sm" onClick={() => setView("audit")}>Full audit log →</button>}
+                >
+                  {audit.slice(0, 8).map(a => (
+                    <div key={a.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--colorNeutralStroke3)", fontSize: 13 }}>
+                      <div>
+                        <b>{a.tool}</b> <span style={{ color: "var(--colorNeutralForeground3)" }}>by {a.actor || "system"}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <Badge value={a.decision || "?"} />
+                        <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", minWidth: 58, textAlign: "right" }}>{rel(a.ts)}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {audit.length === 0 && <p style={{ color: "var(--colorNeutralForeground3)", fontSize: 13 }}>No audit events yet.</p>}
+                </Card>
+              </div>
+            </div>
+          )}
+
+          {/* ==================== DEVICES ==================== */}
+          {view === "devices" && (
+            <div style={{ display: "grid", gap: 16 }}>
+              <Card title="Enroll a New Device">
+                {me?.role === "viewer" && (
+                  <div className="f2-messagebar" data-intent="warning">
+                    <span>Enrolling a device requires administrator privileges. Your current session role is <b>viewer</b>.</span>
+                  </div>
+                )}
+                <form
+                  onSubmit={async e => {
+                    e.preventDefault();
+                    try {
+                      const res = await api.enroll(deviceName);
+                      setEnrolled(res);
+                      setDeviceName("");
+                      setNotice({ intent: "success", text: `Enrolled device "${res.device_id}". Copy its one-time token below.` });
+                      load();
+                    } catch (ex: any) {
+                      setErr(`Enroll failed: ${ex.message}`);
+                    }
+                  }}
+                  style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}
+                >
+                  <input
+                    className="f2-input"
+                    value={deviceName}
+                    onChange={e => setDeviceName(e.target.value)}
+                    placeholder="Device friendly name (e.g. windows-workstation)"
+                    style={{ minWidth: 280, flex: 1 }}
+                    required
+                  />
+                  <button type="submit" className="f2-btn f2-btn-primary">
+                    Enroll Device
+                  </button>
+                </form>
+
+                {enrolled && (
+                  <div className="f2-messagebar" data-intent="info" style={{ marginTop: 14, marginBottom: 0, display: "block" }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>One-Time Device Token (copy and store securely — never shown again):</div>
+                    <code style={{ display: "block", padding: 8, background: "var(--colorNeutralBackground1)", borderRadius: 4, userSelect: "all", wordBreak: "break-all" }}>
+                      {enrolled.device_token}
+                    </code>
+                    <div style={{ marginTop: 6, fontSize: 12 }}>
+                      Device ID: <code>{enrolled.device_id}</code> · Auto-rotates when &lt;48h TTL remains.
+                    </div>
+                  </div>
+                )}
+              </Card>
+
+              <Card title={`Fleet Inventory (${devices.length})`}>
+                <div className="f2-table-wrap">
+                  <table className="f2-table">
+                    <thead>
+                      <tr>
+                        <th>Device Name & ID</th>
+                        <th>Host & OS</th>
+                        <th>Status</th>
+                        <th>Last Heartbeat</th>
+                        <th>Token Expiry</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {devices.map(d => {
+                        const expSoon = d.token_expires_at && Date.now() / 1000 > d.token_expires_at - 86400;
+                        return (
+                          <tr key={d.id}>
+                            <td>
+                              <b>{d.name}</b>
+                              <div><code style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>{d.id}</code></div>
+                            </td>
+                            <td>
+                              {d.hostname || "—"}
+                              <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>{d.os || ""}</div>
+                            </td>
+                            <td><Badge value={d.revoked ? "revoked" : d.status} /></td>
+                            <td>
+                              {rel(d.last_seen)}
+                              <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>{fmt(d.last_seen)}</div>
+                            </td>
+                            <td style={{ color: expSoon ? "var(--colorStatusDangerForeground1)" : undefined }}>
+                              {d.token_expires_at ? rel(d.token_expires_at) : "—"}
+                            </td>
+                            <td>
+                              {!d.revoked && (
+                                <button
+                                  type="button"
+                                  className="f2-btn f2-btn-sm"
+                                  onClick={async () => {
+                                    if (confirm(`Revoke device "${d.name}" (${d.id})?`)) {
+                                      try {
+                                        await api.revoke(d.id);
+                                        setNotice({ intent: "warning", text: `Revoked device ${d.name}.` });
+                                        load();
+                                      } catch (ex: any) {
+                                        setErr(`Revoke failed: ${ex.message}`);
+                                      }
+                                    }
+                                  }}
+                                >
+                                  Revoke
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {/* ==================== TASKS ==================== */}
+          {view === "tasks" && (
+            <div style={{ display: "grid", gap: 16 }}>
+              <Card title="Dispatch Tool Task">
+                <div style={{ marginBottom: 12, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--colorNeutralForeground3)", marginRight: 4 }}>Quick Presets:</span>
+                  {TASK_PRESETS.map(p => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      className="f2-chip"
+                      data-active={String(taskTool === p.tool && taskArgs === p.args)}
+                      onClick={() => {
+                        setTaskTool(p.tool);
+                        setTaskArgs(p.args);
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                <form
+                  onSubmit={async e => {
+                    e.preventDefault();
+                    try {
+                      let args: any = {};
+                      if (taskArgs.trim()) {
+                        try {
+                          args = JSON.parse(taskArgs);
+                        } catch {
+                          setErr('Arguments must be valid JSON, e.g. {"action": "list_windows"}');
+                          return;
+                        }
+                      }
+                      const r = await api.submitTask(taskDevice, taskTool, args);
+                      setNotice({
+                        intent: r.status === "needs_approval" ? "warning" : "success",
+                        text: `Submitted task ${r.task_id} (${taskTool}) → ${r.status}`,
+                      });
+                      setExpandedTaskId(r.task_id);
+                      await load();
+                    } catch (ex: any) {
+                      setErr(ex.message);
+                    }
+                  }}
+                  style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}
+                >
+                  <select className="f2-select" value={taskDevice} onChange={e => setTaskDevice(e.target.value)} required>
+                    <option value="">Select target device…</option>
+                    {devices.filter(d => !d.revoked).map(d => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.status})</option>
+                    ))}
+                  </select>
+
+                  <select className="f2-select" value={taskTool} onChange={e => setTaskTool(e.target.value)}>
+                    {TOOLS.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+
+                  <input
+                    className="f2-input"
+                    value={taskArgs}
+                    onChange={e => setTaskArgs(e.target.value)}
+                    placeholder='JSON arguments, e.g. {"action": "list_windows"}'
+                    style={{ flex: 1, minWidth: 260, fontFamily: "var(--fontFamilyMonospace)", fontSize: 13 }}
+                  />
+
+                  <button type="submit" className="f2-btn f2-btn-primary">
+                    Run Task
+                  </button>
+                </form>
+              </Card>
+
+              <Card
+                title={`Task Queue (${filteredTasks.length})`}
+                action={
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    {["all", "queued", "running", "needs_approval", "completed", "failed", "cancelled"].map(s => (
+                      <button
+                        key={s}
+                        type="button"
+                        className="f2-chip"
+                        data-active={String(taskStatus === s)}
+                        onClick={() => setTaskStatus(s)}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                }
+              >
+                <div className="f2-table-wrap">
+                  <table className="f2-table">
+                    <thead>
+                      <tr>
+                        <th>Task ID</th>
+                        <th>Device</th>
+                        <th>Tool</th>
+                        <th>Risk Tier</th>
+                        <th>Status</th>
+                        <th>Submitted</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredTasks.slice(0, 100).map(t => {
+                        const isOpen = expandedTaskId === t.id;
+                        const info = isOpen ? parseTaskResult(t.result || "") : null;
+                        return (
+                          <Fragment key={t.id}>
+                            <tr data-expanded={String(isOpen)}>
+                              <td><code>{String(t.id).slice(0, 8)}</code></td>
+                              <td><b>{deviceNameOf(t.device_id)}</b></td>
+                              <td><code>{t.tool}</code></td>
+                              <td><Badge value={`Tier ${t.tier ?? "?"}`} tone={t.tier >= 4 ? "red" : t.tier === 3 ? "amber" : "blue"} /></td>
+                              <td><Badge value={t.status} /></td>
+                              <td>{rel(t.created_at)}</td>
+                              <td>
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  <button
+                                    type="button"
+                                    className={isOpen ? "f2-btn f2-btn-primary f2-btn-sm" : "f2-btn f2-btn-sm"}
+                                    onClick={() => setExpandedTaskId(isOpen ? null : t.id)}
+                                  >
+                                    {isOpen ? "Hide Details" : "Inspect"}
+                                  </button>
+                                  {!["completed", "failed", "cancelled"].includes(t.status) && (
+                                    <button
+                                      type="button"
+                                      className="f2-btn f2-btn-sm"
+                                      onClick={async () => {
+                                        await api.cancelTask(t.id);
+                                        load();
+                                      }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                            {isOpen && info && (
+                              <tr>
+                                <td colSpan={7} style={{ background: "var(--colorNeutralBackground2)", padding: 16 }}>
+                                  <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
+                                    <span><b>Full Task ID:</b> <code>{t.id}</code></span>
+                                    <span><b>Updated:</b> {fmt(t.updated_at)}</span>
+                                    {t.approval_id && <span><b>Approval ID:</b> <code>{t.approval_id}</code></span>}
+                                  </div>
+
+                                  <div style={{ display: "grid", gap: 12 }}>
+                                    <div>
+                                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, color: "var(--colorNeutralForeground2)" }}>Arguments JSON</div>
+                                      <pre style={{ margin: 0, padding: 10, borderRadius: 6, background: "var(--colorNeutralBackground1)", border: "1px solid var(--colorNeutralStroke2)", fontSize: 12, overflowX: "auto" }}>
+                                        {t.args_json || "{}"}
+                                      </pre>
+                                    </div>
+
+                                    {info.imageBase64 && (
+                                      <div>
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                                          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--colorNeutralForeground2)" }}>
+                                            Captured Desktop Screenshot {info.parsed?.size ? `(${info.parsed.size.join("×")})` : ""}
+                                          </span>
+                                          <div style={{ display: "flex", gap: 8 }}>
+                                            <button
+                                              type="button"
+                                              className="f2-btn f2-btn-sm"
+                                              onClick={() => setLightbox({
+                                                src: `data:${info.mimeType};base64,${info.imageBase64}`,
+                                                title: `Task ${t.id} — ${deviceNameOf(t.device_id)} (${fmt(t.updated_at)})`,
+                                              })}
+                                            >
+                                              Expand Fullscreen
+                                            </button>
+                                            <a
+                                              className="f2-btn f2-btn-sm"
+                                              href={`data:${info.mimeType};base64,${info.imageBase64}`}
+                                              download={`screenshot-${t.id}.jpg`}
+                                              style={{ textDecoration: "none" }}
+                                            >
+                                              Download JPEG
+                                            </a>
+                                          </div>
+                                        </div>
+                                        <img
+                                          src={`data:${info.mimeType};base64,${info.imageBase64}`}
+                                          alt="Captured Desktop Screenshot"
+                                          onClick={() => setLightbox({
+                                            src: `data:${info.mimeType};base64,${info.imageBase64}`,
+                                            title: `Task ${t.id} — ${deviceNameOf(t.device_id)} (${fmt(t.updated_at)})`,
+                                          })}
+                                          style={{
+                                            maxWidth: "100%",
+                                            maxHeight: 520,
+                                            borderRadius: 8,
+                                            border: "1px solid var(--colorNeutralStroke1)",
+                                            boxShadow: "var(--shadow8)",
+                                            cursor: "zoom-in",
+                                            display: "block",
+                                          }}
+                                        />
+                                      </div>
+                                    )}
+
+                                    <div>
+                                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, color: "var(--colorNeutralForeground2)" }}>Execution Output</div>
+                                      <pre style={{ margin: 0, padding: 12, borderRadius: 6, background: "var(--colorTerminalBackground)", color: "var(--colorTerminalForeground)", fontSize: 12, maxHeight: 340, overflow: "auto", whiteSpace: "pre-wrap" }}>
+                                        {info.displayText}
+                                      </pre>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {/* ==================== APPROVALS ==================== */}
+          {view === "approvals" && (
+            <Card title={`Approval Queue (${approvals.length})`}>
+              <div style={{ display: "grid", gap: 10 }}>
+                {approvals.map(a => (
+                  <div
+                    key={a.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      padding: "12px 16px",
+                      borderRadius: "var(--borderRadiusMedium)",
+                      border: "1px solid var(--colorNeutralStroke2)",
+                      background: a.status === "pending" ? "var(--colorStatusWarningBackground1)" : "var(--colorNeutralBackground2)",
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <Badge value={a.status} />
+                        <b><code>{a.tool}</code></b>
+                        <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>· requested {rel(a.created_at)}</span>
+                      </div>
+                      <div style={{ fontSize: 13, color: "var(--colorNeutralForeground2)" }}>
+                        {a.reason} {a.task_id && <span style={{ color: "var(--colorNeutralForeground3)" }}>· Task <code>{a.task_id}</code></span>}
+                      </div>
+                    </div>
+
+                    {a.status === "pending" && (
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          type="button"
+                          className="f2-btn f2-btn-primary f2-btn-sm"
+                          onClick={async () => {
+                            try {
+                              await api.decide(a.id, "approved");
+                              setNotice({ intent: "success", text: `Approved ${a.tool} (${a.id}). Task released to agent queue.` });
+                              load();
+                            } catch (ex: any) {
+                              setErr(`Approve failed: ${ex.message}`);
+                            }
+                          }}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="f2-btn f2-btn-danger f2-btn-sm"
+                          onClick={async () => {
+                            try {
+                              await api.decide(a.id, "denied");
+                              setNotice({ intent: "warning", text: `Denied ${a.tool} (${a.id}).` });
+                              load();
+                            } catch (ex: any) {
+                              setErr(`Deny failed: ${ex.message}`);
+                            }
+                          }}
+                        >
+                          Deny
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {approvals.length === 0 && <p style={{ color: "var(--colorNeutralForeground3)", fontSize: 13 }}>No approval requests yet.</p>}
+              </div>
+            </Card>
+          )}
+
+          {/* ==================== AUDIT ==================== */}
+          {view === "audit" && (
+            <Card title={`Audit Trail (${filteredAudit.length} events shown)`}>
+              <div style={{ marginBottom: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <input
+                  className="f2-input"
+                  value={auditQuery}
+                  onChange={e => setAuditQuery(e.target.value)}
+                  placeholder="Filter by actor, tool, device ID, or decision…"
+                  style={{ flex: 1, minWidth: 240 }}
+                />
+                <select className="f2-select" value={auditTool} onChange={e => setAuditTool(e.target.value)}>
+                  <option value="all">All tools</option>
+                  {[...new Set(audit.map(a => a.tool).filter(Boolean))].map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="f2-table-wrap">
+                <table className="f2-table">
+                  <thead>
+                    <tr>
+                      <th>Timestamp</th>
+                      <th>Actor</th>
+                      <th>Device</th>
+                      <th>Tool / Action</th>
+                      <th>Decision</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAudit.map(a => (
+                      <tr key={a.id}>
+                        <td>{fmt(a.ts)}</td>
+                        <td><b>{a.actor || "—"}</b></td>
+                        <td><code>{a.device_id ? String(a.device_id).slice(0, 8) : "—"}</code></td>
+                        <td><code>{a.tool}</code></td>
+                        <td><Badge value={a.decision || "?"} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+
+          {/* ==================== POLICIES & WEBHOOKS ==================== */}
+          {view === "policies" && (
+            <div style={{ display: "grid", gap: 16 }}>
+              <Card title={`Security Policy Editor (Active Version: v${policy?.version ?? "?"})`}>
+                {policy ? (
+                  <form
+                    onSubmit={async e => {
+                      e.preventDefault();
+                      try {
+                        const allowed_apps = polApps.split(",").map(s => s.trim()).filter(Boolean);
+                        const allowed_services = polServices.split(",").map(s => s.trim()).filter(Boolean);
+                        const r = await api.createPolicy({
+                          allow_tier3: polTier3,
+                          desktop_enabled: polDesktop,
+                          allowed_apps,
+                          allowed_services,
+                          note: polNote || "Updated via Fluent 2 policy editor",
+                        });
+                        setPolNote("");
+                        setNotice({ intent: "success", text: `Saved policy v${r.version}. Propagates automatically to agents on next poll.` });
+                        await load();
+                      } catch (ex: any) {
+                        setErr(`Failed to save policy: ${ex.message}`);
+                      }
+                    }}
+                    style={{ display: "grid", gap: 16 }}
+                  >
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
+                      <div style={{ padding: 12, borderRadius: 6, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
+                        <label className="f2-switch-label">
+                          <input type="checkbox" checked={polTier3} onChange={e => setPolTier3(e.target.checked)} style={{ display: "none" }} />
+                          <span className="f2-switch" data-checked={String(polTier3)} />
+                          <div>
+                            <div style={{ fontWeight: 600 }}>Allow Tier-3 Operations Unattended</div>
+                            <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
+                              Execute Tier-3 tools without queuing for manual approval
+                            </div>
+                          </div>
+                        </label>
+                      </div>
+
+                      <div style={{ padding: 12, borderRadius: 6, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
+                        <label className="f2-switch-label">
+                          <input type="checkbox" checked={polDesktop} onChange={e => setPolDesktop(e.target.checked)} style={{ display: "none" }} />
+                          <span className="f2-switch" data-checked={String(polDesktop)} />
+                          <div>
+                            <div style={{ fontWeight: 600 }}>Enable Desktop Automation & Vision</div>
+                            <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
+                              Permit screenshots, approved app launches, and UI actions
+                            </div>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4, color: "var(--colorNeutralForeground2)" }}>
+                          Allowed Desktop Applications (comma-separated)
+                        </label>
+                        <input
+                          className="f2-input"
+                          value={polApps}
+                          onChange={e => setPolApps(e.target.value)}
+                          placeholder="chrome, code, notepad, msedge, firefox, terminal"
+                          style={{ width: "100%" }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4, color: "var(--colorNeutralForeground2)" }}>
+                          Allowed System Services (comma-separated)
+                        </label>
+                        <input
+                          className="f2-input"
+                          value={polServices}
+                          onChange={e => setPolServices(e.target.value)}
+                          placeholder="nginx, docker, ssh, postgresql, redis"
+                          style={{ width: "100%" }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      <input
+                        className="f2-input"
+                        value={polNote}
+                        onChange={e => setPolNote(e.target.value)}
+                        placeholder="Change note for audit history (optional)"
+                        style={{ flex: 1, minWidth: 240 }}
+                      />
+                      <button type="submit" className="f2-btn f2-btn-primary">
+                        Save New Policy Version
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <p style={{ color: "var(--colorNeutralForeground3)", fontSize: 13 }}>Loading policy…</p>
+                )}
+              </Card>
+
+              <Card title="Approval Webhook Notifications (Slack / Discord / Telegram / Custom)">
+                <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--colorNeutralForeground2)" }}>
+                  Receive an instant HTTP POST notification whenever a task enters <code>needs_approval</code>. Supports Slack, Discord, Telegram Bot URLs (<code>https://api.telegram.org/botTOKEN/sendMessage?chat_id=ID</code>), or any JSON endpoint.
+                </p>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <input
+                    className="f2-input"
+                    value={webhookUrl}
+                    onChange={e => setWebhookUrl(e.target.value)}
+                    placeholder="https://hooks.slack.com/services/... or https://discord.com/api/webhooks/..."
+                    style={{ flex: 1, minWidth: 280 }}
+                  />
+                  <button
+                    type="button"
+                    className="f2-btn f2-btn-primary"
+                    onClick={async () => {
+                      try {
+                        const r = await api.setWebhook(webhookUrl);
+                        setNotice({ intent: "success", text: r.configured ? "Webhook URL saved." : "Webhook URL cleared." });
+                      } catch (ex: any) {
+                        setErr(`Save webhook failed: ${ex.message}`);
+                      }
+                    }}
+                  >
+                    Save Webhook
+                  </button>
+                  <button
+                    type="button"
+                    className="f2-btn"
+                    disabled={!webhookUrl.trim()}
+                    onClick={async () => {
+                      try {
+                        const r = await api.testWebhook();
+                        setNotice({
+                          intent: r.ok ? "success" : "error",
+                          text: r.ok ? `Webhook test succeeded (HTTP ${r.status}).` : `Webhook test failed: ${r.error || "unknown error"}`,
+                        });
+                      } catch (ex: any) {
+                        setErr(`Webhook test failed: ${ex.message}`);
+                      }
+                    }}
+                  >
+                    Send Test Alert
+                  </button>
+                </div>
+              </Card>
+
+              <Card title="Versioned Policy History">
+                <div className="f2-table-wrap">
+                  <table className="f2-table">
+                    <thead>
+                      <tr>
+                        <th>Version</th>
+                        <th>Created</th>
+                        <th>Author</th>
+                        <th>Note</th>
+                        <th>Configuration Summary</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {policyHistory.map(p => {
+                        let pol: any = {};
+                        try {
+                          pol = JSON.parse(p.policy_json);
+                        } catch {
+                          /* ignore */
+                        }
+                        return (
+                          <tr key={p.version}>
+                            <td><Badge value={`v${p.version}`} tone="blue" /></td>
+                            <td>{fmt(p.created_at)}</td>
+                            <td><b>{p.created_by || "—"}</b></td>
+                            <td>{p.note || "—"}</td>
+                            <td>
+                              <code>tier3={String(pol.allow_tier3)} desktop={String(pol.desktop_enabled)} apps=[{(pol.allowed_apps || []).join(", ")}]</code>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {/* ==================== CONNECTIONS ==================== */}
+          {view === "connections" && (
+            <div style={{ display: "grid", gap: 16 }}>
+              <div className="f2-kpi-grid">
+                <Card title="Control Plane API">
+                  <Badge value={health ? (health.emergency_stop ? "emergency stop" : "online") : "unknown"} />
+                  <p style={{ fontSize: 13, margin: "8px 0 4px" }}>Version <b>{health?.version || "?"}</b></p>
+                  <code style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", wordBreak: "break-all" }}>{origin}/api</code>
+                </Card>
+
+                <Card title="MCP Streamable HTTP">
+                  <Badge value={connections ? (connections.mcp.up ? "online" : "down") : "unknown"} />
+                  <p style={{ fontSize: 13, margin: "8px 0 4px" }}>Loopback <code>:{connections?.mcp.port || 8001}</code></p>
+                  <code style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", wordBreak: "break-all" }}>{origin}/mcp</code>
+                </Card>
+
+                <Card title="OAuth 2.0 Gateway">
+                  <Badge value={connections ? (connections.oauth_gateway.up ? "online" : "down") : "unknown"} />
+                  <p style={{ fontSize: 13, margin: "8px 0 4px" }}>Loopback <code>:{connections?.oauth_gateway.port || 8002}</code></p>
+                  <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>Issues & verifies MCP bearer tokens</span>
+                </Card>
+              </div>
+
+              <Card title="Registered OAuth Clients (ChatGPT / Claude / Codex)">
+                {connections ? (
+                  <>
+                    <p style={{ fontSize: 13, marginTop: 0, color: "var(--colorNeutralForeground2)" }}>
+                      Registered clients: <b>{connections.chatgpt.clients.length}</b> · Active access tokens: <b>{connections.chatgpt.active_access_tokens}</b> · Active refresh tokens: <b>{connections.chatgpt.active_refresh_tokens}</b> · Last activity: <b>{rel(connections.chatgpt.last_token_at)}</b>
+                    </p>
+                    <div className="f2-table-wrap">
+                      <table className="f2-table">
+                        <thead>
+                          <tr>
+                            <th>Client Name</th>
+                            <th>Client ID Prefix</th>
+                            <th>Redirect URIs</th>
+                            <th>Registered</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {connections.chatgpt.clients.map((c: any, i: number) => (
+                            <tr key={i}>
+                              <td><b>{c.client_name || "MCP Client"}</b></td>
+                              <td><code>{c.client_id_prefix}…</code></td>
+                              <td style={{ wordBreak: "break-all", fontSize: 12 }}>{c.redirect_uris}</td>
+                              <td>{fmt(c.created_at)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : (
+                  <p style={{ color: "var(--colorNeutralForeground3)", fontSize: 13 }}>Loading connections…</p>
+                )}
+              </Card>
+            </div>
+          )}
+
+          {/* ==================== LOGS ==================== */}
+          {view === "logs" && (
+            <Card title="Systemd & Proxy Telemetry">
+              <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <select className="f2-select" value={logService} onChange={e => setLogService(e.target.value)}>
+                  <option value="control">Control Plane (ai-bridge-control)</option>
+                  <option value="mcp">MCP Server (ai-bridge-mcp)</option>
+                  <option value="oauth">OAuth Gateway (ai-bridge-oauth)</option>
+                  <option value="nginx">Nginx Reverse Proxy (/mcp & /api)</option>
+                </select>
+
+                <select className="f2-select" value={logCount} onChange={e => setLogCount(Number(e.target.value))}>
+                  <option value={50}>50 lines</option>
+                  <option value={100}>100 lines</option>
+                  <option value={200}>200 lines</option>
+                </select>
+
+                <button type="button" className="f2-btn" onClick={() => load()}>
+                  Refresh Logs
+                </button>
+              </div>
+
+              <pre style={{
+                margin: 0,
+                padding: 16,
+                borderRadius: 8,
+                background: "var(--colorTerminalBackground)",
+                color: "var(--colorTerminalForeground)",
+                fontSize: 12,
+                lineHeight: 1.55,
+                maxHeight: 620,
+                overflow: "auto",
+                whiteSpace: "pre-wrap",
+              }}>
+                {logLines.join("\n") || "No log lines returned."}
+              </pre>
+            </Card>
+          )}
+        </main>
+      </div>
+
+      {/* Fluent 2 Screenshot Lightbox Modal */}
+      {lightbox && (
+        <div className="f2-modal-backdrop" onClick={() => setLightbox(null)}>
+          <div className="f2-modal" onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>{lightbox.title}</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <a className="f2-btn f2-btn-primary f2-btn-sm" href={lightbox.src} download="screenshot.jpg" style={{ textDecoration: "none" }}>
+                  Download JPEG
+                </a>
+                <button type="button" className="f2-btn f2-btn-sm" onClick={() => setLightbox(null)}>
+                  Close
+                </button>
+              </div>
+            </div>
+            <img src={lightbox.src} alt="Fullscreen Desktop Screenshot" style={{ maxWidth: "86vw", maxHeight: "78vh", borderRadius: 6, display: "block" }} />
+          </div>
         </div>
-        <Card title="ChatGPT connection">
-          {connections ? <>
-            <p style={{ fontSize: 13 }}>OAuth clients: <b>{connections.chatgpt.clients.length}</b> · Active access tokens: <b>{connections.chatgpt.active_access_tokens}</b> · Active refresh tokens: <b>{connections.chatgpt.active_refresh_tokens}</b> · Last token activity: <b>{rel(connections.chatgpt.last_token_at)}</b></p>
-            <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
-              <thead><tr style={{ textAlign: "left", color: "#666" }}><th>Client</th><th>ID prefix</th><th>Redirect URIs</th><th>Registered</th></tr></thead>
-              <tbody>{connections.chatgpt.clients.map((c: any, i: number) => <tr key={i} style={{ borderTop: "1px solid #eee" }}>
-                <td>{c.client_name || "ChatGPT client"}</td><td><code>{c.client_id_prefix}…</code></td><td style={{ wordBreak: "break-all" }}>{c.redirect_uris}</td><td>{fmt(c.created_at)}</td>
-              </tr>)}</tbody>
-            </table>
-            {connections.chatgpt.clients.length === 0 && <p style={{ color: "#666", fontSize: 13 }}>No OAuth clients registered yet — connect ChatGPT to see it here.</p>}
-          </> : <p style={{ color: "#666", fontSize: 13 }}>Loading…</p>}
-        </Card>
-        <Card title="Endpoints">
-          <ul style={{ fontSize: 13, lineHeight: 1.8 }}>
-            <li>Dashboard: <code>{origin}/</code></li>
-            <li>MCP (ChatGPT): <code>{origin}/mcp</code></li>
-            <li>Control API: <code>{origin}/api</code> (health at <code>{origin}/health</code>)</li>
-            <li>Enrolled devices poll the control API; ChatGPT talks to the MCP endpoint through OAuth.</li>
-          </ul>
-        </Card>
-      </div>}
-
-      {view === "logs" && <Card title="Service logs">
-        <div style={{ marginBottom: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <select value={logService} onChange={e => { setLogService(e.target.value); }}>
-            <option value="control">Control plane</option>
-            <option value="mcp">MCP server</option>
-            <option value="oauth">OAuth gateway</option>
-            <option value="nginx">nginx (MCP/API traffic)</option>
-          </select>
-          <select value={logCount} onChange={e => setLogCount(Number(e.target.value))}>
-            <option value={50}>50 lines</option>
-            <option value={100}>100 lines</option>
-            <option value={200}>200 lines</option>
-          </select>
-          <button onClick={() => load()}>Refresh logs</button>
-          <label style={{ fontSize: 13 }}><input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} /> auto-refresh (15 s)</label>
-        </div>
-        <pre style={{ whiteSpace: "pre-wrap", background: "#111", color: "#ddd", padding: 12, borderRadius: 6, fontSize: 12, maxHeight: 600, overflow: "auto" }}>{logLines.join("\n") || "No log lines (or the service has not logged yet)."}</pre>
-      </Card>}
-    </main>
+      )}
+    </div>
   );
 }

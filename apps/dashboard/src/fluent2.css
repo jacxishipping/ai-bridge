@@ -1,0 +1,912 @@
+/* ==========================================================================
+   Microsoft Fluent 2 Design System Tokens & Components
+   Reference: https://fluent2.microsoft.design/
+   ========================================================================== */
+
+:root,
+[data-theme="light"] {
+  /* Typography */
+  --fontFamilyBase: "Segoe UI Variable", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", sans-serif;
+  --fontFamilyMonospace: "Cascadia Code", "Consolas", "SFMono-Regular", Menlo, monospace;
+
+  /* Brand Ramp (Communication Blue) */
+  --colorBrandBackground: #0f6cbd;
+  --colorBrandBackgroundHover: #115ea3;
+  --colorBrandBackgroundPressed: #0c3b5e;
+  --colorBrandBackgroundSelected: #115ea3;
+  --colorBrandBackground2: #ebf3fc;
+  --colorBrandBackground2Hover: #cfe4fa;
+  --colorBrandForeground1: #0f6cbd;
+  --colorBrandForeground2: #115ea3;
+  --colorBrandForegroundOnLight: #0f6cbd;
+  --colorBrandStroke1: #0f6cbd;
+  --colorBrandStroke2: #b4d6fa;
+  --colorCompoundBrandStroke: #0f6cbd;
+
+  /* Neutral Backgrounds & Surfaces */
+  --colorNeutralBackground1: #ffffff;
+  --colorNeutralBackground1Hover: #f5f5f5;
+  --colorNeutralBackground1Pressed: #e0e0e0;
+  --colorNeutralBackground1Selected: #ebebeb;
+  --colorNeutralBackground2: #fafafa;
+  --colorNeutralBackground3: #f5f5f5;
+  --colorNeutralBackground4: #f0f0f0;
+  --colorNeutralBackground5: #e0e0e0;
+  --colorNeutralBackground6: #d6d6d6;
+  --colorSubtleBackground: transparent;
+  --colorSubtleBackgroundHover: #f5f5f5;
+  --colorSubtleBackgroundPressed: #e0e0e0;
+  --colorSubtleBackgroundSelected: #ebebeb;
+  --colorHeaderAcrylic: rgba(255, 255, 255, 0.85);
+
+  /* Neutral Foregrounds */
+  --colorNeutralForeground1: #242424;
+  --colorNeutralForeground2: #424242;
+  --colorNeutralForeground3: #616161;
+  --colorNeutralForeground4: #707070;
+  --colorNeutralForegroundDisabled: #bdbdbd;
+  --colorNeutralForegroundOnBrand: #ffffff;
+
+  /* Neutral Strokes & Dividers */
+  --colorNeutralStroke1: #d1d1d1;
+  --colorNeutralStroke1Hover: #c7c7c7;
+  --colorNeutralStroke2: #e0e0e0;
+  --colorNeutralStroke3: #f0f0f0;
+  --colorNeutralStrokeAccessible: #616161;
+
+  /* Status Palette: Success (Green) */
+  --colorStatusSuccessBackground1: #f1faf1;
+  --colorStatusSuccessBackground2: #9fd89f;
+  --colorStatusSuccessForeground1: #0e700e;
+  --colorStatusSuccessStroke1: #9fd89f;
+
+  /* Status Palette: Warning (Marigold / Amber) */
+  --colorStatusWarningBackground1: #fff9f5;
+  --colorStatusWarningBackground2: #fdcfb4;
+  --colorStatusWarningForeground1: #bc4b09;
+  --colorStatusWarningStroke1: #fdcfb4;
+
+  /* Status Palette: Danger (Cranberry / Red) */
+  --colorStatusDangerBackground1: #fdf3f4;
+  --colorStatusDangerBackground2: #eeacb2;
+  --colorStatusDangerForeground1: #b10e1c;
+  --colorStatusDangerStroke1: #eeacb2;
+  --colorDangerButtonBackground: #c50f1f;
+  --colorDangerButtonHover: #a80000;
+
+  /* Code & Terminal Surface */
+  --colorTerminalBackground: #1e1e1e;
+  --colorTerminalForeground: #e0e0e0;
+
+  /* Fluent 2 Elevation Shadows */
+  --shadow2: 0 1px 2px rgba(0, 0, 0, 0.12), 0 0 2px rgba(0, 0, 0, 0.10);
+  --shadow4: 0 2px 4px rgba(0, 0, 0, 0.14), 0 0 2px rgba(0, 0, 0, 0.12);
+  --shadow8: 0 4px 8px rgba(0, 0, 0, 0.14), 0 0 2px rgba(0, 0, 0, 0.12);
+  --shadow16: 0 8px 16px rgba(0, 0, 0, 0.14), 0 0 2px rgba(0, 0, 0, 0.12);
+  --shadow28: 0 14px 28px rgba(0, 0, 0, 0.24), 0 0 8px rgba(0, 0, 0, 0.16);
+
+  /* Corner Radius */
+  --borderRadiusSmall: 2px;
+  --borderRadiusMedium: 4px;
+  --borderRadiusLarge: 8px;
+  --borderRadiusXLarge: 12px;
+  --borderRadiusCircular: 9999px;
+
+  /* Motion */
+  --durationUltraFast: 50ms;
+  --durationFaster: 100ms;
+  --durationFast: 150ms;
+  --durationNormal: 200ms;
+  --curveEasyEase: cubic-bezier(0.33, 0, 0.67, 1);
+  --curveDecelerateMid: cubic-bezier(0, 0, 0, 1);
+}
+
+[data-theme="dark"] {
+  --colorBrandBackground: #115ea3;
+  --colorBrandBackgroundHover: #0f6cbd;
+  --colorBrandBackgroundPressed: #0c3b5e;
+  --colorBrandBackgroundSelected: #0f6cbd;
+  --colorBrandBackground2: #0c3b5e;
+  --colorBrandBackground2Hover: #0f548c;
+  --colorBrandForeground1: #479ef5;
+  --colorBrandForeground2: #62abf5;
+  --colorBrandForegroundOnLight: #479ef5;
+  --colorBrandStroke1: #479ef5;
+  --colorBrandStroke2: #0f548c;
+  --colorCompoundBrandStroke: #479ef5;
+
+  --colorNeutralBackground1: #292929;
+  --colorNeutralBackground1Hover: #383838;
+  --colorNeutralBackground1Pressed: #1f1f1f;
+  --colorNeutralBackground1Selected: #333333;
+  --colorNeutralBackground2: #1f1f1f;
+  --colorNeutralBackground3: #141414;
+  --colorNeutralBackground4: #0a0a0a;
+  --colorNeutralBackground5: #333333;
+  --colorNeutralBackground6: #3d3d3d;
+  --colorSubtleBackground: transparent;
+  --colorSubtleBackgroundHover: #333333;
+  --colorSubtleBackgroundPressed: #292929;
+  --colorSubtleBackgroundSelected: #383838;
+  --colorHeaderAcrylic: rgba(31, 31, 31, 0.85);
+
+  --colorNeutralForeground1: #ffffff;
+  --colorNeutralForeground2: #d6d6d6;
+  --colorNeutralForeground3: #adadad;
+  --colorNeutralForeground4: #8a8a8a;
+  --colorNeutralForegroundDisabled: #5c5c5c;
+  --colorNeutralForegroundOnBrand: #ffffff;
+
+  --colorNeutralStroke1: #525252;
+  --colorNeutralStroke1Hover: #666666;
+  --colorNeutralStroke2: #3d3d3d;
+  --colorNeutralStroke3: #2e2e2e;
+  --colorNeutralStrokeAccessible: #adadad;
+
+  --colorStatusSuccessBackground1: #052505;
+  --colorStatusSuccessBackground2: #107c10;
+  --colorStatusSuccessForeground1: #54b054;
+  --colorStatusSuccessStroke1: #107c10;
+
+  --colorStatusWarningBackground1: #4a1e04;
+  --colorStatusWarningBackground2: #8a3707;
+  --colorStatusWarningForeground1: #f8965d;
+  --colorStatusWarningStroke1: #8a3707;
+
+  --colorStatusDangerBackground1: #3b0509;
+  --colorStatusDangerBackground2: #860b16;
+  --colorStatusDangerForeground1: #eeacb2;
+  --colorStatusDangerStroke1: #860b16;
+  --colorDangerButtonBackground: #c50f1f;
+  --colorDangerButtonHover: #dc626d;
+
+  --colorTerminalBackground: #0f0f0f;
+  --colorTerminalForeground: #e0e0e0;
+
+  --shadow2: 0 1px 2px rgba(0, 0, 0, 0.28), 0 0 2px rgba(0, 0, 0, 0.24);
+  --shadow4: 0 2px 4px rgba(0, 0, 0, 0.32), 0 0 2px rgba(0, 0, 0, 0.24);
+  --shadow8: 0 4px 8px rgba(0, 0, 0, 0.36), 0 0 2px rgba(0, 0, 0, 0.28);
+  --shadow16: 0 8px 16px rgba(0, 0, 0, 0.42), 0 0 2px rgba(0, 0, 0, 0.32);
+  --shadow28: 0 14px 28px rgba(0, 0, 0, 0.56), 0 0 8px rgba(0, 0, 0, 0.40);
+}
+
+/* Global Reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--fontFamilyBase);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--colorNeutralForeground1);
+  background-color: var(--colorNeutralBackground3);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code, pre {
+  font-family: var(--fontFamilyMonospace);
+}
+
+/* ==========================================================================
+   Fluent 2 Shell Layout (App Bar + NavDrawer + Workspace Canvas)
+   ========================================================================== */
+
+.f2-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: var(--colorNeutralBackground3);
+}
+
+.f2-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: var(--colorHeaderAcrylic);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+}
+
+.f2-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--colorNeutralForeground1);
+  letter-spacing: -0.01em;
+}
+
+.f2-brand-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #0f6cbd 0%, #2886de 50%, #479ef5 100%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow: var(--shadow2);
+}
+
+.f2-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.f2-body {
+  display: flex;
+  flex: 1;
+  min-height: calc(100vh - 52px);
+}
+
+/* Fluent 2 Navigation Drawer */
+.f2-nav {
+  width: 244px;
+  flex-shrink: 0;
+  background-color: var(--colorNeutralBackground2);
+  border-right: 1px solid var(--colorNeutralStroke2);
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.f2-nav-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--colorNeutralForeground3);
+  padding: 10px 12px 4px;
+}
+
+.f2-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorSubtleBackground);
+  color: var(--colorNeutralForeground2);
+  font-family: var(--fontFamilyBase);
+  font-size: 14px;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--durationFaster) var(--curveEasyEase),
+              color var(--durationFaster) var(--curveEasyEase);
+}
+
+.f2-nav-item:hover {
+  background: var(--colorSubtleBackgroundHover);
+  color: var(--colorNeutralForeground1);
+}
+
+.f2-nav-item[data-active="true"] {
+  background: var(--colorSubtleBackgroundSelected);
+  color: var(--colorNeutralForeground1);
+  font-weight: 600;
+}
+
+/* Fluent 2 Vertical Selection Indicator Pill */
+.f2-nav-item[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: var(--borderRadiusCircular);
+  background-color: var(--colorCompoundBrandStroke);
+}
+
+.f2-nav-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: inherit;
+}
+
+.f2-nav-item[data-active="true"] .f2-nav-item-icon {
+  color: var(--colorBrandForeground1);
+}
+
+.f2-nav-counter {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--borderRadiusCircular);
+  background-color: var(--colorBrandBackground);
+  color: var(--colorNeutralForegroundOnBrand);
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.f2-nav-counter[data-warn="true"] {
+  background-color: var(--colorDangerButtonBackground);
+}
+
+/* Main Content Canvas */
+.f2-canvas {
+  flex: 1;
+  min-width: 0;
+  padding: 24px 28px 40px;
+  max-width: 1440px;
+}
+
+.f2-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.f2-page-title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+  color: var(--colorNeutralForeground1);
+}
+
+.f2-page-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--colorNeutralForeground3);
+}
+
+/* ==========================================================================
+   Fluent 2 Card & Metric Tile
+   ========================================================================== */
+
+.f2-card {
+  background-color: var(--colorNeutralBackground1);
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: var(--borderRadiusLarge);
+  box-shadow: var(--shadow2);
+  padding: 16px 20px;
+  transition: box-shadow var(--durationFast) var(--curveEasyEase),
+              border-color var(--durationFast) var(--curveEasyEase);
+}
+
+.f2-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.f2-card-title {
+  margin: 0;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  color: var(--colorNeutralForeground1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.f2-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.f2-kpi-card {
+  background-color: var(--colorNeutralBackground1);
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: var(--borderRadiusLarge);
+  box-shadow: var(--shadow2);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  transition: transform var(--durationFaster) var(--curveEasyEase),
+              box-shadow var(--durationFast) var(--curveEasyEase),
+              border-color var(--durationFast) var(--curveEasyEase);
+}
+
+.f2-kpi-card:hover {
+  box-shadow: var(--shadow8);
+  border-color: var(--colorNeutralStroke1Hover);
+  transform: translateY(-1px);
+}
+
+.f2-kpi-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--colorNeutralForeground3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.f2-kpi-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--borderRadiusMedium);
+  background-color: var(--colorBrandBackground2);
+  color: var(--colorBrandForeground1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.f2-kpi-value {
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 600;
+  color: var(--colorNeutralForeground1);
+  letter-spacing: -0.02em;
+}
+
+.f2-kpi-meta {
+  font-size: 12px;
+  color: var(--colorNeutralForeground3);
+}
+
+/* ==========================================================================
+   Fluent 2 Buttons (Primary, Secondary, Subtle, Danger, Pill)
+   ========================================================================== */
+
+.f2-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 5px 12px;
+  border-radius: var(--borderRadiusMedium);
+  border: 1px solid var(--colorNeutralStroke1);
+  background-color: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  font-family: var(--fontFamilyBase);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--durationFaster) var(--curveEasyEase),
+              border-color var(--durationFaster) var(--curveEasyEase),
+              color var(--durationFaster) var(--curveEasyEase),
+              box-shadow var(--durationFaster) var(--curveEasyEase);
+}
+
+.f2-btn:hover:not(:disabled) {
+  background-color: var(--colorNeutralBackground1Hover);
+  border-color: var(--colorNeutralStroke1Hover);
+}
+
+.f2-btn:active:not(:disabled) {
+  background-color: var(--colorNeutralBackground1Pressed);
+}
+
+.f2-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.f2-btn-primary {
+  background-color: var(--colorBrandBackground);
+  border-color: transparent;
+  color: var(--colorNeutralForegroundOnBrand);
+}
+
+.f2-btn-primary:hover:not(:disabled) {
+  background-color: var(--colorBrandBackgroundHover);
+  border-color: transparent;
+}
+
+.f2-btn-primary:active:not(:disabled) {
+  background-color: var(--colorBrandBackgroundPressed);
+}
+
+.f2-btn-danger {
+  background-color: var(--colorDangerButtonBackground);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.f2-btn-danger:hover:not(:disabled) {
+  background-color: var(--colorDangerButtonHover);
+  border-color: transparent;
+}
+
+.f2-btn-subtle {
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--colorNeutralForeground2);
+  font-weight: 500;
+}
+
+.f2-btn-subtle:hover:not(:disabled) {
+  background-color: var(--colorSubtleBackgroundHover);
+  color: var(--colorNeutralForeground1);
+  border-color: transparent;
+}
+
+.f2-btn-sm {
+  min-height: 26px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+.f2-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--borderRadiusCircular);
+  border: 1px solid var(--colorNeutralStroke1);
+  background-color: var(--colorNeutralBackground2);
+  color: var(--colorNeutralForeground2);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--durationFaster) var(--curveEasyEase);
+}
+
+.f2-chip:hover {
+  background-color: var(--colorBrandBackground2);
+  border-color: var(--colorBrandStroke1);
+  color: var(--colorBrandForeground1);
+}
+
+.f2-chip[data-active="true"] {
+  background-color: var(--colorBrandBackground);
+  border-color: var(--colorBrandBackground);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   Fluent 2 Inputs, Selects & Signature Animated Focus Underline
+   ========================================================================== */
+
+.f2-input,
+.f2-select {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--borderRadiusMedium);
+  border: 1px solid var(--colorNeutralStroke1);
+  border-bottom: 1px solid var(--colorNeutralStrokeAccessible);
+  background-color: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  font-family: var(--fontFamilyBase);
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--durationFaster) var(--curveEasyEase),
+              box-shadow var(--durationFaster) var(--curveEasyEase);
+}
+
+.f2-input:hover,
+.f2-select:hover {
+  border-color: var(--colorNeutralStroke1Hover);
+  border-bottom-color: var(--colorNeutralStrokeAccessible);
+}
+
+.f2-input:focus,
+.f2-select:focus {
+  border-color: var(--colorNeutralStroke1);
+  border-bottom: 2px solid var(--colorCompoundBrandStroke);
+  padding-bottom: 0;
+}
+
+/* Fluent 2 Toggle Switch */
+.f2-switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: var(--colorNeutralForeground1);
+}
+
+.f2-switch {
+  position: relative;
+  width: 40px;
+  height: 20px;
+  border-radius: var(--borderRadiusCircular);
+  border: 1px solid var(--colorNeutralStrokeAccessible);
+  background-color: transparent;
+  transition: background-color var(--durationFast) var(--curveEasyEase),
+              border-color var(--durationFast) var(--curveEasyEase);
+  flex-shrink: 0;
+}
+
+.f2-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background-color: var(--colorNeutralForeground2);
+  transition: transform var(--durationFast) var(--curveDecelerateMid),
+              background-color var(--durationFast) var(--curveEasyEase);
+}
+
+.f2-switch[data-checked="true"] {
+  background-color: var(--colorBrandBackground);
+  border-color: var(--colorBrandBackground);
+}
+
+.f2-switch[data-checked="true"]::after {
+  transform: translateX(20px);
+  background-color: #ffffff;
+}
+
+/* ==========================================================================
+   Fluent 2 Badges & Presence Dots
+   ========================================================================== */
+
+.f2-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--borderRadiusMedium);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.f2-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+.f2-badge[data-tone="green"] {
+  background-color: var(--colorStatusSuccessBackground1);
+  color: var(--colorStatusSuccessForeground1);
+  border-color: var(--colorStatusSuccessStroke1);
+}
+
+.f2-badge[data-tone="amber"] {
+  background-color: var(--colorStatusWarningBackground1);
+  color: var(--colorStatusWarningForeground1);
+  border-color: var(--colorStatusWarningStroke1);
+}
+
+.f2-badge[data-tone="red"] {
+  background-color: var(--colorStatusDangerBackground1);
+  color: var(--colorStatusDangerForeground1);
+  border-color: var(--colorStatusDangerStroke1);
+}
+
+.f2-badge[data-tone="blue"] {
+  background-color: var(--colorBrandBackground2);
+  color: var(--colorBrandForeground1);
+  border-color: var(--colorBrandStroke2);
+}
+
+.f2-badge[data-tone="grey"] {
+  background-color: var(--colorNeutralBackground4);
+  color: var(--colorNeutralForeground2);
+  border-color: var(--colorNeutralStroke1);
+}
+
+/* ==========================================================================
+   Fluent 2 DataGrid / Table
+   ========================================================================== */
+
+.f2-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.f2-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.f2-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--colorNeutralForeground3);
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+  white-space: nowrap;
+}
+
+.f2-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--colorNeutralStroke3);
+  color: var(--colorNeutralForeground1);
+  vertical-align: middle;
+}
+
+.f2-table tbody tr {
+  transition: background-color var(--durationUltraFast) var(--curveEasyEase);
+}
+
+.f2-table tbody tr:hover {
+  background-color: var(--colorNeutralBackground1Hover);
+}
+
+.f2-table tbody tr[data-expanded="true"] {
+  background-color: var(--colorBrandBackground2);
+}
+
+/* ==========================================================================
+   Fluent 2 MessageBar & Progress Bar
+   ========================================================================== */
+
+.f2-messagebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--borderRadiusMedium);
+  border: 1px solid var(--colorNeutralStroke1);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.f2-messagebar[data-intent="error"] {
+  background-color: var(--colorStatusDangerBackground1);
+  border-color: var(--colorStatusDangerStroke1);
+  color: var(--colorStatusDangerForeground1);
+}
+
+.f2-messagebar[data-intent="success"] {
+  background-color: var(--colorStatusSuccessBackground1);
+  border-color: var(--colorStatusSuccessStroke1);
+  color: var(--colorStatusSuccessForeground1);
+}
+
+.f2-messagebar[data-intent="warning"] {
+  background-color: var(--colorStatusWarningBackground1);
+  border-color: var(--colorStatusWarningStroke1);
+  color: var(--colorStatusWarningForeground1);
+}
+
+.f2-messagebar[data-intent="info"] {
+  background-color: var(--colorBrandBackground2);
+  border-color: var(--colorBrandStroke2);
+  color: var(--colorBrandForeground2);
+}
+
+.f2-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.f2-bar-track {
+  flex: 1;
+  height: 8px;
+  border-radius: var(--borderRadiusCircular);
+  background-color: var(--colorNeutralBackground4);
+  overflow: hidden;
+}
+
+.f2-bar-fill {
+  height: 100%;
+  border-radius: var(--borderRadiusCircular);
+  background: linear-gradient(90deg, var(--colorBrandBackground) 0%, #2886de 100%);
+  transition: width var(--durationNormal) var(--curveDecelerateMid);
+}
+
+/* ==========================================================================
+   Fluent 2 Persona Avatar & Dialog Lightbox
+   ========================================================================== */
+
+.f2-persona {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px 3px 4px;
+  border-radius: var(--borderRadiusCircular);
+  background-color: var(--colorNeutralBackground3);
+  border: 1px solid var(--colorNeutralStroke2);
+  font-size: 12px;
+}
+
+.f2-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: var(--colorBrandBackground);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+}
+
+.f2-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background-color: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.f2-modal {
+  background-color: var(--colorNeutralBackground1);
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: var(--borderRadiusXLarge);
+  box-shadow: var(--shadow28);
+  max-width: 92vw;
+  max-height: 90vh;
+  overflow: auto;
+  padding: 20px;
+}
+
+/* Responsive Drawer Collapse */
+@media (max-width: 860px) {
+  .f2-body {
+    flex-direction: column;
+  }
+  .f2-nav {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--colorNeutralStroke2);
+    padding: 8px;
+  }
+  .f2-nav-section-label {
+    display: none;
+  }
+  .f2-nav-item {
+    width: auto;
+    white-space: nowrap;
+  }
+  .f2-nav-item[data-active="true"]::before {
+    left: 10px;
+    right: 10px;
+    top: auto;
+    bottom: 2px;
+    width: auto;
+    height: 3px;
+  }
+  .f2-canvas {
+    padding: 16px;
+  }
+}
