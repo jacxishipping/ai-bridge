@@ -13,7 +13,6 @@ import subprocess
 import time
 import uuid
 import zipfile
-from pathlib import Path
 
 from . import diagnostics
 from .config import get_settings
@@ -181,39 +180,36 @@ def capture_desktop_screenshot(*, approval_granted: bool = False, policy: Policy
     out.parent.mkdir(parents=True, exist_ok=True); shot.save(out)
     return {"available": True, "path": str(out), "size": shot.size}
 
-def _resolve_windows_app(app_name: str) -> str:
-    """Resolve an approved application name on Windows via PATH, Registry
-    App Paths, or standard Program Files / LocalAppData install paths."""
-    found = shutil.which(app_name)
-    if found:
-        return found
-    exe = app_name if app_name.lower().endswith(".exe") else f"{app_name}.exe"
-    if platform.system() == "Windows":
+def _resolve_app_executable(app_name: str) -> str:
+    """Resolve an allowlisted app name to an executable path (Windows).
+
+    Plain names resolve through PATH when Popen runs. When that fails on
+    Windows, fall back to the App Paths registry keys -- the mechanism
+    Windows itself uses to resolve names like chrome/opera/msedge typed
+    in Start > Run. Browsers installed outside PATH (Chrome's
+    C:\\Program Files\\Google\\Chrome\\Application, Opera's install dir)
+    register there, so the allowlist names keep working as typed.
+    Returns the input unchanged off Windows, for full paths, or when no
+    App Paths entry exists; the allowlist check on the *name* still
+    gates the launch either way.
+    """
+    if os.name != "nt" or "\\" in app_name or "/" in app_name:
+        return app_name
+    try:
+        import winreg
+    except ImportError:
+        return app_name
+    key_name = app_name[:-4] if app_name.lower().endswith(".exe") else app_name
+    for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
         try:
-            import winreg
-            for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
-                try:
-                    with winreg.OpenKey(root, f"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\{exe}") as k:
-                        val, _ = winreg.QueryValueEx(k, "")
-                        if val and Path(val.strip('"')).is_file():
-                            return val.strip('"')
-                except OSError:
-                    pass
-        except Exception:
-            pass
-        pf = os.environ.get("ProgramFiles", r"C:\Program Files")
-        pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
-        local = os.environ.get("LOCALAPPDATA", "")
-        candidates = {
-            "chrome": [Path(pf) / "Google/Chrome/Application/chrome.exe", Path(pf86) / "Google/Chrome/Application/chrome.exe"],
-            "msedge": [Path(pf86) / "Microsoft/Edge/Application/msedge.exe", Path(pf) / "Microsoft/Edge/Application/msedge.exe"],
-            "firefox": [Path(pf) / "Mozilla Firefox/firefox.exe", Path(pf86) / "Mozilla Firefox/firefox.exe"],
-            "opera": [Path(local) / "Programs/Opera/opera.exe", Path(local) / "Programs/Opera/launcher.exe", Path(pf) / "Opera/opera.exe", Path(pf) / "Opera/launcher.exe"],
-        }.get(app_name.lower(), [])
-        for c in candidates:
-            if c.is_file():
-                return str(c)
+            with winreg.OpenKey(root, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{key_name}.exe") as key:
+                path, _ = winreg.QueryValueEx(key, "")
+                if path:
+                    return path
+        except OSError:
+            continue
     return app_name
+
 
 def launch_approved_application(app_name: str, *, approval_granted: bool = False, url: str | None = None, policy: Policy | None = None) -> dict:
     eff_policy = policy or default_policy()
@@ -224,8 +220,7 @@ def launch_approved_application(app_name: str, *, approval_granted: bool = False
     # Optional URL argument (e.g. open a site in an allowlisted browser).
     # It is passed as a single argv element with shell=False, so it cannot
     # inject extra flags -- and it must be a plain http(s) URL, nothing else.
-    resolved_app = _resolve_windows_app(app_name) if platform.system() == "Windows" else app_name
-    argv = [resolved_app]
+    argv = [app_name]
     if url is not None:
         from urllib.parse import urlparse
         parsed = urlparse(url)
@@ -236,7 +231,14 @@ def launch_approved_application(app_name: str, *, approval_granted: bool = False
     try:
         subprocess.Popen(argv, shell=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except FileNotFoundError:
-        raise ValueError(f"Approved application not found: {app_name}")
+        resolved = _resolve_app_executable(app_name)
+        if resolved == app_name:
+            raise ValueError(f"Approved application not found: {app_name}")
+        argv[0] = resolved
+        try:
+            subprocess.Popen(argv, shell=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except FileNotFoundError:
+            raise ValueError(f"Approved application not found: {app_name}")
     return {"launched": app_name, "url": url} if url is not None else {"launched": app_name}
 
 # --- Software installation (Windows agent only, approval-gated) -----------
