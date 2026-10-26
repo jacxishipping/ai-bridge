@@ -112,9 +112,30 @@ function FluentIcon({ name }: { name: string }) {
       return <svg {...props}><path d="M3.5 4A1.5 1.5 0 0 0 2 5.5v9A1.5 1.5 0 0 0 3.5 16h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 16.5 4h-13Zm1.85 3.15 2.5 2.5a.5.5 0 0 1 0 .7l-2.5 2.5a.5.5 0 0 1-.7-.7L6.79 10 4.65 7.85a.5.5 0 0 1 .7-.7ZM9.5 12h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1 0-1Z"/></svg>;
     case "theme":
       return <svg {...props}><path d="M10 3.5a6.5 6.5 0 1 0 5.79 9.48.5.5 0 0 0-.64-.69A5.5 5.5 0 0 1 8.81 4.15a.5.5 0 0 0-.23-.96A6.5 6.5 0 0 0 10 3.5Z"/></svg>;
+    case "search":
+      return <svg {...props}><path d="M8.5 3a5.5 5.5 0 0 1 4.38 8.82l3.65 3.65a.5.5 0 0 1-.7.7l-3.65-3.65A5.5 5.5 0 1 1 8.5 3Zm0 1a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z"/></svg>;
     default:
       return null;
   }
+}
+
+function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="f2-copy-pill"
+      onClick={e => {
+        e.stopPropagation();
+        navigator.clipboard?.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1600);
+      }}
+      title="Copy to clipboard"
+    >
+      {copied ? "✓ Copied" : label}
+    </button>
+  );
 }
 
 function Badge({ value, tone }: { value: string; tone?: string }) {
@@ -218,6 +239,8 @@ export default function App() {
   const [logService, setLogService] = useState("control");
   const [logCount, setLogCount] = useState(100);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const [cmdQuery, setCmdQuery] = useState("");
 
   // Policy editor state
   const [polTier3, setPolTier3] = useState(false);
@@ -231,6 +254,21 @@ export default function App() {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("ai_bridge_theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCmdOpen(prev => !prev);
+        setCmdQuery("");
+      } else if (e.key === "Escape") {
+        setCmdOpen(false);
+        setLightbox(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   async function load(v: View = view) {
     setErr("");
@@ -473,6 +511,22 @@ export default function App() {
         </div>
 
         <div className="f2-topbar-actions">
+          <button
+            type="button"
+            className="f2-search-trigger"
+            onClick={() => {
+              setCmdOpen(true);
+              setCmdQuery("");
+            }}
+            title="Open Command Palette (Ctrl+K)"
+          >
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <FluentIcon name="search" />
+              <span>Search views &amp; tools…</span>
+            </span>
+            <span className="f2-kbd">Ctrl K</span>
+          </button>
+
           <label className="f2-switch-label" title="Poll control plane every 15 seconds">
             <input
               type="checkbox"
@@ -592,8 +646,35 @@ export default function App() {
         <main className="f2-canvas">
           <div className="f2-page-header">
             <div>
+              <div className="f2-breadcrumb">
+                <span>AI Bridge</span>
+                <span className="f2-breadcrumb-sep">/</span>
+                <span>{meta.group === "ops" ? "Operations" : "Governance & Telemetry"}</span>
+                <span className="f2-breadcrumb-sep">/</span>
+                <span className="f2-breadcrumb-current">{meta.title}</span>
+              </div>
               <h2 className="f2-page-title">{meta.title}</h2>
               <p className="f2-page-subtitle">{meta.subtitle}</p>
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {view !== "tasks" && (
+                <button
+                  type="button"
+                  className="f2-btn f2-btn-primary f2-btn-sm"
+                  onClick={() => setView("tasks")}
+                >
+                  <FluentIcon name="tasks" /> Dispatch Task
+                </button>
+              )}
+              {view !== "devices" && (
+                <button
+                  type="button"
+                  className="f2-btn f2-btn-sm"
+                  onClick={() => setView("devices")}
+                >
+                  <FluentIcon name="devices" /> Enroll Device
+                </button>
+              )}
             </div>
           </div>
 
@@ -768,12 +849,17 @@ export default function App() {
 
                 {enrolled && (
                   <div className="f2-messagebar" data-intent="info" style={{ marginTop: 14, marginBottom: 0, display: "block" }}>
-                    <div style={{ fontWeight: 600, marginBottom: 4 }}>One-Time Device Token (copy and store securely — never shown again):</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <span style={{ fontWeight: 600 }}>One-Time Device Token (copy and store securely — never shown again):</span>
+                      <CopyButton text={enrolled.device_token} label="Copy Token" />
+                    </div>
                     <code style={{ display: "block", padding: 8, background: "var(--colorNeutralBackground1)", borderRadius: 4, userSelect: "all", wordBreak: "break-all" }}>
                       {enrolled.device_token}
                     </code>
-                    <div style={{ marginTop: 6, fontSize: 12 }}>
-                      Device ID: <code>{enrolled.device_id}</code> · Auto-rotates when &lt;48h TTL remains.
+                    <div style={{ marginTop: 6, fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span>Device ID: <code>{enrolled.device_id}</code></span>
+                      <CopyButton text={enrolled.device_id} label="Copy ID" />
+                      <span>· Use this token in your agent config and when authorizing MCP OAuth clients.</span>
                     </div>
                   </div>
                 )}
@@ -785,7 +871,7 @@ export default function App() {
                     <thead>
                       <tr>
                         <th>Device Name & ID</th>
-                        <th>Host & OS</th>
+                        <th>Host, OS & Capabilities</th>
                         <th>Status</th>
                         <th>Last Heartbeat</th>
                         <th>Token Expiry</th>
@@ -795,15 +881,34 @@ export default function App() {
                     <tbody>
                       {devices.map(d => {
                         const expSoon = d.token_expires_at && Date.now() / 1000 > d.token_expires_at - 86400;
+                        const tags: string[] = Array.isArray(d.tags) ? d.tags : [];
+                        const caps: string[] = Array.isArray(d.capabilities) ? d.capabilities : [];
                         return (
                           <tr key={d.id}>
                             <td>
                               <b>{d.name}</b>
-                              <div><code style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>{d.id}</code></div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                                <code style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>{d.id}</code>
+                                <CopyButton text={String(d.id)} label="Copy" />
+                              </div>
                             </td>
                             <td>
                               {d.hostname || "—"}
                               <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>{d.os || ""}</div>
+                              {(tags.length > 0 || caps.length > 0) && (
+                                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+                                  {tags.map(t => (
+                                    <span key={`t-${t}`} className="f2-badge" data-tone="blue" style={{ fontSize: 11, padding: "1px 6px" }}>
+                                      tag:{t}
+                                    </span>
+                                  ))}
+                                  {caps.slice(0, 4).map(c => (
+                                    <span key={`c-${c}`} className="f2-badge" data-tone="grey" style={{ fontSize: 11, padding: "1px 6px" }}>
+                                      {c}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                             </td>
                             <td><Badge value={d.revoked ? "revoked" : d.status} /></td>
                             <td>
@@ -815,23 +920,35 @@ export default function App() {
                             </td>
                             <td>
                               {!d.revoked && (
-                                <button
-                                  type="button"
-                                  className="f2-btn f2-btn-sm"
-                                  onClick={async () => {
-                                    if (confirm(`Revoke device "${d.name}" (${d.id})?`)) {
-                                      try {
-                                        await api.revoke(d.id);
-                                        setNotice({ intent: "warning", text: `Revoked device ${d.name}.` });
-                                        load();
-                                      } catch (ex: any) {
-                                        setErr(`Revoke failed: ${ex.message}`);
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  <button
+                                    type="button"
+                                    className="f2-btn f2-btn-primary f2-btn-sm"
+                                    onClick={() => {
+                                      setTaskDevice(d.id);
+                                      setView("tasks");
+                                    }}
+                                  >
+                                    Dispatch →
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="f2-btn f2-btn-sm"
+                                    onClick={async () => {
+                                      if (confirm(`Revoke device "${d.name}" (${d.id})?`)) {
+                                        try {
+                                          await api.revoke(d.id);
+                                          setNotice({ intent: "warning", text: `Revoked device ${d.name}.` });
+                                          load();
+                                        } catch (ex: any) {
+                                          setErr(`Revoke failed: ${ex.message}`);
+                                        }
                                       }
-                                    }
-                                  }}
-                                >
-                                  Revoke
-                                </button>
+                                    }}
+                                  >
+                                    Revoke
+                                  </button>
+                                </div>
                               )}
                             </td>
                           </tr>
@@ -1376,24 +1493,50 @@ export default function App() {
           {view === "connections" && (
             <div style={{ display: "grid", gap: 16 }}>
               <div className="f2-kpi-grid">
-                <Card title="Control Plane API">
+                <Card title="Control Plane API" action={<CopyButton text={`${origin}/api`} label="Copy URL" />}>
                   <Badge value={health ? (health.emergency_stop ? "emergency stop" : "online") : "unknown"} />
                   <p style={{ fontSize: 13, margin: "8px 0 4px" }}>Version <b>{health?.version || "?"}</b></p>
                   <code style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", wordBreak: "break-all" }}>{origin}/api</code>
                 </Card>
 
-                <Card title="MCP Streamable HTTP">
+                <Card title="MCP Streamable HTTP" action={<CopyButton text={`${origin}/mcp`} label="Copy URL" />}>
                   <Badge value={connections ? (connections.mcp.up ? "online" : "down") : "unknown"} />
                   <p style={{ fontSize: 13, margin: "8px 0 4px" }}>Loopback <code>:{connections?.mcp.port || 8001}</code></p>
                   <code style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", wordBreak: "break-all" }}>{origin}/mcp</code>
                 </Card>
 
-                <Card title="OAuth 2.0 Gateway">
+                <Card title="OAuth 2.0 Gateway" action={<CopyButton text={`${origin}/oauth/authorize`} label="Copy Auth URL" />}>
                   <Badge value={connections ? (connections.oauth_gateway.up ? "online" : "down") : "unknown"} />
-                  <p style={{ fontSize: 13, margin: "8px 0 4px" }}>Loopback <code>:{connections?.oauth_gateway.port || 8002}</code></p>
-                  <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>Issues & verifies MCP bearer tokens</span>
+                  <p style={{ fontSize: 13, margin: "8px 0 4px" }}>Loopback <code>:{connections?.oauth_gateway.port || 8002}</code> · Device Token Required</p>
+                  <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>Binds MCP bearer tokens to enrolled devices</span>
                 </Card>
               </div>
+
+              <Card title="MCP Client Setup & Required Device Binding Workflow">
+                <div className="f2-stepper">
+                  <div className="f2-step-box">
+                    <span className="f2-step-num">STEP 01 · ENROLL DEVICE</span>
+                    <b>Issue Device Token</b>
+                    <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
+                      Go to <b>Devices → Enroll Device</b> to generate a one-time token for your Windows or Linux agent.
+                    </span>
+                  </div>
+                  <div className="f2-step-box">
+                    <span className="f2-step-num">STEP 02 · ADD MCP SERVER</span>
+                    <b>Connect Claude / ChatGPT</b>
+                    <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
+                      Point your MCP client to <code>{origin}/mcp</code>. It will automatically discover OAuth 2.1 + PKCE metadata.
+                    </span>
+                  </div>
+                  <div className="f2-step-box">
+                    <span className="f2-step-num">STEP 03 · AUTHORIZE &amp; BIND</span>
+                    <b>Enter Admin + Device Token</b>
+                    <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
+                      On the Fluent 2 consent screen, provide both tokens so every MCP tool call is routed to your device.
+                    </span>
+                  </div>
+                </div>
+              </Card>
 
               <Card title="Registered OAuth Clients (ChatGPT / Claude / Codex)">
                 {connections ? (
@@ -1488,6 +1631,79 @@ export default function App() {
               </div>
             </div>
             <img src={lightbox.src} alt="Fullscreen Desktop Screenshot" style={{ maxWidth: "86vw", maxHeight: "78vh", borderRadius: 6, display: "block" }} />
+          </div>
+        </div>
+      )}
+
+      {/* Fluent 2 Command Palette Modal (Ctrl+K) */}
+      {cmdOpen && (
+        <div className="f2-modal-backdrop" onClick={() => setCmdOpen(false)}>
+          <div className="f2-cmd-modal" onClick={e => e.stopPropagation()}>
+            <input
+              autoFocus
+              className="f2-cmd-input"
+              value={cmdQuery}
+              onChange={e => setCmdQuery(e.target.value)}
+              placeholder="Type a view name, tool preset, or action (Esc to close)…"
+            />
+            <div className="f2-cmd-list">
+              <div className="f2-nav-section-label">Navigate Views</div>
+              {(Object.keys(VIEW_META) as View[])
+                .filter(v => !cmdQuery || v.includes(cmdQuery.toLowerCase()) || VIEW_META[v].title.toLowerCase().includes(cmdQuery.toLowerCase()))
+                .map(v => (
+                  <button
+                    key={`nav-${v}`}
+                    type="button"
+                    className="f2-cmd-item"
+                    onClick={() => {
+                      setView(v);
+                      setCmdOpen(false);
+                    }}
+                  >
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                      <FluentIcon name={v} />
+                      <span><b>{VIEW_META[v].title}</b></span>
+                    </span>
+                    <span className="f2-kbd" style={{ textTransform: "capitalize" }}>{v}</span>
+                  </button>
+                ))}
+
+              <div className="f2-nav-section-label" style={{ marginTop: 6 }}>Quick Task Presets</div>
+              {TASK_PRESETS
+                .filter(p => !cmdQuery || p.label.toLowerCase().includes(cmdQuery.toLowerCase()) || p.tool.toLowerCase().includes(cmdQuery.toLowerCase()))
+                .map(p => (
+                  <button
+                    key={`preset-${p.label}`}
+                    type="button"
+                    className="f2-cmd-item"
+                    onClick={() => {
+                      setTaskTool(p.tool);
+                      setTaskArgs(p.args);
+                      setView("tasks");
+                      setCmdOpen(false);
+                    }}
+                  >
+                    <span><b>{p.label}</b> — <code>{p.tool}</code></span>
+                    <span className="f2-kbd">Preset</span>
+                  </button>
+                ))}
+
+              <div className="f2-nav-section-label" style={{ marginTop: 6 }}>Preferences</div>
+              <button
+                type="button"
+                className="f2-cmd-item"
+                onClick={() => {
+                  setTheme(theme === "light" ? "dark" : "light");
+                  setCmdOpen(false);
+                }}
+              >
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                  <FluentIcon name="theme" />
+                  <span>Toggle Fluent 2 {theme === "light" ? "Dark" : "Light"} Theme</span>
+                </span>
+                <span className="f2-kbd">Theme</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

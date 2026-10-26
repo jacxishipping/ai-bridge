@@ -276,16 +276,40 @@ body {
   line-height: 20px;
   color: var(--colorNeutralForeground1);
   background-color: var(--colorNeutralBackground3);
+  background-image: radial-gradient(circle at 50% 0%, rgba(15, 108, 189, 0.14), transparent 65%);
   -webkit-font-smoothing: antialiased;
 }
 .f2-card {
+  position: relative;
   width: 100%;
-  max-width: 460px;
+  max-width: 480px;
   background-color: var(--colorNeutralBackground1);
   border: 1px solid var(--colorNeutralStroke2);
+  border-top: 3px solid var(--colorBrandBackground);
   border-radius: 12px;
   box-shadow: var(--shadow16);
   padding: 28px;
+}
+.f2-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.f2-step {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--colorNeutralStroke2);
+  background-color: var(--colorNeutralBackground2);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--colorNeutralForeground3);
+  text-align: center;
+}
+.f2-step[data-done="true"] {
+  border-color: var(--colorBrandStroke2);
+  background-color: var(--colorBrandBackground2);
+  color: var(--colorBrandForeground1);
 }
 .f2-header {
   display: flex;
@@ -394,8 +418,8 @@ body {
 }
 .f2-input {
   width: 100%;
-  height: 36px;
-  padding: 0 64px 0 12px;
+  height: 38px;
+  padding: 0 112px 0 12px;
   border-radius: 4px;
   border: 1px solid var(--colorNeutralStroke1);
   border-bottom: 1px solid var(--colorNeutralStrokeAccessible);
@@ -409,11 +433,16 @@ body {
 .f2-input:focus {
   border-bottom: 2px solid var(--colorCompoundBrandStroke);
 }
-.f2-toggle-vis {
+.f2-input-actions {
   position: absolute;
   right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.f2-toggle-vis {
   height: 24px;
-  padding: 0 8px;
+  padding: 0 7px;
   border: none;
   border-radius: 4px;
   background: transparent;
@@ -568,6 +597,12 @@ def approval_form(params: dict, error: str = "", current_binding: str = "") -> s
       Grant <b>{html.escape(client_display)}</b> access to your policy-governed AI Bridge device.
     </p>
 
+    <div class="f2-steps">
+      <div id="step-admin" class="f2-step" data-done="false">1. Admin Auth</div>
+      <div id="step-device" class="f2-step" data-done="false">2. Bind Device</div>
+      <div id="step-pkce" class="f2-step" data-done="true">3. PKCE S256</div>
+    </div>
+
     <div class="f2-meta-box">
       <div class="f2-meta-row">
         <span class="f2-meta-label">CLIENT APPLICATION</span>
@@ -586,7 +621,7 @@ def approval_form(params: dict, error: str = "", current_binding: str = "") -> s
 
     {err_html}
 
-    <form method="post" action="/oauth/authorize" novalidate>
+    <form method="post" action="/oauth/authorize" novalidate onsubmit="onSubmitForm()">
       {hidden}
 
       <div class="f2-field">
@@ -595,10 +630,19 @@ def approval_form(params: dict, error: str = "", current_binding: str = "") -> s
           <span class="f2-req">Required</span>
         </label>
         <div class="f2-input-wrap">
-          <input id="admin_token" class="f2-input" type="password" name="admin_token" placeholder="Enter AI_BRIDGE_ADMIN_TOKEN…" autocomplete="off" required />
-          <button type="button" class="f2-toggle-vis" onclick="toggleVis('admin_token', this)">Show</button>
+          <input id="admin_token" class="f2-input" type="password" name="admin_token"
+            placeholder="Enter AI_BRIDGE_ADMIN_TOKEN…" autocomplete="off"
+            oninput="syncSteps()" required />
+          <div class="f2-input-actions">
+            <button type="button" class="f2-toggle-vis"
+              onclick="pasteField('admin_token')">Paste</button>
+            <button type="button" class="f2-toggle-vis"
+              onclick="toggleVis('admin_token', this)">Show</button>
+          </div>
         </div>
-        <div class="f2-hint">Verified once to authorize this OAuth client and never stored in the session.</div>
+        <div class="f2-hint">
+          Verified once to authorize this OAuth client and never stored in the session.
+        </div>
       </div>
 
       <div class="f2-field">
@@ -607,32 +651,71 @@ def approval_form(params: dict, error: str = "", current_binding: str = "") -> s
           <span class="f2-req">Required</span>
         </label>
         <div class="f2-input-wrap">
-          <input id="device_token" class="f2-input" type="password" name="device_token" placeholder="Enter enrolled device token…" autocomplete="off" required />
-          <button type="button" class="f2-toggle-vis" onclick="toggleVis('device_token', this)">Show</button>
+          <input id="device_token" class="f2-input" type="password" name="device_token"
+            placeholder="Enter enrolled device token…" autocomplete="off"
+            oninput="syncSteps()" required />
+          <div class="f2-input-actions">
+            <button type="button" class="f2-toggle-vis"
+              onclick="pasteField('device_token')">Paste</button>
+            <button type="button" class="f2-toggle-vis"
+              onclick="toggleVis('device_token', this)">Show</button>
+          </div>
         </div>
         <div class="f2-hint">
-          Binds this MCP connection to your enrolled machine so all tools execute on that device. Issue a token in <b>Dashboard → Devices → Enroll Device</b>.
+          Binds this MCP connection to your enrolled machine so all tools execute on that device.
+          Issue a token in <b>Dashboard → Devices → Enroll Device</b>.
         </div>
       </div>
 
       <div class="f2-actions">
-        <button type="submit" name="action" value="deny" class="f2-btn" formnovalidate>Deny</button>
-        <button type="submit" name="action" value="approve" class="f2-btn f2-btn-primary">Approve &amp; Bind Device</button>
+        <button type="submit" name="action" value="deny" class="f2-btn" formnovalidate>
+          Deny
+        </button>
+        <button id="approveBtn" type="submit" name="action" value="approve"
+          class="f2-btn f2-btn-primary">
+          Approve &amp; Bind Device
+        </button>
       </div>
     </form>
   </main>
 
   <script>
+    (function() {{
+      var saved = localStorage.getItem("ai_bridge_theme");
+      if (saved === "light" || saved === "dark") {{
+        document.documentElement.setAttribute("data-theme", saved);
+      }}
+    }})();
     function toggleVis(id, btn) {{
       var el = document.getElementById(id);
       if (!el) return;
       if (el.type === "password") {{ el.type = "text"; btn.textContent = "Hide"; }}
       else {{ el.type = "password"; btn.textContent = "Show"; }}
     }}
+    function pasteField(id) {{
+      if (!navigator.clipboard) return;
+      navigator.clipboard.readText().then(function(t) {{
+        var el = document.getElementById(id);
+        if (el && t) {{ el.value = t.trim(); syncSteps(); }}
+      }}).catch(function() {{}});
+    }}
+    function syncSteps() {{
+      var a = document.getElementById("admin_token");
+      var d = document.getElementById("device_token");
+      var sa = document.getElementById("step-admin");
+      var sd = document.getElementById("step-device");
+      if (sa && a) sa.setAttribute("data-done", a.value.trim().length > 0 ? "true" : "false");
+      if (sd && d) sd.setAttribute("data-done", d.value.trim().length > 0 ? "true" : "false");
+    }}
+    function onSubmitForm() {{
+      var btn = document.getElementById("approveBtn");
+      if (btn) btn.textContent = "Verifying & Binding…";
+    }}
     function toggleTheme() {{
       var cur = document.documentElement.getAttribute("data-theme");
       var next = cur === "dark" ? "light" : "dark";
       document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem("ai_bridge_theme", next);
     }}
   </script>
 </body>
