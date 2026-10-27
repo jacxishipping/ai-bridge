@@ -981,6 +981,126 @@ code, pre {
 }
 
 /* ==========================================================================
+   Fluent 2 Table Action Icon Buttons & Overflow Menu
+   ========================================================================== */
+
+.f2-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--borderRadiusMedium);
+  border: 1px solid var(--colorNeutralStroke1);
+  background-color: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground2);
+  cursor: pointer;
+  transition: all var(--durationFaster) var(--curveEasyEase);
+  padding: 0;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.f2-icon-btn:hover {
+  background-color: var(--colorNeutralBackground1Hover);
+  border-color: var(--colorNeutralStroke1Hover);
+  color: var(--colorNeutralForeground1);
+  box-shadow: var(--shadow2);
+}
+
+.f2-icon-btn:active {
+  transform: scale(0.95);
+}
+
+.f2-icon-btn-primary {
+  background-color: var(--colorBrandBackground);
+  border-color: var(--colorBrandStroke1);
+  color: #ffffff;
+}
+
+.f2-icon-btn-primary:hover {
+  background-color: var(--colorBrandBackgroundHover);
+  border-color: var(--colorBrandStroke1);
+  color: #ffffff;
+}
+
+.f2-icon-btn-danger {
+  color: var(--colorStatusDangerForeground1);
+}
+
+.f2-icon-btn-danger:hover {
+  background-color: var(--colorStatusDangerBackground1);
+  border-color: var(--colorStatusDangerStroke1);
+  color: var(--colorStatusDangerForeground1);
+}
+
+.f2-icon-btn-success {
+  color: var(--colorStatusSuccessForeground1);
+}
+
+.f2-icon-btn-success:hover {
+  background-color: var(--colorStatusSuccessBackground1);
+  border-color: var(--colorStatusSuccessStroke1);
+  color: var(--colorStatusSuccessForeground1);
+}
+
+/* Floating Table Overflow Menu */
+.f2-action-group {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.f2-overflow-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 1000;
+  min-width: 160px;
+  background-color: var(--colorNeutralBackground1);
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: var(--borderRadiusMedium);
+  box-shadow: var(--shadow16);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: f2FadeSlideIn var(--durationFaster) var(--curveDecelerateMid);
+}
+
+.f2-overflow-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--borderRadiusSmall);
+  border: none;
+  background: transparent;
+  color: var(--colorNeutralForeground1);
+  font-family: var(--fontFamilyBase);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--durationFaster) var(--curveEasyEase);
+  user-select: none;
+}
+
+.f2-overflow-item:hover {
+  background-color: var(--colorNeutralBackground1Hover);
+}
+
+.f2-overflow-item[data-danger="true"] {
+  color: var(--colorStatusDangerForeground1);
+}
+
+.f2-overflow-item[data-danger="true"]:hover {
+  background-color: var(--colorStatusDangerBackground1);
+}
+
+/* ==========================================================================
    Fluent 2 Command Bar (Ctrl+K), Breadcrumbs, Pulse & Micro-interactions
    ========================================================================== */
 

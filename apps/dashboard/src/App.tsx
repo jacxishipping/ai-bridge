@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useState, useRef } from "react";
 import { api, token, sessionToken } from "./api";
 import { DevicePolicyEditor } from "./DevicePolicyEditor";
 
@@ -114,6 +114,24 @@ function FluentIcon({ name }: { name: string }) {
       return <svg {...props}><path d="M10 3.5a6.5 6.5 0 1 0 5.79 9.48.5.5 0 0 0-.64-.69A5.5 5.5 0 0 1 8.81 4.15a.5.5 0 0 0-.23-.96A6.5 6.5 0 0 0 10 3.5Z"/></svg>;
     case "search":
       return <svg {...props}><path d="M8.5 3a5.5 5.5 0 0 1 4.38 8.82l3.65 3.65a.5.5 0 0 1-.7.7l-3.65-3.65A5.5 5.5 0 1 1 8.5 3Zm0 1a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z"/></svg>;
+    case "dispatch":
+      return <svg {...props}><path d="M4.5 3.5a.75.75 0 0 1 1.15-.64l10 6.5a.75.75 0 0 1 0 1.28l-10 6.5A.75.75 0 0 1 4.5 16.5v-13Z"/></svg>;
+    case "edit":
+      return <svg {...props}><path d="M13.85 2.15a1.2 1.2 0 0 1 1.7 0l1.3 1.3a1.2 1.2 0 0 1 0 1.7L6.5 15.5 3 16.5l1-3.5 9.85-10.85ZM13 4.2 4.7 12.5l-.5 1.8 1.8-.5L14.3 5.5 13 4.2Z"/></svg>;
+    case "delete":
+      return <svg {...props}><path d="M7.5 3a1.5 1.5 0 0 1 1.5-1.5h2a1.5 1.5 0 0 1 1.5 1.5H15a.5.5 0 0 1 0 1h-.55l-.83 11.2A2 2 0 0 1 11.63 18H8.37a2 2 0 0 1-1.99-1.8L5.55 4H5a.5.5 0 0 1 0-1h2.5ZM9 2.5a.5.5 0 0 0-.5.5h3a.5.5 0 0 0-.5-.5H9ZM7.37 16.13A1 1 0 0 0 8.37 17h3.26a1 1 0 0 0 1-.87L13.44 4H6.56l.81 12.13Z"/></svg>;
+    case "revoke":
+      return <svg {...props}><path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm-6.9 8a6.9 6.9 0 0 1 1.88-4.7l9.72 9.72A6.9 6.9 0 0 1 3.1 10Zm13.8 0a6.9 6.9 0 0 1-1.88 4.7L5.3 4.98A6.9 6.9 0 0 1 16.9 10Z"/></svg>;
+    case "inspect":
+      return <svg {...props}><path d="M10 4.5C5.5 4.5 2 10 2 10s3.5 5.5 8 5.5 8-5.5 8-5.5-3.5-5.5-8-5.5Zm0 9a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Zm0-2a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/></svg>;
+    case "cancel":
+      return <svg {...props}><path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm2.83 5.76a.5.5 0 0 1 0 .7L10.7 10.5l2.13 2.12a.5.5 0 1 1-.7.71L10 11.2l-2.12 2.13a.5.5 0 1 1-.71-.7L9.3 10.5 7.17 8.37a.5.5 0 0 1 .7-.71L10 9.8l2.12-2.13a.5.5 0 0 1 .71.09Z"/></svg>;
+    case "approve":
+      return <svg {...props}><path d="M7.35 13.65a.5.5 0 0 1-.7 0l-3-3a.5.5 0 0 1 .7-.7L7 12.6l8.65-8.65a.5.5 0 0 1 .7.7l-9 9Z"/></svg>;
+    case "deny":
+      return <svg {...props}><path d="M5.35 4.65a.5.5 0 0 0-.7.7L8.29 9 4.65 12.65a.5.5 0 1 0 .7.7L9 9.71l3.65 3.64a.5.5 0 0 0 .7-.7L9.71 9l3.64-3.65a.5.5 0 0 0-.7-.7L9 8.29 5.35 4.65Z"/></svg>;
+    case "more":
+      return <svg {...props}><path d="M4.5 10a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm7 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm7 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z"/></svg>;
     default:
       return null;
   }
@@ -135,6 +153,114 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
     >
       {copied ? "✓ Copied" : label}
     </button>
+  );
+}
+
+interface RowAction {
+  id: string;
+  label: string;
+  title?: string;
+  icon: string;
+  onClick: () => void | Promise<void>;
+  tone?: "primary" | "subtle" | "danger" | "success";
+  danger?: boolean;
+}
+
+function TableRowActions({ actions }: { actions: (RowAction | null | undefined | false)[] }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const valid = actions.filter(Boolean) as RowAction[];
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
+  if (valid.length === 0) return null;
+
+  const hasOverflow = valid.length > 2;
+  const direct = hasOverflow ? valid.slice(0, 2) : valid;
+  const overflow = hasOverflow ? valid.slice(2) : [];
+
+  return (
+    <div className="f2-action-group" ref={containerRef}>
+      {direct.map(act => {
+        let cls = "f2-icon-btn";
+        if (act.tone === "primary") cls += " f2-icon-btn-primary";
+        else if (act.tone === "danger" || act.danger) cls += " f2-icon-btn-danger";
+        else if (act.tone === "success") cls += " f2-icon-btn-success";
+
+        return (
+          <button
+            key={act.id}
+            type="button"
+            className={cls}
+            onClick={e => {
+              e.stopPropagation();
+              act.onClick();
+            }}
+            title={act.title || act.label}
+            aria-label={act.title || act.label}
+          >
+            <FluentIcon name={act.icon} />
+          </button>
+        );
+      })}
+
+      {hasOverflow && (
+        <div style={{ position: "relative", display: "inline-flex" }}>
+          <button
+            type="button"
+            className={`f2-icon-btn ${menuOpen ? "f2-icon-btn-primary" : ""}`}
+            onClick={e => {
+              e.stopPropagation();
+              setMenuOpen(!menuOpen);
+            }}
+            title="More actions"
+            aria-label="More actions"
+            aria-expanded={menuOpen}
+          >
+            <FluentIcon name="more" />
+          </button>
+
+          {menuOpen && (
+            <div className="f2-overflow-menu" role="menu">
+              {overflow.map(act => (
+                <button
+                  key={act.id}
+                  type="button"
+                  className="f2-overflow-item"
+                  data-danger={String(!!act.danger || act.tone === "danger")}
+                  onClick={e => {
+                    e.stopPropagation();
+                    setMenuOpen(false);
+                    act.onClick();
+                  }}
+                  title={act.title || act.label}
+                  role="menuitem"
+                >
+                  <FluentIcon name={act.icon} />
+                  <span>{act.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -978,51 +1104,50 @@ export default function App() {
                               {d.token_expires_at ? rel(d.token_expires_at) : "—"}
                             </td>
                             <td>
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                {!d.revoked && (
-                                  <button
-                                    type="button"
-                                    className="f2-btn f2-btn-primary f2-btn-sm"
-                                    onClick={() => {
+                              <TableRowActions
+                                actions={[
+                                  !d.revoked && {
+                                    id: "dispatch",
+                                    label: "Dispatch Task",
+                                    title: "Dispatch task to this device",
+                                    icon: "dispatch",
+                                    tone: "primary",
+                                    onClick: () => {
                                       setTaskDevice(d.id);
                                       setView("tasks");
-                                    }}
-                                  >
-                                    Dispatch →
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  className="f2-btn f2-btn-sm"
-                                  onClick={() => setDevicePolicyModalId(d.id)}
-                                  title="Configure device-specific abilities and guardrails"
-                                  style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-                                >
-                                  🛡️ Policy
-                                </button>
-                                <button
-                                  type="button"
-                                  className="f2-btn f2-btn-sm"
-                                  onClick={() =>
-                                    setEditModal({
-                                      kind: "device",
-                                      data: {
-                                        id: d.id,
-                                        name: d.name || "",
-                                        hostname: d.hostname || "",
-                                        os: d.os || "",
-                                        revoked: !!d.revoked,
-                                      },
-                                    })
-                                  }
-                                >
-                                  Edit
-                                </button>
-                                {!d.revoked && (
-                                  <button
-                                    type="button"
-                                    className="f2-btn f2-btn-sm"
-                                    onClick={async () => {
+                                    },
+                                  },
+                                  {
+                                    id: "policy",
+                                    label: "Guardrails & Policy",
+                                    title: "Configure device abilities and guardrails",
+                                    icon: "policies",
+                                    onClick: () => setDevicePolicyModalId(d.id),
+                                  },
+                                  {
+                                    id: "edit",
+                                    label: "Edit Device",
+                                    title: "Edit device properties",
+                                    icon: "edit",
+                                    onClick: () =>
+                                      setEditModal({
+                                        kind: "device",
+                                        data: {
+                                          id: d.id,
+                                          name: d.name || "",
+                                          hostname: d.hostname || "",
+                                          os: d.os || "",
+                                          revoked: !!d.revoked,
+                                        },
+                                      }),
+                                  },
+                                  !d.revoked && {
+                                    id: "revoke",
+                                    label: "Revoke Device",
+                                    title: `Revoke token for device "${d.name}"`,
+                                    icon: "revoke",
+                                    danger: true,
+                                    onClick: async () => {
                                       if (confirm(`Revoke device "${d.name}" (${d.id})?`)) {
                                         try {
                                           await api.revoke(d.id);
@@ -1032,29 +1157,28 @@ export default function App() {
                                           setErr(`Revoke failed: ${ex.message}`);
                                         }
                                       }
-                                    }}
-                                  >
-                                    Revoke
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  className="f2-btn f2-btn-danger f2-btn-sm"
-                                  onClick={async () => {
-                                    if (confirm(`Permanently delete device "${d.name}" (${d.id})?`)) {
-                                      try {
-                                        await api.deleteDevice(d.id);
-                                        setNotice({ intent: "warning", text: `Deleted device ${d.name} (${d.id}).` });
-                                        load();
-                                      } catch (ex: any) {
-                                        setErr(`Delete failed: ${ex.message}`);
+                                    },
+                                  },
+                                  {
+                                    id: "delete",
+                                    label: "Delete Device",
+                                    title: `Permanently delete device "${d.name}"`,
+                                    icon: "delete",
+                                    danger: true,
+                                    onClick: async () => {
+                                      if (confirm(`Permanently delete device "${d.name}" (${d.id})?`)) {
+                                        try {
+                                          await api.deleteDevice(d.id);
+                                          setNotice({ intent: "warning", text: `Deleted device ${d.name} (${d.id}).` });
+                                          load();
+                                        } catch (ex: any) {
+                                          setErr(`Delete failed: ${ex.message}`);
+                                        }
                                       }
-                                    }
-                                  }}
-                                >
-                                  Delete
-                                </button>
-                              </div>
+                                    },
+                                  },
+                                ]}
+                              />
                             </td>
                           </tr>
                         );
@@ -1201,61 +1325,63 @@ export default function App() {
                               <td><Badge value={t.status} /></td>
                               <td>{rel(t.created_at)}</td>
                               <td>
-                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                  <button
-                                    type="button"
-                                    className={isOpen ? "f2-btn f2-btn-primary f2-btn-sm" : "f2-btn f2-btn-sm"}
-                                    onClick={() => setExpandedTaskId(isOpen ? null : t.id)}
-                                  >
-                                    {isOpen ? "Hide" : "Inspect"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="f2-btn f2-btn-sm"
-                                    onClick={() =>
-                                      setEditModal({
-                                        kind: "task",
-                                        data: {
-                                          id: t.id,
-                                          tool: t.tool || "capture_desktop_screenshot",
-                                          args_json: t.args_json || "{}",
-                                          status: t.status || "queued",
-                                        },
-                                      })
-                                    }
-                                  >
-                                    Edit
-                                  </button>
-                                  {!["completed", "failed", "cancelled"].includes(t.status) && (
-                                    <button
-                                      type="button"
-                                      className="f2-btn f2-btn-sm"
-                                      onClick={async () => {
+                                <TableRowActions
+                                  actions={[
+                                    {
+                                      id: "inspect",
+                                      label: isOpen ? "Hide Details" : "Inspect Task",
+                                      title: isOpen ? "Hide task details and vision" : "Inspect task output and vision telemetry",
+                                      icon: "inspect",
+                                      tone: isOpen ? "primary" : "subtle",
+                                      onClick: () => setExpandedTaskId(isOpen ? null : t.id),
+                                    },
+                                    {
+                                      id: "edit",
+                                      label: "Edit Task",
+                                      title: "Edit task parameters or requeue",
+                                      icon: "edit",
+                                      onClick: () =>
+                                        setEditModal({
+                                          kind: "task",
+                                          data: {
+                                            id: t.id,
+                                            tool: t.tool || "capture_desktop_screenshot",
+                                            args_json: t.args_json || "{}",
+                                            status: t.status || "queued",
+                                          },
+                                        }),
+                                    },
+                                    !["completed", "failed", "cancelled"].includes(t.status) && {
+                                      id: "cancel",
+                                      label: "Cancel Task",
+                                      title: "Cancel this active or queued task",
+                                      icon: "cancel",
+                                      danger: true,
+                                      onClick: async () => {
                                         await api.cancelTask(t.id);
                                         load();
-                                      }}
-                                    >
-                                      Cancel
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    className="f2-btn f2-btn-danger f2-btn-sm"
-                                    onClick={async () => {
-                                      if (confirm(`Delete task ${t.id} (${t.tool})?`)) {
-                                        try {
-                                          await api.deleteTask(t.id);
-                                          setNotice({ intent: "info", text: `Deleted task ${t.id}.` });
-                                          load();
-                                        } catch (ex: any) {
-                                          setErr(`Delete task failed: ${ex.message}`);
+                                      },
+                                    },
+                                    {
+                                      id: "delete",
+                                      label: "Delete Task",
+                                      title: `Delete task ${t.id}`,
+                                      icon: "delete",
+                                      danger: true,
+                                      onClick: async () => {
+                                        if (confirm(`Delete task ${t.id} (${t.tool})?`)) {
+                                          try {
+                                            await api.deleteTask(t.id);
+                                            setNotice({ intent: "info", text: `Deleted task ${t.id}.` });
+                                            load();
+                                          } catch (ex: any) {
+                                            setErr(`Delete task failed: ${ex.message}`);
+                                          }
                                         }
-                                      }
-                                    }}
-                                  >
-                                    Delete
-                                  </button>
-                                </div>
+                                      },
+                                    },
+                                  ]}
+                                />
                               </td>
                             </tr>
                             {isOpen && info && (
@@ -1374,59 +1500,60 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {a.status === "pending" && (
-                        <>
-                          <button
-                            type="button"
-                            className="f2-btn f2-btn-primary f2-btn-sm"
-                            onClick={async () => {
-                              try {
-                                await api.decide(a.id, "approved");
-                                setNotice({ intent: "success", text: `Approved ${a.tool} (${a.id}). Task released to agent queue.` });
-                                load();
-                              } catch (ex: any) {
-                                setErr(`Approve failed: ${ex.message}`);
-                              }
-                            }}
-                          >
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            className="f2-btn f2-btn-danger f2-btn-sm"
-                            onClick={async () => {
-                              try {
-                                await api.decide(a.id, "denied");
-                                setNotice({ intent: "warning", text: `Denied ${a.tool} (${a.id}).` });
-                                load();
-                              } catch (ex: any) {
-                                setErr(`Deny failed: ${ex.message}`);
-                              }
-                            }}
-                          >
-                            Deny
-                          </button>
-                        </>
-                      )}
-                      <button
-                        type="button"
-                        className="f2-btn f2-btn-danger f2-btn-sm"
-                        onClick={async () => {
-                          if (confirm(`Delete approval record ${a.id} (${a.tool})?`)) {
+                    <TableRowActions
+                      actions={[
+                        a.status === "pending" && {
+                          id: "approve",
+                          label: "Approve Task",
+                          title: "Approve execution and queue task immediately",
+                          icon: "approve",
+                          tone: "success",
+                          onClick: async () => {
                             try {
-                              await api.deleteApproval(a.id);
-                              setNotice({ intent: "info", text: `Deleted approval ${a.id}.` });
+                              await api.decide(a.id, "approved");
+                              setNotice({ intent: "success", text: `Approved ${a.tool} (${a.id}). Task released to agent queue.` });
                               load();
                             } catch (ex: any) {
-                              setErr(`Delete approval failed: ${ex.message}`);
+                              setErr(`Approve failed: ${ex.message}`);
                             }
-                          }
-                        }}
-                      >
-                        Delete
-                      </button>
-                    </div>
+                          },
+                        },
+                        a.status === "pending" && {
+                          id: "deny",
+                          label: "Deny Task",
+                          title: "Deny task execution",
+                          icon: "deny",
+                          tone: "danger",
+                          onClick: async () => {
+                            try {
+                              await api.decide(a.id, "denied");
+                              setNotice({ intent: "warning", text: `Denied ${a.tool} (${a.id}).` });
+                              load();
+                            } catch (ex: any) {
+                              setErr(`Deny failed: ${ex.message}`);
+                            }
+                          },
+                        },
+                        {
+                          id: "delete",
+                          label: "Delete Record",
+                          title: `Delete approval record ${a.id}`,
+                          icon: "delete",
+                          danger: true,
+                          onClick: async () => {
+                            if (confirm(`Delete approval record ${a.id} (${a.tool})?`)) {
+                              try {
+                                await api.deleteApproval(a.id);
+                                setNotice({ intent: "info", text: `Deleted approval ${a.id}.` });
+                                load();
+                              } catch (ex: any) {
+                                setErr(`Delete approval failed: ${ex.message}`);
+                              }
+                            }
+                          },
+                        },
+                      ]}
+                    />
                   </div>
                 ))}
                 {approvals.length === 0 && <p style={{ color: "var(--colorNeutralForeground3)", fontSize: 13 }}>No approval requests yet.</p>}
@@ -1726,44 +1853,46 @@ export default function App() {
                               <code>tier3={String(pol.allow_tier3)} desktop={String(pol.desktop_enabled)} apps=[{(pol.allowed_apps || []).join(", ")}]</code>
                             </td>
                             <td>
-                              <div style={{ display: "flex", gap: 6 }}>
-                                <button
-                                  type="button"
-                                  className="f2-btn f2-btn-sm"
-                                  onClick={() =>
-                                    setEditModal({
-                                      kind: "policy",
-                                      data: {
-                                        version: p.version,
-                                        allow_tier3: !!pol.allow_tier3,
-                                        desktop_enabled: !!pol.desktop_enabled,
-                                        allowed_apps: (pol.allowed_apps || []).join(", "),
-                                        allowed_services: (pol.allowed_services || []).join(", "),
-                                        note: p.note || "",
-                                      },
-                                    })
-                                  }
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  type="button"
-                                  className="f2-btn f2-btn-danger f2-btn-sm"
-                                  onClick={async () => {
-                                    if (confirm(`Delete policy version v${p.version}?`)) {
-                                      try {
-                                        await api.deletePolicyVersion(p.version);
-                                        setNotice({ intent: "info", text: `Deleted policy version v${p.version}.` });
-                                        load();
-                                      } catch (ex: any) {
-                                        setErr(`Delete policy failed: ${ex.message}`);
+                              <TableRowActions
+                                actions={[
+                                  {
+                                    id: "edit",
+                                    label: "Edit Policy Version",
+                                    title: `Edit policy version v${p.version}`,
+                                    icon: "edit",
+                                    onClick: () =>
+                                      setEditModal({
+                                        kind: "policy",
+                                        data: {
+                                          version: p.version,
+                                          allow_tier3: !!pol.allow_tier3,
+                                          desktop_enabled: !!pol.desktop_enabled,
+                                          allowed_apps: (pol.allowed_apps || []).join(", "),
+                                          allowed_services: (pol.allowed_services || []).join(", "),
+                                          note: p.note || "",
+                                        },
+                                      }),
+                                  },
+                                  {
+                                    id: "delete",
+                                    label: "Delete Policy Version",
+                                    title: `Delete policy version v${p.version}`,
+                                    icon: "delete",
+                                    danger: true,
+                                    onClick: async () => {
+                                      if (confirm(`Delete policy version v${p.version}?`)) {
+                                        try {
+                                          await api.deletePolicyVersion(p.version);
+                                          setNotice({ intent: "info", text: `Deleted policy version v${p.version}.` });
+                                          load();
+                                        } catch (ex: any) {
+                                          setErr(`Delete policy failed: ${ex.message}`);
+                                        }
                                       }
-                                    }
-                                  }}
-                                >
-                                  Delete
-                                </button>
-                              </div>
+                                    },
+                                  },
+                                ]}
+                              />
                             </td>
                           </tr>
                         );
@@ -1853,41 +1982,43 @@ export default function App() {
                                 <td style={{ wordBreak: "break-all", fontSize: 12 }}>{c.redirect_uris}</td>
                                 <td>{fmt(c.created_at)}</td>
                                 <td>
-                                  <div style={{ display: "flex", gap: 6 }}>
-                                    <button
-                                      type="button"
-                                      className="f2-btn f2-btn-sm"
-                                      onClick={() =>
-                                        setEditModal({
-                                          kind: "oauth_client",
-                                          data: {
-                                            client_id: cid,
-                                            client_name: c.client_name || "",
-                                            redirect_uris: c.redirect_uris || "",
-                                          },
-                                        })
-                                      }
-                                    >
-                                      Edit
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="f2-btn f2-btn-danger f2-btn-sm"
-                                      onClick={async () => {
-                                        if (confirm(`Delete OAuth client "${c.client_name || cid}" and revoke its tokens?`)) {
-                                          try {
-                                            await api.deleteOAuthClient(cid);
-                                            setNotice({ intent: "warning", text: `Deleted OAuth client ${c.client_name || cid}.` });
-                                            load();
-                                          } catch (ex: any) {
-                                            setErr(`Delete OAuth client failed: ${ex.message}`);
+                                  <TableRowActions
+                                    actions={[
+                                      {
+                                        id: "edit",
+                                        label: "Edit Client",
+                                        title: `Edit OAuth client "${c.client_name || cid}"`,
+                                        icon: "edit",
+                                        onClick: () =>
+                                          setEditModal({
+                                            kind: "oauth_client",
+                                            data: {
+                                              client_id: cid,
+                                              client_name: c.client_name || "",
+                                              redirect_uris: c.redirect_uris || "",
+                                            },
+                                          }),
+                                      },
+                                      {
+                                        id: "delete",
+                                        label: "Delete Client",
+                                        title: `Delete OAuth client "${c.client_name || cid}" and revoke tokens`,
+                                        icon: "delete",
+                                        danger: true,
+                                        onClick: async () => {
+                                          if (confirm(`Delete OAuth client "${c.client_name || cid}" and revoke its tokens?`)) {
+                                            try {
+                                              await api.deleteOAuthClient(cid);
+                                              setNotice({ intent: "warning", text: `Deleted OAuth client ${c.client_name || cid}.` });
+                                              load();
+                                            } catch (ex: any) {
+                                              setErr(`Delete OAuth client failed: ${ex.message}`);
+                                            }
                                           }
-                                        }
-                                      }}
-                                    >
-                                      Delete
-                                    </button>
-                                  </div>
+                                        },
+                                      },
+                                    ]}
+                                  />
                                 </td>
                               </tr>
                             );

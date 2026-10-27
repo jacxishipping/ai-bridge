@@ -132,3 +132,4 @@ def test_device_policy_reset_to_global(test_setup):
     assert get_res.status_code == 200
     assert get_res.json()["has_custom_policy"] is False
     assert "run_shell" not in get_res.json()["effective_policy"].get("denied_tools", [])
+
