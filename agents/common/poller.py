@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import sys
 import time
 import urllib.error
@@ -93,14 +94,18 @@ class Poller:
         return self.device_token
 
     def heartbeat(self) -> dict:
+        hb_body = {
+            "hostname": platform.node(),
+            "os": f"{platform.system()} {platform.release()}".strip(),
+        }
         try:
-            hb = self._req("POST", "/api/agent/heartbeat", {})
+            hb = self._req("POST", "/api/agent/heartbeat", hb_body)
         except RuntimeError as exc:
             if "HTTP 401" in str(exc):
                 saved = self._load_saved_token()
                 if saved and saved != self.device_token:
                     self.device_token = saved
-                    hb = self._req("POST", "/api/agent/heartbeat", {})
+                    hb = self._req("POST", "/api/agent/heartbeat", hb_body)
                 else:
                     raise
             else:

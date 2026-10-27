@@ -30,7 +30,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -200,6 +200,10 @@ class DeviceUpdateIn(BaseModel):
     os: str | None = None
     revoked: bool | None = None
     policy: dict | None = None
+
+
+class DeviceRefreshIn(BaseModel):
+    tools: list[str] | None = None
 
 
 class TaskUpdateIn(BaseModel):
@@ -497,6 +501,214 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         conn.commit()
         audit(actor, device_id, "reset_device_policy", {}, "allowed")
         return {"device_id": device_id, "reset": True, "message": "Device policy reset to inherit global server policy."}
+
+    @app.get("/api/devices/{device_id}/overview")
+    def get_device_overview(device_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("viewer", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Device not found.")
+
+        eff_policy = get_effective_device_policy(row)
+        device_data = dict(row)
+        try:
+            device_data["policy"] = json.loads(device_data.get("policy_json") or "{}")
+        except Exception:
+            device_data["policy"] = {}
+        device_data["has_custom_policy"] = bool(device_data["policy"])
+        device_data["effective_policy"] = eff_policy
+
+        # Find latest completed diagnostic tasks for this device
+        diag_rows = conn.execute(
+            "SELECT tool, result, updated_at FROM tasks WHERE device_id=? AND status='completed' ORDER BY updated_at DESC",
+            (device_id,),
+        ).fetchall()
+
+        latest_results: dict[str, dict] = {}
+        for r in diag_rows:
+            tool_name = r["tool"]
+            if tool_name not in latest_results:
+                raw_res = r["result"] or ""
+                parsed = None
+                if raw_res:
+                    try:
+                        parsed = json.loads(raw_res)
+                    except Exception:
+                        parsed = raw_res
+                latest_results[tool_name] = {
+                    "data": parsed,
+                    "updated_at": r["updated_at"],
+                }
+
+        # System info parsing
+        sys_entry = latest_results.get("get_system_info", {})
+        sys_info = sys_entry.get("data")
+        if not isinstance(sys_info, dict):
+            sys_info = {
+                "system": row["os"] or "Unknown OS",
+                "release": "",
+                "version": "",
+                "machine": "",
+                "python": "",
+                "processor": "",
+            }
+
+        # Resource usage parsing
+        res_entry = latest_results.get("get_resource_usage", {})
+        res_usage = res_entry.get("data")
+        if not isinstance(res_usage, dict):
+            res_usage = {
+                "cpu_percent": None,
+                "memory_percent": None,
+                "memory_total_bytes": None,
+                "memory_available_bytes": None,
+                "disk_total_bytes": None,
+                "disk_used_bytes": None,
+                "disk_free_bytes": None,
+            }
+
+        # Processes parsing
+        proc_entry = latest_results.get("list_processes", {})
+        proc_data = proc_entry.get("data")
+        processes = proc_data if isinstance(proc_data, list) else []
+
+        # Docker containers parsing
+        docker_entry = latest_results.get("list_docker_containers", {})
+        docker_data = docker_entry.get("data")
+
+        # Desktop / Screenshot / Windows UI
+        desktop_entry = latest_results.get("get_desktop_status", {})
+        screenshot_entry = latest_results.get("capture_desktop_screenshot", {})
+        windows_entry = latest_results.get("perform_approved_ui_action", {})
+        win_data = windows_entry.get("data")
+        windows_list = win_data.get("windows") if isinstance(win_data, dict) else None
+
+        # Packages installed via tasks
+        pkg_rows = conn.execute(
+            "SELECT args_json, result, updated_at FROM tasks WHERE device_id=? AND tool='install_package' AND status='completed' ORDER BY updated_at DESC",
+            (device_id,),
+        ).fetchall()
+        packages_installed = []
+        for pr in pkg_rows:
+            try:
+                p_args = json.loads(pr["args_json"] or "{}")
+                p_res = json.loads(pr["result"] or "{}") if pr["result"] else {}
+                packages_installed.append({
+                    "package_id": p_args.get("package_id"),
+                    "version": p_args.get("version") or p_res.get("version"),
+                    "manager": p_res.get("manager", "package"),
+                    "updated_at": pr["updated_at"],
+                })
+            except Exception:
+                pass
+
+        # Recent 20 tasks
+        recent_tasks_rows = conn.execute(
+            "SELECT id, tool, args_json, tier, status, result, created_at, updated_at FROM tasks WHERE device_id=? ORDER BY created_at DESC LIMIT 20",
+            (device_id,),
+        ).fetchall()
+        recent_tasks = []
+        for tr in recent_tasks_rows:
+            td = dict(tr)
+            try:
+                td["args"] = json.loads(td.get("args_json") or "{}")
+            except Exception:
+                td["args"] = {}
+            recent_tasks.append(td)
+
+        now_ts = dbmod.now()
+        last_seen = row["last_seen"] or 0
+        latency = max(0.0, now_ts - last_seen) if last_seen else None
+        is_online = (row["status"] == "online") and (latency is not None and latency < 90)
+
+        # Service statuses probe results (if any service queried)
+        service_statuses = {}
+        for r in diag_rows:
+            if r["tool"] == "get_service_status":
+                try:
+                    s_res = json.loads(r["result"] or "{}")
+                    s_name = s_res.get("service")
+                    if s_name and s_name not in service_statuses:
+                        service_statuses[s_name] = {
+                            "output": s_res.get("output", ""),
+                            "system": s_res.get("system", ""),
+                            "updated_at": r["updated_at"],
+                        }
+                except Exception:
+                    pass
+
+        return {
+            "device": device_data,
+            "health": {
+                "is_online": is_online,
+                "status": "revoked" if row["revoked"] else ("online" if is_online else "offline"),
+                "latency_seconds": round(latency, 1) if latency is not None else None,
+                "last_seen_ts": last_seen,
+            },
+            "system_info": {
+                **sys_info,
+                "updated_at": sys_entry.get("updated_at"),
+            },
+            "resource_usage": {
+                **res_usage,
+                "updated_at": res_entry.get("updated_at"),
+            },
+            "processes": processes,
+            "processes_updated_at": proc_entry.get("updated_at"),
+            "docker": docker_data,
+            "docker_updated_at": docker_entry.get("updated_at"),
+            "desktop": {
+                "status": desktop_entry.get("data"),
+                "screenshot": screenshot_entry.get("data"),
+                "screenshot_updated_at": screenshot_entry.get("updated_at"),
+                "windows": windows_list,
+                "windows_updated_at": windows_entry.get("updated_at"),
+            },
+            "apps": {
+                "allowed_apps": list(eff_policy.get("allowed_apps", [])),
+                "installed_packages": packages_installed,
+                "allowed_services": list(eff_policy.get("allowed_services", [])),
+                "service_statuses": service_statuses,
+            },
+            "recent_tasks": recent_tasks,
+        }
+
+    @app.post("/api/devices/{device_id}/refresh")
+    def refresh_device_telemetry(device_id: str, body: DeviceRefreshIn | None = None, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        if app.state.emergency_stop:
+            raise HTTPException(status_code=403, detail="Emergency stop is active; cannot queue tasks.")
+        row = conn.execute("SELECT * FROM devices WHERE id=? AND revoked=0", (device_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Device not found or revoked.")
+
+        tools_to_run = (body.tools if body and body.tools else None) or ["get_system_info", "get_resource_usage"]
+        eff_policy = get_effective_device_policy(row)
+        queued = []
+        for tool_name in tools_to_run:
+            tier = TOOL_TIERS.get(tool_name)
+            # Only allow Tier 1 or Tier 2 safe read-only diagnostics to be automatically dispatched
+            if tier is None or tier.value > 2:
+                continue
+            if tool_name in eff_policy.get("denied_tools", []):
+                continue
+            if eff_policy.get("allowed_tools") is not None and tool_name not in eff_policy["allowed_tools"]:
+                continue
+
+            task_id = uuid.uuid4().hex[:12]
+            now_ts = dbmod.now()
+            conn.execute(
+                "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, approval_id, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (task_id, device_id, row["tenant"], tool_name, "{}", tier.value, "queued", None, now_ts, now_ts),
+            )
+            queued.append({"task_id": task_id, "tool": tool_name})
+
+        conn.commit()
+        if queued:
+            notify_tasks()
+        audit(actor, device_id, "refresh_device_telemetry", {"tools": tools_to_run, "queued": [q["tool"] for q in queued]}, "allowed", tenant=row["tenant"])
+        return {"device_id": device_id, "queued_tasks": queued}
 
     @app.post("/api/tasks")
     def submit_task(body: TaskIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -1190,9 +1402,17 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
 
     # --- Agent polling (outbound only) -----------------------------------
     @app.post("/api/agent/heartbeat")
-    def heartbeat(body: dict, x_device_token: str | None = Header(default=None)):
+    def heartbeat(body: dict = Body(default={}), x_device_token: str | None = Header(default=None)):
         row = device_row(x_device_token)
-        conn.execute("UPDATE devices SET status='online', last_seen=? WHERE id=?", (dbmod.now(), row["id"]))
+        now_ts = dbmod.now()
+        hostname = (body.get("hostname") or "").strip() if isinstance(body, dict) else ""
+        os_val = (body.get("os") or "").strip() if isinstance(body, dict) else ""
+        if hostname or os_val:
+            cur_h = hostname if hostname else (row["hostname"] or "")
+            cur_os = os_val if os_val else (row["os"] or "")
+            conn.execute("UPDATE devices SET status='online', last_seen=?, hostname=?, os=? WHERE id=?", (now_ts, cur_h, cur_os, row["id"]))
+        else:
+            conn.execute("UPDATE devices SET status='online', last_seen=? WHERE id=?", (now_ts, row["id"]))
         conn.commit()
         return {
             "device_id": row["id"],

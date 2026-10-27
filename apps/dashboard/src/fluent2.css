@@ -1321,3 +1321,32 @@ code, pre {
     padding: 16px;
   }
 }
+
+
+/* ==========================================================================
+   Fluent 2 Device 360 Dashboard & Live Pulse Dot
+   ========================================================================== */
+.f2-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background-color: var(--colorStatusSuccessForeground1);
+  box-shadow: 0 0 0 0 rgba(16, 124, 65, 0.7);
+  animation: f2-pulse 2s infinite;
+}
+
+@keyframes f2-pulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 124, 65, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(16, 124, 65, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 124, 65, 0);
+  }
+}

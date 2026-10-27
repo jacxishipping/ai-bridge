@@ -40,6 +40,9 @@ export const api = {
   devicePolicy: (id: string) => call(`/api/devices/${encodeURIComponent(id)}/policy`),
   setDevicePolicy: (id: string, body: any) => call(`/api/devices/${encodeURIComponent(id)}/policy`, "PUT", body),
   resetDevicePolicy: (id: string) => call(`/api/devices/${encodeURIComponent(id)}/policy`, "DELETE"),
+  deviceOverview: (id: string) => call(`/api/devices/${encodeURIComponent(id)}/overview`),
+  refreshDeviceTelemetry: (id: string, tools?: string[]) =>
+    call(`/api/devices/${encodeURIComponent(id)}/refresh`, "POST", { tools }),
   tasks: () => call("/api/tasks"),
   taskDetail: (id: string) => call(`/api/tasks/${id}`),
   submitTask: (device_id: string, tool: string, args: any = {}) => call("/api/tasks", "POST", { device_id, tool, args }),

@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useState, useRef } from "react";
 import { api, token, sessionToken } from "./api";
 import { DevicePolicyEditor } from "./DevicePolicyEditor";
+import { DeviceDetailDashboard } from "./DeviceDetailDashboard";
 
-type View = "overview" | "devices" | "tasks" | "approvals" | "audit" | "policies" | "connections" | "logs";
+type View = "overview" | "devices" | "device_detail" | "tasks" | "approvals" | "audit" | "policies" | "connections" | "logs";
 type Theme = "light" | "dark";
 
 const TOOLS = [
@@ -35,6 +36,11 @@ const VIEW_META: Record<View, { title: string; subtitle: string; group: "ops" | 
   devices: {
     title: "Enrolled Devices",
     subtitle: "Manage outbound-polling Windows and Linux agents, inspect heartbeat status, and issue tokens.",
+    group: "ops",
+  },
+  device_detail: {
+    title: "Device 360 System Dashboard",
+    subtitle: "Full-fidelity hardware telemetry, running servers, installed applications, and real-time execution stream.",
     group: "ops",
   },
   tasks: {
@@ -132,6 +138,8 @@ function FluentIcon({ name }: { name: string }) {
       return <svg {...props}><path d="M5.35 4.65a.5.5 0 0 0-.7.7L8.29 9 4.65 12.65a.5.5 0 1 0 .7.7L9 9.71l3.65 3.64a.5.5 0 0 0 .7-.7L9.71 9l3.64-3.65a.5.5 0 0 0-.7-.7L9 8.29 5.35 4.65Z"/></svg>;
     case "more":
       return <svg {...props}><path d="M4.5 10a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm7 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm7 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z"/></svg>;
+    case "dashboard":
+      return <svg {...props}><path d="M3 4a1.5 1.5 0 0 1 1.5-1.5h11A1.5 1.5 0 0 1 17 4v9a1.5 1.5 0 0 1-1.5 1.5h-4v1.5h1.75a.75.75 0 0 1 0 1.5h-6.5a.75.75 0 0 1 0-1.5H8.5V14.5h-4A1.5 1.5 0 0 1 3 13V4Zm1.5 0v9h11V4h-11Zm2 2a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-.75.75h-1.5A.75.75 0 0 1 6.5 11V6Zm4 2a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 .75.75v3a.75.75 0 0 1-.75.75h-1.5A.75.75 0 0 1 10.5 11V8Z"/></svg>;
     default:
       return null;
   }
@@ -371,6 +379,7 @@ export default function App() {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
   const [devicePolicyModalId, setDevicePolicyModalId] = useState<string | null>(null);
+  const [selectedDeviceIdForDashboard, setSelectedDeviceIdForDashboard] = useState<string | null>(null);
   const [policySubTab, setPolicySubTab] = useState<"global" | "devices">("global");
   const [selectedPolicyDeviceId, setSelectedPolicyDeviceId] = useState<string>("");
   const [editModal, setEditModal] = useState<{
@@ -765,7 +774,48 @@ export default function App() {
         {/* Fluent 2 Navigation Drawer */}
         <nav className="f2-nav" aria-label="Main Navigation">
           <div className="f2-nav-section-label">Operations</div>
-          {(["overview", "devices", "tasks", "approvals"] as View[]).map(v => (
+          {(["overview", "devices"] as View[]).map(v => (
+            <button
+              key={v}
+              type="button"
+              className="f2-nav-item"
+              data-active={String(view === v)}
+              onClick={() => setView(v)}
+            >
+              <span className="f2-nav-item-icon">
+                <FluentIcon name={v} />
+              </span>
+              <span style={{ textTransform: "capitalize" }}>{v}</span>
+              {v === "devices" && online.length > 0 && (
+                <span className="f2-nav-counter">{online.length}</span>
+              )}
+            </button>
+          ))}
+
+          <button
+            type="button"
+            className="f2-nav-item"
+            data-active={String(view === "device_detail")}
+            onClick={() => {
+              if (!selectedDeviceIdForDashboard && devices.length > 0) {
+                setSelectedDeviceIdForDashboard(devices[0].id);
+              }
+              setView("device_detail");
+            }}
+            title="Inspect full system specs, running servers, apps, and health for any machine"
+          >
+            <span className="f2-nav-item-icon">
+              <FluentIcon name="dashboard" />
+            </span>
+            <span>Device 360</span>
+            {selectedDeviceIdForDashboard && (
+              <span className="f2-nav-counter" style={{ fontSize: 10 }}>
+                {deviceNameOf(selectedDeviceIdForDashboard).slice(0, 8)}
+              </span>
+            )}
+          </button>
+
+          {(["tasks", "approvals"] as View[]).map(v => (
             <button
               key={v}
               type="button"
@@ -779,9 +829,6 @@ export default function App() {
               <span style={{ textTransform: "capitalize" }}>{v}</span>
               {v === "approvals" && pending.length > 0 && (
                 <span className="f2-nav-counter" data-warn="true">{pending.length}</span>
-              )}
-              {v === "devices" && online.length > 0 && (
-                <span className="f2-nav-counter">{online.length}</span>
               )}
             </button>
           ))}
@@ -1048,7 +1095,32 @@ export default function App() {
                         return (
                           <tr key={d.id}>
                             <td>
-                              <b>{d.name}</b>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedDeviceIdForDashboard(d.id);
+                                    setView("device_detail");
+                                  }}
+                                  title={`Open full system dashboard for ${d.name}`}
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    padding: 0,
+                                    font: "inherit",
+                                    fontWeight: 700,
+                                    color: "var(--colorBrandForeground1)",
+                                    cursor: "pointer",
+                                    textAlign: "left",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                  }}
+                                >
+                                  <span>🖥️</span>
+                                  <span style={{ textDecoration: "underline" }}>{d.name}</span>
+                                </button>
+                              </div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                                 <code style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>{d.id}</code>
                                 <CopyButton text={String(d.id)} label="Copy" />
@@ -1106,6 +1178,17 @@ export default function App() {
                             <td>
                               <TableRowActions
                                 actions={[
+                                  {
+                                    id: "dashboard",
+                                    label: "Device Dashboard",
+                                    title: `Open full system dashboard for "${d.name}"`,
+                                    icon: "dashboard",
+                                    tone: "primary",
+                                    onClick: () => {
+                                      setSelectedDeviceIdForDashboard(d.id);
+                                      setView("device_detail");
+                                    },
+                                  },
                                   !d.revoked && {
                                     id: "dispatch",
                                     label: "Dispatch Task",
@@ -1188,6 +1271,34 @@ export default function App() {
                 </div>
               </Card>
             </div>
+          )}
+
+          {/* ==================== DEVICE 360 SYSTEM DASHBOARD ==================== */}
+          {view === "device_detail" && (
+            selectedDeviceIdForDashboard ? (
+              <DeviceDetailDashboard
+                deviceId={selectedDeviceIdForDashboard}
+                onBack={() => setView("devices")}
+                onSelectDevice={(id) => setSelectedDeviceIdForDashboard(id)}
+                allDevices={devices}
+                onOpenPolicyModal={(id) => setDevicePolicyModalId(id)}
+                onDispatchTask={(id) => {
+                  setTaskDevice(id);
+                  setView("tasks");
+                }}
+              />
+            ) : (
+              <Card title="Device 360 System Dashboard">
+                <div style={{ padding: 32, textAlign: "center" }}>
+                  <p style={{ color: "var(--colorNeutralForeground3)", marginBottom: 16 }}>
+                    No device selected to inspect. Choose a machine from the Fleet Inventory.
+                  </p>
+                  <button type="button" className="f2-btn f2-btn-primary" onClick={() => setView("devices")}>
+                    Go to Fleet Inventory
+                  </button>
+                </div>
+              </Card>
+            )
           )}
 
           {/* ==================== TASKS ==================== */}
@@ -2116,6 +2227,9 @@ export default function App() {
                     type="button"
                     className="f2-cmd-item"
                     onClick={() => {
+                      if (v === "device_detail" && !selectedDeviceIdForDashboard && devices.length > 0) {
+                        setSelectedDeviceIdForDashboard(devices[0].id);
+                      }
                       setView(v);
                       setCmdOpen(false);
                     }}
