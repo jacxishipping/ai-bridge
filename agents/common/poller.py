@@ -122,6 +122,8 @@ class Poller:
             allowed_apps = base.allowed_apps & frozenset(remote_apps) if base.allowed_apps else frozenset(remote_apps)
         else:
             allowed_apps = base.allowed_apps
+        remote_denied = frozenset(remote_policy.get("denied_tools") or [])
+        remote_allowed = frozenset(remote_policy.get("allowed_tools") or []) if "allowed_tools" in remote_policy and remote_policy["allowed_tools"] is not None else None
         return Policy(
             allow_writes=base.allow_writes and bool(remote_policy.get("allow_writes", True)),
             allow_tier3=base.allow_tier3 or bool(remote_policy.get("allow_tier3")),
@@ -129,7 +131,9 @@ class Poller:
             allowed_apps=allowed_apps,
             allowed_services=base.allowed_services | frozenset(remote_policy.get("allowed_services") or []),
             allowed_test_commands=base.allowed_test_commands,
-            max_tier_unattended=base.max_tier_unattended,
+            max_tier_unattended=int(remote_policy.get("max_tier_unattended", base.max_tier_unattended)),
+            allowed_tools=remote_allowed,
+            denied_tools=base.denied_tools | remote_denied,
         )
 
     def run_once(self, wait: int = 0) -> dict:

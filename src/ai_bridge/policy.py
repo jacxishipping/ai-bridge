@@ -59,6 +59,8 @@ class Policy:
     allowed_test_commands: frozenset[str] = frozenset({"pytest", "npm test", "go test"})
     desktop_enabled: bool = False
     max_tier_unattended: int = 2  # unattended execution ceiling
+    allowed_tools: frozenset[str] | None = None  # None means all valid tools permitted unless denied
+    denied_tools: frozenset[str] = frozenset()  # explicitly blocked tools
 
     def tier_of(self, tool: str) -> RiskTier | None:
         return TOOL_TIERS.get(tool)
@@ -76,6 +78,11 @@ def decide(policy: Policy, tool: str, *, approval_granted: bool = False,
     tier = policy.tier_of(tool)
     if tier is None:
         return Decision(False, reason=f"Unknown or unlisted tool: {tool}")
+    # Device-specific and policy-specific tool blocking
+    if tool in policy.denied_tools:
+        return Decision(False, reason=f"Tool '{tool}' is disabled by device policy.")
+    if policy.allowed_tools is not None and tool not in policy.allowed_tools:
+        return Decision(False, reason=f"Tool '{tool}' is not in the allowed tools list for this policy.")
     if tier == RiskTier.HIGH_RISK and not (approval_granted and is_admin):
         return Decision(False, needs_approval=True,
                         reason="High-risk operation requires explicit human approval.")

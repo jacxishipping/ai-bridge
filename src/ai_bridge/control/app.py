@@ -178,11 +178,28 @@ class WebhookIn(BaseModel):
     webhook_url: str = ""
 
 
+class DevicePolicyIn(BaseModel):
+    inherit_global: bool = True
+    allow_writes: bool | None = None
+    allow_tier3: bool | None = None
+    desktop_enabled: bool | None = None
+    allow_shell: bool | None = None
+    allow_package_install: bool | None = None
+    allow_file_deletion: bool | None = None
+    max_tier_unattended: int | None = None
+    allowed_apps: list[str] | None = None
+    allowed_services: list[str] | None = None
+    allowed_tools: list[str] | None = None
+    denied_tools: list[str] | None = None
+    note: str = ""
+
+
 class DeviceUpdateIn(BaseModel):
     name: str | None = None
     hostname: str | None = None
     os: str | None = None
     revoked: bool | None = None
+    policy: dict | None = None
 
 
 class TaskUpdateIn(BaseModel):
@@ -257,6 +274,65 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                 "desktop_enabled": os.environ.get("AI_BRIDGE_DESKTOP_ENABLED", "0") == "1",
                 "allowed_apps": [], "allowed_services": []}
 
+    def get_effective_device_policy(device_row_or_id) -> dict:
+        global_p = get_current_policy()
+        row = device_row_or_id if not isinstance(device_row_or_id, str) else conn.execute("SELECT * FROM devices WHERE id=?", (device_row_or_id,)).fetchone()
+        if row is None:
+            return {**global_p, "has_custom_policy": False, "_source": "global", "denied_tools": []}
+        raw_p = ""
+        try:
+            raw_p = row["policy_json"]
+        except Exception:
+            pass
+        custom: dict = {}
+        if raw_p:
+            try:
+                custom = json.loads(raw_p) if isinstance(raw_p, str) else raw_p
+            except Exception:
+                custom = {}
+        if not custom:
+            return {**global_p, "has_custom_policy": False, "_source": "global", "denied_tools": []}
+
+        inherit = bool(custom.get("inherit_global", True))
+        merged = dict(global_p) if inherit else {
+            "allow_writes": True,
+            "allow_tier3": False,
+            "desktop_enabled": False,
+            "allowed_apps": [],
+            "allowed_services": [],
+            "allowed_test_commands": ["pytest", "npm test", "go test"],
+            "max_tier_unattended": 2,
+        }
+        for k in ["allow_writes", "allow_tier3", "desktop_enabled", "max_tier_unattended"]:
+            if k in custom and custom[k] is not None:
+                merged[k] = custom[k]
+
+        if custom.get("allowed_apps") is not None:
+            merged["allowed_apps"] = custom["allowed_apps"]
+        if custom.get("allowed_services") is not None:
+            merged["allowed_services"] = custom["allowed_services"]
+
+        denied = set(custom.get("denied_tools") or [])
+        if custom.get("allow_shell") is False:
+            denied.add("run_shell")
+        if custom.get("allow_package_install") is False:
+            denied.add("install_package")
+        if custom.get("allow_file_deletion") is False:
+            denied.add("delete_workspace_file")
+        if custom.get("desktop_enabled") is False:
+            denied.update(["capture_desktop_screenshot", "launch_approved_application", "perform_approved_ui_action"])
+        if custom.get("allow_writes") is False:
+            denied.update(["create_workspace_file", "edit_workspace_file", "move_workspace_file", "delete_workspace_file"])
+
+        merged["denied_tools"] = sorted(list(denied))
+        if custom.get("allowed_tools") is not None:
+            merged["allowed_tools"] = custom["allowed_tools"]
+
+        merged["has_custom_policy"] = True
+        merged["_source"] = "device"
+        merged["device_policy"] = custom
+        return merged
+
     device_ttl_days = int(os.environ.get("AI_BRIDGE_DEVICE_TOKEN_TTL_DAYS", "7"))
 
     def device_row(x_device_token: str | None):
@@ -295,8 +371,19 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     @app.get("/api/devices")
     def list_devices(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None), tenant: str = "default"):
         require_role("viewer", x_admin_token, x_session_token)
-        rows = conn.execute("SELECT id, name, hostname, os, tenant, status, last_seen, revoked, created_at, token_expires_at FROM devices WHERE tenant=?", (tenant,)).fetchall()
-        return [dict(r) for r in rows]
+        rows = conn.execute("SELECT id, name, hostname, os, tenant, status, last_seen, revoked, created_at, token_expires_at, policy_json FROM devices WHERE tenant=?", (tenant,)).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            raw_p = d.get("policy_json") or "{}"
+            try:
+                parsed_p = json.loads(raw_p) if isinstance(raw_p, str) else (raw_p or {})
+            except Exception:
+                parsed_p = {}
+            d["has_custom_policy"] = bool(parsed_p)
+            d["policy"] = parsed_p
+            result.append(d)
+        return result
 
     @app.post("/api/devices/{device_id}/revoke")
     def revoke(device_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -319,17 +406,24 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         os_val = body.os.strip() if body.os is not None else (row["os"] or "")
         revoked = int(bool(body.revoked)) if body.revoked is not None else int(row["revoked"] or 0)
         status = "revoked" if revoked else ("offline" if row["status"] == "revoked" else row["status"])
+        policy_json = json.dumps(body.policy) if body.policy is not None else (row["policy_json"] if "policy_json" in row.keys() else "{}")
         conn.execute(
-            "UPDATE devices SET name=?, hostname=?, os=?, revoked=?, status=? WHERE id=?",
-            (name, hostname, os_val, revoked, status, device_id),
+            "UPDATE devices SET name=?, hostname=?, os=?, revoked=?, status=?, policy_json=? WHERE id=?",
+            (name, hostname, os_val, revoked, status, policy_json, device_id),
         )
         conn.commit()
-        audit(actor, device_id, "update_device", {"name": name, "hostname": hostname, "os": os_val, "revoked": bool(revoked)}, "allowed")
+        audit(actor, device_id, "update_device", {"name": name, "hostname": hostname, "os": os_val, "revoked": bool(revoked), "policy_updated": body.policy is not None}, "allowed")
         updated = conn.execute(
-            "SELECT id, name, hostname, os, tenant, status, last_seen, revoked, created_at, token_expires_at FROM devices WHERE id=?",
+            "SELECT id, name, hostname, os, tenant, status, last_seen, revoked, created_at, token_expires_at, policy_json FROM devices WHERE id=?",
             (device_id,),
         ).fetchone()
-        return dict(updated)
+        d = dict(updated)
+        try:
+            d["policy"] = json.loads(d.get("policy_json") or "{}")
+        except Exception:
+            d["policy"] = {}
+        d["has_custom_policy"] = bool(d["policy"])
+        return d
 
     @app.delete("/api/devices/{device_id}")
     def delete_device(device_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -340,6 +434,69 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             raise HTTPException(status_code=404, detail="Device not found.")
         audit(actor, device_id, "delete_device", {}, "allowed")
         return {"device_id": device_id, "deleted": True}
+
+    @app.get("/api/devices/{device_id}/policy")
+    def get_device_policy_api(device_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("viewer", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Device not found.")
+        effective = get_effective_device_policy(row)
+        raw_p = ""
+        try:
+            raw_p = row["policy_json"]
+        except Exception:
+            pass
+        try:
+            custom = json.loads(raw_p) if isinstance(raw_p, str) else (raw_p or {})
+        except Exception:
+            custom = {}
+        all_tools = []
+        for tool_name, tier_enum in sorted(TOOL_TIERS.items()):
+            is_allowed = (
+                tool_name not in effective.get("denied_tools", [])
+                and (effective.get("allowed_tools") is None or tool_name in effective["allowed_tools"])
+            )
+            all_tools.append({
+                "tool": tool_name,
+                "tier": tier_enum.value,
+                "tier_name": tier_enum.name,
+                "allowed": is_allowed,
+            })
+        return {
+            "device_id": device_id,
+            "device_name": row["name"],
+            "hostname": row["hostname"] or "",
+            "os": row["os"] or "",
+            "has_custom_policy": bool(custom),
+            "custom_policy": custom,
+            "effective_policy": effective,
+            "global_policy": get_current_policy(),
+            "tools": all_tools,
+        }
+
+    @app.put("/api/devices/{device_id}/policy")
+    def set_device_policy_api(device_id: str, body: DevicePolicyIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Device not found.")
+        policy_data = body.model_dump()
+        conn.execute("UPDATE devices SET policy_json=? WHERE id=?", (json.dumps(policy_data), device_id))
+        conn.commit()
+        audit(actor, device_id, "set_device_policy", policy_data, "allowed")
+        return get_device_policy_api(device_id, x_admin_token, x_session_token)
+
+    @app.delete("/api/devices/{device_id}/policy")
+    def reset_device_policy_api(device_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Device not found.")
+        conn.execute("UPDATE devices SET policy_json='{}' WHERE id=?", (device_id,))
+        conn.commit()
+        audit(actor, device_id, "reset_device_policy", {}, "allowed")
+        return {"device_id": device_id, "reset": True, "message": "Device policy reset to inherit global server policy."}
 
     @app.post("/api/tasks")
     def submit_task(body: TaskIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -352,11 +509,15 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         tier = TOOL_TIERS.get(body.tool)
         if tier is None:
             raise HTTPException(status_code=400, detail=f"Unknown tool: {body.tool}")
+        eff_policy = get_effective_device_policy(row)
+        if body.tool in eff_policy.get("denied_tools", []):
+            raise HTTPException(status_code=403, detail=f"Tool '{body.tool}' is disabled by device policy for '{row['name']}'.")
+        if eff_policy.get("allowed_tools") is not None and body.tool not in eff_policy["allowed_tools"]:
+            raise HTTPException(status_code=403, detail=f"Tool '{body.tool}' is not in the allowed tools list for device '{row['name']}'.")
         task_id = uuid.uuid4().hex[:12]
         status = "queued"
         approval_id = None
-        policy = get_current_policy()
-        if tier.value >= 4 or (tier.value == 3 and not policy.get("allow_tier3", False)):
+        if tier.value >= 4 or (tier.value == 3 and not eff_policy.get("allow_tier3", False)):
             approval_id = uuid.uuid4().hex[:12]
             approval_ttl = max(60, int(os.environ.get("AI_BRIDGE_APPROVAL_TTL_SECONDS", "3600")))
             policy_row = conn.execute("SELECT MAX(version) AS version FROM policies").fetchone()
@@ -445,8 +606,14 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         if status == "queued" and app.state.emergency_stop:
             raise HTTPException(status_code=403, detail="Emergency stop is active; cannot queue tasks.")
 
-        policy = get_current_policy()
-        needs_approval = tier_enum.value >= 4 or (tier_enum.value == 3 and not policy.get("allow_tier3", False))
+        dev_row = conn.execute("SELECT * FROM devices WHERE id=?", (row["device_id"],)).fetchone()
+        eff_policy = get_effective_device_policy(dev_row) if dev_row else get_current_policy()
+        if tool in eff_policy.get("denied_tools", []):
+            raise HTTPException(status_code=403, detail=f"Tool '{tool}' is disabled by device policy.")
+        if eff_policy.get("allowed_tools") is not None and tool not in eff_policy["allowed_tools"]:
+            raise HTTPException(status_code=403, detail=f"Tool '{tool}' is not in the allowed tools list for this device.")
+
+        needs_approval = tier_enum.value >= 4 or (tier_enum.value == 3 and not eff_policy.get("allow_tier3", False))
         payload_changed = (tool != row["tool"]) or (args_json != row["args_json"])
         already_ran = row["status"] in {"running", "completed", "failed", "timed_out"}
         approval_id = row["approval_id"]
@@ -1094,7 +1261,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             )
         else:
             out["approval_granted"] = False
-        out["policy"] = get_current_policy()
+        out["policy"] = get_effective_device_policy(row)
         return {"task": out}
 
     @app.post("/api/agent/tasks/{task_id}/result")

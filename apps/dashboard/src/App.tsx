@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { api, token, sessionToken } from "./api";
+import { DevicePolicyEditor } from "./DevicePolicyEditor";
 
 type View = "overview" | "devices" | "tasks" | "approvals" | "audit" | "policies" | "connections" | "logs";
 type Theme = "light" | "dark";
@@ -243,6 +244,9 @@ export default function App() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
+  const [devicePolicyModalId, setDevicePolicyModalId] = useState<string | null>(null);
+  const [policySubTab, setPolicySubTab] = useState<"global" | "devices">("global");
+  const [selectedPolicyDeviceId, setSelectedPolicyDeviceId] = useState<string>("");
   const [editModal, setEditModal] = useState<{
     kind: "device" | "task" | "policy" | "oauth_client";
     data: any;
@@ -271,6 +275,7 @@ export default function App() {
         setCmdOpen(false);
         setLightbox(null);
         setEditModal(null);
+        setDevicePolicyModalId(null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -317,13 +322,16 @@ export default function App() {
       } else if (v === "audit") {
         setAudit(await api.audit());
       } else if (v === "policies") {
-        const [pol, hist, wh] = await Promise.all([
+        const [pol, hist, wh, devs] = await Promise.all([
           api.policies(),
           api.policyHistory(),
           api.getWebhook().catch(() => ({ webhook_url: "" })),
+          api.devices().catch(() => []),
         ]);
         setPolicy(pol);
         setPolicyHistory(hist);
+        setDevices(devs);
+        if (!selectedPolicyDeviceId && devs.length > 0) setSelectedPolicyDeviceId(devs[0].id);
         setPolTier3(!!pol?.policy?.allow_tier3);
         setPolDesktop(!!pol?.policy?.desktop_enabled);
         setPolApps((pol?.policy?.allowed_apps || []).join(", "));
@@ -900,6 +908,7 @@ export default function App() {
                         <th>Device Name & ID</th>
                         <th>Host, OS & Capabilities</th>
                         <th>Status</th>
+                        <th>Guardrails & Abilities</th>
                         <th>Last Heartbeat</th>
                         <th>Token Expiry</th>
                         <th>Actions</th>
@@ -939,6 +948,29 @@ export default function App() {
                             </td>
                             <td><Badge value={d.revoked ? "revoked" : d.status} /></td>
                             <td>
+                              {d.has_custom_policy ? (
+                                <button
+                                  type="button"
+                                  className="f2-preset-pill"
+                                  onClick={() => setDevicePolicyModalId(d.id)}
+                                  title="Custom device abilities configured. Click to view & edit."
+                                  style={{ border: "1px solid var(--colorStatusWarningStroke1)", background: "var(--colorStatusWarningBackground1)", color: "var(--colorStatusWarningForeground1)" }}
+                                >
+                                  🛡️ Custom ({d.policy?.denied_tools?.length ? `${d.policy.denied_tools.length} blocked` : "Active"})
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="f2-preset-pill"
+                                  onClick={() => setDevicePolicyModalId(d.id)}
+                                  title="Inheriting global server security policy. Click to customize."
+                                  style={{ border: "1px solid var(--colorNeutralStroke2)", background: "transparent" }}
+                                >
+                                  🌐 Global Default
+                                </button>
+                              )}
+                            </td>
+                            <td>
                               {rel(d.last_seen)}
                               <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>{fmt(d.last_seen)}</div>
                             </td>
@@ -959,6 +991,15 @@ export default function App() {
                                     Dispatch →
                                   </button>
                                 )}
+                                <button
+                                  type="button"
+                                  className="f2-btn f2-btn-sm"
+                                  onClick={() => setDevicePolicyModalId(d.id)}
+                                  title="Configure device-specific abilities and guardrails"
+                                  style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                                >
+                                  🛡️ Policy
+                                </button>
                                 <button
                                   type="button"
                                   className="f2-btn f2-btn-sm"
@@ -1449,6 +1490,66 @@ export default function App() {
           {/* ==================== POLICIES & WEBHOOKS ==================== */}
           {view === "policies" && (
             <div style={{ display: "grid", gap: 16 }}>
+              {/* Policy Scope Tabs: Global vs Per-Device */}
+              <div style={{ display: "flex", gap: 8, borderBottom: "1px solid var(--colorNeutralStroke2)", paddingBottom: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    className="f2-chip"
+                    data-active={String(policySubTab === "global")}
+                    onClick={() => setPolicySubTab("global")}
+                    style={{ fontSize: 13, padding: "6px 14px" }}
+                  >
+                    🌐 Global Fleet Policy Baseline
+                  </button>
+                  <button
+                    type="button"
+                    className="f2-chip"
+                    data-active={String(policySubTab === "devices")}
+                    onClick={() => {
+                      setPolicySubTab("devices");
+                      if (!selectedPolicyDeviceId && devices.length > 0) {
+                        setSelectedPolicyDeviceId(devices[0].id);
+                      }
+                    }}
+                    style={{ fontSize: 13, padding: "6px 14px" }}
+                  >
+                    🛡️ Per-Device & Server Guardrails ({devices.length})
+                  </button>
+                </div>
+              </div>
+
+              {policySubTab === "devices" ? (
+                <Card title="Target Device & Server Policy Manager">
+                  {devices.length === 0 ? (
+                    <p style={{ color: "var(--colorNeutralForeground3)", fontSize: 13 }}>No enrolled devices found.</p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 16 }}>
+                      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", padding: 10, borderRadius: 6, background: "var(--colorNeutralBackground2)", border: "1px solid var(--colorNeutralStroke2)" }}>
+                        <label style={{ fontSize: 13, fontWeight: 600 }}>Select Target Device / Server:</label>
+                        <select
+                          className="f2-select"
+                          value={selectedPolicyDeviceId || devices[0]?.id}
+                          onChange={e => setSelectedPolicyDeviceId(e.target.value)}
+                          style={{ minWidth: 260, flex: 1 }}
+                        >
+                          {devices.map(d => (
+                            <option key={d.id} value={d.id}>
+                              {d.name} ({d.os || "linux"} - {d.hostname || d.id}) {d.has_custom_policy ? "[Custom Guardrails Active]" : "[Global Baseline]"}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <DevicePolicyEditor
+                        deviceId={selectedPolicyDeviceId || devices[0]?.id}
+                        onSaved={() => load()}
+                      />
+                    </div>
+                  )}
+                </Card>
+              ) : (
+                <>
               <Card title={`Security Policy Editor (Active Version: v${policy?.version ?? "?"})`}>
                 {policy ? (
                   <form
@@ -1671,6 +1772,8 @@ export default function App() {
                   </table>
                 </div>
               </Card>
+                </>
+              )}
             </div>
           )}
 
@@ -2164,6 +2267,40 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {devicePolicyModalId && (
+        <div className="f2-modal-backdrop" onClick={() => setDevicePolicyModalId(null)}>
+          <div
+            className="f2-modal"
+            style={{ maxWidth: 960, width: "100%", maxHeight: "90vh" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 20 }}>🛡️</span>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>Device Abilities & Security Policy</h3>
+              </div>
+              <button
+                type="button"
+                className="f2-btn f2-btn-subtle f2-btn-sm"
+                onClick={() => setDevicePolicyModalId(null)}
+                title="Close modal"
+              >
+                ✕
+              </button>
+            </div>
+            <DevicePolicyEditor
+              deviceId={devicePolicyModalId}
+              isModal={true}
+              onClose={() => setDevicePolicyModalId(null)}
+              onSaved={() => {
+                load();
+                setNotice({ intent: "success", text: "Device policy guardrails updated successfully." });
+              }}
+            />
           </div>
         </div>
       )}

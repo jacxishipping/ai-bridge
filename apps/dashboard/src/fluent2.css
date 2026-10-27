@@ -246,6 +246,22 @@ code, pre {
   flex-wrap: wrap;
 }
 
+@media (max-width: 860px) {
+  .f2-topbar {
+    height: auto;
+    min-height: 52px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .f2-topbar-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
 .f2-body {
   display: flex;
   flex: 1;
@@ -419,6 +435,8 @@ code, pre {
 }
 
 .f2-kpi-card {
+  appearance: none;
+  width: 100%;
   background-color: var(--colorNeutralBackground1);
   border: 1px solid var(--colorNeutralStroke2);
   border-radius: var(--borderRadiusLarge);
@@ -427,6 +445,11 @@ code, pre {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  color: var(--colorNeutralForeground1);
+  font-family: var(--fontFamilyBase);
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
   cursor: pointer;
   transition: transform var(--durationFaster) var(--curveEasyEase),
               box-shadow var(--durationFast) var(--curveEasyEase),
@@ -437,6 +460,17 @@ code, pre {
   box-shadow: var(--shadow8);
   border-color: var(--colorNeutralStroke1Hover);
   transform: translateY(-1px);
+}
+
+.f2-kpi-card:focus-visible {
+  outline: 2px solid var(--colorCompoundBrandStroke);
+  outline-offset: 2px;
+}
+
+.f2-overview-secondary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
+  gap: 16px;
 }
 
 .f2-kpi-top {
@@ -621,6 +655,7 @@ code, pre {
 
 /* Fluent 2 Toggle Switch */
 .f2-switch-label {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -628,6 +663,19 @@ code, pre {
   user-select: none;
   font-size: 13px;
   color: var(--colorNeutralForeground1);
+}
+
+.f2-switch-label input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+}
+
+.f2-switch-label input:focus-visible + .f2-switch {
+  outline: 2px solid var(--colorCompoundBrandStroke);
+  outline-offset: 2px;
 }
 
 .f2-switch {
@@ -878,6 +926,60 @@ code, pre {
   padding: 20px;
 }
 
+/* Device Policy & Ability Matrix */
+.f2-ability-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px;
+}
+
+.f2-ability-card {
+  padding: 10px 12px;
+  border-radius: var(--borderRadiusMedium);
+  border: 1px solid var(--colorNeutralStroke2);
+  background-color: var(--colorNeutralBackground2);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  transition: all var(--durationFaster) var(--curveEasyEase);
+}
+
+.f2-ability-card[data-allowed="false"] {
+  border-color: var(--colorStatusDangerStroke1);
+  background-color: rgba(197, 15, 31, 0.05);
+}
+
+.f2-ability-card[data-allowed="true"] {
+  border-color: var(--colorNeutralStroke2);
+}
+
+.f2-preset-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--borderRadiusCircular);
+  border: 1px solid var(--colorNeutralStroke1);
+  background-color: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--durationFaster) var(--curveEasyEase);
+  user-select: none;
+}
+
+.f2-preset-pill:hover {
+  background-color: var(--colorBrandBackground2);
+  border-color: var(--colorBrandStroke1);
+  color: var(--colorBrandForeground1);
+}
+
+.f2-preset-pill:active {
+  transform: scale(0.98);
+}
+
 /* ==========================================================================
    Fluent 2 Command Bar (Ctrl+K), Breadcrumbs, Pulse & Micro-interactions
    ========================================================================== */
@@ -1099,4 +1201,3 @@ code, pre {
     padding: 16px;
   }
 }
-
