@@ -13,6 +13,7 @@ export const FLEET_TOOLS: ToolMetadata[] = [
   // Fleet Diagnostics & Health
   { name: "get_system_info", category: "diagnostics", label: "System Information", description: "Query CPU, architecture, kernel, hostname, and OS details", tier: 1 },
   { name: "get_resource_usage", category: "diagnostics", label: "CPU & Memory Utilization", description: "Real-time CPU and RAM percentage load telemetry", tier: 1 },
+  { name: "get_network_info", category: "diagnostics", label: "Network & Listening Ports", description: "Query network adapters, IPv4/IPv6 addresses, and listening sockets", tier: 1 },
   { name: "get_disk_usage", category: "diagnostics", label: "Disk Storage Usage", description: "Storage partition capacities, used/free disk space", tier: 1 },
   { name: "get_memory_usage", category: "diagnostics", label: "Memory & Swap Stats", description: "Detailed RAM breakdown, buffers, cache, and swap memory", tier: 1 },
   { name: "list_processes", category: "diagnostics", label: "Process Tree & Top Consumers", description: "Inspect active OS processes, PIDs, and memory usage", tier: 1 },

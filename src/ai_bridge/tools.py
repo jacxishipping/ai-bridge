@@ -46,6 +46,10 @@ def get_resource_usage() -> dict:
     _check("get_resource_usage"); return diagnostics.resource_usage()
 
 
+def get_network_info() -> dict:
+    _check("get_network_info"); return diagnostics.network_info()
+
+
 def get_service_status(service: str, *, policy: Policy | None = None) -> dict:
     eff_policy = policy or default_policy()
     _check("get_service_status", policy=eff_policy)

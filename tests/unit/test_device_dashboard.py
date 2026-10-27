@@ -139,6 +139,18 @@ def test_overview_with_completed_telemetry_tasks(dash_setup):
         headers={"X-Device-Token": device_token},
     )
 
+    # 5. Queue get_network_info and report result
+    q5 = client.post("/api/tasks", json={"device_id": device_id, "tool": "get_network_info", "args": {}}, headers={"X-Admin-Token": "adm-secret"})
+    t5_id = q5.json()["task_id"]
+    client.post(
+        f"/api/agent/tasks/{t5_id}/result",
+        json={"status": "completed", "result": json.dumps({
+            "interfaces": [{"name": "eth0", "ipv4": ["192.168.1.50"]}],
+            "listening_ports": [{"protocol": "TCP", "port": 80, "address": "0.0.0.0", "process": "nginx"}]
+        })},
+        headers={"X-Device-Token": device_token},
+    )
+
     # Now verify overview aggregates all telemetry accurately
     ov_res = client.get(f"/api/devices/{device_id}/overview", headers={"X-Admin-Token": "adm-secret"})
     assert ov_res.status_code == 200
@@ -148,12 +160,14 @@ def test_overview_with_completed_telemetry_tasks(dash_setup):
     assert ov["system_info"]["python"] == "3.12.3"
     assert ov["resource_usage"]["cpu_percent"] == 18.5
     assert ov["resource_usage"]["memory_percent"] == 42.0
+    assert len(ov["resource_history"]) >= 1
     assert len(ov["processes"]) == 3
     assert ov["processes"][1]["name"] == "dockerd"
     assert ov["docker"]["available"] is True
     assert len(ov["docker"]["containers"]) == 1
     assert ov["docker"]["containers"][0]["name"] == "prod-nginx-proxy"
-    assert len(ov["recent_tasks"]) >= 4
+    assert ov["network"]["listening_ports"][0]["port"] == 80
+    assert len(ov["recent_tasks"]) >= 5
 
 
 def test_refresh_device_telemetry_endpoint(dash_setup):
@@ -165,11 +179,13 @@ def test_refresh_device_telemetry_endpoint(dash_setup):
     assert ref_res.status_code == 200
     ref_data = ref_res.json()
     assert ref_data["device_id"] == device_id
-    assert len(ref_data["queued_tasks"]) == 2
+    assert len(ref_data["queued_tasks"]) == 3
     tools_queued = [t["tool"] for t in ref_data["queued_tasks"]]
     assert "get_system_info" in tools_queued
     assert "get_resource_usage" in tools_queued
+    assert "get_network_info" in tools_queued
 
     # Device 404 test
     not_found = client.get("/api/devices/nonexistent123/overview", headers={"X-Admin-Token": "adm-secret"})
     assert not_found.status_code == 404
+

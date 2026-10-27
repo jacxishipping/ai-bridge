@@ -7,7 +7,7 @@ type View = "overview" | "devices" | "device_detail" | "tasks" | "approvals" | "
 type Theme = "light" | "dark";
 
 const TOOLS = [
-  "get_system_info", "get_resource_usage", "get_disk_usage", "get_memory_usage",
+  "get_system_info", "get_resource_usage", "get_network_info", "get_disk_usage", "get_memory_usage",
   "list_workspace", "read_workspace_file", "search_workspace", "create_workspace_file",
   "edit_workspace_file", "move_workspace_file", "delete_workspace_file",
   "get_service_status", "get_recent_logs", "list_processes", "list_docker_containers",
@@ -22,6 +22,7 @@ const TASK_PRESETS: Array<{ label: string; tool: string; args: string }> = [
   { label: "List Open Windows", tool: "perform_approved_ui_action", args: '{"action": "list_windows"}' },
   { label: "System Info", tool: "get_system_info", args: "{}" },
   { label: "Resource Usage", tool: "get_resource_usage", args: "{}" },
+  { label: "Network Sockets", tool: "get_network_info", args: "{}" },
   { label: "Top Processes", tool: "list_processes", args: '{"limit": 20}' },
   { label: "Launch Chrome", tool: "launch_approved_application", args: '{"app_name": "chrome"}' },
   { label: "Run Shell", tool: "run_shell", args: '{"command": "echo hello"}' },

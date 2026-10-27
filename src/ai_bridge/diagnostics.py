@@ -104,3 +104,62 @@ def list_docker_containers() -> list[dict] | dict:
         if len(parts) == 4:
             containers.append({"id": parts[0], "image": parts[1], "status": parts[2], "name": parts[3]})
     return {"available": True, "containers": containers}
+
+
+def network_info() -> dict:
+    interfaces = []
+    listening_ports = []
+    try:
+        import psutil
+        for name, addrs in psutil.net_if_addrs().items():
+            ipv4 = [a.address for a in addrs if getattr(a.family, "name", "") == "AF_INET"]
+            ipv6 = [a.address for a in addrs if getattr(a.family, "name", "") == "AF_INET6"]
+            if ipv4 or ipv6:
+                interfaces.append({"name": name, "ipv4": ipv4, "ipv6": ipv6})
+
+        try:
+            for c in psutil.net_connections(kind="inet"):
+                if c.status == "LISTEN":
+                    proc_name = ""
+                    if c.pid:
+                        try:
+                            proc_name = psutil.Process(c.pid).name()
+                        except Exception:
+                            pass
+                    listening_ports.append({
+                        "protocol": "TCP" if c.type == 1 else "UDP",
+                        "address": c.laddr.ip,
+                        "port": c.laddr.port,
+                        "pid": c.pid,
+                        "process": proc_name,
+                    })
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    if not listening_ports and platform.system() == "Linux":
+        try:
+            ss_out = _run(["ss", "-tuln"], timeout=5)
+            for line in ss_out.splitlines()[1:]:
+                parts = line.split()
+                if len(parts) >= 5:
+                    proto = parts[0].upper()
+                    local_addr = parts[4]
+                    if ":" in local_addr:
+                        ip_part, port_str = local_addr.rsplit(":", 1)
+                        if port_str.isdigit():
+                            listening_ports.append({
+                                "protocol": proto,
+                                "address": ip_part or "0.0.0.0",
+                                "port": int(port_str),
+                                "pid": None,
+                                "process": "",
+                            })
+        except Exception:
+            pass
+
+    return {
+        "interfaces": interfaces,
+        "listening_ports": sorted(listening_ports, key=lambda x: x.get("port", 0)),
+    }

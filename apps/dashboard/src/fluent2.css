@@ -1350,3 +1350,172 @@ code, pre {
     box-shadow: 0 0 0 0 rgba(16, 124, 65, 0);
   }
 }
+
+/* ==========================================================================
+   Advanced Device 360 Dashboard: Terminal, Sparklines, HUD, and Filter Chips
+   ========================================================================== */
+
+/* Terminal & Remote Shell Window */
+.f2-terminal-window {
+  background-color: #0c1017;
+  color: #e6edf3;
+  border-radius: var(--borderRadiusMedium);
+  border: 1px solid #30363d;
+  box-shadow: var(--shadow16);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.f2-terminal-header {
+  background-color: #161b22;
+  border-bottom: 1px solid #30363d;
+  padding: 8px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.f2-terminal-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.f2-terminal-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.f2-terminal-dot[data-dot="red"] { background-color: #ff5f56; }
+.f2-terminal-dot[data-dot="yellow"] { background-color: #ffbd2e; }
+.f2-terminal-dot[data-dot="green"] { background-color: #27c93f; }
+
+.f2-terminal-body {
+  padding: 14px 16px;
+  min-height: 280px;
+  max-height: 480px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.f2-terminal-line {
+  margin-bottom: 12px;
+}
+
+.f2-terminal-prompt {
+  color: #58a6ff;
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.f2-terminal-output {
+  color: #c9d1d9;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-top: 4px;
+  padding-left: 12px;
+  border-left: 2px solid #30363d;
+}
+
+.f2-terminal-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #161b22;
+  border-top: 1px solid #30363d;
+  padding: 8px 14px;
+}
+
+.f2-terminal-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #f0f6fc;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.f2-terminal-input::placeholder {
+  color: #6e7681;
+}
+
+/* Filter Chips */
+.f2-filter-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.f2-filter-chip {
+  padding: 4px 10px;
+  border-radius: var(--borderRadiusCircular);
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--colorNeutralStroke2);
+  background-color: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground2);
+  cursor: pointer;
+  transition: all var(--durationFast) ease-in-out;
+}
+
+.f2-filter-chip:hover {
+  background-color: var(--colorNeutralBackground1Hover);
+  border-color: var(--colorNeutralStroke1);
+}
+
+.f2-filter-chip[data-active="true"] {
+  background-color: var(--colorBrandBackground2);
+  border-color: var(--colorBrandStroke1);
+  color: var(--colorBrandForeground1);
+  font-weight: 600;
+}
+
+/* Vision Screen Coordinate HUD */
+.f2-vision-container {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  cursor: crosshair;
+}
+
+.f2-vision-hud {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background-color: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(8px);
+  color: #ffffff;
+  padding: 4px 10px;
+  border-radius: var(--borderRadiusSmall);
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: var(--shadow8);
+}
+
+/* Segmented Storage Bar */
+.f2-segmented-bar {
+  display: flex;
+  height: 8px;
+  border-radius: var(--borderRadiusCircular);
+  overflow: hidden;
+  background-color: var(--colorNeutralBackground4);
+}
+
+.f2-segment-used {
+  background: linear-gradient(90deg, #107c41 0%, #27ac60 100%);
+  transition: width var(--durationNormal) var(--curveDecelerateMid);
+}
+
+.f2-segment-free {
+  background-color: var(--colorNeutralBackground4);
+}

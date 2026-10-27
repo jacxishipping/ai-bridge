@@ -28,6 +28,7 @@ class RiskTier(IntEnum):
 TOOL_TIERS: dict[str, RiskTier] = {
     "list_devices": RiskTier.READ_ONLY, "get_device_status": RiskTier.READ_ONLY,
     "get_system_info": RiskTier.READ_ONLY, "get_resource_usage": RiskTier.READ_ONLY,
+    "get_network_info": RiskTier.READ_ONLY,
     "list_workspace": RiskTier.READ_ONLY, "read_workspace_file": RiskTier.READ_ONLY,
     "search_workspace": RiskTier.READ_ONLY, "get_service_status": RiskTier.READ_ONLY,
     "get_recent_logs": RiskTier.READ_ONLY, "list_processes": RiskTier.READ_ONLY,

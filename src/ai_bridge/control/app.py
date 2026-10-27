@@ -576,6 +576,10 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         docker_entry = latest_results.get("list_docker_containers", {})
         docker_data = docker_entry.get("data")
 
+        # Network info parsing (interfaces & listening ports)
+        net_entry = latest_results.get("get_network_info", {})
+        net_data = net_entry.get("data")
+
         # Desktop / Screenshot / Windows UI
         desktop_entry = latest_results.get("get_desktop_status", {})
         screenshot_entry = latest_results.get("capture_desktop_screenshot", {})
@@ -637,6 +641,24 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                 except Exception:
                     pass
 
+        # Telemetry trend history (up to 25 historical points for sparklines)
+        res_history_rows = conn.execute(
+            "SELECT result, updated_at FROM tasks WHERE device_id=? AND tool='get_resource_usage' AND status='completed' ORDER BY updated_at ASC LIMIT 25",
+            (device_id,),
+        ).fetchall()
+        res_history = []
+        for rhr in res_history_rows:
+            try:
+                rp = json.loads(rhr["result"] or "{}")
+                if "cpu_percent" in rp and rp["cpu_percent"] is not None:
+                    res_history.append({
+                        "cpu_percent": rp.get("cpu_percent"),
+                        "memory_percent": rp.get("memory_percent"),
+                        "updated_at": rhr["updated_at"],
+                    })
+            except Exception:
+                pass
+
         return {
             "device": device_data,
             "health": {
@@ -653,10 +675,13 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                 **res_usage,
                 "updated_at": res_entry.get("updated_at"),
             },
+            "resource_history": res_history,
             "processes": processes,
             "processes_updated_at": proc_entry.get("updated_at"),
             "docker": docker_data,
             "docker_updated_at": docker_entry.get("updated_at"),
+            "network": net_data,
+            "network_updated_at": net_entry.get("updated_at"),
             "desktop": {
                 "status": desktop_entry.get("data"),
                 "screenshot": screenshot_entry.get("data"),
@@ -682,7 +707,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         if row is None:
             raise HTTPException(status_code=404, detail="Device not found or revoked.")
 
-        tools_to_run = (body.tools if body and body.tools else None) or ["get_system_info", "get_resource_usage"]
+        tools_to_run = (body.tools if body and body.tools else None) or ["get_system_info", "get_resource_usage", "get_network_info"]
         eff_policy = get_effective_device_policy(row)
         queued = []
         for tool_name in tools_to_run:
