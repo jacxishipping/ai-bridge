@@ -133,3 +133,61 @@ def test_device_policy_reset_to_global(test_setup):
     assert get_res.json()["has_custom_policy"] is False
     assert "run_shell" not in get_res.json()["effective_policy"].get("denied_tools", [])
 
+
+def test_device_policy_full_unattended_skips_approval(test_setup):
+    """When a device is given full unattended access (Tier 3 & 4), tasks run immediately without approval."""
+    client = test_setup["client"]
+    device_id = test_setup["device_id"]
+
+    # 1. First, under default policy, Tier-3 tool should need approval
+    res_t3 = client.post(
+        "/api/tasks",
+        json={"device_id": device_id, "tool": "install_package", "args": {"package_name": "curl"}},
+        headers={"X-Admin-Token": "adm-secret"},
+    )
+    assert res_t3.status_code == 200
+    assert res_t3.json()["status"] == "needs_approval"
+    assert res_t3.json()["approval_id"] is not None
+
+    # Check that device overview reflects this pending approval
+    ov_res = client.get(f"/api/devices/{device_id}/overview", headers={"X-Admin-Token": "adm-secret"})
+    assert ov_res.status_code == 200
+    assert "pending_approvals" in ov_res.json()
+    assert len(ov_res.json()["pending_approvals"]) >= 1
+
+    # 2. Now grant full unattended access (max_tier_unattended=4, allow_tier3=True, allow_file_deletion=True)
+    full_policy = {
+        "inherit_global": False,
+        "allow_writes": True,
+        "allow_tier3": True,
+        "desktop_enabled": True,
+        "allow_shell": True,
+        "allow_package_install": True,
+        "allow_file_deletion": True,
+        "max_tier_unattended": 4,
+        "denied_tools": [],
+        "note": "Full autonomous access granted",
+    }
+    set_res = client.put(f"/api/devices/{device_id}/policy", json=full_policy, headers={"X-Admin-Token": "adm-secret"})
+    assert set_res.status_code == 200
+
+    # 3. Submit Tier-3 tool again -> should queue immediately (status: queued) without needing approval
+    res_t3_unattended = client.post(
+        "/api/tasks",
+        json={"device_id": device_id, "tool": "install_package", "args": {"package_name": "htop"}},
+        headers={"X-Admin-Token": "adm-secret"},
+    )
+    assert res_t3_unattended.status_code == 200
+    assert res_t3_unattended.json()["status"] == "queued"
+    assert res_t3_unattended.json()["approval_id"] is None
+
+    # 4. Submit Tier-4 tool (delete_workspace_file) -> should also queue immediately without approval
+    res_t4_unattended = client.post(
+        "/api/tasks",
+        json={"device_id": device_id, "tool": "delete_workspace_file", "args": {"relative_path": "test.txt"}},
+        headers={"X-Admin-Token": "adm-secret"},
+    )
+    assert res_t4_unattended.status_code == 200
+    assert res_t4_unattended.json()["status"] == "queued"
+    assert res_t4_unattended.json()["approval_id"] is None
+

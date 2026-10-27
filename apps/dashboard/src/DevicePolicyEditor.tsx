@@ -183,6 +183,23 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
     if (category === "desktop" || category === "all") {
       setDesktopEnabled(allow);
     }
+    if (category === "all" && allow) {
+      setAllowWrites(true);
+      setAllowTier3(true);
+      setDesktopEnabled(true);
+      setAllowShell(true);
+      setAllowPackageInstall(true);
+      setAllowFileDeletion(true);
+      setMaxTierUnattended(4);
+    } else if (category === "all" && !allow) {
+      setAllowWrites(false);
+      setAllowTier3(false);
+      setDesktopEnabled(false);
+      setAllowShell(false);
+      setAllowPackageInstall(false);
+      setAllowFileDeletion(false);
+      setMaxTierUnattended(1);
+    }
   }
 
   // Preset role applicators
@@ -232,16 +249,16 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
       setDeniedTools(new Set(["delete_workspace_file"]));
       setNote("Applied Interactive Workstation preset");
     } else if (preset === "unattended") {
-      // Full Unattended: High trust, tier 3 unattended, all tools allowed
+      // Full Unattended: High trust, tier 3 & 4 unattended, all tools allowed without approval
       setAllowWrites(true);
       setAllowTier3(true);
       setDesktopEnabled(true);
       setAllowShell(true);
       setAllowPackageInstall(true);
       setAllowFileDeletion(true);
-      setMaxTierUnattended(3);
+      setMaxTierUnattended(4);
       setDeniedTools(new Set());
-      setNote("Applied Full Unattended High-Trust preset");
+      setNote("Applied Full Unattended High-Trust preset (No approvals required)");
     } else if (preset === "lockdown") {
       // Total Lockdown: Read-only diagnostics ONLY
       setAllowWrites(false);
@@ -601,6 +618,46 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
             </div>
           </label>
         </div>
+      </div>
+
+      {/* Autonomous Unattended Level & Approvals Guardrail */}
+      <div style={{ padding: 14, borderRadius: 8, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)", display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: "var(--colorNeutralForeground1)" }}>
+              Autonomous Unattended Level (Max Risk Tier Executed without Human Approval)
+            </div>
+            <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
+              Tools above this tier are paused in the Approval Queue and require administrator confirmation before executing.
+            </div>
+          </div>
+          <select
+            className="f2-select"
+            value={maxTierUnattended}
+            onChange={e => {
+              setInheritGlobal(false);
+              const val = Number(e.target.value);
+              setMaxTierUnattended(val);
+              if (val >= 3) setAllowTier3(true);
+              if (val >= 4) setAllowFileDeletion(true);
+            }}
+            style={{ fontWeight: 600, minWidth: 280 }}
+          >
+            <option value={1}>Tier 1: Read-Only Only (Tier 2–4 require approval)</option>
+            <option value={2}>Tier 2: Safe Workspace &amp; Tests (Tier 3–4 require approval)</option>
+            <option value={3}>Tier 3: Sensitive Tools Unattended (Tier 4 requires approval)</option>
+            <option value={4}>Tier 4: 🚀 Full Unrestricted Access (No tools require approval)</option>
+          </select>
+        </div>
+        {maxTierUnattended >= 4 ? (
+          <div className="f2-messagebar" data-intent="success" style={{ margin: 0, padding: "8px 12px", fontSize: 12 }}>
+            <span><b>✓ Full Autonomous Mode Active:</b> All approved tools execute immediately without human approval on this machine.</span>
+          </div>
+        ) : (
+          <div className="f2-messagebar" data-intent="info" style={{ margin: 0, padding: "8px 12px", fontSize: 12 }}>
+            <span>ℹ️ Any operations classified above <b>Tier {maxTierUnattended}</b> will enter <code>needs_approval</code> status and require administrator confirmation.</span>
+          </div>
+        )}
       </div>
 
       {/* Granular Abilities Matrix */}

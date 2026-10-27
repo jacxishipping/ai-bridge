@@ -21,7 +21,7 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
     if not d.allowed:
         raise PermissionError(d.reason)
     tier = TOOL_TIERS.get(tool)
-    if tier == RiskTier.HIGH_RISK and not approval_granted:
+    if tier == RiskTier.HIGH_RISK and not approval_granted and getattr(policy, "max_tier_unattended", 2) < 4:
         raise PermissionError("High-risk tool requires an approved approval record.")
     handlers = {
         "get_system_info": lambda a: tools.get_system_info(),

@@ -129,10 +129,13 @@ class Poller:
             allowed_apps = base.allowed_apps
         remote_denied = frozenset(remote_policy.get("denied_tools") or [])
         remote_allowed = frozenset(remote_policy.get("allowed_tools") or []) if "allowed_tools" in remote_policy and remote_policy["allowed_tools"] is not None else None
+        allow_writes = bool(remote_policy["allow_writes"]) if "allow_writes" in remote_policy else base.allow_writes
+        allow_tier3 = bool(remote_policy["allow_tier3"]) if "allow_tier3" in remote_policy else base.allow_tier3
+        desktop_enabled = bool(remote_policy["desktop_enabled"]) if "desktop_enabled" in remote_policy else base.desktop_enabled
         return Policy(
-            allow_writes=base.allow_writes and bool(remote_policy.get("allow_writes", True)),
-            allow_tier3=base.allow_tier3 or bool(remote_policy.get("allow_tier3")),
-            desktop_enabled=base.desktop_enabled and bool(remote_policy.get("desktop_enabled", True)),
+            allow_writes=allow_writes,
+            allow_tier3=allow_tier3,
+            desktop_enabled=desktop_enabled,
             allowed_apps=allowed_apps,
             allowed_services=base.allowed_services | frozenset(remote_policy.get("allowed_services") or []),
             allowed_test_commands=base.allowed_test_commands,

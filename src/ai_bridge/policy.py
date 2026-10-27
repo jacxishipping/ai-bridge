@@ -85,8 +85,9 @@ def decide(policy: Policy, tool: str, *, approval_granted: bool = False,
     if policy.allowed_tools is not None and tool not in policy.allowed_tools:
         return Decision(False, reason=f"Tool '{tool}' is not in the allowed tools list for this policy.")
     if tier == RiskTier.HIGH_RISK and not (approval_granted and is_admin):
-        return Decision(False, needs_approval=True,
-                        reason="High-risk operation requires explicit human approval.")
+        if not (policy.max_tier_unattended >= 4 and tool not in policy.denied_tools):
+            return Decision(False, needs_approval=True,
+                            reason="High-risk operation requires explicit human approval.")
     if tier == RiskTier.SENSITIVE:
         if tool in {"capture_desktop_screenshot", "launch_approved_application",
                     "perform_approved_ui_action"} and not policy.desktop_enabled:

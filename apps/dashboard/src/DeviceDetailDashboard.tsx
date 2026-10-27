@@ -763,6 +763,97 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
         </div>
       </div>
 
+      {/* Pending Approvals Alert on this Device */}
+      {overview?.pending_approvals && overview.pending_approvals.length > 0 && (
+        <div
+          style={{
+            padding: "14px 18px",
+            borderRadius: 8,
+            border: "1px solid var(--colorPaletteAmberBorder1)",
+            background: "var(--colorPaletteAmberBackground1)",
+            display: "grid",
+            gap: 10,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 20 }}>⚠️</span>
+              <div>
+                <h4 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--colorPaletteAmberForeground1)" }}>
+                  {overview.pending_approvals.length} Operation{overview.pending_approvals.length > 1 ? "s" : ""} Awaiting Human Approval on this Device
+                </h4>
+                <div style={{ fontSize: 12, color: "var(--colorNeutralForeground2)" }}>
+                  These tasks are paused by policy guardrails. Authorize or deny execution below:
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {overview.pending_approvals.map((ap: any) => (
+              <div
+                key={ap.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "10px 14px",
+                  borderRadius: 6,
+                  background: "var(--colorNeutralBackground1)",
+                  border: "1px solid var(--colorNeutralStroke2)",
+                  gap: 12,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                    <span className="f2-badge" data-tone="amber">PENDING</span>
+                    <b><code>{ap.tool}</code></b>
+                    <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>· Tier {ap.tier}</span>
+                    <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>· Task <code>{ap.task_id}</code></span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--colorNeutralForeground2)" }}>
+                    {ap.reason}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    className="f2-btn f2-btn-primary f2-btn-sm"
+                    style={{ background: "#0e700e", borderColor: "#0e700e", color: "#ffffff", fontWeight: 700 }}
+                    onClick={async () => {
+                      try {
+                        await api.decide(ap.id, "approved");
+                        alert(`Approved ${ap.tool} (${ap.id}). Task queued to execute.`);
+                        loadData();
+                      } catch (e: any) {
+                        alert(`Approve failed: ${e.message}`);
+                      }
+                    }}
+                  >
+                    ✓ Approve Task
+                  </button>
+                  <button
+                    type="button"
+                    className="f2-btn f2-btn-danger f2-btn-sm"
+                    onClick={async () => {
+                      try {
+                        await api.decide(ap.id, "denied");
+                        alert(`Denied ${ap.tool} (${ap.id}).`);
+                        loadData();
+                      } catch (e: any) {
+                        alert(`Deny failed: ${e.message}`);
+                      }
+                    }}
+                  >
+                    ✕ Deny
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Tabs Navigation Header */}
       <div style={{ display: "flex", borderBottom: "1px solid var(--colorNeutralStroke2)", gap: 4, flexWrap: "wrap" }}>
         {[

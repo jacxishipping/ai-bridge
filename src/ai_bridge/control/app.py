@@ -307,7 +307,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             "allowed_test_commands": ["pytest", "npm test", "go test"],
             "max_tier_unattended": 2,
         }
-        for k in ["allow_writes", "allow_tier3", "desktop_enabled", "max_tier_unattended"]:
+        for k in ["allow_writes", "allow_tier3", "desktop_enabled", "max_tier_unattended", "allow_file_deletion", "allow_shell", "allow_package_install"]:
             if k in custom and custom[k] is not None:
                 merged[k] = custom[k]
 
@@ -620,6 +620,21 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                 td["args"] = {}
             recent_tasks.append(td)
 
+        pending_approval_rows = conn.execute(
+            "SELECT a.id, a.task_id, a.tool, a.reason, a.created_at, a.expires_at, a.policy_version, "
+            "t.tier, t.args_json FROM approvals a JOIN tasks t ON a.task_id = t.id "
+            "WHERE t.device_id=? AND a.status='pending' ORDER BY a.created_at DESC",
+            (device_id,),
+        ).fetchall()
+        pending_approvals = []
+        for ar in pending_approval_rows:
+            ad = dict(ar)
+            try:
+                ad["args"] = json.loads(ad.get("args_json") or "{}")
+            except Exception:
+                ad["args"] = {}
+            pending_approvals.append(ad)
+
         now_ts = dbmod.now()
         last_seen = row["last_seen"] or 0
         latency = max(0.0, now_ts - last_seen) if last_seen else None
@@ -696,6 +711,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                 "service_statuses": service_statuses,
             },
             "recent_tasks": recent_tasks,
+            "pending_approvals": pending_approvals,
         }
 
     @app.post("/api/devices/{device_id}/refresh")
@@ -754,7 +770,23 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         task_id = uuid.uuid4().hex[:12]
         status = "queued"
         approval_id = None
-        if tier.value >= 4 or (tier.value == 3 and not eff_policy.get("allow_tier3", False)):
+        max_unattended = int(eff_policy.get("max_tier_unattended", 2))
+        allow_t3 = bool(eff_policy.get("allow_tier3", False))
+        allow_file_del = bool(eff_policy.get("allow_file_deletion", False))
+
+        needs_approval = False
+        if tier.value >= 4:
+            if max_unattended < 4:
+                needs_approval = True
+            elif body.tool == "delete_workspace_file" and not allow_file_del:
+                needs_approval = True
+        elif tier.value == 3:
+            if not (allow_t3 or max_unattended >= 3):
+                needs_approval = True
+        elif tier.value > max_unattended:
+            needs_approval = True
+
+        if needs_approval:
             approval_id = uuid.uuid4().hex[:12]
             approval_ttl = max(60, int(os.environ.get("AI_BRIDGE_APPROVAL_TTL_SECONDS", "3600")))
             policy_row = conn.execute("SELECT MAX(version) AS version FROM policies").fetchone()

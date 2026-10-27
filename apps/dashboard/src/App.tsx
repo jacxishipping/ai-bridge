@@ -680,6 +680,26 @@ export default function App() {
         </div>
 
         <div className="f2-topbar-actions">
+          {pending.length > 0 && (
+            <button
+              type="button"
+              className="f2-btn f2-btn-sm"
+              style={{
+                background: "var(--colorPaletteAmberBackground1)",
+                border: "1px solid var(--colorPaletteAmberBorder1)",
+                color: "var(--colorPaletteAmberForeground1)",
+                fontWeight: 700,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                cursor: "pointer",
+              }}
+              onClick={() => setView("approvals")}
+              title="Click to view and approve pending operations"
+            >
+              ⚠️ {pending.length} Action{pending.length > 1 ? "s" : ""} Pending Approval ↗
+            </button>
+          )}
           <button
             type="button"
             className="f2-search-trigger"
@@ -958,6 +978,81 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              {pending.length > 0 && (
+                <Card
+                  title={`⚠️ Pending Approvals Requiring Action (${pending.length})`}
+                  action={
+                    <button type="button" className="f2-btn f2-btn-sm" onClick={() => setView("approvals")}>
+                      View Approvals Queue ↗
+                    </button>
+                  }
+                >
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {pending.map(a => (
+                      <div
+                        key={a.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 12,
+                          padding: "12px 16px",
+                          borderRadius: "var(--borderRadiusMedium)",
+                          border: "1px solid var(--colorPaletteAmberBorder1)",
+                          background: "var(--colorPaletteAmberBackground1)",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                            <Badge value={a.status} tone="amber" />
+                            <b><code>{a.tool}</code></b>
+                            <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>· requested {rel(a.created_at)}</span>
+                          </div>
+                          <div style={{ fontSize: 13, color: "var(--colorNeutralForeground2)" }}>
+                            {a.reason} · Device <b>{a.device_name || a.device_id || "—"}</b> · Tier {a.tier ?? "—"}
+                            {a.task_id && <span> · Task <code>{a.task_id}</code></span>}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button
+                            type="button"
+                            className="f2-btn f2-btn-primary f2-btn-sm"
+                            style={{ background: "#0e700e", borderColor: "#0e700e", color: "#ffffff", fontWeight: 700 }}
+                            onClick={async () => {
+                              try {
+                                await api.decide(a.id, "approved");
+                                setNotice({ intent: "success", text: `Approved ${a.tool} (${a.id}). Task released to agent queue.` });
+                                load();
+                              } catch (ex: any) {
+                                setErr(`Approve failed: ${ex.message}`);
+                              }
+                            }}
+                          >
+                            <FluentIcon name="approve" /> Approve
+                          </button>
+                          <button
+                            type="button"
+                            className="f2-btn f2-btn-danger f2-btn-sm"
+                            onClick={async () => {
+                              try {
+                                await api.decide(a.id, "denied");
+                                setNotice({ intent: "warning", text: `Denied ${a.tool} (${a.id}).` });
+                                load();
+                              } catch (ex: any) {
+                                setErr(`Deny failed: ${ex.message}`);
+                              }
+                            }}
+                          >
+                            <FluentIcon name="deny" /> Deny
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 }}>
                 <Card title="Tasks by Status">
@@ -1445,6 +1540,48 @@ export default function App() {
                               <td>
                                 <TableRowActions
                                   actions={[
+                                    t.status === "needs_approval" && {
+                                      id: "approve",
+                                      label: "Approve Task",
+                                      title: "Approve execution and release task immediately",
+                                      icon: "approve",
+                                      tone: "success",
+                                      onClick: async () => {
+                                        const idToDecide = t.approval_id || approvals.find(a => a.task_id === t.id)?.id;
+                                        if (!idToDecide) {
+                                          alert("Could not locate approval record ID for this task.");
+                                          return;
+                                        }
+                                        try {
+                                          await api.decide(idToDecide, "approved");
+                                          setNotice({ intent: "success", text: `Approved task ${t.id} (${t.tool}). Released to agent.` });
+                                          load();
+                                        } catch (ex: any) {
+                                          setErr(`Approve failed: ${ex.message}`);
+                                        }
+                                      },
+                                    },
+                                    t.status === "needs_approval" && {
+                                      id: "deny",
+                                      label: "Deny Task",
+                                      title: "Deny task execution",
+                                      icon: "deny",
+                                      tone: "danger",
+                                      onClick: async () => {
+                                        const idToDecide = t.approval_id || approvals.find(a => a.task_id === t.id)?.id;
+                                        if (!idToDecide) {
+                                          alert("Could not locate approval record ID for this task.");
+                                          return;
+                                        }
+                                        try {
+                                          await api.decide(idToDecide, "denied");
+                                          setNotice({ intent: "warning", text: `Denied task ${t.id} (${t.tool}).` });
+                                          load();
+                                        } catch (ex: any) {
+                                          setErr(`Deny failed: ${ex.message}`);
+                                        }
+                                      },
+                                    },
                                     {
                                       id: "inspect",
                                       label: isOpen ? "Hide Details" : "Inspect Task",
@@ -1505,6 +1642,72 @@ export default function App() {
                             {isOpen && info && (
                               <tr>
                                 <td colSpan={7} style={{ background: "var(--colorNeutralBackground2)", padding: 16 }}>
+                                  {t.status === "needs_approval" && (
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "space-between",
+                                        padding: "12px 16px",
+                                        borderRadius: "var(--borderRadiusMedium)",
+                                        border: "1px solid var(--colorPaletteAmberBorder1)",
+                                        background: "var(--colorPaletteAmberBackground1)",
+                                        marginBottom: 12,
+                                        gap: 12,
+                                        flexWrap: "wrap",
+                                      }}
+                                    >
+                                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                        <span style={{ fontSize: 20 }}>⚠️</span>
+                                        <div>
+                                          <div style={{ fontWeight: 700, fontSize: 13, color: "var(--colorPaletteAmberForeground1)" }}>
+                                            Action Required: This task is paused waiting for human approval.
+                                          </div>
+                                          <div style={{ fontSize: 12, color: "var(--colorNeutralForeground2)" }}>
+                                            Tool: <code>{t.tool}</code> (Tier {t.tier}) · Approval ID: <code>{t.approval_id || "pending"}</code>
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div style={{ display: "flex", gap: 8 }}>
+                                        <button
+                                          type="button"
+                                          className="f2-btn f2-btn-primary f2-btn-sm"
+                                          style={{ background: "#0e700e", borderColor: "#0e700e", color: "#ffffff", fontWeight: 700 }}
+                                          onClick={async () => {
+                                            const apId = t.approval_id || approvals.find(a => a.task_id === t.id)?.id;
+                                            if (!apId) return alert("Could not find approval record ID for this task.");
+                                            try {
+                                              await api.decide(apId, "approved");
+                                              setNotice({ intent: "success", text: `Approved task ${t.id} (${t.tool}). Released to agent.` });
+                                              load();
+                                            } catch (ex: any) {
+                                              setErr(`Approve failed: ${ex.message}`);
+                                            }
+                                          }}
+                                        >
+                                          <FluentIcon name="approve" /> Approve &amp; Release Task
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="f2-btn f2-btn-danger f2-btn-sm"
+                                          onClick={async () => {
+                                            const apId = t.approval_id || approvals.find(a => a.task_id === t.id)?.id;
+                                            if (!apId) return alert("Could not find approval record ID for this task.");
+                                            try {
+                                              await api.decide(apId, "denied");
+                                              setNotice({ intent: "warning", text: `Denied task ${t.id} (${t.tool}).` });
+                                              load();
+                                            } catch (ex: any) {
+                                              setErr(`Deny failed: ${ex.message}`);
+                                            }
+                                          }}
+                                        >
+                                          <FluentIcon name="deny" /> Deny Task
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+
                                   <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
                                     <span><b>Full Task ID:</b> <code>{t.id}</code></span>
                                     <span><b>Updated:</b> {fmt(t.updated_at)}</span>
