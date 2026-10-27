@@ -1,8 +1,9 @@
-"""AI Bridge Windows Agent — Native Fluent 2 Desktop Application.
+"""AI Bridge Windows Agent — Native Fluent 2 Desktop Application (User App).
 
-Provides a zero-terminal graphical interface for configuring, enrolling,
-starting/stopping, rotating tokens, and monitoring the AI Bridge Windows
-agent in real time. Runs in the logged-in user session so desktop vision
+Provides a zero-terminal graphical interface for running, monitoring,
+and auto-rotating device tokens for the AI Bridge Windows agent in
+unprivileged user mode. Enrollment and administrative policy controls are
+managed separately by administrators via the web dashboard.
 (capture_desktop_screenshot) and UI automation (perform_approved_ui_action)
 work out of the box.
 
@@ -26,7 +27,7 @@ import urllib.error
 import urllib.request
 import webbrowser
 from pathlib import Path
-from tkinter import messagebox, simpledialog
+from tkinter import messagebox
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -164,7 +165,7 @@ def save_agent_config(cfg: dict) -> None:
 class AgentGuiApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("AI Bridge Windows Agent")
+        self.root.title("AI Bridge Windows Client (User App)")
         self.root.geometry("820x660")
         self.root.minsize(720, 560)
 
@@ -200,7 +201,7 @@ class AgentGuiApp:
             self.log("Auto-start enabled. Connecting to control plane...", "info")
             self.root.after(400, self.start_agent)
         else:
-            self.log("AI Bridge Windows Agent ready. Click 'Start Agent' to begin polling.", "info")
+            self.log("AI Bridge Windows Client ready. Click 'Start Agent' to begin polling.", "info")
 
     def _build_ui(self) -> None:
         for w in self.root.winfo_children():
@@ -230,7 +231,7 @@ class AgentGuiApp:
         titles.pack(side="left")
         tk.Label(
             titles,
-            text="AI Bridge Windows Agent",
+            text="AI Bridge Windows Client (User App)",
             bg=t["card"],
             fg=t["fg"],
             font=("Segoe UI", 13, "bold"),
@@ -238,7 +239,7 @@ class AgentGuiApp:
         ).pack(anchor="w")
         tk.Label(
             titles,
-            text="Outbound Long-Polling • Desktop Vision & UI Automation • Auto Token Rotation",
+            text="User Desktop Poller • Local Task Execution • Auto Token Rotation",
             bg=t["card"],
             fg=t["fg_muted"],
             font=("Segoe UI", 9),
@@ -289,6 +290,21 @@ class AgentGuiApp:
             cursor="hand2",
         ).pack(side="left")
 
+        # User Application Mode Notice Banner
+        info_card = tk.Frame(self.root, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
+        info_card.pack(fill="x", padx=16, pady=(0, 10))
+        info_inner = tk.Frame(info_card, bg=t["card"])
+        info_inner.pack(fill="x", padx=14, pady=8)
+        tk.Label(
+            info_inner,
+            text="👤 User Application: This client connects this machine using an assigned Device Token. Device enrollment, policy guardrails, and approvals are reserved for administrators via the Web Dashboard.",
+            bg=t["card"],
+            fg=t["fg_muted"],
+            font=("Segoe UI", 9),
+            wraplength=760,
+            justify="left",
+        ).pack(anchor="w")
+
         # Telemetry KPI Row
         kpi_frame = tk.Frame(self.root, bg=t["bg"])
         kpi_frame.pack(fill="x", padx=16, pady=(0, 10))
@@ -330,7 +346,7 @@ class AgentGuiApp:
 
         tk.Label(
             cfg_inner,
-            text="Device Token:",
+            text="Assigned Token:",
             bg=t["card"],
             fg=t["fg"],
             font=("Segoe UI", 9, "bold"),
@@ -395,19 +411,6 @@ class AgentGuiApp:
             cursor="hand2",
         )
         self.start_stop_btn.pack(side="left", padx=(0, 8))
-
-        tk.Button(
-            ctrl_row,
-            text="Enroll New Device…",
-            command=self._enroll_dialog,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 9, "bold"),
-            padx=12,
-            pady=6,
-            cursor="hand2",
-        ).pack(side="left", padx=(0, 6))
 
         tk.Button(
             ctrl_row,
@@ -630,7 +633,7 @@ class AgentGuiApp:
         if not url or not tok:
             messagebox.showwarning(
                 "Missing Credentials",
-                "Please enter both the Control Plane URL and a Device Token (or click 'Enroll New Device…').",
+                "Please enter both the Control Plane URL and your assigned Device Token (provided by your administrator).",
             )
             return
         self._save_current_config()
@@ -756,61 +759,6 @@ class AgentGuiApp:
         except Exception as exc:
             self.log(f"Token rotation failed: {exc}", "err")
             messagebox.showerror("Rotation Failed", str(exc))
-
-    def _enroll_dialog(self) -> None:
-        url = self.url_var.get().strip().rstrip("/")
-        if not url:
-            messagebox.showwarning("Control Plane URL", "Enter the Control Plane URL first.")
-            return
-        admin_tok = simpledialog.askstring(
-            "Enroll New Device",
-            "Enter your Administrator Token (AI_BRIDGE_ADMIN_TOKEN):",
-            parent=self.root,
-            show="•",
-        )
-        if not admin_tok:
-            return
-        default_name = f"{platform.node() or 'windows'}-agent"
-        dev_name = simpledialog.askstring(
-            "Enroll New Device",
-            "Enter a friendly name for this Windows device:",
-            parent=self.root,
-            initialvalue=default_name,
-        )
-        if not dev_name:
-            return
-
-        payload = json.dumps(
-            {
-                "name": dev_name.strip(),
-                "hostname": platform.node(),
-                "os": f"Windows {platform.release()}",
-            }
-        ).encode("utf-8")
-        req = urllib.request.Request(
-            f"{url}/api/devices/enroll",
-            data=payload,
-            method="POST",
-            headers={
-                "X-Admin-Token": admin_tok.strip(),
-                "Content-Type": "application/json",
-            },
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            new_tok = data["device_token"]
-            new_id = data["device_id"]
-            self.token_var.set(new_tok)
-            self.device_id_var.set(new_id)
-            self._save_current_config()
-            self.log(f"Enrolled device '{dev_name}' (ID: {new_id}) and saved token!", "ok")
-            if not self.running:
-                self.start_agent()
-        except urllib.error.HTTPError as exc:
-            messagebox.showerror("Enrollment Failed", f"Control plane returned HTTP {exc.code}")
-        except Exception as exc:
-            messagebox.showerror("Enrollment Failed", str(exc))
 
     def _on_close(self) -> None:
         self.stop_event.set()

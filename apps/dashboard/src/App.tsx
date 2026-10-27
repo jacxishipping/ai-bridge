@@ -1022,57 +1022,63 @@ export default function App() {
           {/* ==================== DEVICES ==================== */}
           {view === "devices" && (
             <div style={{ display: "grid", gap: 16 }}>
-              <Card title="Enroll a New Device">
-                {me?.role === "viewer" && (
-                  <div className="f2-messagebar" data-intent="warning">
-                    <span>Enrolling a device requires administrator privileges. Your current session role is <b>viewer</b>.</span>
-                  </div>
-                )}
-                <form
-                  onSubmit={async e => {
-                    e.preventDefault();
-                    try {
-                      const res = await api.enroll(deviceName);
-                      setEnrolled(res);
-                      setDeviceName("");
-                      setNotice({ intent: "success", text: `Enrolled device "${res.device_id}". Copy its one-time token below.` });
-                      load();
-                    } catch (ex: any) {
-                      setErr(`Enroll failed: ${ex.message}`);
-                    }
-                  }}
-                  style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}
-                >
-                  <input
-                    className="f2-input"
-                    value={deviceName}
-                    onChange={e => setDeviceName(e.target.value)}
-                    placeholder="Device friendly name (e.g. windows-workstation)"
-                    style={{ minWidth: 280, flex: 1 }}
-                    required
-                  />
-                  <button type="submit" className="f2-btn f2-btn-primary">
-                    Enroll Device
-                  </button>
-                </form>
+              {(me?.role === "admin" || !me) ? (
+                <Card title="Enroll a New Device">
+                  <form
+                    onSubmit={async e => {
+                      e.preventDefault();
+                      try {
+                        const res = await api.enroll(deviceName);
+                        setEnrolled(res);
+                        setDeviceName("");
+                        setNotice({ intent: "success", text: `Enrolled device "${res.device_id}". Copy its one-time token below.` });
+                        load();
+                      } catch (ex: any) {
+                        setErr(`Enroll failed: ${ex.message}`);
+                      }
+                    }}
+                    style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}
+                  >
+                    <input
+                      className="f2-input"
+                      value={deviceName}
+                      onChange={e => setDeviceName(e.target.value)}
+                      placeholder="Device friendly name (e.g. windows-workstation)"
+                      style={{ minWidth: 280, flex: 1 }}
+                      required
+                    />
+                    <button type="submit" className="f2-btn f2-btn-primary">
+                      Enroll Device
+                    </button>
+                  </form>
 
-                {enrolled && (
-                  <div className="f2-messagebar" data-intent="info" style={{ marginTop: 14, marginBottom: 0, display: "block" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                      <span style={{ fontWeight: 600 }}>One-Time Device Token (copy and store securely — never shown again):</span>
-                      <CopyButton text={enrolled.device_token} label="Copy Token" />
+                  {enrolled && (
+                    <div className="f2-messagebar" data-intent="info" style={{ marginTop: 14, marginBottom: 0, display: "block" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <span style={{ fontWeight: 600 }}>One-Time Device Token (copy and store securely — never shown again):</span>
+                        <CopyButton text={enrolled.device_token} label="Copy Token" />
+                      </div>
+                      <code style={{ display: "block", padding: 8, background: "var(--colorNeutralBackground1)", borderRadius: 4, userSelect: "all", wordBreak: "break-all" }}>
+                        {enrolled.device_token}
+                      </code>
+                      <div style={{ marginTop: 6, fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                        <span>Device ID: <code>{enrolled.device_id}</code></span>
+                        <CopyButton text={enrolled.device_id} label="Copy ID" />
+                        <span>· Use this token in your agent config and when authorizing MCP OAuth clients.</span>
+                      </div>
                     </div>
-                    <code style={{ display: "block", padding: 8, background: "var(--colorNeutralBackground1)", borderRadius: 4, userSelect: "all", wordBreak: "break-all" }}>
-                      {enrolled.device_token}
-                    </code>
-                    <div style={{ marginTop: 6, fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
-                      <span>Device ID: <code>{enrolled.device_id}</code></span>
-                      <CopyButton text={enrolled.device_id} label="Copy ID" />
-                      <span>· Use this token in your agent config and when authorizing MCP OAuth clients.</span>
-                    </div>
+                  )}
+                </Card>
+              ) : (
+                <Card title="Device Enrollment (Admin Only)">
+                  <div className="f2-messagebar" data-intent="info" style={{ marginBottom: 0 }}>
+                    <span>
+                      Enrolling new fleet machines is restricted to administrators. Your current session role is <b>{me.role}</b>.
+                      To enroll a machine, request an administrator to issue a device token.
+                    </span>
                   </div>
-                )}
-              </Card>
+                </Card>
+              )}
 
               <Card title={`Fleet Inventory (${devices.length})`}>
                 <div className="f2-table-wrap">
