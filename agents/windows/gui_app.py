@@ -1634,7 +1634,7 @@ class AgentGuiApp:
             return
 
         payload = {
-            "inherit_global": True,
+            "inherit_global": False,
             "desktop_enabled": bool(self.policy_desktop_enabled.get()),
             "allow_tier3": bool(self.policy_allow_tier3.get()),
             "max_tier_unattended": int(self.policy_max_tier.get()),
@@ -1784,6 +1784,50 @@ class AgentGuiApp:
         self._update_quick_app_buttons()
         self.save_current_config()
         self.log("Disallowed all applications.", "warn")
+
+    def apply_full_desktop_preset(self) -> None:
+        """Apply Full AI Desktop Control preset (unattended mouse, keyboard, screenshots, writes, and apps)."""
+        self.policy_desktop_enabled.set(True)
+        self.policy_allow_tier3.set(True)
+        self.policy_max_tier.set(3)
+        self.policy_allow_writes.set(True)
+        self.policy_allow_shell.set(True)
+        self.policy_allow_package_install.set(True)
+        if "*" not in self.policy_allowed_apps:
+            self.policy_allowed_apps.append("*")
+        self.allow_all_apps()
+        self.save_and_apply_policy()
+        self.log("Applied 'Full AI Desktop Control' preset (ChatGPT & Claude can control mouse/keyboard unattended).", "ok")
+        messagebox.showinfo(
+            "AI Desktop Control Enabled",
+            "Full AI Desktop Control is now active!\n\n"
+            "• ChatGPT, Claude, and MCP agents can control mouse and keyboard\n"
+            "• Screenshots and live window inspection enabled\n"
+            "• Unattended execution enabled (no manual approval prompts)\n"
+            "• Policy synchronized with cloud control plane."
+        )
+
+    def apply_workstation_preset(self) -> None:
+        """Apply Standard Workstation preset."""
+        self.policy_desktop_enabled.set(True)
+        self.policy_allow_tier3.set(True)
+        self.policy_max_tier.set(2)
+        self.policy_allow_writes.set(True)
+        self.policy_allow_shell.set(True)
+        self.policy_allow_package_install.set(False)
+        self.save_and_apply_policy()
+        self.log("Applied 'Standard Workstation' preset.", "ok")
+
+    def apply_lockdown_preset(self) -> None:
+        """Apply Read-Only Lockdown preset."""
+        self.policy_desktop_enabled.set(False)
+        self.policy_allow_tier3.set(False)
+        self.policy_max_tier.set(1)
+        self.policy_allow_writes.set(False)
+        self.policy_allow_shell.set(False)
+        self.policy_allow_package_install.set(False)
+        self.save_and_apply_policy()
+        self.log("Applied 'Read-Only Lockdown' preset.", "warn")
 
     def _update_quick_app_buttons(self) -> None:
         """Refresh styling and active state on quick toggle buttons."""
@@ -1965,6 +2009,79 @@ class AgentGuiApp:
             pady=4,
             cursor="hand2",
         ).pack(side="left")
+
+        # ---------------------------------------------------------------------
+        # QUICK PRESETS BAR (One-click configuration for AI Remote Control)
+        # ---------------------------------------------------------------------
+        preset_card = tk.Frame(scroll_content, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
+        preset_card.pack(fill="x", pady=(0, 8))
+        pc_inner = tk.Frame(preset_card, bg=t["card"])
+        pc_inner.pack(fill="x", padx=16, pady=10)
+
+        p_left = tk.Frame(pc_inner, bg=t["card"])
+        p_left.pack(side="left")
+        tk.Label(
+            p_left,
+            text="⚡ Quick Role Presets (ChatGPT, Claude & MCP):",
+            bg=t["card"],
+            fg=t["fg"],
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            p_left,
+            text="Instantly configure guardrails for AI agents controlling your Windows desktop.",
+            bg=t["card"],
+            fg=t["fg_muted"],
+            font=("Segoe UI", 8),
+        ).pack(anchor="w")
+
+        p_btns = tk.Frame(pc_inner, bg=t["card"])
+        p_btns.pack(side="right")
+
+        tk.Button(
+            p_btns,
+            text="🚀 Full AI Desktop Control (Mouse & Keyboard)",
+            command=self.apply_full_desktop_preset,
+            bg=t["brand"],
+            fg="#ffffff",
+            activebackground=t["brand_hover"],
+            activeforeground="#ffffff",
+            relief="flat",
+            font=("Segoe UI", 9, "bold"),
+            padx=12,
+            pady=4,
+            cursor="hand2",
+        ).pack(side="left", padx=4)
+
+        tk.Button(
+            p_btns,
+            text="🛡️ Standard Workstation",
+            command=self.apply_workstation_preset,
+            bg=t["card_alt"],
+            fg=t["fg"],
+            activebackground=t["card_alt"],
+            activeforeground=t["fg"],
+            relief="flat",
+            font=("Segoe UI", 9),
+            padx=10,
+            pady=4,
+            cursor="hand2",
+        ).pack(side="left", padx=4)
+
+        tk.Button(
+            p_btns,
+            text="🔒 Read-Only Lockdown",
+            command=self.apply_lockdown_preset,
+            bg=t["card_alt"],
+            fg=t["fg"],
+            activebackground=t["card_alt"],
+            activeforeground=t["fg"],
+            relief="flat",
+            font=("Segoe UI", 9),
+            padx=10,
+            pady=4,
+            cursor="hand2",
+        ).pack(side="left", padx=4)
 
         # ---------------------------------------------------------------------
         # CARD 1: Autonomous Execution Guardrails & Risk Ceilings

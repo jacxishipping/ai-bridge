@@ -42,8 +42,18 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "edit_workspace_file": RiskTier.SENSITIVE, "move_workspace_file": RiskTier.SENSITIVE,
     "create_backup": RiskTier.SENSITIVE, "deploy_application": RiskTier.SENSITIVE,
     "capture_desktop_screenshot": RiskTier.SENSITIVE,
+    "take_screenshot": RiskTier.SENSITIVE,
     "launch_approved_application": RiskTier.SENSITIVE,
     "perform_approved_ui_action": RiskTier.SENSITIVE,
+    "mouse_click": RiskTier.SENSITIVE,
+    "mouse_move": RiskTier.SENSITIVE,
+    "mouse_scroll": RiskTier.SENSITIVE,
+    "mouse_drag": RiskTier.SENSITIVE,
+    "keyboard_type": RiskTier.SENSITIVE,
+    "keyboard_press": RiskTier.SENSITIVE,
+    "list_desktop_windows": RiskTier.READ_ONLY,
+    "focus_window": RiskTier.SENSITIVE,
+    "get_screen_size": RiskTier.READ_ONLY,
     "install_package": RiskTier.SENSITIVE,
     "run_shell": RiskTier.SENSITIVE, "write_file": RiskTier.SENSITIVE,
     "delete_workspace_file": RiskTier.HIGH_RISK, "submit_task": RiskTier.SENSITIVE,
@@ -95,8 +105,12 @@ def decide(policy: Policy, tool: str, *, approval_granted: bool = False,
             return Decision(False, needs_approval=True,
                             reason="High-risk operation requires explicit human approval.")
     if tier == RiskTier.SENSITIVE:
-        if tool in {"capture_desktop_screenshot", "launch_approved_application",
-                    "perform_approved_ui_action"} and not policy.desktop_enabled:
+        desktop_tools = {
+            "capture_desktop_screenshot", "take_screenshot", "launch_approved_application",
+            "perform_approved_ui_action", "mouse_click", "mouse_move", "mouse_scroll",
+            "mouse_drag", "keyboard_type", "keyboard_press", "focus_window"
+        }
+        if tool in desktop_tools and not policy.desktop_enabled:
             return Decision(False, reason="Desktop automation is not enabled.")
         # A human approval record for this task is itself the Tier-3
         # opt-in: without it, an approved task would be re-denied by the

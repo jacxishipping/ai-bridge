@@ -222,7 +222,29 @@ def capture_desktop_screenshot(*, approval_granted: bool = False, policy: Policy
     out = get_settings().data_dir / f"screenshot-{int(time.time())}.png"
     out.parent.mkdir(parents=True, exist_ok=True); shot.save(out)
     b64, mime = _encode_image_base64(shot)
-    res = {"available": True, "path": str(out), "size": list(shot.size) if isinstance(shot.size, tuple) else shot.size}
+    sw = shot.size[0] if isinstance(shot.size, tuple) else getattr(shot, "width", 0)
+    sh = shot.size[1] if isinstance(shot.size, tuple) else getattr(shot, "height", 0)
+    active_win = ""
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+            fg = ctypes.windll.user32.GetForegroundWindow()
+            if fg:
+                len_w = ctypes.windll.user32.GetWindowTextLengthW(fg)
+                if len_w > 0:
+                    t_buf = ctypes.create_unicode_buffer(len_w + 1)
+                    ctypes.windll.user32.GetWindowTextW(fg, t_buf, len_w + 1)
+                    active_win = t_buf.value.strip()
+        except Exception:
+            pass
+    res = {
+        "available": True,
+        "path": str(out),
+        "size": [sw, sh],
+        "width": sw,
+        "height": sh,
+        "active_window": active_win,
+    }
     if b64:
         res["image_base64"] = b64
         res["mime_type"] = mime
@@ -292,15 +314,21 @@ def launch_approved_application(app_name: str, *, approval_granted: bool = False
 
 # --- Interactive UI Automation (Tier 3, desktop_enabled required) --------
 _VK_MAP: dict[str, int] = {
-    "backspace": 0x08, "tab": 0x09, "enter": 0x0D, "return": 0x0D,
-    "shift": 0x10, "ctrl": 0x11, "control": 0x11, "alt": 0x12,
+    "backspace": 0x08, "tab": 0x09, "clear": 0x0C, "enter": 0x0D, "return": 0x0D,
+    "shift": 0x10, "ctrl": 0x11, "control": 0x11, "alt": 0x12, "menu": 0x12,
     "pause": 0x13, "capslock": 0x14, "esc": 0x1B, "escape": 0x1B,
     "space": 0x20, "pageup": 0x21, "pagedown": 0x22, "end": 0x23, "home": 0x24,
     "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28,
-    "insert": 0x2D, "delete": 0x2E, "del": 0x2E,
-    "win": 0x5B, "lwin": 0x5B, "f1": 0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73,
-    "f5": 0x74, "f6": 0x75, "f7": 0x76, "f8": 0x77, "f9": 0x78, "f10": 0x79,
-    "f11": 0x7A, "f12": 0x7B,
+    "select": 0x29, "print": 0x2A, "execute": 0x2B, "printscreen": 0x2C, "prtsc": 0x2C,
+    "insert": 0x2D, "delete": 0x2E, "del": 0x2E, "help": 0x2F,
+    "win": 0x5B, "lwin": 0x5B, "rwin": 0x5C, "apps": 0x5D,
+    "numpad0": 0x60, "numpad1": 0x61, "numpad2": 0x62, "numpad3": 0x63,
+    "numpad4": 0x64, "numpad5": 0x65, "numpad6": 0x66, "numpad7": 0x67,
+    "numpad8": 0x68, "numpad9": 0x69, "multiply": 0x6A, "add": 0x6B,
+    "separator": 0x6C, "subtract": 0x6D, "decimal": 0x6E, "divide": 0x6F,
+    "f1": 0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73, "f5": 0x74, "f6": 0x75,
+    "f7": 0x76, "f8": 0x77, "f9": 0x78, "f10": 0x79, "f11": 0x7A, "f12": 0x7B,
+    "numlock": 0x90, "scrolllock": 0x91,
 }
 
 def _vk_for_token(token: str) -> int:
@@ -312,15 +340,29 @@ def _vk_for_token(token: str) -> int:
     raise ValueError(f"Unsupported key token: {token!r}")
 
 def _win32_ui_action(action: str, *, x: int | None, y: int | None, text: str | None,
-                     key: str | None, title: str | None, delta: int) -> dict:
+                     key: str | None, title: str | None, delta: int,
+                     start_x: int | None = None, start_y: int | None = None) -> dict:
     import ctypes
     from ctypes import wintypes
 
     u = ctypes.windll.user32
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        try:
+            u.SetProcessDPIAware()
+        except Exception:
+            pass
+
     hdesk = u.OpenDesktopW("Default", 0, False, 0x01FF)
     if hdesk:
         u.SetThreadDesktop(hdesk)
     try:
+        if action == "get_screen_size":
+            sw = u.GetSystemMetrics(0)
+            sh = u.GetSystemMetrics(1)
+            return {"action": "get_screen_size", "width": sw, "height": sh}
+
         if action in {"list_windows", "focus_window"}:
             windows: list[dict] = []
             WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
@@ -365,7 +407,7 @@ def _win32_ui_action(action: str, *, x: int | None, y: int | None, text: str | N
             u.SetForegroundWindow(hwnd)
             return {"action": "focus_window", "focused": match["title"], "hwnd": hwnd}
 
-        if action in {"move_mouse", "click", "double_click", "right_click"}:
+        if action in {"move_mouse", "click", "double_click", "triple_click", "right_click", "middle_click"}:
             if x is None or y is None:
                 raise ValueError(f"{action} requires integer x and y coordinates.")
             ix, iy = int(x), int(y)
@@ -377,11 +419,38 @@ def _win32_ui_action(action: str, *, x: int | None, y: int | None, text: str | N
                 for _ in range(2):
                     u.mouse_event(0x0002, 0, 0, 0, 0)
                     u.mouse_event(0x0004, 0, 0, 0, 0)
-                    time.sleep(0.05)
+                    time.sleep(0.04)
+            elif action == "triple_click":
+                for _ in range(3):
+                    u.mouse_event(0x0002, 0, 0, 0, 0)
+                    u.mouse_event(0x0004, 0, 0, 0, 0)
+                    time.sleep(0.04)
             elif action == "right_click":
                 u.mouse_event(0x0008, 0, 0, 0, 0)  # MOUSEEVENTF_RIGHTDOWN
                 u.mouse_event(0x0010, 0, 0, 0, 0)  # MOUSEEVENTF_RIGHTUP
+            elif action == "middle_click":
+                u.mouse_event(0x0020, 0, 0, 0, 0)  # MOUSEEVENTF_MIDDLEDOWN
+                u.mouse_event(0x0040, 0, 0, 0, 0)  # MOUSEEVENTF_MIDDLEUP
             return {"action": action, "x": ix, "y": iy}
+
+        if action in {"drag", "mouse_drag"}:
+            sx = int(start_x if start_x is not None else (x or 0))
+            sy = int(start_y if start_y is not None else (y or 0))
+            ex = int(x if x is not None else sx)
+            ey = int(y if y is not None else sy)
+            u.SetCursorPos(sx, sy)
+            time.sleep(0.02)
+            u.mouse_event(0x0002, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTDOWN
+            steps = 15
+            for s in range(1, steps + 1):
+                cx = int(sx + (ex - sx) * (s / steps))
+                cy = int(sy + (ey - sy) * (s / steps))
+                u.SetCursorPos(cx, cy)
+                time.sleep(0.01)
+            u.SetCursorPos(ex, ey)
+            time.sleep(0.02)
+            u.mouse_event(0x0004, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTUP
+            return {"action": "drag", "start_x": sx, "start_y": sy, "end_x": ex, "end_y": ey}
 
         if action == "scroll":
             if x is not None and y is not None:
@@ -392,15 +461,58 @@ def _win32_ui_action(action: str, *, x: int | None, y: int | None, text: str | N
         if action == "type_text":
             if not isinstance(text, str) or not text:
                 raise ValueError("type_text requires a non-empty 'text' string.")
-            if len(text) > 2000:
-                raise ValueError("type_text is capped at 2000 characters per call.")
+            if len(text) > 4000:
+                raise ValueError("type_text is capped at 4000 characters per call.")
+
+            class KEYBDINPUT(ctypes.Structure):
+                _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD),
+                            ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD),
+                            ("dwExtraInfo", ctypes.c_void_p)]
+            class MOUSEINPUT(ctypes.Structure):
+                _fields_ = [("dx", wintypes.LONG), ("dy", wintypes.LONG),
+                            ("mouseData", wintypes.DWORD), ("dwFlags", wintypes.DWORD),
+                            ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_void_p)]
+            class HARDWAREINPUT(ctypes.Structure):
+                _fields_ = [("uMsg", wintypes.DWORD), ("wParamL", wintypes.WORD),
+                            ("wParamH", wintypes.WORD)]
+            class _INPUT_U(ctypes.Union):
+                _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT), ("hi", HARDWAREINPUT)]
+            class INPUT(ctypes.Structure):
+                _fields_ = [("type", wintypes.DWORD), ("u", _INPUT_U)]
+
             fg = u.GetForegroundWindow()
             for ch in text:
                 if ch == "\n":
                     u.keybd_event(0x0D, 0, 0, 0)
                     u.keybd_event(0x0D, 0, 0x0002, 0)
-                elif fg:
-                    u.PostMessageW(fg, 0x0102, ord(ch), 0)  # WM_CHAR
+                    time.sleep(0.01)
+                    continue
+                if ch == "\t":
+                    u.keybd_event(0x09, 0, 0, 0)
+                    u.keybd_event(0x09, 0, 0x0002, 0)
+                    time.sleep(0.01)
+                    continue
+                try:
+                    c_code = ord(ch)
+                    inp_down = INPUT(type=1)
+                    inp_down.u.ki.wVk = 0
+                    inp_down.u.ki.wScan = c_code
+                    inp_down.u.ki.dwFlags = 0x0004  # KEYEVENTF_UNICODE
+                    inp_down.u.ki.time = 0
+                    inp_down.u.ki.dwExtraInfo = None
+
+                    inp_up = INPUT(type=1)
+                    inp_up.u.ki.wVk = 0
+                    inp_up.u.ki.wScan = c_code
+                    inp_up.u.ki.dwFlags = 0x0004 | 0x0002  # KEYEVENTF_UNICODE | KEYEVENTF_KEYUP
+                    inp_up.u.ki.time = 0
+                    inp_up.u.ki.dwExtraInfo = None
+
+                    inputs = (INPUT * 2)(inp_down, inp_up)
+                    u.SendInput(2, ctypes.byref(inputs), ctypes.sizeof(INPUT))
+                except Exception:
+                    if fg:
+                        u.PostMessageW(fg, 0x0102, ord(ch), 0)
                 time.sleep(0.005)
             return {"action": "type_text", "length": len(text)}
 
@@ -411,6 +523,7 @@ def _win32_ui_action(action: str, *, x: int | None, y: int | None, text: str | N
             vks = [_vk_for_token(p) for p in parts]
             for vk in vks:
                 u.keybd_event(vk, 0, 0, 0)
+            time.sleep(0.01)
             for vk in reversed(vks):
                 u.keybd_event(vk, 0, 0x0002, 0)  # KEYEVENTF_KEYUP
             return {"action": action, "key": key}
@@ -429,6 +542,8 @@ def perform_approved_ui_action(
     key: str | None = None,
     title: str | None = None,
     delta: int = -120,
+    start_x: int | None = None,
+    start_y: int | None = None,
     approval_granted: bool = False,
     policy: Policy | None = None,
 ) -> dict:
@@ -437,27 +552,46 @@ def perform_approved_ui_action(
     Supported actions:
       - list_windows: list visible top-level windows with titles and bounds
       - focus_window: bring a window matching 'title' substring to the foreground
-      - move_mouse, click, double_click, right_click: mouse action at (x, y)
+      - move_mouse, click, double_click, triple_click, right_click, middle_click: mouse action at (x, y)
+      - drag / mouse_drag: mouse drag from (start_x, start_y) to (x, y)
       - scroll: mouse wheel scroll by 'delta' (optionally at x, y)
-      - type_text: type 'text' into the focused window (max 2000 chars)
+      - type_text: type 'text' into the focused window/control using Unicode SendInput
       - press_key / hotkey: press a key or combo like 'enter', 'esc', 'ctrl+l', 'alt+tab'
+      - get_screen_size: get desktop screen dimensions
     """
     eff_policy = policy or default_policy()
     _check("perform_approved_ui_action", approval_granted=approval_granted, policy=eff_policy)
     allowed_actions = {
         "list_windows", "focus_window", "move_mouse", "click",
-        "double_click", "right_click", "scroll", "type_text", "press_key", "hotkey",
+        "double_click", "triple_click", "right_click", "middle_click",
+        "scroll", "type_text", "press_key", "hotkey", "drag", "mouse_drag",
+        "get_screen_size",
     }
     if action not in allowed_actions:
         raise ValueError(f"Unsupported UI action {action!r}. Choose one of: {', '.join(sorted(allowed_actions))}")
     if platform.system() == "Windows":
-        return _win32_ui_action(action, x=x, y=y, text=text, key=key, title=title, delta=delta)
+        extra = {}
+        if start_x is not None or start_y is not None:
+            extra["start_x"] = start_x
+            extra["start_y"] = start_y
+        return _win32_ui_action(
+            action, x=x, y=y, text=text, key=key, title=title, delta=delta, **extra
+        )
     if shutil.which("xdotool") is None:
         return {"available": False, "note": "UI automation on Linux requires xdotool (or Windows user32)."}
+    if action == "get_screen_size":
+        out = diagnostics._run(["xdotool", "getdisplaygeometry"])
+        parts = out.strip().split()
+        if len(parts) >= 2:
+            try:
+                return {"action": "get_screen_size", "width": int(parts[0]), "height": int(parts[1])}
+            except Exception:
+                pass
+        return {"action": "get_screen_size", "output": out}
     if action == "list_windows":
         out = diagnostics._run(["xdotool", "search", "--onlyvisible", "--name", "."])
         return {"action": "list_windows", "output": out}
-    if action in {"move_mouse", "click", "double_click", "right_click"}:
+    if action in {"move_mouse", "click", "double_click", "triple_click", "right_click", "middle_click"}:
         if x is None or y is None:
             raise ValueError(f"{action} requires integer x and y coordinates.")
         argv = ["xdotool", "mousemove", str(int(x)), str(int(y))]
@@ -465,15 +599,27 @@ def perform_approved_ui_action(
             argv += ["click", "1"]
         elif action == "double_click":
             argv += ["click", "--repeat", "2", "1"]
+        elif action == "triple_click":
+            argv += ["click", "--repeat", "3", "1"]
         elif action == "right_click":
             argv += ["click", "3"]
+        elif action == "middle_click":
+            argv += ["click", "2"]
         diagnostics._run(argv)
         return {"action": action, "x": int(x), "y": int(y)}
+    if action in {"drag", "mouse_drag"}:
+        sx = int(start_x if start_x is not None else (x or 0))
+        sy = int(start_y if start_y is not None else (y or 0))
+        ex = int(x if x is not None else sx)
+        ey = int(y if y is not None else sy)
+        diagnostics._run(["xdotool", "mousemove", str(sx), str(sy), "mousedown", "1",
+                         "mousemove", str(ex), str(ey), "mouseup", "1"])
+        return {"action": "drag", "start_x": sx, "start_y": sy, "end_x": ex, "end_y": ey}
     if action == "type_text":
         if not isinstance(text, str) or not text:
             raise ValueError("type_text requires a non-empty 'text' string.")
-        diagnostics._run(["xdotool", "type", "--delay", "10", "--", text[:2000]])
-        return {"action": "type_text", "length": len(text[:2000])}
+        diagnostics._run(["xdotool", "type", "--delay", "10", "--", text[:4000]])
+        return {"action": "type_text", "length": len(text[:4000])}
     if action in {"press_key", "hotkey"}:
         if not isinstance(key, str) or not key.strip():
             raise ValueError(f"{action} requires a 'key' string.")
@@ -491,6 +637,151 @@ def perform_approved_ui_action(
         diagnostics._run(["xdotool", "click", btn])
         return {"action": "scroll", "delta": int(delta or -120)}
     raise ValueError(f"Unsupported UI action: {action!r}")
+
+
+# --- Dedicated High-Level Desktop GUI Tools (Mouse & Keyboard) -----------
+
+def mouse_click(
+    x: int,
+    y: int,
+    button: str = "left",
+    clicks: int = 1,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Click the mouse at (x, y) coordinates with specified button and click count."""
+    eff_policy = policy or default_policy()
+    _check("mouse_click", approval_granted=approval_granted, policy=eff_policy)
+    btn = (button or "left").lower()
+    act = "click"
+    if clicks == 2 or btn == "double":
+        act = "double_click"
+    elif clicks >= 3 or btn == "triple":
+        act = "triple_click"
+    elif btn == "right":
+        act = "right_click"
+    elif btn == "middle":
+        act = "middle_click"
+    return perform_approved_ui_action(
+        act, x=x, y=y, approval_granted=approval_granted, policy=eff_policy
+    )
+
+
+def mouse_move(
+    x: int,
+    y: int,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Move the mouse cursor to (x, y) coordinates."""
+    eff_policy = policy or default_policy()
+    _check("mouse_move", approval_granted=approval_granted, policy=eff_policy)
+    return perform_approved_ui_action(
+        "move_mouse", x=x, y=y, approval_granted=approval_granted, policy=eff_policy
+    )
+
+
+def mouse_scroll(
+    delta: int = -120,
+    x: int | None = None,
+    y: int | None = None,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Scroll the mouse wheel. Positive delta scrolls up; negative delta scrolls down."""
+    eff_policy = policy or default_policy()
+    _check("mouse_scroll", approval_granted=approval_granted, policy=eff_policy)
+    return perform_approved_ui_action(
+        "scroll", x=x, y=y, delta=delta, approval_granted=approval_granted, policy=eff_policy
+    )
+
+
+def mouse_drag(
+    start_x: int,
+    start_y: int,
+    end_x: int,
+    end_y: int,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Click and drag the mouse from (start_x, start_y) to (end_x, end_y)."""
+    eff_policy = policy or default_policy()
+    _check("mouse_drag", approval_granted=approval_granted, policy=eff_policy)
+    return perform_approved_ui_action(
+        "drag", x=end_x, y=end_y, start_x=start_x, start_y=start_y,
+        approval_granted=approval_granted, policy=eff_policy
+    )
+
+
+def keyboard_type(
+    text: str,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Type unicode text into the currently active control or window."""
+    eff_policy = policy or default_policy()
+    _check("keyboard_type", approval_granted=approval_granted, policy=eff_policy)
+    return perform_approved_ui_action(
+        "type_text", text=text, approval_granted=approval_granted, policy=eff_policy
+    )
+
+
+def keyboard_press(
+    key: str,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Press a key or hotkey combination (e.g. 'enter', 'tab', 'esc', 'ctrl+c', 'win')."""
+    eff_policy = policy or default_policy()
+    _check("keyboard_press", approval_granted=approval_granted, policy=eff_policy)
+    return perform_approved_ui_action(
+        "press_key", key=key, approval_granted=approval_granted, policy=eff_policy
+    )
+
+
+def list_desktop_windows(
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """List visible top-level windows on the desktop with their titles and bounds."""
+    eff_policy = policy or default_policy()
+    _check("list_desktop_windows", approval_granted=approval_granted, policy=eff_policy)
+    return perform_approved_ui_action(
+        "list_windows", approval_granted=approval_granted, policy=eff_policy
+    )
+
+
+def focus_window(
+    title: str,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Bring the window matching 'title' to the foreground."""
+    eff_policy = policy or default_policy()
+    _check("focus_window", approval_granted=approval_granted, policy=eff_policy)
+    return perform_approved_ui_action(
+        "focus_window", title=title, approval_granted=approval_granted, policy=eff_policy
+    )
+
+
+def get_screen_size(
+    *,
+    policy: Policy | None = None,
+) -> dict:
+    """Get the primary desktop screen width and height in pixels."""
+    eff_policy = policy or default_policy()
+    _check("get_screen_size", approval_granted=True, policy=eff_policy)
+    return perform_approved_ui_action(
+        "get_screen_size", approval_granted=True, policy=eff_policy
+    )
 
 # --- Software installation & shell execution (approval-gated, Tier-3) -----
 _PACKAGE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+$")

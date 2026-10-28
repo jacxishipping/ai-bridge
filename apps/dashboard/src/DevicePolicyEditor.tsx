@@ -43,11 +43,28 @@ export const FLEET_TOOLS: ToolMetadata[] = [
   { name: "create_backup", category: "execution", label: "Create Backup Snapshot", description: "Generate point-in-time workspace snapshot archive", tier: 3 },
   { name: "deploy_application", category: "execution", label: "Deploy Application", description: "Trigger application build, reload, or deploy scripts", tier: 3 },
 
-  // Desktop Automation & UI
+  // Desktop Automation & UI (Full Mouse & Keyboard)
   { name: "get_desktop_status", category: "desktop", label: "Desktop Environment Status", description: "Query active displays, resolution, and window state", tier: 1 },
   { name: "capture_desktop_screenshot", category: "desktop", label: "Capture Screen Vision", description: "Capture high-resolution screenshots of the desktop", tier: 3 },
+  { name: "take_screenshot", category: "desktop", label: "Take Screenshot", description: "Quick screenshot capture with dimensions and active window metadata", tier: 3 },
+  { name: "mouse_click", category: "desktop", label: "Mouse Click", description: "Click mouse at (x, y) with left, right, or middle button; single/double click", tier: 3 },
+  { name: "mouse_move", category: "desktop", label: "Mouse Move", description: "Move mouse cursor to (x, y) coordinates", tier: 3 },
+  { name: "mouse_scroll", category: "desktop", label: "Mouse Scroll", description: "Scroll mouse wheel up or down at cursor position", tier: 3 },
+  { name: "mouse_drag", category: "desktop", label: "Mouse Drag", description: "Click and drag mouse from start coordinates to end coordinates", tier: 3 },
+  { name: "keyboard_type", category: "desktop", label: "Keyboard Type Text", description: "Type unicode text into focused window using native Win32 SendInput", tier: 3 },
+  { name: "keyboard_press", category: "desktop", label: "Keyboard Key / Hotkey", description: "Press key or combo (e.g. enter, tab, ctrl+c, alt+tab, win)", tier: 3 },
+  { name: "list_desktop_windows", category: "desktop", label: "List Desktop Windows", description: "List all visible top-level windows and their bounds", tier: 1 },
+  { name: "focus_window", category: "desktop", label: "Focus Window", description: "Bring window matching title to foreground and restore if minimized", tier: 3 },
+  { name: "get_screen_size", category: "desktop", label: "Get Screen Resolution", description: "Query primary desktop resolution and viewport size", tier: 1 },
   { name: "launch_approved_application", category: "desktop", label: "Launch Approved App", description: "Launch allowlisted GUI application from policy allowlist", tier: 3 },
   { name: "perform_approved_ui_action", category: "desktop", label: "Perform UI Actions", description: "Simulate click, keystrokes, or window focus actions", tier: 3 },
+];
+
+export const DESKTOP_TOOL_NAMES = [
+  "capture_desktop_screenshot", "take_screenshot", "launch_approved_application",
+  "perform_approved_ui_action", "mouse_click", "mouse_move", "mouse_scroll",
+  "mouse_drag", "keyboard_type", "keyboard_press", "list_desktop_windows",
+  "focus_window", "get_screen_size"
 ];
 
 export const CATEGORY_LABELS: Record<string, { label: string; icon: string }> = {
@@ -316,7 +333,7 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
       }
 
       if (!desktopEnabled) {
-        ["capture_desktop_screenshot", "launch_approved_application", "perform_approved_ui_action"].forEach(t => activeDenied.add(t));
+        DESKTOP_TOOL_NAMES.forEach(t => activeDenied.add(t));
       }
 
       const payload = {
@@ -481,8 +498,8 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
             <button type="button" className="f2-preset-pill" onClick={() => applyPreset("dev_agent")} title="Allows code editing, project tests, linters, package installs. Blocks deletion.">
               🛠️ Dev & Build Agent
             </button>
-            <button type="button" className="f2-preset-pill" onClick={() => applyPreset("workstation")} title="Permits desktop vision, UI clicks, app launches, workspace edits.">
-              💻 Interactive Workstation
+            <button type="button" className="f2-preset-pill" onClick={() => applyPreset("workstation")} title="Permits full desktop control: mouse clicks/drag/scroll, keyboard typing/shortcuts, vision screenshots, and app launches.">
+              🖥️ Windows Workstation (Full Mouse & Keyboard)
             </button>
             <button type="button" className="f2-preset-pill" onClick={() => applyPreset("unattended")} title="High-trust autonomous execution. Permits tier-3 without approval.">
               ⚡ Full Unattended
@@ -564,17 +581,13 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
                 if (!e.target.checked) {
                   setDeniedTools(prev => {
                     const n = new Set(prev);
-                    n.add("capture_desktop_screenshot");
-                    n.add("launch_approved_application");
-                    n.add("perform_approved_ui_action");
+                    DESKTOP_TOOL_NAMES.forEach(t => n.add(t));
                     return n;
                   });
                 } else {
                   setDeniedTools(prev => {
                     const n = new Set(prev);
-                    n.delete("capture_desktop_screenshot");
-                    n.delete("launch_approved_application");
-                    n.delete("perform_approved_ui_action");
+                    DESKTOP_TOOL_NAMES.forEach(t => n.delete(t));
                     return n;
                   });
                 }

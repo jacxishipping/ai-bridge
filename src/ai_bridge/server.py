@@ -24,6 +24,7 @@ import hmac
 import inspect
 import json
 import os
+import platform
 
 from mcp.server.fastmcp import FastMCP
 
@@ -160,6 +161,56 @@ def _resolve_device_record(target: str | None) -> dict | None:
     raise ValueError(f"Unknown device '{target_str}'. Enrolled devices: [{avail_str}], or use 'local'. Call list_devices() for full list.")
 
 
+DESKTOP_ROUTING_TOOLS = {
+    "get_desktop_status",
+    "capture_desktop_screenshot",
+    "take_screenshot",
+    "launch_approved_application",
+    "perform_approved_ui_action",
+    "mouse_click",
+    "mouse_move",
+    "mouse_scroll",
+    "mouse_drag",
+    "keyboard_type",
+    "keyboard_press",
+    "list_desktop_windows",
+    "focus_window",
+    "get_screen_size",
+}
+
+
+def _find_default_windows_device() -> str | None:
+    """Find the primary active Windows desktop machine in the enrolled fleet."""
+    try:
+        admin = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
+        if not admin:
+            return None
+        devices = list_all_devices(CONTROL_URL, admin)
+        # 1. Prefer online Windows workstation
+        for d in devices:
+            os_str = str(d.get("os") or "").lower()
+            if "win" in os_str and d.get("status") == "online":
+                return d.get("id")
+        # 2. Any online device with desktop automation enabled in policy
+        for d in devices:
+            if d.get("status") == "online":
+                raw_p = d.get("policy_json") or "{}"
+                try:
+                    p = json.loads(raw_p) if isinstance(raw_p, str) else raw_p
+                    if p.get("desktop_enabled"):
+                        return d.get("id")
+                except Exception:
+                    pass
+        # 3. Any enrolled Windows device
+        for d in devices:
+            os_str = str(d.get("os") or "").lower()
+            if "win" in os_str:
+                return d.get("id")
+    except Exception:
+        return None
+    return None
+
+
 def _resolve_target_device(target: str | None) -> str | None:
     rec = _resolve_device_record(target)
     return rec["id"] if rec else None
@@ -192,6 +243,12 @@ def device_aware(dispatch_name: str | None = None, *, bound: str = "route"):
                 device = _resolve_target_device(explicit_dev)
             else:
                 device = _session_device()
+
+            # Auto-route desktop GUI automation tools to active Windows device on headless hosts
+            if device is None and (fn.__name__ in DESKTOP_ROUTING_TOOLS) and (platform.system() != "Windows"):
+                win_dev = _find_default_windows_device()
+                if win_dev is not None:
+                    device = win_dev
 
             if device is None:
                 kwargs.pop("device", None)
@@ -479,6 +536,110 @@ def capture_desktop_screenshot(device: str | None = None) -> dict:
     return tools.capture_desktop_screenshot()
 
 @mcp.tool()
+@device_aware(dispatch_name="capture_desktop_screenshot")
+def take_screenshot(device: str | None = None) -> dict:
+    """Capture a high-resolution screenshot of the Windows desktop.
+    Returns JPEG base64 image data, width, height, and currently active foreground window title.
+    device (optional): Target Windows device name/ID, or automatically routes to active Windows machine."""
+    return tools.capture_desktop_screenshot()
+
+@mcp.tool()
+@device_aware()
+def mouse_click(
+    x: int,
+    y: int,
+    button: str = "left",
+    clicks: int = 1,
+    device: str | None = None,
+) -> dict:
+    """Click the mouse at (x, y) coordinates on the Windows GUI.
+    button: 'left' (default), 'right', or 'middle'.
+    clicks: 1 for single click, 2 for double click, 3 for triple click.
+    device (optional): Target Windows device name/ID, or automatically routes to active Windows machine."""
+    approved = _consume_local_approval("mouse_click")
+    return tools.mouse_click(x=x, y=y, button=button, clicks=clicks, approval_granted=approved)
+
+@mcp.tool()
+@device_aware()
+def mouse_move(x: int, y: int, device: str | None = None) -> dict:
+    """Move the mouse cursor to (x, y) coordinates on the Windows GUI.
+    device (optional): Target Windows device name/ID, or automatically routes to active Windows machine."""
+    approved = _consume_local_approval("mouse_move")
+    return tools.mouse_move(x=x, y=y, approval_granted=approved)
+
+@mcp.tool()
+@device_aware()
+def mouse_scroll(
+    delta: int = -120,
+    x: int | None = None,
+    y: int | None = None,
+    device: str | None = None,
+) -> dict:
+    """Scroll the mouse wheel on the Windows GUI.
+    delta: positive scrolls up (e.g. 120), negative scrolls down (e.g. -120).
+    x, y (optional): Cursor coordinates before scrolling.
+    device (optional): Target Windows device name/ID, or automatically routes to active Windows machine."""
+    approved = _consume_local_approval("mouse_scroll")
+    return tools.mouse_scroll(delta=delta, x=x, y=y, approval_granted=approved)
+
+@mcp.tool()
+@device_aware()
+def mouse_drag(
+    start_x: int,
+    start_y: int,
+    end_x: int,
+    end_y: int,
+    device: str | None = None,
+) -> dict:
+    """Click and drag the mouse from (start_x, start_y) to (end_x, end_y) on the Windows GUI.
+    Useful for selecting text, dragging windows, slider controls, or drag-and-drop operations.
+    device (optional): Target Windows device name/ID, or automatically routes to active Windows machine."""
+    approved = _consume_local_approval("mouse_drag")
+    return tools.mouse_drag(start_x=start_x, start_y=start_y, end_x=end_x, end_y=end_y, approval_granted=approved)
+
+@mcp.tool()
+@device_aware()
+def keyboard_type(text: str, device: str | None = None) -> dict:
+    """Type unicode text into the currently active window or input control on the Windows GUI.
+    Uses native Win32 Unicode injection for full compatibility across Chrome, Edge, VS Code, Terminal, etc.
+    device (optional): Target Windows device name/ID, or automatically routes to active Windows machine."""
+    approved = _consume_local_approval("keyboard_type")
+    return tools.keyboard_type(text=text, approval_granted=approved)
+
+@mcp.tool()
+@device_aware()
+def keyboard_press(key: str, device: str | None = None) -> dict:
+    """Press a key or key combination on the Windows GUI.
+    Supported keys: 'enter', 'tab', 'esc', 'space', 'backspace', 'delete', 'win', 'up', 'down', 'left', 'right',
+    'pageup', 'pagedown', 'home', 'end', 'f1'-'f12', or hotkeys like 'ctrl+c', 'ctrl+v', 'ctrl+a', 'alt+tab', 'alt+f4', 'win+r'.
+    device (optional): Target Windows device name/ID, or automatically routes to active Windows machine."""
+    approved = _consume_local_approval("keyboard_press")
+    return tools.keyboard_press(key=key, approval_granted=approved)
+
+@mcp.tool()
+@device_aware()
+def list_desktop_windows(device: str | None = None) -> dict:
+    """List all visible top-level windows on the desktop with titles, handles, and bounding rectangles [x, y, width, height].
+    device (optional): Target Windows device name/ID, or automatically routes to active Windows machine."""
+    approved = _consume_local_approval("list_desktop_windows")
+    return tools.list_desktop_windows(approval_granted=approved)
+
+@mcp.tool()
+@device_aware()
+def focus_window(title: str, device: str | None = None) -> dict:
+    """Bring the window matching 'title' substring to the foreground and unminimize it if minimized.
+    device (optional): Target Windows device name/ID, or automatically routes to active Windows machine."""
+    approved = _consume_local_approval("focus_window")
+    return tools.focus_window(title=title, approval_granted=approved)
+
+@mcp.tool()
+@device_aware()
+def get_screen_size(device: str | None = None) -> dict:
+    """Get the primary desktop screen width and height in pixels.
+    device (optional): Target Windows device name/ID, or automatically routes to active Windows machine."""
+    return tools.get_screen_size()
+
+@mcp.tool()
 @device_aware()
 def launch_approved_application(app_name: str, url: str | None = None, device: str | None = None) -> dict:
     """Launch an application from the admin-approved list only.
@@ -512,7 +673,10 @@ def perform_approved_ui_action(
 def list_devices() -> list[dict]:
     """List all enrolled devices in the fleet and the local MCP host.
     Returns device IDs, friendly names, OS, and online status.
-    To execute tools on any device, either:
+    GUI automation tools (mouse_click, mouse_move, mouse_scroll, mouse_drag, keyboard_type,
+    keyboard_press, capture_desktop_screenshot, take_screenshot, list_desktop_windows, focus_window)
+    automatically route to your active Windows machine if you are connected via cloud MCP.
+    To execute other tools on any device, either:
       1. Pass device='<device_name_or_id>' to any tool call.
       2. Call select_device('<device_name_or_id>') to set the default target device for your session.
       3. Use device='local' to target the MCP host/droplet."""

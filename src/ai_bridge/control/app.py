@@ -352,7 +352,12 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         if custom.get("allow_file_deletion") is False:
             denied.add("delete_workspace_file")
         if custom.get("desktop_enabled") is False:
-            denied.update(["capture_desktop_screenshot", "launch_approved_application", "perform_approved_ui_action"])
+            denied.update([
+                "capture_desktop_screenshot", "take_screenshot", "launch_approved_application",
+                "perform_approved_ui_action", "mouse_click", "mouse_move", "mouse_scroll",
+                "mouse_drag", "keyboard_type", "keyboard_press", "list_desktop_windows",
+                "focus_window", "get_screen_size",
+            ])
         if custom.get("allow_writes") is False:
             denied.update(["create_workspace_file", "edit_workspace_file", "move_workspace_file", "delete_workspace_file"])
 
