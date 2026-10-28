@@ -26,6 +26,33 @@ MAX_RESULT_CHARS = 512_000
 ROTATE_THRESHOLD_SECONDS = 2 * 86400  # Rotate when < 48h remaining
 
 
+def _collect_metrics() -> dict:
+    metrics = {}
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        cpu = psutil.cpu_percent(interval=None)
+        root = os.path.splitdrive(os.getcwd())[0] or "/"
+        if not root.endswith(os.sep):
+            root += os.sep
+        disk = psutil.disk_usage(root)
+        metrics["cpu_percent"] = round(float(cpu), 1)
+        metrics["memory_percent"] = round(float(vm.percent), 1)
+        metrics["disk_percent"] = round(float(disk.percent), 1)
+    except Exception:
+        try:
+            import shutil
+            root = os.path.splitdrive(os.getcwd())[0] or "/"
+            if not root.endswith(os.sep):
+                root += os.sep
+            tot, used, free = shutil.disk_usage(root)
+            if tot > 0:
+                metrics["disk_percent"] = round((used / tot) * 100.0, 1)
+        except Exception:
+            pass
+    return metrics
+
+
 class Poller:
     def __init__(
         self,
@@ -97,6 +124,7 @@ class Poller:
         hb_body = {
             "hostname": platform.node(),
             "os": f"{platform.system()} {platform.release()}".strip(),
+            "metrics": _collect_metrics(),
         }
         try:
             hb = self._req("POST", "/api/agent/heartbeat", hb_body)

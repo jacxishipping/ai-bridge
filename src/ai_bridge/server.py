@@ -924,6 +924,30 @@ def execute_workflow(steps: list[dict], stop_on_failure: bool = True, max_retrie
     return tools.execute_workflow(steps, stop_on_failure=stop_on_failure, max_retries=max_retries, approval_granted=approved)
 
 
+@mcp.tool()
+def broadcast_fleet_command(
+    tool: str,
+    args: dict = {},
+    target_os: str | None = None,
+    target_device_ids: list[str] | None = None,
+) -> dict:
+    """Broadcast an action or diagnostic tool across multiple fleet devices simultaneously.
+
+    tool: Name of the tool to run across machines (e.g. 'get_system_info', 'run_shell').
+    args: Arguments to supply to the tool (e.g. {'command': 'uptime'}).
+    target_os (optional): Filter nodes by OS ('linux', 'windows', or omit for all).
+    target_device_ids (optional): List of explicit device IDs to target.
+    """
+    approved = _consume_local_approval("broadcast_fleet_command")
+    return tools.broadcast_fleet_command(
+        tool,
+        args=args,
+        target_os=target_os,
+        target_device_ids=target_device_ids,
+        approval_granted=approved,
+    )
+
+
 class _BearerAuthMiddleware:
     """Enforce bearer token authentication and normalize Accept & path on Streamable HTTP."""
 

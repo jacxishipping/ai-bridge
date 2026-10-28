@@ -341,6 +341,38 @@ class WorkflowIn(BaseModel):
     tenant: str = "default"
 
 
+class TriggerIn(BaseModel):
+    name: str
+    device_id: str | None = None
+    metric: str = "memory_percent"
+    operator: str = ">"
+    threshold: float = 85.0
+    action_type: str = "tool"
+    action_target: str = "get_system_info"
+    action_args: dict = Field(default_factory=dict)
+    cooldown_seconds: int = 300
+    enabled: bool = True
+    tenant: str = "default"
+
+
+class ScheduleIn(BaseModel):
+    name: str
+    device_id: str | None = "local"
+    interval_seconds: int = 300
+    tool: str = "get_system_info"
+    args: dict = Field(default_factory=dict)
+    enabled: bool = True
+    tenant: str = "default"
+
+
+class FleetBroadcastIn(BaseModel):
+    tool: str
+    args: dict = Field(default_factory=dict)
+    target_os: str | None = None
+    target_device_ids: list[str] | None = None
+    tenant: str = "default"
+
+
 WORKFLOW_TEMPLATES = [
     {
         "id": "web_navigation_search",
@@ -1849,6 +1881,480 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
+    # --- Phase 3: Fleet Telemetry, Broadcast, Triggers & Schedules ---
+    app.state._running = True
+
+    def _evaluate_device_triggers(dev_row: dict, metrics: dict, now_ts: float):
+        try:
+            triggers = conn.execute(
+                "SELECT * FROM triggers WHERE enabled=1 AND tenant=? AND (device_id=? OR device_id IS NULL OR device_id='' OR device_id='*')",
+                (dev_row["tenant"], dev_row["id"]),
+            ).fetchall()
+            for trig in triggers:
+                metric_key = trig["metric"]
+                val = metrics.get(metric_key)
+                if val is None or not isinstance(val, (int, float)):
+                    continue
+                thresh = float(trig["threshold"])
+                op = trig["operator"]
+                triggered = False
+                if op == ">" and val > thresh:
+                    triggered = True
+                elif op == ">=" and val >= thresh:
+                    triggered = True
+                elif op == "<" and val < thresh:
+                    triggered = True
+                elif op == "<=" and val <= thresh:
+                    triggered = True
+                elif op == "==" and abs(val - thresh) < 0.01:
+                    triggered = True
+
+                if triggered:
+                    cooldown = max(10, int(trig["cooldown_seconds"]))
+                    last_trig = trig["last_triggered_at"] or 0
+                    if (now_ts - last_trig) >= cooldown:
+                        conn.execute("UPDATE triggers SET last_triggered_at=? WHERE id=?", (now_ts, trig["id"]))
+                        conn.commit()
+                        act_type = trig["action_type"]
+                        act_target = trig["action_target"]
+                        act_args = {}
+                        try:
+                            act_args = json.loads(trig["action_args_json"] or "{}")
+                        except Exception:
+                            pass
+                        if act_type == "tool":
+                            task_id = uuid.uuid4().hex[:12]
+                            tier = TOOL_TIERS.get(act_target)
+                            t_val = tier.value if tier else 2
+                            conn.execute(
+                                "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, created_at, updated_at) VALUES (?,?,?,?,?,?,'queued',?,?)",
+                                (task_id, dev_row["id"], dev_row["tenant"], act_target, json.dumps(act_args), t_val, now_ts, now_ts),
+                            )
+                            conn.commit()
+                            notify_tasks()
+                            audit("trigger", dev_row["id"], f"trigger:{trig['name']}", {"metric": metric_key, "value": val, "task_id": task_id, "tool": act_target}, "executed", tenant=dev_row["tenant"])
+                        elif act_type == "webhook":
+                            wh_url = act_target if act_target.startswith("http") else get_webhook_url()
+                            if wh_url:
+                                evt = {
+                                    "event": "trigger_fired",
+                                    "trigger_name": trig["name"],
+                                    "device_id": dev_row["id"],
+                                    "device_name": dev_row["name"],
+                                    "metric": metric_key,
+                                    "value": val,
+                                    "threshold": thresh,
+                                    "timestamp": now_ts,
+                                    "content": f"🚨 Alert: Trigger '{trig['name']}' fired on {dev_row['name']}: {metric_key}={val} (threshold {op} {thresh})"
+                                }
+                                threading.Thread(target=send_webhook_notification, args=(wh_url, evt, admin_token, get_public_base_url()), daemon=True).start()
+                                audit("trigger", dev_row["id"], f"trigger:{trig['name']}", {"metric": metric_key, "value": val, "webhook": bool(wh_url)}, "executed", tenant=dev_row["tenant"])
+        except Exception:
+            pass
+
+    def _scheduler_loop():
+        while getattr(app.state, "_running", True):
+            try:
+                time.sleep(10)
+                if not getattr(app.state, "_running", True):
+                    break
+                now_ts = dbmod.now()
+                due_jobs = conn.execute(
+                    "SELECT * FROM schedules WHERE enabled=1 AND next_run_at <= ?", (now_ts,)
+                ).fetchall()
+                for job in due_jobs:
+                    interval = max(10, int(job["interval_seconds"]))
+                    next_run = now_ts + interval
+                    conn.execute("UPDATE schedules SET last_run_at=?, next_run_at=? WHERE id=?", (now_ts, next_run, job["id"]))
+                    conn.commit()
+                    tool_name = job["tool"]
+                    try:
+                        args = json.loads(job["args_json"] or "{}")
+                    except Exception:
+                        args = {}
+                    target = job["device_id"]
+                    try:
+                        _execute_workflow_step_sync(tool_name, args, target, job["tenant"], f"scheduler:{job['name']}")
+                    except Exception:
+                        pass
+            except Exception:
+                time.sleep(5)
+
+    threading.Thread(target=_scheduler_loop, daemon=True).start()
+
+    @app.get("/api/devices/{device_id}/telemetry")
+    def get_device_telemetry(
+        device_id: str,
+        limit: int = 50,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        limit = min(200, max(1, limit))
+        rows = conn.execute(
+            "SELECT cpu_percent, memory_percent, disk_percent, recorded_at FROM telemetry WHERE device_id=? ORDER BY recorded_at DESC LIMIT ?",
+            (device_id, limit),
+        ).fetchall()
+        items = [dict(r) for r in reversed(rows)]
+        return {"device_id": device_id, "telemetry": items}
+
+    @app.get("/api/fleet/telemetry")
+    def get_fleet_telemetry(
+        tenant: str = "default",
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        now_ts = dbmod.now()
+        dev_rows = conn.execute("SELECT id, name, os, status, last_seen FROM devices WHERE tenant=? AND revoked=0", (tenant,)).fetchall()
+        online_count = 0
+        total_devices = len(dev_rows)
+        device_summaries = []
+        cpu_vals, mem_vals, disk_vals = [], [], []
+
+        for d in dev_rows:
+            latency = (now_ts - (d["last_seen"] or 0)) if d["last_seen"] else 9999
+            is_online = (d["status"] == "online") and (latency < 90)
+            if is_online:
+                online_count += 1
+            latest_tel = conn.execute(
+                "SELECT cpu_percent, memory_percent, disk_percent, recorded_at FROM telemetry WHERE device_id=? ORDER BY recorded_at DESC LIMIT 1",
+                (d["id"],),
+            ).fetchone()
+            tel_data = dict(latest_tel) if latest_tel else None
+            if tel_data:
+                if tel_data.get("cpu_percent") is not None:
+                    cpu_vals.append(tel_data["cpu_percent"])
+                if tel_data.get("memory_percent") is not None:
+                    mem_vals.append(tel_data["memory_percent"])
+                if tel_data.get("disk_percent") is not None:
+                    disk_vals.append(tel_data["disk_percent"])
+
+            device_summaries.append({
+                "id": d["id"],
+                "name": d["name"],
+                "os": d["os"],
+                "is_online": is_online,
+                "last_seen": d["last_seen"],
+                "telemetry": tel_data,
+            })
+
+        avg_cpu = round(sum(cpu_vals) / len(cpu_vals), 1) if cpu_vals else None
+        avg_mem = round(sum(mem_vals) / len(mem_vals), 1) if mem_vals else None
+        avg_disk = round(sum(disk_vals) / len(disk_vals), 1) if disk_vals else None
+        trig_row = conn.execute("SELECT COUNT(*) AS c FROM triggers WHERE enabled=1 AND tenant=?", (tenant,)).fetchone()
+        sched_row = conn.execute("SELECT COUNT(*) AS c FROM schedules WHERE enabled=1 AND tenant=?", (tenant,)).fetchone()
+
+        return {
+            "total_devices": total_devices,
+            "online_devices": online_count,
+            "avg_cpu_percent": avg_cpu,
+            "avg_memory_percent": avg_mem,
+            "avg_disk_percent": avg_disk,
+            "active_triggers": trig_row["c"] if trig_row else 0,
+            "active_schedules": sched_row["c"] if sched_row else 0,
+            "devices": device_summaries,
+        }
+
+    @app.post("/api/fleet/broadcast")
+    def broadcast_fleet_command(
+        body: FleetBroadcastIn,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        query = "SELECT * FROM devices WHERE revoked=0 AND tenant=?"
+        params = [body.tenant]
+        if body.target_os:
+            query += " AND LOWER(os) LIKE ?"
+            params.append(f"%{body.target_os.lower()}%")
+        devs = conn.execute(query, tuple(params)).fetchall()
+
+        target_devs = []
+        if body.target_device_ids:
+            target_set = set(body.target_device_ids)
+            target_devs = [d for d in devs if d["id"] in target_set]
+        else:
+            target_devs = list(devs)
+
+        if not target_devs:
+            raise HTTPException(status_code=400, detail="No matching online devices found for broadcast.")
+
+        batch_id = uuid.uuid4().hex[:12]
+        now_ts = dbmod.now()
+        tier = TOOL_TIERS.get(body.tool)
+        t_val = tier.value if tier else 2
+
+        tasks_out = []
+        for dev in target_devs:
+            task_id = f"bcast-{batch_id}-{dev['id'][:6]}"
+            conn.execute(
+                "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, created_at, updated_at) VALUES (?,?,?,?,?,?,'queued',?,?)",
+                (task_id, dev["id"], dev["tenant"], body.tool, json.dumps(body.args), t_val, now_ts, now_ts),
+            )
+            tasks_out.append({
+                "device_id": dev["id"],
+                "device_name": dev["name"],
+                "os": dev["os"],
+                "task_id": task_id,
+                "status": "queued",
+            })
+
+        conn.commit()
+        notify_tasks()
+        audit(actor, "fleet", "broadcast_command", {"batch_id": batch_id, "tool": body.tool, "device_count": len(tasks_out)}, "allowed", tenant=body.tenant)
+        return {
+            "batch_id": batch_id,
+            "tool": body.tool,
+            "device_count": len(tasks_out),
+            "tasks": tasks_out,
+        }
+
+    @app.get("/api/fleet/broadcast/{batch_id}")
+    def get_broadcast_status(
+        batch_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        task_rows = conn.execute("SELECT * FROM tasks WHERE id LIKE ?", (f"bcast-{batch_id}-%",)).fetchall()
+        if not task_rows:
+            raise HTTPException(status_code=404, detail="Broadcast batch not found.")
+
+        results = []
+        completed_count = 0
+        failed_count = 0
+        for r in task_rows:
+            dev = conn.execute("SELECT name, os FROM devices WHERE id=?", (r["device_id"],)).fetchone()
+            d_name = dev["name"] if dev else r["device_id"]
+            d_os = dev["os"] if dev else ""
+            status = r["status"]
+            if status == "completed":
+                completed_count += 1
+            elif status == "failed":
+                failed_count += 1
+            res_val = None
+            if r["result"]:
+                try:
+                    res_val = json.loads(r["result"])
+                except Exception:
+                    res_val = {"raw": r["result"]}
+            results.append({
+                "task_id": r["id"],
+                "device_id": r["device_id"],
+                "device_name": d_name,
+                "os": d_os,
+                "status": status,
+                "result": res_val,
+                "created_at": r["created_at"],
+                "updated_at": r["updated_at"],
+            })
+
+        overall = "completed" if (completed_count + failed_count == len(task_rows)) else "running"
+        return {
+            "batch_id": batch_id,
+            "status": overall,
+            "total_tasks": len(task_rows),
+            "completed": completed_count,
+            "failed": failed_count,
+            "tasks": results,
+        }
+
+    @app.get("/api/triggers")
+    def list_triggers(
+        tenant: str = "default",
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        rows = conn.execute("SELECT * FROM triggers WHERE tenant=? ORDER BY created_at DESC", (tenant,)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["action_args"] = json.loads(d.get("action_args_json") or "{}")
+            except Exception:
+                d["action_args"] = {}
+            out.append(d)
+        return out
+
+    @app.post("/api/triggers")
+    def create_trigger(
+        body: TriggerIn,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        tid = uuid.uuid4().hex[:12]
+        now_ts = dbmod.now()
+        conn.execute(
+            "INSERT INTO triggers (id, name, tenant, device_id, metric, operator, threshold, action_type, action_target, action_args_json, cooldown_seconds, enabled, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                tid,
+                body.name,
+                body.tenant,
+                body.device_id,
+                body.metric,
+                body.operator,
+                body.threshold,
+                body.action_type,
+                body.action_target,
+                json.dumps(body.action_args),
+                body.cooldown_seconds,
+                1 if body.enabled else 0,
+                now_ts,
+            ),
+        )
+        conn.commit()
+        audit(actor, body.device_id or "", "create_trigger", {"trigger_id": tid, "name": body.name, "metric": body.metric}, "allowed", tenant=body.tenant)
+        return {"trigger_id": tid, "status": "created"}
+
+    @app.delete("/api/triggers/{trigger_id}")
+    def delete_trigger(
+        trigger_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM triggers WHERE id=?", (trigger_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Trigger not found.")
+        conn.execute("DELETE FROM triggers WHERE id=?", (trigger_id,))
+        conn.commit()
+        audit(actor, row["device_id"] or "", "delete_trigger", {"trigger_id": trigger_id}, "allowed", tenant=row["tenant"])
+        return {"trigger_id": trigger_id, "status": "deleted"}
+
+    @app.post("/api/triggers/{trigger_id}/toggle")
+    def toggle_trigger(
+        trigger_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM triggers WHERE id=?", (trigger_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Trigger not found.")
+        new_state = 0 if row["enabled"] else 1
+        conn.execute("UPDATE triggers SET enabled=? WHERE id=?", (new_state, trigger_id))
+        conn.commit()
+        audit(actor, row["device_id"] or "", "toggle_trigger", {"trigger_id": trigger_id, "enabled": bool(new_state)}, "allowed", tenant=row["tenant"])
+        return {"trigger_id": trigger_id, "enabled": bool(new_state)}
+
+    @app.post("/api/triggers/{trigger_id}/test")
+    def test_trigger(
+        trigger_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM triggers WHERE id=?", (trigger_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Trigger not found.")
+        now_ts = dbmod.now()
+        conn.execute("UPDATE triggers SET last_triggered_at=? WHERE id=?", (now_ts, trigger_id))
+        conn.commit()
+        act_type = row["action_type"]
+        target = row["action_target"]
+        args = json.loads(row["action_args_json"] or "{}")
+        if act_type == "tool":
+            res = _execute_workflow_step_sync(target, args, row["device_id"], row["tenant"], f"test_trigger:{row['name']}")
+            return {"trigger_id": trigger_id, "status": "executed", "result": res}
+        elif act_type == "webhook":
+            wh_url = target if str(target).startswith("http") else get_webhook_url()
+            evt = {
+                "event": "trigger_test",
+                "trigger_name": row["name"],
+                "device_id": row["device_id"] or "fleet",
+                "metric": row["metric"],
+                "content": f"🧪 Test Trigger '{row['name']}' simulated by {actor}."
+            }
+            send_webhook_notification(wh_url, evt, admin_token, get_public_base_url())
+            return {"trigger_id": trigger_id, "status": "webhook_sent"}
+        return {"trigger_id": trigger_id, "status": "ok"}
+
+    @app.get("/api/schedules")
+    def list_schedules(
+        tenant: str = "default",
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        rows = conn.execute("SELECT * FROM schedules WHERE tenant=? ORDER BY created_at DESC", (tenant,)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["args"] = json.loads(d.get("args_json") or "{}")
+            except Exception:
+                d["args"] = {}
+            out.append(d)
+        return out
+
+    @app.post("/api/schedules")
+    def create_schedule(
+        body: ScheduleIn,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        sid = uuid.uuid4().hex[:12]
+        now_ts = dbmod.now()
+        interval = max(10, int(body.interval_seconds))
+        next_run = now_ts + interval
+        conn.execute(
+            "INSERT INTO schedules (id, name, tenant, device_id, interval_seconds, tool, args_json, last_run_at, next_run_at, enabled, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                sid,
+                body.name,
+                body.tenant,
+                body.device_id,
+                interval,
+                body.tool,
+                json.dumps(body.args),
+                None,
+                next_run,
+                1 if body.enabled else 0,
+                now_ts,
+            ),
+        )
+        conn.commit()
+        audit(actor, body.device_id or "", "create_schedule", {"schedule_id": sid, "name": body.name, "interval_seconds": interval}, "allowed", tenant=body.tenant)
+        return {"schedule_id": sid, "status": "created", "next_run_at": next_run}
+
+    @app.delete("/api/schedules/{schedule_id}")
+    def delete_schedule(
+        schedule_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM schedules WHERE id=?", (schedule_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Schedule not found.")
+        conn.execute("DELETE FROM schedules WHERE id=?", (schedule_id,))
+        conn.commit()
+        audit(actor, row["device_id"] or "", "delete_schedule", {"schedule_id": schedule_id}, "allowed", tenant=row["tenant"])
+        return {"schedule_id": schedule_id, "status": "deleted"}
+
+    @app.post("/api/schedules/{schedule_id}/run-now")
+    def run_schedule_now(
+        schedule_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM schedules WHERE id=?", (schedule_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Schedule not found.")
+        now_ts = dbmod.now()
+        next_run = now_ts + max(10, int(row["interval_seconds"]))
+        conn.execute("UPDATE schedules SET last_run_at=?, next_run_at=? WHERE id=?", (now_ts, next_run, schedule_id))
+        conn.commit()
+        args = json.loads(row["args_json"] or "{}")
+        res = _execute_workflow_step_sync(row["tool"], args, row["device_id"], row["tenant"], f"schedule_manual:{row['name']}")
+        audit(actor, row["device_id"] or "", "run_schedule_now", {"schedule_id": schedule_id}, "executed", tenant=row["tenant"])
+        return {"schedule_id": schedule_id, "status": "executed", "result": res}
+
     # --- Settings: Webhook notifications ----------------------------------
     @app.get("/api/settings/webhook")
     def get_webhook_setting(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -2254,6 +2760,23 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         else:
             conn.execute("UPDATE devices SET status='online', last_seen=? WHERE id=?", (now_ts, row["id"]))
         conn.commit()
+
+        metrics = body.get("metrics") if isinstance(body, dict) else None
+        if metrics and isinstance(metrics, dict):
+            cpu_p = metrics.get("cpu_percent")
+            mem_p = metrics.get("memory_percent")
+            disk_p = metrics.get("disk_percent")
+            conn.execute(
+                "INSERT INTO telemetry (device_id, tenant, cpu_percent, memory_percent, disk_percent, recorded_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (row["id"], row["tenant"], cpu_p, mem_p, disk_p, now_ts),
+            )
+            conn.execute(
+                "DELETE FROM telemetry WHERE device_id=? AND id NOT IN (SELECT id FROM telemetry WHERE device_id=? ORDER BY recorded_at DESC LIMIT 500)",
+                (row["id"], row["id"]),
+            )
+            conn.commit()
+            _evaluate_device_triggers(row, metrics, now_ts)
+
         return {
             "device_id": row["id"],
             "emergency_stop": app.state.emergency_stop,

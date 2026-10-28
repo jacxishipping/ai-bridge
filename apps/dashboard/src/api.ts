@@ -105,4 +105,18 @@ export const api = {
     call("/api/workflows", "POST", body),
   cancelWorkflow: (id: string) => call(`/api/workflows/${encodeURIComponent(id)}/cancel`, "POST", {}),
   streamWorkflowUrl: (id: string) => `${BASE}/api/workflows/${encodeURIComponent(id)}/stream`,
+  fleetTelemetry: () => call("/api/fleet/telemetry"),
+  deviceTelemetry: (id: string, limit = 50) => call(`/api/devices/${encodeURIComponent(id)}/telemetry?limit=${limit}`),
+  fleetBroadcast: (body: { tool: string; args?: any; target_os?: string; target_device_ids?: string[] }) =>
+    call("/api/fleet/broadcast", "POST", body),
+  broadcastStatus: (batch_id: string) => call(`/api/fleet/broadcast/${encodeURIComponent(batch_id)}`),
+  triggers: () => call("/api/triggers"),
+  createTrigger: (body: any) => call("/api/triggers", "POST", body),
+  deleteTrigger: (id: string) => call(`/api/triggers/${encodeURIComponent(id)}`, "DELETE"),
+  toggleTrigger: (id: string) => call(`/api/triggers/${encodeURIComponent(id)}/toggle`, "POST", {}),
+  testTrigger: (id: string) => call(`/api/triggers/${encodeURIComponent(id)}/test`, "POST", {}),
+  schedules: () => call("/api/schedules"),
+  createSchedule: (body: any) => call("/api/schedules", "POST", body),
+  deleteSchedule: (id: string) => call(`/api/schedules/${encodeURIComponent(id)}`, "DELETE"),
+  runScheduleNow: (id: string) => call(`/api/schedules/${encodeURIComponent(id)}/run-now`, "POST", {}),
 };

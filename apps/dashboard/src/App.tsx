@@ -4,8 +4,9 @@ import { DevicePolicyEditor } from "./DevicePolicyEditor";
 import { DeviceDetailDashboard } from "./DeviceDetailDashboard";
 import { AiApiHub } from "./AiApiHub";
 import { WorkflowPlanner } from "./WorkflowPlanner";
+import { FleetOperations } from "./FleetOperations";
 
-type View = "overview" | "devices" | "device_detail" | "tasks" | "approvals" | "audit" | "policies" | "connections" | "ai_api" | "workflows" | "logs";
+type View = "overview" | "devices" | "device_detail" | "tasks" | "approvals" | "audit" | "policies" | "connections" | "ai_api" | "workflows" | "fleet_ops" | "logs";
 type Theme = "light" | "dark";
 
 const TOOLS = [
@@ -81,6 +82,11 @@ const VIEW_META: Record<View, { title: string; subtitle: string; group: "ops" | 
     subtitle: "Compose and execute multi-step agentic plans with visual OCR verification, retry, and execution streaming.",
     group: "ops",
   },
+  fleet_ops: {
+    title: "Fleet Operations & Self-Healing Hub",
+    subtitle: "Cross-device telemetry graphs, multi-node command bus, self-healing reactive triggers, and cron scheduler.",
+    group: "ops",
+  },
   logs: {
     title: "Service Diagnostics & Logs",
     subtitle: "Live systemd journal and reverse-proxy telemetry from the control plane.",
@@ -131,6 +137,8 @@ function FluentIcon({ name }: { name: string }) {
       return <svg {...props}><path d="M10 2a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 10 2ZM4.5 4.5a.75.75 0 0 1 1.06 0l1.06 1.06a.75.75 0 0 1-1.06 1.06L4.5 5.56a.75.75 0 0 1 0-1.06Zm11 0a.75.75 0 0 1 0 1.06l-1.06 1.06a.75.75 0 0 1-1.06-1.06l1.06-1.06a.75.75 0 0 1 1.06 0ZM5 10a5 5 0 1 1 10 0 5 5 0 0 1-10 0Zm3.5-1.5a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Zm4.25 0a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5ZM7.5 13a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5h-5Z"/></svg>;
     case "workflows":
       return <svg {...props}><path d="M4.5 3A1.5 1.5 0 0 0 3 4.5v3A1.5 1.5 0 0 0 4.5 9h2A1.5 1.5 0 0 0 8 7.5v-3A1.5 1.5 0 0 0 6.5 3h-2ZM12 6.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1-.5-.5ZM8 6h3v1H8V6Zm5.5 4.5a1.5 1.5 0 0 0-1.5 1.5v3a1.5 1.5 0 0 0 1.5 1.5h2a1.5 1.5 0 0 0 1.5-1.5v-3a1.5 1.5 0 0 0-1.5-1.5h-2ZM5.5 10a.5.5 0 0 1 .5.5V13h1a.5.5 0 0 1 0 1H5.5A.5.5 0 0 1 5 13.5v-3a.5.5 0 0 1 .5-.5Z"/></svg>;
+    case "fleet_ops":
+      return <svg {...props}><path d="M10 2a8 8 0 1 0 8 8 8 8 0 0 0-8-8Zm0 1.5a6.5 6.5 0 0 1 6.45 5.75H13.5a1.5 1.5 0 0 0-1.5-1.5V4.79A6.5 6.5 0 0 1 10 3.5Zm-1 1.29V7.75a1.5 1.5 0 0 0-1.5 1.5H3.55A6.5 6.5 0 0 1 9 4.79Zm-5.45 6.46H6.5a1.5 1.5 0 0 0 1.5 1.5v2.96A6.5 6.5 0 0 1 3.55 11.25Zm8.45 4.46V12.75a1.5 1.5 0 0 0 1.5-1.5h2.95a6.5 6.5 0 0 1-4.45 4.46Z"/></svg>;
     case "logs":
       return <svg {...props}><path d="M3.5 4A1.5 1.5 0 0 0 2 5.5v9A1.5 1.5 0 0 0 3.5 16h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 16.5 4h-13Zm1.85 3.15 2.5 2.5a.5.5 0 0 1 0 .7l-2.5 2.5a.5.5 0 0 1-.7-.7L6.79 10 4.65 7.85a.5.5 0 0 1 .7-.7ZM9.5 12h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1 0-1Z"/></svg>;
     case "theme":
@@ -896,6 +904,20 @@ export default function App() {
             </span>
             <span>Workflows & Plans</span>
             <span className="f2-nav-counter" style={{ background: "var(--colorPaletteGreenBackground3)", color: "#fff", fontSize: 9 }}>AGENT</span>
+          </button>
+
+          <button
+            type="button"
+            className="f2-nav-item"
+            data-active={String(view === "fleet_ops")}
+            onClick={() => setView("fleet_ops")}
+            title="Cross-device telemetry graphs, multi-node command bus, and self-healing triggers"
+          >
+            <span className="f2-nav-item-icon">
+              <FluentIcon name="fleet_ops" />
+            </span>
+            <span>Fleet Operations</span>
+            <span className="f2-nav-counter" style={{ background: "var(--colorPaletteBlueBackground2, #0078d4)", color: "#fff", fontSize: 9 }}>FLEET</span>
           </button>
 
           <div className="f2-nav-section-label" style={{ marginTop: 8 }}>Governance & Telemetry</div>
@@ -2476,6 +2498,11 @@ export default function App() {
           {/* ==================== AUTONOMOUS WORKFLOWS & PLANS ==================== */}
           {view === "workflows" && (
             <WorkflowPlanner devices={devices} onNotice={setNotice} />
+          )}
+
+          {/* ==================== FLEET OPERATIONS & SELF-HEALING ==================== */}
+          {view === "fleet_ops" && (
+            <FleetOperations />
           )}
         </main>
       </div>

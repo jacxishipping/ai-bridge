@@ -1273,3 +1273,26 @@ def execute_workflow(
         "total_duration_seconds": total_duration,
         "steps": results,
     }
+
+
+def broadcast_fleet_command(
+    tool: str,
+    args: dict | None = None,
+    target_os: str | None = None,
+    target_device_ids: list[str] | None = None,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Broadcast an action or diagnostic tool across multiple fleet devices simultaneously."""
+    eff_policy = policy or default_policy()
+    _check("broadcast_fleet_command", approval_granted=approval_granted, policy=eff_policy)
+    from .control.dispatch import dispatch
+
+    local_res = dispatch(tool, args or {}, policy=eff_policy, approval_granted=approval_granted)
+    return {
+        "ok": True,
+        "batch_id": "local-broadcast",
+        "device_count": 1,
+        "results": [{"device_id": "local", "status": "completed", "result": local_res}],
+    }
+

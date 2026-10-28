@@ -52,6 +52,7 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "verify_screen_contains": RiskTier.SENSITIVE,
     "press_hotkey": RiskTier.SENSITIVE,
     "execute_workflow": RiskTier.SENSITIVE,
+    "broadcast_fleet_command": RiskTier.SENSITIVE,
     "launch_approved_application": RiskTier.SENSITIVE,
     "perform_approved_ui_action": RiskTier.SENSITIVE,
     "mouse_click": RiskTier.SENSITIVE,

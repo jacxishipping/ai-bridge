@@ -275,6 +275,20 @@ TOOL_CATALOG: dict[str, dict[str, Any]] = {
             "required": ["steps"],
         },
     },
+    "broadcast_fleet_command": {
+        "description": "Broadcast an action or diagnostic tool across multiple fleet devices simultaneously.",
+        "category": "fleet",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tool": {"type": "string", "description": "The tool to broadcast across nodes (e.g. 'run_shell', 'get_system_info')."},
+                "args": {"type": "object", "description": "Arguments for the tool (e.g. {'command': 'uptime'}).", "default": {}},
+                "target_os": {"type": "string", "description": "Optional OS filter ('linux', 'windows', or omit for all)."},
+                "target_device_ids": {"type": "array", "items": {"type": "string"}, "description": "Explicit list of device IDs."},
+            },
+            "required": ["tool"],
+        },
+    },
     "list_desktop_windows": {
         "description": "List all currently open desktop application windows, titles, and handle IDs on the target machine.",
         "category": "desktop",
