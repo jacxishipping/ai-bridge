@@ -48,6 +48,19 @@ TOKEN_FILE = CONFIG_DIR / "device.token"
 REG_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 REG_APP_NAME = "AIBridgeWindowsClient"
 
+COMMON_WINDOWS_APPS = [
+    ("Google Chrome", "chrome"),
+    ("Microsoft Edge", "msedge"),
+    ("Notepad", "notepad"),
+    ("Calculator", "calc"),
+    ("VS Code", "code"),
+    ("PowerShell", "powershell"),
+    ("Command Prompt", "cmd"),
+    ("File Explorer", "explorer"),
+    ("MS Paint", "mspaint"),
+    ("Windows Terminal", "wt"),
+]
+
 # Fluent 2 Color Palette
 THEMES = {
     "dark": {
@@ -301,6 +314,23 @@ def load_agent_config() -> dict:
         "minimize_to_tray": True,
         "desktop_notifications": True,
         "autostart_windows": get_windows_autostart(),
+        "desktop_enabled": True,
+        "allow_tier3": True,
+        "max_tier_unattended": 3,
+        "allow_writes": True,
+        "allow_shell": True,
+        "allow_package_install": True,
+        "allowed_apps": [
+            "chrome",
+            "msedge",
+            "notepad",
+            "calc",
+            "code",
+            "powershell",
+            "cmd",
+            "explorer",
+            "mspaint",
+        ],
     }
     if CONFIG_FILE.exists():
         try:
@@ -322,6 +352,18 @@ def load_agent_config() -> dict:
             cfg["control_url"] = st_url
         if st_tok:
             cfg["device_token"] = st_tok
+    if "allowed_apps" not in cfg or not isinstance(cfg.get("allowed_apps"), list) or not cfg.get("allowed_apps"):
+        cfg["allowed_apps"] = [
+            "chrome",
+            "msedge",
+            "notepad",
+            "calc",
+            "code",
+            "powershell",
+            "cmd",
+            "explorer",
+            "mspaint",
+        ]
     return cfg
 
 
@@ -527,6 +569,20 @@ class AgentGuiApp:
         self.notifications_var = tk.BooleanVar(value=bool(self.cfg.get("desktop_notifications", True)))
         self.windows_autostart_var = tk.BooleanVar(value=bool(self.cfg.get("autostart_windows", False)))
         self.show_token = False
+
+        # Device Policy & Guardrails state
+        self.policy_desktop_enabled = tk.BooleanVar(value=bool(self.cfg.get("desktop_enabled", True)))
+        self.policy_allow_tier3 = tk.BooleanVar(value=bool(self.cfg.get("allow_tier3", True)))
+        self.policy_max_tier = tk.IntVar(value=int(self.cfg.get("max_tier_unattended", 3)))
+        self.policy_allow_writes = tk.BooleanVar(value=bool(self.cfg.get("allow_writes", True)))
+        self.policy_allow_shell = tk.BooleanVar(value=bool(self.cfg.get("allow_shell", True)))
+        self.policy_allow_package_install = tk.BooleanVar(value=bool(self.cfg.get("allow_package_install", True)))
+        self.policy_allowed_apps: list[str] = list(self.cfg.get("allowed_apps") or [
+            "chrome", "msedge", "notepad", "calc", "code", "powershell", "cmd", "explorer", "mspaint"
+        ])
+        self.policy_status_var = tk.StringVar(value="Policy active locally")
+        self._quick_app_buttons: dict[str, tk.Button] = {}
+        self._app_chips_frame: tk.Frame | None = None
 
         # Live system telemetry
         self.cpu_var = tk.StringVar(value="0.0%")
@@ -1471,13 +1527,34 @@ class AgentGuiApp:
             cursor="hand2",
         ).pack(fill="x")
 
+    def get_current_policy(self):
+        """Construct the active Policy instance from current UI and configuration settings."""
+        from ai_bridge.policy import Policy
+
+        return Policy(
+            allow_writes=bool(self.policy_allow_writes.get()),
+            allow_tier3=bool(self.policy_allow_tier3.get()),
+            desktop_enabled=bool(self.policy_desktop_enabled.get()),
+            max_tier_unattended=int(self.policy_max_tier.get()),
+            allowed_apps=frozenset(self.policy_allowed_apps),
+        )
+
     def capture_preview_screenshot(self) -> None:
         """Capture a live screenshot and render in the Desktop Vision tab."""
         t0 = time.time()
         try:
             from ai_bridge import tools
+            from ai_bridge.policy import Policy
 
-            res = tools.capture_desktop_screenshot()
+            cur_pol = self.get_current_policy()
+            test_policy = Policy(
+                allow_writes=cur_pol.allow_writes,
+                allow_tier3=True,
+                desktop_enabled=True,
+                max_tier_unattended=max(cur_pol.max_tier_unattended, 3),
+                allowed_apps=cur_pol.allowed_apps,
+            )
+            res = tools.capture_desktop_screenshot(approval_granted=True, policy=test_policy)
             elapsed = (time.time() - t0) * 1000
 
             if not res.get("available") and "path" not in res:
@@ -1542,42 +1619,639 @@ class AgentGuiApp:
         self.root.clipboard_append(self._last_screenshot_path)
         self.log(f"Copied screenshot path ({self._last_screenshot_path})", "info")
 
+    def save_and_apply_policy(self) -> None:
+        """Save policy locally and sync to the cloud control plane."""
+        self.save_current_config()
+        self.sync_policy_to_server(notify_ui=True)
+
+    def sync_policy_to_server(self, notify_ui: bool = True) -> None:
+        """Push current device execution policy and allowed apps to the control plane."""
+        url = self.url_var.get().strip().rstrip("/")
+        tok = self.token_var.get().strip()
+        if not url or not tok:
+            if notify_ui:
+                messagebox.showwarning("Policy Sync", "Control Plane URL and Device Token are required to sync policy.")
+            return
+
+        payload = {
+            "inherit_global": True,
+            "desktop_enabled": bool(self.policy_desktop_enabled.get()),
+            "allow_tier3": bool(self.policy_allow_tier3.get()),
+            "max_tier_unattended": int(self.policy_max_tier.get()),
+            "allow_writes": bool(self.policy_allow_writes.get()),
+            "allow_shell": bool(self.policy_allow_shell.get()),
+            "allow_package_install": bool(self.policy_allow_package_install.get()),
+            "allowed_apps": list(self.policy_allowed_apps),
+            "note": "Configured via Windows Client Policy Manager",
+        }
+
+        def _do_sync():
+            try:
+                data = json.dumps(payload).encode("utf-8")
+                req = urllib.request.Request(
+                    f"{url}/api/agent/policy",
+                    data=data,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Device-Token": tok,
+                        "User-Agent": "AI-Bridge-Windows-Client/2.0",
+                    },
+                    method="PUT",
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    json.loads(resp.read().decode("utf-8"))
+                    msg = "Policy synchronized successfully with Control Plane."
+                    self.root.after(0, lambda: self.policy_status_var.set("Synced with Cloud ✓"))
+                    self.log(msg, "ok")
+                    if notify_ui:
+                        self.root.after(0, lambda: messagebox.showinfo("Policy Synchronized", msg))
+            except Exception as exc:
+                err_msg = f"Policy cloud sync failed: {exc}"
+                self.root.after(0, lambda: self.policy_status_var.set("Sync Failed ✕"))
+                self.log(err_msg, "warn")
+                if notify_ui:
+                    self.root.after(0, lambda: messagebox.showerror("Sync Error", err_msg))
+
+        threading.Thread(target=_do_sync, daemon=True).start()
+
+    def fetch_policy_from_server(self, notify_ui: bool = True) -> None:
+        """Fetch remote device execution policy and allowed apps from control plane."""
+        url = self.url_var.get().strip().rstrip("/")
+        tok = self.token_var.get().strip()
+        if not url or not tok:
+            if notify_ui:
+                messagebox.showwarning("Policy Sync", "Control Plane URL and Device Token are required.")
+            return
+
+        def _do_fetch():
+            try:
+                req = urllib.request.Request(
+                    f"{url}/api/agent/policy",
+                    headers={
+                        "X-Device-Token": tok,
+                        "User-Agent": "AI-Bridge-Windows-Client/2.0",
+                    },
+                    method="GET",
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    eff = data.get("custom_policy") or data.get("effective_policy") or {}
+                    if not eff:
+                        return
+
+                    def _apply():
+                        if "desktop_enabled" in eff and eff["desktop_enabled"] is not None:
+                            self.policy_desktop_enabled.set(bool(eff["desktop_enabled"]))
+                        if "allow_tier3" in eff and eff["allow_tier3"] is not None:
+                            self.policy_allow_tier3.set(bool(eff["allow_tier3"]))
+                        if "max_tier_unattended" in eff and eff["max_tier_unattended"] is not None:
+                            self.policy_max_tier.set(int(eff["max_tier_unattended"]))
+                        if "allow_writes" in eff and eff["allow_writes"] is not None:
+                            self.policy_allow_writes.set(bool(eff["allow_writes"]))
+                        if "allow_shell" in eff and eff["allow_shell"] is not None:
+                            self.policy_allow_shell.set(bool(eff["allow_shell"]))
+                        if "allow_package_install" in eff and eff["allow_package_install"] is not None:
+                            self.policy_allow_package_install.set(bool(eff["allow_package_install"]))
+                        if "allowed_apps" in eff and isinstance(eff["allowed_apps"], list):
+                            self.policy_allowed_apps = list(eff["allowed_apps"])
+                            self._render_allowed_app_chips()
+                            self._update_quick_app_buttons()
+
+                        self.save_current_config()
+                        self.policy_status_var.set("Synced from Cloud ✓")
+                        self.log("Fetched and applied device policy from Control Plane.", "ok")
+                        if notify_ui:
+                            messagebox.showinfo("Policy Sync", "Successfully loaded policy settings from server.")
+
+                    self.root.after(0, _apply)
+            except Exception as exc:
+                err_msg = f"Failed to fetch policy from server: {exc}"
+                self.log(err_msg, "warn")
+                if notify_ui:
+                    self.root.after(0, lambda: messagebox.showerror("Sync Error", err_msg))
+
+        threading.Thread(target=_do_fetch, daemon=True).start()
+
+    def toggle_quick_app(self, app_id: str) -> None:
+        """Toggle an application in the allowed apps list."""
+        if app_id in self.policy_allowed_apps:
+            self.policy_allowed_apps.remove(app_id)
+            self.log(f"Disallowed app '{app_id}'.", "info")
+        else:
+            self.policy_allowed_apps.append(app_id)
+            self.log(f"Allowed app '{app_id}'.", "ok")
+        self._render_allowed_app_chips()
+        self._update_quick_app_buttons()
+        self.save_current_config()
+
+    def add_custom_app(self, app_name: str) -> None:
+        """Add custom executable to allowed applications."""
+        clean = app_name.strip().lower()
+        if clean.endswith(".exe"):
+            clean = clean[:-4]
+        if not clean:
+            return
+        if clean not in self.policy_allowed_apps:
+            self.policy_allowed_apps.append(clean)
+            self._render_allowed_app_chips()
+            self._update_quick_app_buttons()
+            self.save_current_config()
+            self.log(f"Added '{clean}' to allowed Windows applications.", "ok")
+
+    def disallow_app(self, app_name: str) -> None:
+        """Remove application from allowed list."""
+        if app_name in self.policy_allowed_apps:
+            self.policy_allowed_apps.remove(app_name)
+            self._render_allowed_app_chips()
+            self._update_quick_app_buttons()
+            self.save_current_config()
+            self.log(f"Disallowed '{app_name}'.", "info")
+
+    def allow_all_standard_apps(self) -> None:
+        """Add all common standard Windows applications."""
+        for _, app_id in COMMON_WINDOWS_APPS:
+            if app_id not in self.policy_allowed_apps:
+                self.policy_allowed_apps.append(app_id)
+        self._render_allowed_app_chips()
+        self._update_quick_app_buttons()
+        self.save_current_config()
+        self.log("Allowed all standard Windows applications.", "ok")
+
+    def disallow_all_apps(self) -> None:
+        """Clear all allowed applications."""
+        self.policy_allowed_apps.clear()
+        self._render_allowed_app_chips()
+        self._update_quick_app_buttons()
+        self.save_current_config()
+        self.log("Disallowed all applications.", "warn")
+
+    def _update_quick_app_buttons(self) -> None:
+        """Refresh styling and active state on quick toggle buttons."""
+        t = THEMES[self.theme_name]
+        for label, app_id in COMMON_WINDOWS_APPS:
+            btn = self._quick_app_buttons.get(app_id)
+            if not btn or not btn.winfo_exists():
+                continue
+            is_allowed = app_id in self.policy_allowed_apps
+            if is_allowed:
+                btn.configure(
+                    text=f"✓ {label}",
+                    bg=t["success_bg"],
+                    fg=t["success_fg"],
+                    highlightbackground=t["success_border"],
+                    highlightthickness=1,
+                    font=("Segoe UI", 8, "bold"),
+                )
+            else:
+                btn.configure(
+                    text=f"+ {label}",
+                    bg=t["card_alt"],
+                    fg=t["fg_muted"],
+                    highlightbackground=t["border"],
+                    highlightthickness=1,
+                    font=("Segoe UI", 8),
+                )
+
+    def _render_allowed_app_chips(self) -> None:
+        """Render badge chips for currently allowed applications."""
+        if not self._app_chips_frame or not self._app_chips_frame.winfo_exists():
+            return
+        t = THEMES[self.theme_name]
+        for w in self._app_chips_frame.winfo_children():
+            w.destroy()
+
+        if not self.policy_allowed_apps:
+            tk.Label(
+                self._app_chips_frame,
+                text="⚠️ No applications allowed. Desktop automation cannot launch any executables.",
+                bg=t["card"],
+                fg=t["warn_fg"],
+                font=("Segoe UI", 9, "italic"),
+                padx=6,
+                pady=6,
+            ).pack(anchor="w")
+            return
+
+        sorted_apps = sorted(self.policy_allowed_apps)
+        row = None
+        for i, app_name in enumerate(sorted_apps):
+            if i % 6 == 0:
+                row = tk.Frame(self._app_chips_frame, bg=t["card"])
+                row.pack(fill="x", pady=2)
+            chip = tk.Frame(row, bg=t["card_alt"], highlightthickness=1, highlightbackground=t["border"])
+            chip.pack(side="left", padx=3)
+            tk.Label(
+                chip,
+                text=f" {app_name} ",
+                bg=t["card_alt"],
+                fg=t["fg"],
+                font=("Consolas", 9, "bold"),
+            ).pack(side="left", padx=(2, 0))
+            tk.Button(
+                chip,
+                text="✕",
+                command=lambda a=app_name: self.disallow_app(a),
+                bg=t["card_alt"],
+                fg=t["fg_muted"],
+                activebackground=t["card_alt"],
+                activeforeground=t["danger_bg"],
+                relief="flat",
+                font=("Segoe UI", 8, "bold"),
+                padx=4,
+                cursor="hand2",
+            ).pack(side="right")
+
     # -------------------------------------------------------------------------
     # TAB 5: SECURITY & POLICY GUARDRAILS
     # -------------------------------------------------------------------------
     def _build_security_tab(self, parent: tk.Frame) -> None:
         t = THEMES[self.theme_name]
 
-        # Top banner
-        hdr = tk.Frame(parent, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
+        # Scrollable container for full policy controls
+        canvas = tk.Canvas(parent, bg=t["bg"], highlightthickness=0)
+        vbar = tk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        scroll_content = tk.Frame(canvas, bg=t["bg"])
+
+        scroll_content.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        canvas_window = canvas.create_window((0, 0), window=scroll_content, anchor="nw")
+
+        def _on_canvas_configure(e):
+            canvas.itemconfig(canvas_window, width=e.width)
+
+        canvas.bind("<Configure>", _on_canvas_configure)
+        canvas.configure(yscrollcommand=vbar.set)
+
+        # Mousewheel binding when hovering canvas
+        canvas.bind(
+            "<Enter>",
+            lambda _: canvas.bind_all(
+                "<MouseWheel>",
+                lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"),
+            ),
+        )
+        canvas.bind("<Leave>", lambda _: canvas.unbind_all("<MouseWheel>"))
+
+        vbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        # Top Banner & Actions Toolbar
+        hdr = tk.Frame(scroll_content, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
         hdr.pack(fill="x", pady=(0, 8))
         h_inner = tk.Frame(hdr, bg=t["card"])
         h_inner.pack(fill="x", padx=14, pady=10)
 
+        left_hdr = tk.Frame(h_inner, bg=t["card"])
+        left_hdr.pack(side="left")
         tk.Label(
-            h_inner,
-            text="Autonomous Safety Guardrails & Policy Transparency",
+            left_hdr,
+            text="🛡️ Device Execution Policy & Guardrail Manager",
             bg=t["card"],
             fg=t["fg"],
             font=("Segoe UI", 11, "bold"),
+        ).pack(anchor="w")
+
+        status_row = tk.Frame(left_hdr, bg=t["card"])
+        status_row.pack(anchor="w", pady=(2, 0))
+        tk.Label(
+            status_row,
+            text="Status:",
+            bg=t["card"],
+            fg=t["fg_muted"],
+            font=("Segoe UI", 8),
+        ).pack(side="left", padx=(0, 4))
+        tk.Label(
+            status_row,
+            textvariable=self.policy_status_var,
+            bg=t["card_alt"],
+            fg=t["brand"] if self.theme_name == "light" else "#5cb2ff",
+            font=("Segoe UI", 8, "bold"),
+            padx=6,
+            pady=1,
         ).pack(side="left")
 
-        # Policy Card
-        body = tk.Frame(parent, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        body.pack(fill="both", expand=True)
+        # Action Buttons on Right
+        btn_box = tk.Frame(h_inner, bg=t["card"])
+        btn_box.pack(side="right")
 
-        b_inner = tk.Frame(body, bg=t["card"])
-        b_inner.pack(fill="both", expand=True, padx=16, pady=14)
+        tk.Button(
+            btn_box,
+            text="☁️ Sync from Cloud",
+            command=lambda: self.fetch_policy_from_server(notify_ui=True),
+            bg=t["card_alt"],
+            fg=t["fg"],
+            activebackground=t["card_alt"],
+            activeforeground=t["fg"],
+            relief="flat",
+            font=("Segoe UI", 9),
+            padx=10,
+            pady=4,
+            cursor="hand2",
+        ).pack(side="left", padx=(0, 6))
+
+        tk.Button(
+            btn_box,
+            text="💾 Save & Apply Policy",
+            command=self.save_and_apply_policy,
+            bg=t["brand"],
+            fg="#ffffff",
+            activebackground=t["brand_hover"],
+            activeforeground="#ffffff",
+            relief="flat",
+            font=("Segoe UI", 9, "bold"),
+            padx=12,
+            pady=4,
+            cursor="hand2",
+        ).pack(side="left")
+
+        # ---------------------------------------------------------------------
+        # CARD 1: Autonomous Execution Guardrails & Risk Ceilings
+        # ---------------------------------------------------------------------
+        c1 = tk.Frame(scroll_content, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
+        c1.pack(fill="x", pady=(0, 8))
+        c1_inner = tk.Frame(c1, bg=t["card"])
+        c1_inner.pack(fill="x", padx=16, pady=12)
+
+        tk.Label(
+            c1_inner,
+            text="⚙️ Autonomous Execution Guardrails",
+            bg=t["card"],
+            fg=t["fg"],
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", pady=(0, 6))
+
+        tk.Checkbutton(
+            c1_inner,
+            text="🖥️ Enable Desktop Vision & Automation (capture_desktop_screenshot, launch_approved_application, perform_approved_ui_action)",
+            variable=self.policy_desktop_enabled,
+            command=self.save_current_config,
+            bg=t["card"],
+            fg=t["fg"],
+            selectcolor=t["card_alt"],
+            activebackground=t["card"],
+            activeforeground=t["fg"],
+            font=("Segoe UI", 9, "bold"),
+        ).pack(anchor="w", pady=2)
+
+        tk.Checkbutton(
+            c1_inner,
+            text="⚡ Allow Tier-3 Autonomous Execution Unattended (Sensitive operations like workspace edits and tests execute without manual approval)",
+            variable=self.policy_allow_tier3,
+            command=self.save_current_config,
+            bg=t["card"],
+            fg=t["fg"],
+            selectcolor=t["card_alt"],
+            activebackground=t["card"],
+            activeforeground=t["fg"],
+            font=("Segoe UI", 9, "bold"),
+        ).pack(anchor="w", pady=2)
+
+        row_toggles = tk.Frame(c1_inner, bg=t["card"])
+        row_toggles.pack(fill="x", pady=4)
+
+        tk.Checkbutton(
+            row_toggles,
+            text="💻 Allow Shell Commands (run_shell)",
+            variable=self.policy_allow_shell,
+            command=self.save_current_config,
+            bg=t["card"],
+            fg=t["fg"],
+            selectcolor=t["card_alt"],
+            activebackground=t["card"],
+            activeforeground=t["fg"],
+            font=("Segoe UI", 9),
+        ).pack(side="left", padx=(0, 14))
+
+        tk.Checkbutton(
+            row_toggles,
+            text="📝 Allow Workspace File Writes",
+            variable=self.policy_allow_writes,
+            command=self.save_current_config,
+            bg=t["card"],
+            fg=t["fg"],
+            selectcolor=t["card_alt"],
+            activebackground=t["card"],
+            activeforeground=t["fg"],
+            font=("Segoe UI", 9),
+        ).pack(side="left", padx=(0, 14))
+
+        tk.Checkbutton(
+            row_toggles,
+            text="📦 Allow Package Installation",
+            variable=self.policy_allow_package_install,
+            command=self.save_current_config,
+            bg=t["card"],
+            fg=t["fg"],
+            selectcolor=t["card_alt"],
+            activebackground=t["card"],
+            activeforeground=t["fg"],
+            font=("Segoe UI", 9),
+        ).pack(side="left")
+
+        # Unattended Ceiling Radios
+        ceiling_box = tk.Frame(c1_inner, bg=t["card_subtle"], highlightthickness=1, highlightbackground=t["border"])
+        ceiling_box.pack(fill="x", pady=(8, 0))
+        cb_in = tk.Frame(ceiling_box, bg=t["card_subtle"])
+        cb_in.pack(fill="x", padx=12, pady=8)
+
+        tk.Label(
+            cb_in,
+            text="Unattended Risk Tier Ceiling:",
+            bg=t["card_subtle"],
+            fg=t["fg"],
+            font=("Segoe UI", 9, "bold"),
+        ).pack(anchor="w")
+
+        radio_row = tk.Frame(cb_in, bg=t["card_subtle"])
+        radio_row.pack(fill="x", pady=(4, 0))
+
+        tier_opts = [
+            (1, "Tier 1: Read-Only"),
+            (2, "Tier 2: Safe Writes"),
+            (3, "Tier 3: Autonomous (Recommended)"),
+            (4, "Tier 4: High-Risk Unconfined"),
+        ]
+        for val, lbl in tier_opts:
+            tk.Radiobutton(
+                radio_row,
+                text=lbl,
+                value=val,
+                variable=self.policy_max_tier,
+                command=self.save_current_config,
+                bg=t["card_subtle"],
+                fg=t["fg"],
+                selectcolor=t["card_alt"],
+                activebackground=t["card_subtle"],
+                activeforeground=t["fg"],
+                font=("Segoe UI", 8),
+            ).pack(side="left", padx=(0, 14))
+
+        # ---------------------------------------------------------------------
+        # CARD 2: Allowed Windows Applications (Allow / Disallow Apps)
+        # ---------------------------------------------------------------------
+        c2 = tk.Frame(scroll_content, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
+        c2.pack(fill="x", pady=(0, 8))
+        c2_inner = tk.Frame(c2, bg=t["card"])
+        c2_inner.pack(fill="x", padx=16, pady=12)
+
+        tk.Label(
+            c2_inner,
+            text="🪟 Allowed Windows Applications (Application Allowlist)",
+            bg=t["card"],
+            fg=t["fg"],
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w")
+
+        tk.Label(
+            c2_inner,
+            text="AI Bridge desktop automation (launch_approved_application) can ONLY launch applications explicitly present in this list. Click quick toggles below or enter custom executables.",
+            bg=t["card"],
+            fg=t["fg_muted"],
+            font=("Segoe UI", 8),
+            wraplength=850,
+            justify="left",
+        ).pack(anchor="w", pady=(2, 8))
+
+        # Quick 1-Click Common App Toggles
+        tk.Label(
+            c2_inner,
+            text="Quick Application Toggles:",
+            bg=t["card"],
+            fg=t["fg"],
+            font=("Segoe UI", 9, "bold"),
+        ).pack(anchor="w", pady=(0, 4))
+
+        quick_row1 = tk.Frame(c2_inner, bg=t["card"])
+        quick_row1.pack(fill="x", pady=2)
+        quick_row2 = tk.Frame(c2_inner, bg=t["card"])
+        quick_row2.pack(fill="x", pady=2)
+
+        self._quick_app_buttons.clear()
+        for idx, (label, app_id) in enumerate(COMMON_WINDOWS_APPS):
+            target_row = quick_row1 if idx < 5 else quick_row2
+            btn = tk.Button(
+                target_row,
+                text=label,
+                command=lambda aid=app_id: self.toggle_quick_app(aid),
+                relief="flat",
+                padx=8,
+                pady=3,
+                cursor="hand2",
+            )
+            btn.pack(side="left", padx=3)
+            self._quick_app_buttons[app_id] = btn
+
+        # Custom Executable Input Bar
+        add_frame = tk.Frame(c2_inner, bg=t["card_subtle"], highlightthickness=1, highlightbackground=t["border"])
+        add_frame.pack(fill="x", pady=(10, 8))
+        add_inner = tk.Frame(add_frame, bg=t["card_subtle"])
+        add_inner.pack(fill="x", padx=10, pady=6)
+
+        tk.Label(
+            add_inner,
+            text="Custom App Executable:",
+            bg=t["card_subtle"],
+            fg=t["fg"],
+            font=("Segoe UI", 9, "bold"),
+        ).pack(side="left", padx=(0, 8))
+
+        custom_app_var = tk.StringVar()
+        entry = tk.Entry(
+            add_inner,
+            textvariable=custom_app_var,
+            bg=t["input_bg"],
+            fg=t["fg"],
+            insertbackground=t["fg"],
+            relief="flat",
+            font=("Consolas", 9),
+            width=28,
+        )
+        entry.pack(side="left", padx=(0, 8))
+
+        def _do_add():
+            val = custom_app_var.get().strip()
+            if val:
+                self.add_custom_app(val)
+                custom_app_var.set("")
+
+        entry.bind("<Return>", lambda _: _do_add())
+
+        tk.Button(
+            add_inner,
+            text="+ Add Application",
+            command=_do_add,
+            bg=t["brand"],
+            fg="#ffffff",
+            activebackground=t["brand_hover"],
+            activeforeground="#ffffff",
+            relief="flat",
+            font=("Segoe UI", 9, "bold"),
+            padx=10,
+            pady=2,
+            cursor="hand2",
+        ).pack(side="left")
+
+        # Bulk Actions
+        tk.Button(
+            add_inner,
+            text="Allow All Standard Apps",
+            command=self.allow_all_standard_apps,
+            bg=t["card_alt"],
+            fg=t["fg"],
+            relief="flat",
+            font=("Segoe UI", 8),
+            padx=8,
+            pady=2,
+            cursor="hand2",
+        ).pack(side="right", padx=(4, 0))
+
+        tk.Button(
+            add_inner,
+            text="Disallow All Apps",
+            command=self.disallow_all_apps,
+            bg=t["card_alt"],
+            fg=t["warn_fg"],
+            relief="flat",
+            font=("Segoe UI", 8),
+            padx=8,
+            pady=2,
+            cursor="hand2",
+        ).pack(side="right")
+
+        # Chips Container
+        tk.Label(
+            c2_inner,
+            text="Currently Allowed Applications (Click ✕ to disallow):",
+            bg=t["card"],
+            fg=t["fg"],
+            font=("Segoe UI", 9, "bold"),
+        ).pack(anchor="w", pady=(4, 4))
+
+        self._app_chips_frame = tk.Frame(c2_inner, bg=t["card"])
+        self._app_chips_frame.pack(fill="x", pady=(0, 4))
+
+        self._render_allowed_app_chips()
+        self._update_quick_app_buttons()
+
+        # ---------------------------------------------------------------------
+        # CARD 3: Tool Risk Classification & Guardrail Matrix
+        # ---------------------------------------------------------------------
+        c3 = tk.Frame(scroll_content, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
+        c3.pack(fill="x", pady=(0, 12))
+        c3_inner = tk.Frame(c3, bg=t["card"])
+        c3_inner.pack(fill="x", padx=16, pady=12)
 
         tiers = [
-            ("🟢 Tier 1: Read-Only System Diagnostics", "Pre-Authorized", "get_system_info, get_resource_usage, list_processes, get_service_status"),
+            ("🟢 Tier 1: Read-Only Diagnostics", "Pre-Authorized", "get_system_info, get_resource_usage, list_processes, get_service_status"),
             ("🟢 Tier 2: Safe Workspace Navigation", "Confined", "read_workspace_file, search_workspace, list_workspace"),
-            ("🟡 Tier 3: Local Modification & Testing", "Policy Bounded", "create_workspace_file, edit_workspace_file, run_project_tests"),
-            ("🔴 Tier 4: Critical Actions & Deployments", "Approval Required", "deploy_application, high-risk system commands (require Admin Approval in Web Dashboard)"),
+            ("🟡 Tier 3: Local Modification & Vision", "Policy Governed", "capture_desktop_screenshot, launch_approved_application, create/edit files, tests"),
+            ("🔴 Tier 4: Critical Deployments", "Approval Required", "deploy_application, unconfined high-risk operations (require Admin Approval)"),
         ]
 
         tk.Label(
-            b_inner,
+            c3_inner,
             text="Tool Risk Classification Matrix:",
             bg=t["card"],
             fg=t["fg"],
@@ -1585,10 +2259,10 @@ class AgentGuiApp:
         ).pack(anchor="w", pady=(0, 6))
 
         for name, badge, desc in tiers:
-            row = tk.Frame(b_inner, bg=t["card_subtle"], highlightthickness=1, highlightbackground=t["border"])
-            row.pack(fill="x", pady=3)
+            row = tk.Frame(c3_inner, bg=t["card_subtle"], highlightthickness=1, highlightbackground=t["border"])
+            row.pack(fill="x", pady=2)
             r_in = tk.Frame(row, bg=t["card_subtle"])
-            r_in.pack(fill="x", padx=10, pady=6)
+            r_in.pack(fill="x", padx=10, pady=4)
 
             tk.Label(
                 r_in,
@@ -1614,36 +2288,7 @@ class AgentGuiApp:
                 bg=t["card_subtle"],
                 fg=t["fg_muted"],
                 font=("Consolas", 8),
-            ).pack(anchor="w", padx=10, pady=(0, 6))
-
-        tk.Label(
-            b_inner,
-            text="Active Security Guardrails:",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 10, "bold"),
-        ).pack(anchor="w", pady=(12, 6))
-
-        try:
-            from ai_bridge import security
-
-            ws_root = str(security.workspace_root())
-        except Exception:
-            ws_root = str(Path.home() / ".ai-bridge" / "workspace")
-
-        guardrails = [
-            ("Device Operational Mode:", "User Space Desktop Client (No device enrollment / unprivileged)"),
-            ("Workspace Confinement:", ws_root),
-            ("Secret Redaction:", "ACTIVE (API keys, authorization tokens, and credentials automatically masked)"),
-            ("Desktop Automation:", "INTERACTIVE SESSION ONLY (Runs with logged-in user desktop credentials)"),
-            ("Token Rotation:", "AUTOMATIC (Tokens rotate before expiry; stale credentials invalidated)"),
-        ]
-
-        for k, v in guardrails:
-            g_row = tk.Frame(b_inner, bg=t["card"])
-            g_row.pack(fill="x", pady=2)
-            tk.Label(g_row, text=k, bg=t["card"], fg=t["fg_muted"], font=("Segoe UI", 9, "bold"), width=24, anchor="w").pack(side="left")
-            tk.Label(g_row, text=v, bg=t["card"], fg=t["fg"], font=("Consolas", 9), anchor="w").pack(side="left")
+            ).pack(anchor="w", padx=10, pady=(0, 4))
 
     # -------------------------------------------------------------------------
     # TAB 6: SETTINGS & WINDOWS INTEGRATION
@@ -1936,8 +2581,21 @@ class AgentGuiApp:
         self.cfg["desktop_notifications"] = bool(self.notifications_var.get())
         self.cfg["autostart_windows"] = bool(self.windows_autostart_var.get())
         self.cfg["theme"] = self.theme_name
+
+        self.cfg["desktop_enabled"] = bool(self.policy_desktop_enabled.get())
+        self.cfg["allow_tier3"] = bool(self.policy_allow_tier3.get())
+        self.cfg["max_tier_unattended"] = int(self.policy_max_tier.get())
+        self.cfg["allow_writes"] = bool(self.policy_allow_writes.get())
+        self.cfg["allow_shell"] = bool(self.policy_allow_shell.get())
+        self.cfg["allow_package_install"] = bool(self.policy_allow_package_install.get())
+        self.cfg["allowed_apps"] = list(self.policy_allowed_apps)
+
         save_agent_config(self.cfg)
-        self.log("Saved agent configuration to ~/.ai-bridge/agent_gui.json", "ok")
+        if self.poller:
+            cur_pol = self.get_current_policy()
+            self.poller._explicit_policy = cur_pol
+            self.poller.policy = cur_pol
+        self.log("Saved agent configuration and policy to ~/.ai-bridge/agent_gui.json", "ok")
 
     def export_logs(self) -> None:
         """Export current log contents to a text file."""
@@ -2027,11 +2685,15 @@ class AgentGuiApp:
         self.log("Stopping agent polling loop...", "warn")
 
     def _poll_loop(self, url: str, tok: str) -> None:
-        poller = Poller(url, tok, token_file=TOKEN_FILE)
+        local_policy = self.get_current_policy()
+        poller = Poller(url, tok, policy=local_policy, token_file=TOKEN_FILE)
         self.poller = poller
         wait_s = max(5, min(self.poll_wait_var.get(), 60))
         self.log(f"Agent started polling {url} (long-poll wait={wait_s}s)", "ok")
         had_error = False
+
+        # Attempt background cloud policy sync on connection
+        self.root.after(1000, lambda: self.sync_policy_to_server(notify_ui=False))
 
         while not self.stop_event.is_set():
             try:

@@ -480,8 +480,14 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         }
 
     @app.put("/api/devices/{device_id}/policy")
-    def set_device_policy_api(device_id: str, body: DevicePolicyIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
-        actor = require_role("admin", x_admin_token, x_session_token)
+    def set_device_policy_api(device_id: str, body: DevicePolicyIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None), x_device_token: str | None = Header(default=None)):
+        if x_device_token:
+            dev_row = device_row(x_device_token)
+            if dev_row["id"] != device_id:
+                raise HTTPException(status_code=403, detail="Device token not authorized for this device_id.")
+            actor = f"device:{device_id}"
+        else:
+            actor = require_role("admin", x_admin_token, x_session_token)
         row = conn.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Device not found.")
@@ -492,8 +498,14 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         return get_device_policy_api(device_id, x_admin_token, x_session_token)
 
     @app.delete("/api/devices/{device_id}/policy")
-    def reset_device_policy_api(device_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
-        actor = require_role("admin", x_admin_token, x_session_token)
+    def reset_device_policy_api(device_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None), x_device_token: str | None = Header(default=None)):
+        if x_device_token:
+            dev_row = device_row(x_device_token)
+            if dev_row["id"] != device_id:
+                raise HTTPException(status_code=403, detail="Device token not authorized for this device_id.")
+            actor = f"device:{device_id}"
+        else:
+            actor = require_role("admin", x_admin_token, x_session_token)
         row = conn.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Device not found.")
@@ -1484,6 +1496,37 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         # validating a token never makes a device look freshly seen.
         row = device_row(x_device_token)
         return {"device_id": row["id"]}
+
+    @app.get("/api/agent/policy")
+    def get_agent_policy(x_device_token: str | None = Header(default=None)):
+        row = device_row(x_device_token)
+        custom_p = {}
+        try:
+            custom_p = json.loads(row["policy_json"]) if row["policy_json"] else {}
+        except Exception:
+            custom_p = {}
+        eff = get_effective_device_policy(row)
+        return {
+            "device_id": row["id"],
+            "custom_policy": custom_p,
+            "effective_policy": eff,
+            "has_custom_policy": bool(custom_p),
+        }
+
+    @app.put("/api/agent/policy")
+    def update_agent_policy(body: DevicePolicyIn, x_device_token: str | None = Header(default=None)):
+        row = device_row(x_device_token)
+        policy_data = body.model_dump()
+        conn.execute("UPDATE devices SET policy_json=? WHERE id=?", (json.dumps(policy_data), row["id"]))
+        conn.commit()
+        audit("device", row["id"], "agent_update_policy", policy_data, "allowed")
+        eff = get_effective_device_policy(row)
+        return {
+            "device_id": row["id"],
+            "custom_policy": policy_data,
+            "effective_policy": eff,
+            "saved": True,
+        }
 
     @app.post("/api/agent/rotate")
     def rotate_token(x_device_token: str | None = Header(default=None)):

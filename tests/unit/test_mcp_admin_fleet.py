@@ -81,3 +81,4 @@ def test_admin_mcp_fleet_routing(monkeypatch):
 
     finally:
         mcp_server._SELECTED_DEVICE.clear()
+

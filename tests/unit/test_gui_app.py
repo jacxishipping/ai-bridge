@@ -118,9 +118,73 @@ def test_gui_app_headless_init(monkeypatch, tmp_path):
         app.toggle_theme()
         assert app.theme_name != old_theme
 
+        # Test policy defaults
+        assert app.policy_desktop_enabled.get() is True
+        assert app.policy_allow_tier3.get() is True
+        assert app.policy_max_tier.get() >= 3
+        assert "chrome" in app.policy_allowed_apps
+        assert "notepad" in app.policy_allowed_apps
+
+        # Test allow / disallow applications
+        app.add_custom_app("slack.exe")
+        assert "slack" in app.policy_allowed_apps
+
+        app.disallow_app("slack")
+        assert "slack" not in app.policy_allowed_apps
+
+        # Test toggle quick app
+        app.toggle_quick_app("notepad")
+        assert "notepad" not in app.policy_allowed_apps
+        app.toggle_quick_app("notepad")
+        assert "notepad" in app.policy_allowed_apps
+
+        # Test disallow all and allow all standard
+        app.disallow_all_apps()
+        assert len(app.policy_allowed_apps) == 0
+        app.allow_all_standard_apps()
+        assert "chrome" in app.policy_allowed_apps
+        assert "msedge" in app.policy_allowed_apps
+
+        # Test get_current_policy
+        pol = app.get_current_policy()
+        assert pol.desktop_enabled is True
+        assert pol.allow_tier3 is True
+        assert pol.max_tier_unattended >= 3
+        assert "chrome" in pol.allowed_apps
+
+        # Test preview screenshot call does not crash or raise permission error
+        with patch("ai_bridge.tools.capture_desktop_screenshot", return_value={"available": False, "note": "Mocked screenshot"}), patch("tkinter.messagebox.showwarning"):
+            app.capture_preview_screenshot()
+
         app.exit_application()
     finally:
         try:
             root.destroy()
         except Exception:
             pass
+
+
+def test_poller_effective_policy_merging():
+    from ai_bridge.policy import Policy
+    from common.poller import Poller
+
+    local_pol = Policy(
+        allow_writes=True,
+        allow_tier3=True,
+        desktop_enabled=True,
+        max_tier_unattended=3,
+        allowed_apps=frozenset({"chrome", "notepad"}),
+    )
+    poller = Poller("https://example.com", "fake-token", policy=local_pol)
+
+    remote = {
+        "allowed_apps": ["calc", "code"],
+        "max_tier_unattended": 2,
+    }
+    eff = poller._effective_policy(remote)
+    assert eff.desktop_enabled is True
+    assert eff.allow_tier3 is True
+    assert eff.max_tier_unattended >= 3
+    assert "chrome" in eff.allowed_apps
+    assert "calc" in eff.allowed_apps
+

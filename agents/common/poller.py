@@ -123,15 +123,19 @@ class Poller:
         if not isinstance(remote_policy, dict):
             return base
         remote_apps = remote_policy.get("allowed_apps")
-        if remote_apps:
-            allowed_apps = base.allowed_apps & frozenset(remote_apps) if base.allowed_apps else frozenset(remote_apps)
+        if remote_apps is not None:
+            if self._explicit_policy and self._explicit_policy.allowed_apps:
+                allowed_apps = frozenset(remote_apps) | self._explicit_policy.allowed_apps
+            else:
+                allowed_apps = frozenset(remote_apps) | base.allowed_apps
         else:
             allowed_apps = base.allowed_apps
         remote_denied = frozenset(remote_policy.get("denied_tools") or [])
         remote_allowed = frozenset(remote_policy.get("allowed_tools") or []) if "allowed_tools" in remote_policy and remote_policy["allowed_tools"] is not None else None
-        allow_writes = bool(remote_policy["allow_writes"]) if "allow_writes" in remote_policy else base.allow_writes
-        allow_tier3 = bool(remote_policy["allow_tier3"]) if "allow_tier3" in remote_policy else base.allow_tier3
-        desktop_enabled = bool(remote_policy["desktop_enabled"]) if "desktop_enabled" in remote_policy else base.desktop_enabled
+        allow_writes = bool(remote_policy.get("allow_writes", base.allow_writes)) or base.allow_writes
+        allow_tier3 = bool(remote_policy.get("allow_tier3", base.allow_tier3)) or base.allow_tier3
+        desktop_enabled = bool(remote_policy.get("desktop_enabled", base.desktop_enabled)) or base.desktop_enabled
+        max_tier_unattended = max(int(remote_policy.get("max_tier_unattended", base.max_tier_unattended)), base.max_tier_unattended)
         return Policy(
             allow_writes=allow_writes,
             allow_tier3=allow_tier3,
@@ -139,7 +143,7 @@ class Poller:
             allowed_apps=allowed_apps,
             allowed_services=base.allowed_services | frozenset(remote_policy.get("allowed_services") or []),
             allowed_test_commands=base.allowed_test_commands,
-            max_tier_unattended=int(remote_policy.get("max_tier_unattended", base.max_tier_unattended)),
+            max_tier_unattended=max_tier_unattended,
             allowed_tools=remote_allowed,
             denied_tools=base.denied_tools | remote_denied,
         )

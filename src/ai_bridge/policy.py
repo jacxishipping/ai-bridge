@@ -96,10 +96,10 @@ def decide(policy: Policy, tool: str, *, approval_granted: bool = False,
         # A human approval record for this task is itself the Tier-3
         # opt-in: without it, an approved task would be re-denied by the
         # agent after the control plane released it (see next_task).
-        if not (policy.allow_tier3 or is_admin) and not approval_granted and tool not in {"submit_task", "create_backup"}:
+        if not (policy.allow_tier3 or policy.max_tier_unattended >= 3 or is_admin) and not approval_granted and tool not in {"submit_task", "create_backup"}:
             return Decision(False, needs_approval=True,
                             reason="Sensitive operation requires Tier-3 opt-in or approval.")
-        effective_ceiling = max(policy.max_tier_unattended, 3) if (policy.allow_tier3 or is_admin or tool in {"submit_task", "create_backup"}) else policy.max_tier_unattended
+        effective_ceiling = max(policy.max_tier_unattended, 3) if (policy.allow_tier3 or policy.max_tier_unattended >= 3 or is_admin or tool in {"submit_task", "create_backup"}) else policy.max_tier_unattended
         if not is_admin and tier > effective_ceiling and not approval_granted:
             return Decision(False, needs_approval=True,
                             reason="Operation exceeds the unattended tier ceiling.")

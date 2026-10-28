@@ -225,12 +225,12 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
     } else if (preset === "dev_agent") {
       // Dev & Build Agent: File edits, linters, tests, package install; No shell or deletion without approval
       setAllowWrites(true);
-      setAllowTier3(false);
+      setAllowTier3(true);
       setDesktopEnabled(false);
       setAllowShell(true);
       setAllowPackageInstall(true);
       setAllowFileDeletion(false);
-      setMaxTierUnattended(2);
+      setMaxTierUnattended(3);
       const denied = new Set([
         "delete_workspace_file",
         "capture_desktop_screenshot", "launch_approved_application", "perform_approved_ui_action"
@@ -240,12 +240,12 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
     } else if (preset === "workstation") {
       // Interactive Workstation: Full desktop vision & UI, writes allowed, shell allowed, safe packages
       setAllowWrites(true);
-      setAllowTier3(false);
+      setAllowTier3(true);
       setDesktopEnabled(true);
       setAllowShell(true);
       setAllowPackageInstall(true);
       setAllowFileDeletion(false);
-      setMaxTierUnattended(2);
+      setMaxTierUnattended(3);
       setDeniedTools(new Set(["delete_workspace_file"]));
       setNote("Applied Interactive Workstation preset");
     } else if (preset === "unattended") {
