@@ -86,4 +86,11 @@ export const api = {
   oidcConfigured: () => fetch(BASE + "/api/auth/oidc/configured").then(r => r.json()),
   me: () => call("/api/auth/me"),
   oidcLogin: () => { window.location.href = BASE + "/api/auth/oidc/login"; },
+  aiTools: (format = "raw", device?: string) =>
+    call(`/api/ai/tools?format=${encodeURIComponent(format)}${device ? `&device=${encodeURIComponent(device)}` : ""}`),
+  aiExecute: (body: { tool: string; device?: string; args?: any; timeout?: number }) =>
+    call("/api/ai/execute", "POST", body),
+  aiAgent: (body: { prompt: string; device?: string; provider?: string; model?: string; api_key?: string }) =>
+    call("/api/ai/agent", "POST", body),
+  aiFleet: () => call("/api/ai/devices"),
 };

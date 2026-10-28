@@ -250,28 +250,32 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             return str(row["value"]).strip()
         return os.environ.get("AI_BRIDGE_WEBHOOK_URL", "").strip()
 
-    def auth_context(x_admin_token: str | None, x_session_token: str | None = None):
+    def auth_context(x_admin_token: str | None = None, x_session_token: str | None = None, authorization: str | None = None):
         """Return (actor, role). Session tokens outrank the legacy admin token."""
-        if x_session_token:
-            row = conn.execute("SELECT * FROM sessions WHERE token_hash=?", (dbmod.hash_token(x_session_token),)).fetchone()
-            if row is None or row["expires_at"] < dbmod.now():
-                raise HTTPException(status_code=401, detail="Invalid or expired session.")
-            user = conn.execute("SELECT * FROM users WHERE username=? AND disabled=0", (row["username"],)).fetchone()
-            if user is None:
-                raise HTTPException(status_code=401, detail="User disabled or deleted.")
-            return user["username"], user["role"]
-        if token and authmod.legacy_admin_enabled() and x_admin_token and hmac.compare_digest(x_admin_token, token):
+        bearer = None
+        if authorization and authorization.strip().lower().startswith("bearer "):
+            bearer = authorization.strip()[7:].strip()
+        eff_session = x_session_token or bearer
+        eff_admin = x_admin_token or bearer
+
+        if eff_session:
+            row = conn.execute("SELECT * FROM sessions WHERE token_hash=?", (dbmod.hash_token(eff_session),)).fetchone()
+            if row is not None and row["expires_at"] >= dbmod.now():
+                user = conn.execute("SELECT * FROM users WHERE username=? AND disabled=0", (row["username"],)).fetchone()
+                if user is not None:
+                    return user["username"], user["role"]
+        if token and authmod.legacy_admin_enabled() and eff_admin and hmac.compare_digest(eff_admin, token):
             return "admin-token", "admin"
         raise HTTPException(status_code=401, detail="Authentication required.")
 
-    def require_role(min_role: str, x_admin_token: str | None, x_session_token: str | None = None):
-        actor, role = auth_context(x_admin_token, x_session_token)
+    def require_role(min_role: str, x_admin_token: str | None = None, x_session_token: str | None = None, authorization: str | None = None):
+        actor, role = auth_context(x_admin_token, x_session_token, authorization)
         if authmod.ROLES.get(role, 0) < authmod.ROLES[min_role]:
             raise HTTPException(status_code=403, detail=f"Role '{role}' cannot perform this action (requires {min_role}).")
         return actor
 
-    def require_admin(x_admin_token: str | None, x_session_token: str | None = None):
-        return require_role("admin", x_admin_token, x_session_token)
+    def require_admin(x_admin_token: str | None = None, x_session_token: str | None = None, authorization: str | None = None):
+        return require_role("admin", x_admin_token, x_session_token, authorization)
 
     def get_current_policy() -> dict:
         row = conn.execute("SELECT policy_json FROM policies ORDER BY version DESC LIMIT 1").fetchone()
@@ -1663,7 +1667,8 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             admin_hdr = request.headers.get("x-admin-token")
             dev_hdr = request.headers.get("x-device-token")
             sess_hdr = request.headers.get("x-session-token")
-            token_val = admin_hdr or dev_hdr or sess_hdr
+            auth_hdr = request.headers.get("authorization")
+            token_val = admin_hdr or dev_hdr or sess_hdr or auth_hdr
             key = f"tok:{dbmod.hash_token(token_val)[:16]}" if token_val else f"ip:{client_ip}"
             limit = 120
         with _RATE_LOCK:
@@ -1674,5 +1679,17 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         except HTTPException as exc:
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
         return await call_next(request)
+
+    from . import ai_api
+    ai_api.attach_ai_routes(
+        app,
+        conn,
+        task_cond,
+        notify_tasks,
+        auth_context,
+        require_role,
+        get_effective_device_policy,
+        audit,
+    )
 
     return app

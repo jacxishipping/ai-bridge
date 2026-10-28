@@ -2,8 +2,9 @@ import { Fragment, useEffect, useState, useRef } from "react";
 import { api, token, sessionToken } from "./api";
 import { DevicePolicyEditor } from "./DevicePolicyEditor";
 import { DeviceDetailDashboard } from "./DeviceDetailDashboard";
+import { AiApiHub } from "./AiApiHub";
 
-type View = "overview" | "devices" | "device_detail" | "tasks" | "approvals" | "audit" | "policies" | "connections" | "logs";
+type View = "overview" | "devices" | "device_detail" | "tasks" | "approvals" | "audit" | "policies" | "connections" | "ai_api" | "logs";
 type Theme = "light" | "dark";
 
 const TOOLS = [
@@ -69,6 +70,11 @@ const VIEW_META: Record<View, { title: string; subtitle: string; group: "ops" | 
     subtitle: "Monitor Streamable HTTP MCP endpoints, OAuth 2.0 gateway health, and connected AI clients.",
     group: "gov",
   },
+  ai_api: {
+    title: "AI API & Custom Agents Hub",
+    subtitle: "Connect your custom AI, LLMs (OpenAI, Claude, Gemini, Ollama), and scripts to communicate with your fleet.",
+    group: "ops",
+  },
   logs: {
     title: "Service Diagnostics & Logs",
     subtitle: "Live systemd journal and reverse-proxy telemetry from the control plane.",
@@ -115,6 +121,8 @@ function FluentIcon({ name }: { name: string }) {
       return <svg {...props}><path d="M10 2.5a3.5 3.5 0 0 0-3.5 3.5V8H5.5A1.5 1.5 0 0 0 4 9.5v6A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 14.5 8h-1V6A3.5 3.5 0 0 0 10 2.5ZM7.5 6a2.5 2.5 0 0 1 5 0v2h-5V6Zm2.5 5.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"/></svg>;
     case "connections":
       return <svg {...props}><path d="M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm-5.91 6.5h2.96c.05-1.92.54-3.65 1.32-4.8A6.01 6.01 0 0 0 4.09 9.5Zm2.96 1H4.09a6.01 6.01 0 0 0 4.28 4.8c-.78-1.15-1.27-2.88-1.32-4.8Zm1 0c.06 1.88.58 3.55 1.38 4.6a2.6 2.6 0 0 0 1.14 0c.8-1.05 1.32-2.72 1.38-4.6H8.05Zm3.9-1c-.06-1.88-.58-3.55-1.38-4.6a2.6 2.6 0 0 0-1.14 0c-.8 1.05-1.32 2.72-1.38 4.6h3.9Zm1 0h2.96a6.01 6.01 0 0 0-4.28-4.8c.78 1.15 1.27 2.88 1.32 4.8Zm0 1c-.05 1.92-.54 3.65-1.32 4.8a6.01 6.01 0 0 0 4.28-4.8h-2.96Z"/></svg>;
+    case "ai_api":
+      return <svg {...props}><path d="M10 2a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 10 2ZM4.5 4.5a.75.75 0 0 1 1.06 0l1.06 1.06a.75.75 0 0 1-1.06 1.06L4.5 5.56a.75.75 0 0 1 0-1.06Zm11 0a.75.75 0 0 1 0 1.06l-1.06 1.06a.75.75 0 0 1-1.06-1.06l1.06-1.06a.75.75 0 0 1 1.06 0ZM5 10a5 5 0 1 1 10 0 5 5 0 0 1-10 0Zm3.5-1.5a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Zm4.25 0a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5ZM7.5 13a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5h-5Z"/></svg>;
     case "logs":
       return <svg {...props}><path d="M3.5 4A1.5 1.5 0 0 0 2 5.5v9A1.5 1.5 0 0 0 3.5 16h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 16.5 4h-13Zm1.85 3.15 2.5 2.5a.5.5 0 0 1 0 .7l-2.5 2.5a.5.5 0 0 1-.7-.7L6.79 10 4.65 7.85a.5.5 0 0 1 .7-.7ZM9.5 12h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1 0-1Z"/></svg>;
     case "theme":
@@ -853,6 +861,20 @@ export default function App() {
               )}
             </button>
           ))}
+
+          <button
+            type="button"
+            className="f2-nav-item"
+            data-active={String(view === "ai_api")}
+            onClick={() => setView("ai_api")}
+            title="Connect your custom AI, OpenAI, Claude, or local LLMs to control fleet devices"
+          >
+            <span className="f2-nav-item-icon">
+              <FluentIcon name="ai_api" />
+            </span>
+            <span>AI API & Agents</span>
+            <span className="f2-nav-counter" style={{ background: "var(--colorBrandBackground)", color: "#fff", fontSize: 9 }}>NEW</span>
+          </button>
 
           <div className="f2-nav-section-label" style={{ marginTop: 8 }}>Governance & Telemetry</div>
           {(["policies", "audit", "connections", "logs"] as View[]).map(v => (
@@ -2392,6 +2414,11 @@ export default function App() {
                 {logLines.join("\n") || "No log lines returned."}
               </pre>
             </Card>
+          )}
+
+          {/* ==================== AI API & AGENTS HUB ==================== */}
+          {view === "ai_api" && (
+            <AiApiHub devices={devices} />
           )}
         </main>
       </div>

@@ -1,8 +1,11 @@
-"""AI Bridge — universal AI-to-computer control platform (v0.2.0).
+"""AI Bridge — universal AI-to-computer control platform.
 
-Security-first: no arbitrary shell, no tool may grant itself privileges,
-workspace confinement is enforced in code, and risk policy is enforced
-server-side, never by prompt text alone.
+Security-first: workspace confinement is enforced in code, and risk policy is
+enforced server-side, never by prompt text alone.
 """
+from __future__ import annotations
+
+from .client import AIBridgeClient, AIBridgeError
+
 __version__ = "0.3.0"
-__all__ = ["__version__"]
+__all__ = ["__version__", "AIBridgeClient", "AIBridgeError"]
