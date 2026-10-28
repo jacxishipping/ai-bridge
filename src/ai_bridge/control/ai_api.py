@@ -577,6 +577,8 @@ def validate_llm_key(provider: str, api_key: str) -> tuple[bool, str]:
     """Test connection with the provider to verify the API key is active."""
     p = provider.lower().strip()
     key = api_key.strip()
+    if p == "ollama":
+        return True, "Ollama local provider selected."
     if not key:
         return False, "API key cannot be empty."
 
