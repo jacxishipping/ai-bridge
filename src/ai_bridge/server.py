@@ -171,6 +171,7 @@ DESKTOP_ROUTING_TOOLS = {
     "get_desktop_status",
     "capture_desktop_screenshot",
     "take_screenshot",
+    "capture_desktop_frame",
     "launch_approved_application",
     "perform_approved_ui_action",
     "mouse_click",
@@ -540,6 +541,17 @@ def capture_desktop_screenshot(device: str | None = None) -> dict:
     """Screenshot, only when desktop automation is explicitly enabled.
     device (optional): Target device name, hostname, ID, or 'local'."""
     return tools.capture_desktop_screenshot()
+
+
+@mcp.tool()
+@device_aware(dispatch_name="capture_desktop_frame")
+def capture_desktop_frame(scale: float = 0.75, quality: int = 70, device: str | None = None) -> dict:
+    """Capture a fast scaled desktop frame optimized for real-time visual streaming.
+    scale: Image scale factor between 0.2 and 1.0 (default 0.75).
+    quality: JPEG compression quality between 20 and 95 (default 70).
+    device (optional): Target machine or 'local'."""
+    approved = _consume_local_approval("capture_desktop_screenshot")
+    return tools.capture_desktop_frame(scale=scale, quality=quality, approval_granted=approved)
 
 @mcp.tool()
 @device_aware(dispatch_name="capture_desktop_screenshot")

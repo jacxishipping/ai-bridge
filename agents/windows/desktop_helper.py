@@ -21,6 +21,9 @@ def status() -> dict:
 def screenshot() -> dict:
     return tools.capture_desktop_screenshot()
 
+def frame(scale: float = 0.75, quality: int = 70) -> dict:
+    return tools.capture_desktop_frame(scale=scale, quality=quality)
+
 def launch(app_name: str) -> dict:
     return tools.launch_approved_application(app_name)
 

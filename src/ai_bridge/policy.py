@@ -43,6 +43,8 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "create_backup": RiskTier.SENSITIVE, "deploy_application": RiskTier.SENSITIVE,
     "capture_desktop_screenshot": RiskTier.SENSITIVE,
     "take_screenshot": RiskTier.SENSITIVE,
+    "capture_desktop_frame": RiskTier.SENSITIVE,
+    "update_fleet_agent": RiskTier.SENSITIVE,
     "ocr_screen": RiskTier.SENSITIVE,
     "click_text": RiskTier.SENSITIVE,
     "click_element": RiskTier.SENSITIVE,

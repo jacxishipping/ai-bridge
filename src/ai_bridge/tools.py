@@ -1296,3 +1296,81 @@ def broadcast_fleet_command(
         "results": [{"device_id": "local", "status": "completed", "result": local_res}],
     }
 
+
+def capture_desktop_frame(
+    scale: float = 0.75,
+    quality: int = 70,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Capture a lightweight scaled desktop frame optimized for real-time visual streaming."""
+    eff_policy = policy or default_policy()
+    _check("capture_desktop_screenshot", approval_granted=approval_granted, policy=eff_policy)
+    from PIL import Image, ImageGrab
+    import io, base64
+
+    try:
+        shot = ImageGrab.grab()
+    except Exception:
+        if platform.system() == "Windows":
+            shot = _grab_windows_desktop_fallback()
+        else:
+            raise
+
+    orig_w, orig_h = shot.size
+    scale = max(0.2, min(1.0, float(scale)))
+    quality = max(20, min(95, int(quality)))
+
+    if scale < 0.99:
+        new_w = max(100, int(orig_w * scale))
+        new_h = max(100, int(orig_h * scale))
+        shot = shot.resize((new_w, new_h), Image.Resampling.BILINEAR)
+    else:
+        new_w, new_h = orig_w, orig_h
+
+    if shot.mode in ("RGBA", "P"):
+        shot = shot.convert("RGB")
+
+    buf = io.BytesIO()
+    shot.save(buf, format="JPEG", quality=quality)
+    jpg_bytes = buf.getvalue()
+    b64 = base64.b64encode(jpg_bytes).decode("ascii")
+
+    return {
+        "available": True,
+        "width": new_w,
+        "height": new_h,
+        "orig_width": orig_w,
+        "orig_height": orig_h,
+        "scale": scale,
+        "quality": quality,
+        "mime_type": "image/jpeg",
+        "size_bytes": len(jpg_bytes),
+        "base64_data": b64,
+        "timestamp": time.time(),
+    }
+
+
+def update_fleet_agent(
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Self-update the local agent from GitHub repository origin/main and verify dependencies."""
+    eff_policy = policy or default_policy()
+    _check("update_fleet_agent", approval_granted=approval_granted, policy=eff_policy)
+    import subprocess
+    cmd = (
+        "git fetch origin main && git checkout -f -B main origin/main && git rev-parse --short HEAD"
+    )
+    res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
+    return {
+        "ok": res.returncode == 0,
+        "returncode": res.returncode,
+        "stdout": res.stdout.strip(),
+        "stderr": res.stderr.strip(),
+        "timestamp": time.time(),
+    }
+
+

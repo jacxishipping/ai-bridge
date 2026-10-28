@@ -48,6 +48,13 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         "get_desktop_status": lambda a: tools.get_desktop_status(),
         "capture_desktop_screenshot": lambda a: tools.capture_desktop_screenshot(approval_granted=approval_granted, policy=policy),
         "take_screenshot": lambda a: tools.capture_desktop_screenshot(approval_granted=approval_granted, policy=policy),
+        "capture_desktop_frame": lambda a: tools.capture_desktop_frame(
+            scale=float(a.get("scale", 0.75)),
+            quality=int(a.get("quality", 70)),
+            approval_granted=approval_granted,
+            policy=policy,
+        ),
+        "update_fleet_agent": lambda a: tools.update_fleet_agent(approval_granted=approval_granted, policy=policy),
         "launch_approved_application": lambda a: tools.launch_approved_application(a["app_name"], approval_granted=approval_granted, url=a.get("url"), policy=policy),
         "perform_approved_ui_action": lambda a: tools.perform_approved_ui_action(
             a["action"],

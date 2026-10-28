@@ -5,8 +5,9 @@ import { DeviceDetailDashboard } from "./DeviceDetailDashboard";
 import { AiApiHub } from "./AiApiHub";
 import { WorkflowPlanner } from "./WorkflowPlanner";
 import { FleetOperations } from "./FleetOperations";
+import { LiveDesktopStudio } from "./LiveDesktopStudio";
 
-type View = "overview" | "devices" | "device_detail" | "tasks" | "approvals" | "audit" | "policies" | "connections" | "ai_api" | "workflows" | "fleet_ops" | "logs";
+type View = "overview" | "devices" | "device_detail" | "tasks" | "approvals" | "audit" | "policies" | "connections" | "ai_api" | "workflows" | "fleet_ops" | "live_studio" | "logs";
 type Theme = "light" | "dark";
 
 const TOOLS = [
@@ -87,6 +88,11 @@ const VIEW_META: Record<View, { title: string; subtitle: string; group: "ops" | 
     subtitle: "Cross-device telemetry graphs, multi-node command bus, self-healing reactive triggers, and cron scheduler.",
     group: "ops",
   },
+  live_studio: {
+    title: "Live Desktop Studio & Dual-Control",
+    subtitle: "Real-time visual screen stream, direct human operator mouse/keyboard takeover, and fleet software updater.",
+    group: "ops",
+  },
   logs: {
     title: "Service Diagnostics & Logs",
     subtitle: "Live systemd journal and reverse-proxy telemetry from the control plane.",
@@ -139,6 +145,8 @@ function FluentIcon({ name }: { name: string }) {
       return <svg {...props}><path d="M4.5 3A1.5 1.5 0 0 0 3 4.5v3A1.5 1.5 0 0 0 4.5 9h2A1.5 1.5 0 0 0 8 7.5v-3A1.5 1.5 0 0 0 6.5 3h-2ZM12 6.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1-.5-.5ZM8 6h3v1H8V6Zm5.5 4.5a1.5 1.5 0 0 0-1.5 1.5v3a1.5 1.5 0 0 0 1.5 1.5h2a1.5 1.5 0 0 0 1.5-1.5v-3a1.5 1.5 0 0 0-1.5-1.5h-2ZM5.5 10a.5.5 0 0 1 .5.5V13h1a.5.5 0 0 1 0 1H5.5A.5.5 0 0 1 5 13.5v-3a.5.5 0 0 1 .5-.5Z"/></svg>;
     case "fleet_ops":
       return <svg {...props}><path d="M10 2a8 8 0 1 0 8 8 8 8 0 0 0-8-8Zm0 1.5a6.5 6.5 0 0 1 6.45 5.75H13.5a1.5 1.5 0 0 0-1.5-1.5V4.79A6.5 6.5 0 0 1 10 3.5Zm-1 1.29V7.75a1.5 1.5 0 0 0-1.5 1.5H3.55A6.5 6.5 0 0 1 9 4.79Zm-5.45 6.46H6.5a1.5 1.5 0 0 0 1.5 1.5v2.96A6.5 6.5 0 0 1 3.55 11.25Zm8.45 4.46V12.75a1.5 1.5 0 0 0 1.5-1.5h2.95a6.5 6.5 0 0 1-4.45 4.46Z"/></svg>;
+    case "live_studio":
+      return <svg {...props}><path d="M4 3a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h4l-1 2H5.5a.5.5 0 0 0 0 1h9a.5.5 0 0 0 0-1H13l-1-2h4a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H4Zm-1 2a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5Z"/></svg>;
     case "logs":
       return <svg {...props}><path d="M3.5 4A1.5 1.5 0 0 0 2 5.5v9A1.5 1.5 0 0 0 3.5 16h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 16.5 4h-13Zm1.85 3.15 2.5 2.5a.5.5 0 0 1 0 .7l-2.5 2.5a.5.5 0 0 1-.7-.7L6.79 10 4.65 7.85a.5.5 0 0 1 .7-.7ZM9.5 12h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1 0-1Z"/></svg>;
     case "theme":
@@ -918,6 +926,20 @@ export default function App() {
             </span>
             <span>Fleet Operations</span>
             <span className="f2-nav-counter" style={{ background: "var(--colorPaletteBlueBackground2, #0078d4)", color: "#fff", fontSize: 9 }}>FLEET</span>
+          </button>
+
+          <button
+            type="button"
+            className="f2-nav-item"
+            data-active={String(view === "live_studio")}
+            onClick={() => setView("live_studio")}
+            title="Real-time visual desktop stream, dual-control human takeover, and fleet auto-updater"
+          >
+            <span className="f2-nav-item-icon">
+              <FluentIcon name="live_studio" />
+            </span>
+            <span>Live Desktop Studio</span>
+            <span className="f2-nav-counter" style={{ background: "var(--colorPaletteRedBackground3, #e81123)", color: "#fff", fontSize: 9 }}>LIVE</span>
           </button>
 
           <div className="f2-nav-section-label" style={{ marginTop: 8 }}>Governance & Telemetry</div>
@@ -2503,6 +2525,11 @@ export default function App() {
           {/* ==================== FLEET OPERATIONS & SELF-HEALING ==================== */}
           {view === "fleet_ops" && (
             <FleetOperations />
+          )}
+
+          {/* ==================== LIVE DESKTOP STUDIO & DUAL CONTROL ==================== */}
+          {view === "live_studio" && (
+            <LiveDesktopStudio devices={devices} onNotice={setNotice} />
           )}
         </main>
       </div>

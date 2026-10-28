@@ -37,6 +37,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.datastructures import Headers
 
+from .. import tools
 from ..policy import Policy, TOOL_TIERS
 from ..security import redact, redact_obj
 from . import auth as authmod
@@ -371,6 +372,20 @@ class FleetBroadcastIn(BaseModel):
     target_os: str | None = None
     target_device_ids: list[str] | None = None
     tenant: str = "default"
+
+
+class DesktopInputIn(BaseModel):
+    action: str = "click"
+    x: float | None = None
+    y: float | None = None
+    normalized: bool = True
+    button: str = "left"
+    clicks: int = 1
+    text: str | None = None
+    key: str | None = None
+    delta: int = -120
+    screen_width: int = 1920
+    screen_height: int = 1080
 
 
 WORKFLOW_TEMPLATES = [
@@ -2354,6 +2369,189 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         res = _execute_workflow_step_sync(row["tool"], args, row["device_id"], row["tenant"], f"schedule_manual:{row['name']}")
         audit(actor, row["device_id"] or "", "run_schedule_now", {"schedule_id": schedule_id}, "executed", tenant=row["tenant"])
         return {"schedule_id": schedule_id, "status": "executed", "result": res}
+
+    # --- Phase 4: Visual Streaming, Dual Control & Fleet Auto-Updater ---
+    app.state.latest_frames = {}
+
+    @app.get("/api/devices/{device_id}/desktop/frame")
+    def get_desktop_frame(
+        device_id: str,
+        scale: float = 0.75,
+        quality: int = 70,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        eff_p = Policy(allow_tier3=True, desktop_enabled=True, max_tier_unattended=4)
+
+        if device_id == "local":
+            try:
+                frame = tools.capture_desktop_frame(scale=scale, quality=quality, approval_granted=True, policy=eff_p)
+                app.state.latest_frames["local"] = frame
+                return frame
+            except Exception as exc:
+                return {
+                    "available": False,
+                    "error": str(exc),
+                    "note": "Desktop session not currently active or requires graphical display.",
+                }
+
+        cached = app.state.latest_frames.get(device_id)
+        now_ts = time.time()
+        if cached and (now_ts - cached.get("timestamp", 0)) < 2.5:
+            return cached
+
+        try:
+            res = _execute_workflow_step_sync(
+                "capture_desktop_frame",
+                {"scale": scale, "quality": quality},
+                device_id,
+                "default",
+                "desktop_stream",
+            )
+            if isinstance(res, dict) and res.get("base64_data"):
+                app.state.latest_frames[device_id] = res
+            return res
+        except Exception as exc:
+            if cached:
+                return cached
+            return {"available": False, "error": str(exc)}
+
+    @app.post("/api/devices/{device_id}/desktop/input")
+    def send_desktop_input(
+        device_id: str,
+        body: DesktopInputIn,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        abs_x, abs_y = None, None
+        if body.x is not None and body.y is not None:
+            if body.normalized and 0.0 <= body.x <= 1.0 and 0.0 <= body.y <= 1.0:
+                abs_x = int(body.x * body.screen_width)
+                abs_y = int(body.y * body.screen_height)
+            else:
+                abs_x = int(body.x)
+                abs_y = int(body.y)
+
+        action = body.action.lower()
+        if action in ("click", "double_click", "triple_click", "right_click", "middle_click"):
+            btn = "right" if action == "right_click" else ("middle" if action == "middle_click" else body.button)
+            clicks = 2 if action == "double_click" else (3 if action == "triple_click" else body.clicks)
+            res = _execute_workflow_step_sync(
+                "mouse_click",
+                {"x": abs_x, "y": abs_y, "button": btn, "clicks": clicks},
+                device_id,
+                "default",
+                f"dual_control:{actor}",
+            )
+        elif action == "move":
+            res = _execute_workflow_step_sync(
+                "mouse_move",
+                {"x": abs_x, "y": abs_y},
+                device_id,
+                "default",
+                f"dual_control:{actor}",
+            )
+        elif action == "scroll":
+            res = _execute_workflow_step_sync(
+                "mouse_scroll",
+                {"delta": body.delta, "x": abs_x, "y": abs_y},
+                device_id,
+                "default",
+                f"dual_control:{actor}",
+            )
+        elif action == "type":
+            res = _execute_workflow_step_sync(
+                "keyboard_type",
+                {"text": body.text or ""},
+                device_id,
+                "default",
+                f"dual_control:{actor}",
+            )
+        elif action in ("press", "hotkey"):
+            res = _execute_workflow_step_sync(
+                "press_hotkey",
+                {"combo": body.key or ""},
+                device_id,
+                "default",
+                f"dual_control:{actor}",
+            )
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported input action: {action}")
+
+        audit(actor, device_id, f"dual_control_{action}", {"x": abs_x, "y": abs_y, "key": body.key, "text": bool(body.text)}, "executed")
+        return {"ok": True, "action": action, "x": abs_x, "y": abs_y, "result": res}
+
+    @app.get("/api/fleet/version")
+    def get_fleet_version(
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        import subprocess
+        git_commit = "unknown"
+        git_branch = "main"
+        try:
+            c_proc = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=5)
+            if c_proc.returncode == 0:
+                git_commit = c_proc.stdout.strip()
+            b_proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, timeout=5)
+            if b_proc.returncode == 0:
+                git_branch = b_proc.stdout.strip()
+        except Exception:
+            pass
+
+        return {
+            "control_plane_version": "1.30.0",
+            "git_commit": git_commit,
+            "git_branch": git_branch,
+            "system_time": time.time(),
+        }
+
+    @app.post("/api/fleet/update")
+    def update_fleet(
+        target_os: str | None = None,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        b_res = broadcast_fleet_command(
+            FleetBroadcastIn(tool="update_fleet_agent", args={}, target_os=target_os),
+            x_admin_token=x_admin_token,
+            x_session_token=x_session_token,
+        )
+        audit(actor, "fleet", "update_fleet", {"batch_id": b_res.get("batch_id"), "target_os": target_os}, "executed")
+        return b_res
+
+    @app.post("/api/devices/{device_id}/update")
+    def update_device(
+        device_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        if device_id == "local":
+            res = _execute_workflow_step_sync("update_fleet_agent", {}, "local", "default", f"manual_update:{actor}")
+            audit(actor, "local", "update_device_agent", {"result": res}, "executed")
+            return {"device_id": "local", "status": "updated", "result": res}
+
+        dev_row = conn.execute("SELECT * FROM devices WHERE id=? AND revoked=0", (device_id,)).fetchone()
+        if not dev_row:
+            raise HTTPException(status_code=404, detail="Device not found.")
+
+        task_id = f"upd-{uuid.uuid4().hex[:8]}"
+        now_ts = dbmod.now()
+        tier = TOOL_TIERS.get("update_fleet_agent")
+        t_val = tier.value if tier else 3
+        conn.execute(
+            "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, created_at, updated_at) VALUES (?,?,?,?,?,?,'queued',?,?)",
+            (task_id, device_id, dev_row["tenant"], "update_fleet_agent", "{}", t_val, now_ts, now_ts),
+        )
+        conn.commit()
+        notify_tasks()
+        audit(actor, device_id, "update_device_agent", {"task_id": task_id}, "queued", tenant=dev_row["tenant"])
+        return {"device_id": device_id, "status": "queued", "task_id": task_id}
 
     # --- Settings: Webhook notifications ----------------------------------
     @app.get("/api/settings/webhook")

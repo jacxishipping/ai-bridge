@@ -119,4 +119,13 @@ export const api = {
   createSchedule: (body: any) => call("/api/schedules", "POST", body),
   deleteSchedule: (id: string) => call(`/api/schedules/${encodeURIComponent(id)}`, "DELETE"),
   runScheduleNow: (id: string) => call(`/api/schedules/${encodeURIComponent(id)}/run-now`, "POST", {}),
+  desktopFrame: (deviceId: string, scale = 0.75, quality = 70) =>
+    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/frame?scale=${scale}&quality=${quality}`),
+  sendDesktopInput: (deviceId: string, body: any) =>
+    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/input`, "POST", body),
+  fleetVersion: () => call("/api/fleet/version"),
+  updateFleet: (targetOs?: string) =>
+    call(`/api/fleet/update${targetOs ? `?target_os=${encodeURIComponent(targetOs)}` : ""}`, "POST", {}),
+  updateDeviceAgent: (deviceId: string) =>
+    call(`/api/devices/${encodeURIComponent(deviceId)}/update`, "POST", {}),
 };
