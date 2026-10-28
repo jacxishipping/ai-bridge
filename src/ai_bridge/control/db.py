@@ -50,10 +50,18 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS policies (
   id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL,
   policy_json TEXT NOT NULL, created_by TEXT, created_at REAL NOT NULL, note TEXT);
+CREATE TABLE IF NOT EXISTS workflows (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, tenant TEXT NOT NULL DEFAULT 'default',
+  device_id TEXT, steps_json TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'pending',
+  current_step INTEGER NOT NULL DEFAULT 0, total_steps INTEGER NOT NULL DEFAULT 0,
+  results_json TEXT NOT NULL DEFAULT '[]', error TEXT DEFAULT '',
+  created_at REAL NOT NULL, updated_at REAL NOT NULL, completed_at REAL);
 CREATE INDEX IF NOT EXISTS idx_devices_token_hash ON devices(token_hash);
 CREATE INDEX IF NOT EXISTS idx_tasks_device_status ON tasks(device_id, status);
 CREATE INDEX IF NOT EXISTS idx_approvals_task_id ON approvals(task_id);
 CREATE INDEX IF NOT EXISTS idx_audit_tenant_ts ON audit(tenant, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status);
+CREATE INDEX IF NOT EXISTS idx_workflows_tenant_ts ON workflows(tenant, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_policies_version ON policies(version);
 """
 

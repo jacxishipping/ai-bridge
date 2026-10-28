@@ -46,6 +46,10 @@ DESKTOP_TOOLS = {
     "click_element",
     "list_ui_elements",
     "set_of_marks_screenshot",
+    "wait_for_text",
+    "verify_screen_contains",
+    "press_hotkey",
+    "execute_workflow",
 }
 
 # Master tool catalog with descriptions and JSON schema properties
@@ -213,6 +217,62 @@ TOOL_CATALOG: dict[str, dict[str, Any]] = {
             "properties": {
                 "device": {"type": "string", "description": "Target device."},
             },
+        },
+    },
+    "wait_for_text": {
+        "description": "Poll the desktop screen using native OCR until the expected text appears (e.g. waiting for page to load or window to open), or timeout.",
+        "category": "desktop",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Text or label to wait for on screen."},
+                "timeout_seconds": {"type": "number", "description": "Maximum seconds to wait (default 15).", "default": 15.0},
+                "poll_interval": {"type": "number", "description": "Seconds between OCR polls (default 1.0).", "default": 1.0},
+                "device": {"type": "string", "description": "Target device."},
+            },
+            "required": ["text"],
+        },
+    },
+    "verify_screen_contains": {
+        "description": "Instant one-shot assertion to verify whether specific text or button is visible on the desktop screen.",
+        "category": "desktop",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Text or label to verify on screen."},
+                "device": {"type": "string", "description": "Target device."},
+            },
+            "required": ["text"],
+        },
+    },
+    "press_hotkey": {
+        "description": "Press a keyboard shortcut combo on the desktop (e.g. 'ctrl+s', 'ctrl+c', 'ctrl+v', 'alt+tab', 'enter', 'esc').",
+        "category": "desktop",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "combo": {"type": "string", "description": "Hotkey combo, e.g. 'ctrl+s', 'alt+f4', 'enter'."},
+                "device": {"type": "string", "description": "Target device."},
+            },
+            "required": ["combo"],
+        },
+    },
+    "execute_workflow": {
+        "description": "Execute a multi-step autonomous plan of actions sequentially with step verification and self-correcting retry.",
+        "category": "workflow",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "steps": {
+                    "type": "array",
+                    "description": "Ordered list of step action dicts: [{'action': '...', 'args': {...}, 'name': '...'}].",
+                    "items": {"type": "object"},
+                },
+                "stop_on_failure": {"type": "boolean", "description": "Halt subsequent steps if a step fails.", "default": True},
+                "max_retries": {"type": "integer", "description": "Retries per step if an action fails.", "default": 1},
+                "device": {"type": "string", "description": "Target device."},
+            },
+            "required": ["steps"],
         },
     },
     "list_desktop_windows": {

@@ -39,6 +39,18 @@ def list_elements() -> dict:
 def set_of_marks(max_marks: int = 40) -> dict:
     return tools.set_of_marks_screenshot(max_marks=max_marks)
 
+def wait_for_text(text: str, timeout_seconds: float = 15.0, poll_interval: float = 1.0) -> dict:
+    return tools.wait_for_text(text, timeout_seconds=timeout_seconds, poll_interval=poll_interval)
+
+def verify_screen(text: str) -> dict:
+    return tools.verify_screen_contains(text)
+
+def hotkey(combo: str) -> dict:
+    return tools.press_hotkey(combo)
+
+def workflow(steps: list[dict], stop_on_failure: bool = True) -> dict:
+    return tools.execute_workflow(steps, stop_on_failure=stop_on_failure)
+
 
 if __name__ == "__main__":
     import json

@@ -48,6 +48,10 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "click_element": RiskTier.SENSITIVE,
     "list_ui_elements": RiskTier.READ_ONLY,
     "set_of_marks_screenshot": RiskTier.SENSITIVE,
+    "wait_for_text": RiskTier.SENSITIVE,
+    "verify_screen_contains": RiskTier.SENSITIVE,
+    "press_hotkey": RiskTier.SENSITIVE,
+    "execute_workflow": RiskTier.SENSITIVE,
     "launch_approved_application": RiskTier.SENSITIVE,
     "perform_approved_ui_action": RiskTier.SENSITIVE,
     "mouse_click": RiskTier.SENSITIVE,
@@ -113,8 +117,9 @@ def decide(policy: Policy, tool: str, *, approval_granted: bool = False,
         desktop_tools = {
             "capture_desktop_screenshot", "take_screenshot", "launch_approved_application",
             "perform_approved_ui_action", "mouse_click", "mouse_move", "mouse_scroll",
-            "mouse_drag", "keyboard_type", "keyboard_press", "focus_window",
-            "ocr_screen", "click_text", "click_element", "list_ui_elements", "set_of_marks_screenshot"
+            "mouse_drag", "keyboard_type", "keyboard_press", "press_hotkey", "focus_window",
+            "ocr_screen", "click_text", "click_element", "list_ui_elements", "set_of_marks_screenshot",
+            "wait_for_text", "verify_screen_contains", "execute_workflow",
         }
         if tool in desktop_tools and not policy.desktop_enabled:
             return Decision(False, reason="Desktop automation is not enabled.")

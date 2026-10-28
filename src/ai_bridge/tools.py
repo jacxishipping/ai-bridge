@@ -1100,3 +1100,176 @@ def write_file(path: str, content: str, overwrite: bool = False, *, approval_gra
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     return {"path": str(target), "bytes": len(content.encode("utf-8"))}
+
+
+def wait_for_text(
+    text: str,
+    *,
+    timeout_seconds: float = 15.0,
+    poll_interval: float = 1.0,
+    occurrence: int = 1,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Poll screen with native OCR until specified text appears or timeout is reached."""
+    eff_policy = policy or default_policy()
+    _check("wait_for_text", approval_granted=approval_granted, policy=eff_policy)
+    from . import vision
+
+    start_t = time.time()
+    deadline = start_t + max(1.0, float(timeout_seconds))
+    interval = max(0.2, min(float(poll_interval), 5.0))
+    attempts = 0
+
+    while True:
+        attempts += 1
+        shot_res = capture_desktop_screenshot(approval_granted=approval_granted, policy=eff_policy)
+        img_path = shot_res.get("path") if shot_res.get("available") else None
+        res = vision.find_text_coordinates(text, image_path=img_path, occurrence=occurrence)
+        if res.get("found") and res.get("match"):
+            elapsed = round(time.time() - start_t, 2)
+            return {
+                "ok": True,
+                "found": True,
+                "text": text,
+                "matched_text": res["match"].get("text"),
+                "elapsed_seconds": elapsed,
+                "attempts": attempts,
+                "x": res["x"],
+                "y": res["y"],
+                "bounds": res["match"].get("bounds"),
+            }
+        now = time.time()
+        if now >= deadline:
+            elapsed = round(now - start_t, 2)
+            return {
+                "ok": False,
+                "found": False,
+                "text": text,
+                "elapsed_seconds": elapsed,
+                "attempts": attempts,
+                "error": f"Timeout waiting for text '{text}' on screen after {elapsed}s.",
+            }
+        rem = deadline - now
+        time.sleep(min(interval, rem))
+
+
+def verify_screen_contains(
+    text: str,
+    *,
+    occurrence: int = 1,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """One-shot instant verification: check if text is currently displayed on screen."""
+    eff_policy = policy or default_policy()
+    _check("verify_screen_contains", approval_granted=approval_granted, policy=eff_policy)
+    from . import vision
+
+    shot_res = capture_desktop_screenshot(approval_granted=approval_granted, policy=eff_policy)
+    img_path = shot_res.get("path") if shot_res.get("available") else None
+    res = vision.find_text_coordinates(text, image_path=img_path, occurrence=occurrence)
+    return {
+        "ok": True,
+        "contains": bool(res.get("found")),
+        "text": text,
+        "matched_text": res.get("match", {}).get("text") if res.get("match") else None,
+        "bounds": res.get("match", {}).get("bounds") if res.get("match") else None,
+        "center": [res["x"], res["y"]] if res.get("found") else None,
+    }
+
+
+def press_hotkey(
+    combo: str,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Press a standard keyboard shortcut or hotkey (e.g. 'ctrl+s', 'ctrl+t', 'alt+tab', 'enter')."""
+    eff_policy = policy or default_policy()
+    _check("press_hotkey", approval_granted=approval_granted, policy=eff_policy)
+    c = (combo or "").strip().lower()
+    if not c:
+        raise ValueError("Hotkey combo must not be empty.")
+    return perform_approved_ui_action("hotkey", key=c, approval_granted=approval_granted, policy=eff_policy)
+
+
+def execute_workflow(
+    steps: list[dict],
+    *,
+    stop_on_failure: bool = True,
+    max_retries: int = 1,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Execute a structured plan of autonomous actions sequentially with verification and retry."""
+    eff_policy = policy or default_policy()
+    _check("execute_workflow", approval_granted=approval_granted, policy=eff_policy)
+    from .control.dispatch import dispatch
+
+    results = []
+    workflow_ok = True
+    start_total = time.time()
+
+    for idx, step in enumerate(steps or []):
+        step_name = step.get("name") or f"Step {idx + 1}"
+        action = step.get("action")
+        args = dict(step.get("args") or {})
+        verify_cfg = step.get("verify")
+        retries_left = max(0, int(step.get("retries", max_retries)))
+
+        step_res = {
+            "index": idx + 1,
+            "name": step_name,
+            "action": action,
+            "args": args,
+            "status": "pending",
+            "duration_seconds": 0.0,
+            "result": None,
+            "error": None,
+        }
+
+        t0 = time.time()
+        step_success = False
+
+        while retries_left >= 0 and not step_success:
+            try:
+                act_res = dispatch(action, args, policy=eff_policy, approval_granted=approval_granted)
+                step_res["result"] = act_res
+
+                if verify_cfg and isinstance(verify_cfg, dict):
+                    v_text = verify_cfg.get("text")
+                    v_timeout = float(verify_cfg.get("timeout_seconds", 8.0))
+                    if v_text:
+                        v_res = wait_for_text(v_text, timeout_seconds=v_timeout, approval_granted=approval_granted, policy=eff_policy)
+                        step_res["verification"] = v_res
+                        if not v_res.get("found"):
+                            raise RuntimeError(f"Step verification failed: text '{v_text}' not found after {v_timeout}s.")
+
+                step_res["status"] = "completed"
+                step_success = True
+            except Exception as exc:
+                retries_left -= 1
+                if retries_left < 0:
+                    step_res["status"] = "failed"
+                    step_res["error"] = str(exc)
+                    workflow_ok = False
+                else:
+                    time.sleep(1.0)
+
+        step_res["duration_seconds"] = round(time.time() - t0, 2)
+        results.append(step_res)
+
+        if not step_success and stop_on_failure:
+            break
+
+    total_duration = round(time.time() - start_total, 2)
+    return {
+        "ok": workflow_ok,
+        "total_steps": len(steps or []),
+        "executed_steps": len(results),
+        "successful_steps": sum(1 for r in results if r["status"] == "completed"),
+        "failed_steps": sum(1 for r in results if r["status"] == "failed"),
+        "total_duration_seconds": total_duration,
+        "steps": results,
+    }

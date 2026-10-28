@@ -880,6 +880,50 @@ def set_of_marks_screenshot(max_marks: int = 40, device: str | None = None) -> d
     return tools.set_of_marks_screenshot(max_marks=max_marks, approval_granted=approved)
 
 
+@mcp.tool()
+@device_aware("wait_for_text")
+def wait_for_text(text: str, timeout_seconds: float = 15.0, poll_interval: float = 1.0, occurrence: int = 1, device: str | None = None) -> dict:
+    """Poll screen with native OCR until specified text appears or timeout is reached.
+    text: Text or label to wait for on screen.
+    timeout_seconds: Maximum seconds to wait (default 15.0).
+    poll_interval: Seconds between screen checks (default 1.0).
+    device (optional): Target device name (e.g. 'windows-pc') or 'local'."""
+    approved = _consume_local_approval("wait_for_text")
+    return tools.wait_for_text(text, timeout_seconds=timeout_seconds, poll_interval=poll_interval, occurrence=occurrence, approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("verify_screen_contains")
+def verify_screen_contains(text: str, occurrence: int = 1, device: str | None = None) -> dict:
+    """One-shot instant assertion: check if text is currently displayed on screen.
+    text: Expected text on screen.
+    device (optional): Target device name (e.g. 'windows-pc') or 'local'."""
+    approved = _consume_local_approval("verify_screen_contains")
+    return tools.verify_screen_contains(text, occurrence=occurrence, approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("press_hotkey")
+def press_hotkey(combo: str, device: str | None = None) -> dict:
+    """Press a standard keyboard shortcut or hotkey combo on desktop (e.g. 'ctrl+s', 'alt+tab', 'enter').
+    combo: Key combination like 'ctrl+s', 'ctrl+w', 'alt+f4', 'enter'.
+    device (optional): Target device name (e.g. 'windows-pc') or 'local'."""
+    approved = _consume_local_approval("press_hotkey")
+    return tools.press_hotkey(combo, approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("execute_workflow")
+def execute_workflow(steps: list[dict], stop_on_failure: bool = True, max_retries: int = 1, device: str | None = None) -> dict:
+    """Execute a structured plan of autonomous actions sequentially with verification and retry.
+    steps: List of action dicts: [{'action': '...', 'args': {...}, 'name': '...'}].
+    stop_on_failure: Stop subsequent steps if a step fails.
+    max_retries: Retries per step upon failure.
+    device (optional): Target device name (e.g. 'windows-pc') or 'local'."""
+    approved = _consume_local_approval("execute_workflow")
+    return tools.execute_workflow(steps, stop_on_failure=stop_on_failure, max_retries=max_retries, approval_granted=approved)
+
+
 class _BearerAuthMiddleware:
     """Enforce bearer token authentication and normalize Accept & path on Streamable HTTP."""
 

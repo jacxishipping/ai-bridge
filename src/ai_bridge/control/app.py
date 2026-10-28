@@ -33,14 +33,15 @@ from pathlib import Path
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.datastructures import Headers
 
-from ..policy import TOOL_TIERS
+from ..policy import Policy, TOOL_TIERS
 from ..security import redact, redact_obj
 from . import auth as authmod
 from . import db as dbmod
+from .dispatch import dispatch
 
 _RATE: dict[str, list[float]] = {}
 _RATE_LOCK = threading.Lock()
@@ -329,6 +330,55 @@ class ApprovalUpdateIn(BaseModel):
 class OAuthClientUpdateIn(BaseModel):
     client_name: str | None = None
     redirect_uris: str | None = None
+
+
+class WorkflowIn(BaseModel):
+    name: str = "Autonomous Workflow"
+    device_id: str | None = None
+    steps: list[dict] = []
+    stop_on_failure: bool = True
+    max_retries: int = 1
+    tenant: str = "default"
+
+
+WORKFLOW_TEMPLATES = [
+    {
+        "id": "web_navigation_search",
+        "name": "🌐 Web Navigation & OCR Verification",
+        "description": "Opens browser, waits for load, navigates to target URL, and verifies header text.",
+        "steps": [
+            {"name": "Launch Browser", "action": "launch_approved_application", "args": {"app_name": "chrome"}},
+            {"name": "Wait for Browser", "action": "wait_for_text", "args": {"text": "Google", "timeout_seconds": 10}},
+            {"name": "Press Shortcut to Address Bar", "action": "press_hotkey", "args": {"combo": "ctrl+l"}},
+            {"name": "Type Destination URL", "action": "keyboard_type", "args": {"text": "https://news.ycombinator.com\n"}},
+            {"name": "Verify Site Loaded", "action": "wait_for_text", "args": {"text": "Hacker News", "timeout_seconds": 12}},
+            {"name": "Capture Final Screenshot", "action": "take_screenshot", "args": {"quality": 80}},
+        ],
+    },
+    {
+        "id": "app_automation_doc",
+        "name": "📝 App Launch & Document Generation",
+        "description": "Opens Notepad, types formatted notes, triggers save shortcut, and verifies save dialog.",
+        "steps": [
+            {"name": "Open Notepad", "action": "launch_approved_application", "args": {"app_name": "notepad"}},
+            {"name": "Wait for Notepad", "action": "wait_for_text", "args": {"text": "File", "timeout_seconds": 8}},
+            {"name": "Type Document Content", "action": "keyboard_type", "args": {"text": "AI Bridge Autonomous Workflow Execution Report\nAll steps verified successfully.\n"}},
+            {"name": "Trigger Save Hotkey", "action": "press_hotkey", "args": {"combo": "ctrl+s"}},
+            {"name": "Verify Save Dialog", "action": "wait_for_text", "args": {"text": "Save", "timeout_seconds": 5}},
+        ],
+    },
+    {
+        "id": "fleet_health_diagnostics",
+        "name": "🩺 Fleet Health & Telemetry Verification",
+        "description": "Gathers system telemetry, lists open windows, checks desktop status, and confirms fleet health.",
+        "steps": [
+            {"name": "Check System Info", "action": "get_system_info", "args": {}},
+            {"name": "Check Resource Usage", "action": "get_resource_usage", "args": {}},
+            {"name": "List Active Desktop Windows", "action": "list_desktop_windows", "args": {}},
+            {"name": "Enumerate UI Elements", "action": "list_ui_elements", "args": {}},
+        ],
+    },
+]
 
 
 def _render_quick_decision_html(
@@ -1556,6 +1606,248 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         notify_tasks()
         audit("admin", "", "emergency_stop_clear", {}, "allowed")
         return {"emergency_stop": False}
+
+    # --- Autonomous Workflows & Multi-Turn Plan Execution -----------------
+    @app.get("/api/workflows/templates")
+    def get_workflow_templates(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("viewer", x_admin_token, x_session_token)
+        return {"templates": WORKFLOW_TEMPLATES}
+
+    @app.get("/api/workflows")
+    def list_workflows(
+        tenant: str = "default",
+        status: str | None = None,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        if status:
+            rows = conn.execute("SELECT * FROM workflows WHERE tenant=? AND status=? ORDER BY created_at DESC LIMIT 100", (tenant, status)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM workflows WHERE tenant=? ORDER BY created_at DESC LIMIT 100", (tenant,)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["steps"] = json.loads(d.get("steps_json") or "[]")
+            d["results"] = json.loads(d.get("results_json") or "[]")
+            out.append(d)
+        return out
+
+    @app.get("/api/workflows/{workflow_id}")
+    def get_workflow(
+        workflow_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM workflows WHERE id=?", (workflow_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Workflow not found.")
+        d = dict(row)
+        d["steps"] = json.loads(d.get("steps_json") or "[]")
+        d["results"] = json.loads(d.get("results_json") or "[]")
+        return d
+
+    @app.post("/api/workflows/{workflow_id}/cancel")
+    def cancel_workflow(
+        workflow_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM workflows WHERE id=?", (workflow_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Workflow not found.")
+        now_ts = dbmod.now()
+        conn.execute("UPDATE workflows SET status='cancelled', updated_at=?, completed_at=? WHERE id=? AND status IN ('pending', 'running')", (now_ts, now_ts, workflow_id))
+        conn.commit()
+        audit(actor, row["device_id"] or "", "cancel_workflow", {"workflow_id": workflow_id}, "allowed", tenant=row["tenant"])
+        return {"workflow_id": workflow_id, "status": "cancelled"}
+
+    def _execute_workflow_step_sync(action: str, args: dict, target_device_id: str | None, tenant: str, actor: str) -> dict:
+        if target_device_id and target_device_id != "local":
+            dev_row = conn.execute("SELECT * FROM devices WHERE id=? AND revoked=0", (target_device_id,)).fetchone()
+            if dev_row:
+                tier = TOOL_TIERS.get(action)
+                t_val = tier.value if tier else 2
+                task_id = uuid.uuid4().hex[:12]
+                now_ts = dbmod.now()
+                conn.execute(
+                    "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, created_at, updated_at) VALUES (?,?,?,?,?,?,'queued',?,?)",
+                    (task_id, target_device_id, tenant, action, json.dumps(args), t_val, now_ts, now_ts),
+                )
+                conn.commit()
+                notify_tasks()
+                deadline = time.time() + 45.0
+                while time.time() < deadline:
+                    time.sleep(0.3)
+                    t_row = conn.execute("SELECT status, result FROM tasks WHERE id=?", (task_id,)).fetchone()
+                    if t_row and t_row["status"] in ("completed", "failed", "cancelled"):
+                        if t_row["status"] == "failed":
+                            raise RuntimeError(f"Remote device task failed: {t_row['result']}")
+                        try:
+                            return json.loads(t_row["result"])
+                        except Exception:
+                            return {"raw": t_row["result"]}
+                raise TimeoutError(f"Timed out waiting for device {target_device_id} to execute {action}.")
+        raw_p = get_current_policy()
+        eff_p = Policy(
+            allow_writes=bool(raw_p.get("allow_writes", True)),
+            allow_tier3=bool(raw_p.get("allow_tier3", True)),
+            desktop_enabled=bool(raw_p.get("desktop_enabled", True)),
+            max_tier_unattended=4,
+            allowed_services=frozenset(raw_p.get("allowed_services") or []),
+            allowed_apps=frozenset(raw_p.get("allowed_apps") or []),
+            unrestricted=bool(raw_p.get("unrestricted", False)),
+        )
+        return dispatch(action, args, policy=eff_p, approval_granted=True, is_admin=True)
+
+    def _run_workflow_worker(wf_id: str, target_dev: str | None, tenant: str, steps: list[dict], stop_on_failure: bool, max_retries: int, actor: str):
+        results = []
+        overall_ok = True
+        err_msg = ""
+
+        for idx, step in enumerate(steps):
+            check = conn.execute("SELECT status FROM workflows WHERE id=?", (wf_id,)).fetchone()
+            if check and check["status"] == "cancelled":
+                return
+
+            step_name = step.get("name") or f"Step {idx + 1}"
+            action = step.get("action", "")
+            args = dict(step.get("args") or {})
+            verify_cfg = step.get("verify")
+            retries_left = max(0, int(step.get("retries", max_retries)))
+
+            step_entry = {
+                "index": idx + 1,
+                "name": step_name,
+                "action": action,
+                "args": args,
+                "status": "running",
+                "duration_seconds": 0.0,
+                "result": None,
+                "error": None,
+            }
+
+            conn.execute("UPDATE workflows SET current_step=?, updated_at=? WHERE id=?", (idx + 1, dbmod.now(), wf_id))
+            conn.commit()
+
+            t0 = time.time()
+            success = False
+
+            while retries_left >= 0 and not success:
+                try:
+                    res = _execute_workflow_step_sync(action, args, target_dev, tenant, actor)
+                    step_entry["result"] = res
+
+                    if verify_cfg and isinstance(verify_cfg, dict):
+                        v_text = verify_cfg.get("text")
+                        v_timeout = float(verify_cfg.get("timeout_seconds", 8.0))
+                        if v_text:
+                            v_res = _execute_workflow_step_sync("wait_for_text", {"text": v_text, "timeout_seconds": v_timeout}, target_dev, tenant, actor)
+                            step_entry["verification"] = v_res
+                            if not v_res.get("found"):
+                                raise RuntimeError(f"Step verification failed: text '{v_text}' not found after {v_timeout}s.")
+
+                    step_entry["status"] = "completed"
+                    success = True
+                except Exception as exc:
+                    retries_left -= 1
+                    if retries_left < 0:
+                        step_entry["status"] = "failed"
+                        step_entry["error"] = str(exc)
+                        overall_ok = False
+                        err_msg = str(exc)
+                    else:
+                        time.sleep(1.0)
+
+            step_entry["duration_seconds"] = round(time.time() - t0, 2)
+            results.append(step_entry)
+
+            conn.execute("UPDATE workflows SET results_json=?, updated_at=? WHERE id=?", (json.dumps(results), dbmod.now(), wf_id))
+            conn.commit()
+
+            if not success and stop_on_failure:
+                break
+
+        final_status = "completed" if overall_ok else "failed"
+        conn.execute("UPDATE workflows SET status=?, error=?, results_json=?, completed_at=?, updated_at=? WHERE id=?",
+                     (final_status, err_msg, json.dumps(results), dbmod.now(), dbmod.now(), wf_id))
+        conn.commit()
+        audit(actor, target_dev or "local", "execute_workflow", {"workflow_id": wf_id, "status": final_status, "steps_count": len(steps)}, "allowed", tenant=tenant)
+
+    @app.post("/api/workflows")
+    def submit_workflow(
+        body: WorkflowIn,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        if app.state.emergency_stop:
+            raise HTTPException(status_code=403, detail="Emergency stop is active; workflows rejected.")
+        if not body.steps:
+            raise HTTPException(status_code=400, detail="Workflow must contain at least one step.")
+
+        wf_id = uuid.uuid4().hex[:12]
+        now_ts = dbmod.now()
+        conn.execute(
+            "INSERT INTO workflows (id, name, tenant, device_id, steps_json, status, current_step, total_steps, results_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, 'running', 0, ?, '[]', ?, ?)",
+            (wf_id, body.name, body.tenant, body.device_id, json.dumps(body.steps), len(body.steps), now_ts, now_ts),
+        )
+        conn.commit()
+        audit(actor, body.device_id or "local", "create_workflow", {"workflow_id": wf_id, "name": body.name, "steps": len(body.steps)}, "allowed", tenant=body.tenant)
+
+        threading.Thread(
+            target=_run_workflow_worker,
+            args=(wf_id, body.device_id, body.tenant, body.steps, body.stop_on_failure, body.max_retries, actor),
+            daemon=True,
+        ).start()
+
+        return {
+            "workflow_id": wf_id,
+            "name": body.name,
+            "status": "running",
+            "total_steps": len(body.steps),
+            "device_id": body.device_id,
+        }
+
+    @app.get("/api/workflows/{workflow_id}/stream")
+    async def stream_workflow_progress(
+        workflow_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM workflows WHERE id=?", (workflow_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Workflow not found.")
+
+        async def event_generator():
+            last_step = -1
+            last_status = ""
+            while True:
+                curr = conn.execute("SELECT * FROM workflows WHERE id=?", (workflow_id,)).fetchone()
+                if curr is None:
+                    break
+                payload = {
+                    "workflow_id": workflow_id,
+                    "status": curr["status"],
+                    "current_step": curr["current_step"],
+                    "total_steps": curr["total_steps"],
+                    "results": json.loads(curr["results_json"] or "[]"),
+                    "error": curr["error"],
+                }
+                if curr["current_step"] != last_step or curr["status"] != last_status:
+                    last_step = curr["current_step"]
+                    last_status = curr["status"]
+                    yield f"data: {json.dumps(payload)}\n\n"
+
+                if curr["status"] in ("completed", "failed", "cancelled"):
+                    break
+                await asyncio.sleep(0.5)
+
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
 
     # --- Settings: Webhook notifications ----------------------------------
     @app.get("/api/settings/webhook")

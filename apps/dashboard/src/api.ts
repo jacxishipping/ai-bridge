@@ -98,4 +98,11 @@ export const api = {
     call("/api/settings/ai", "POST", body),
   aiChat: (body: { messages: any[]; provider?: string; model?: string; api_key?: string; base_url?: string; device?: string }) =>
     call("/api/ai/chat", "POST", body),
+  workflowTemplates: () => call("/api/workflows/templates"),
+  workflows: (status?: string) => call(`/api/workflows${status ? `?status=${encodeURIComponent(status)}` : ""}`),
+  workflowDetail: (id: string) => call(`/api/workflows/${encodeURIComponent(id)}`),
+  submitWorkflow: (body: { name: string; device_id?: string; steps: any[]; stop_on_failure?: boolean; max_retries?: number }) =>
+    call("/api/workflows", "POST", body),
+  cancelWorkflow: (id: string) => call(`/api/workflows/${encodeURIComponent(id)}/cancel`, "POST", {}),
+  streamWorkflowUrl: (id: string) => `${BASE}/api/workflows/${encodeURIComponent(id)}/stream`,
 };
