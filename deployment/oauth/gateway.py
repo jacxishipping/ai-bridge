@@ -610,12 +610,12 @@ def approval_form(params: dict, error: str = "", current_binding: str = "") -> s
 
     <h1 class="f2-title">Authorize MCP Client</h1>
     <p class="f2-subtitle">
-      Grant <b>{html.escape(client_display)}</b> access to your policy-governed AI Bridge device.
+      Grant <b>{html.escape(client_display)}</b> access to your entire AI Bridge fleet using your Administrator Token.
     </p>
 
     <div class="f2-steps">
       <div id="step-admin" class="f2-step" data-done="false">1. Admin Auth</div>
-      <div id="step-device" class="f2-step" data-done="false">2. Bind Device</div>
+      <div id="step-fleet" class="f2-step" data-done="true">2. Fleet Access</div>
       <div id="step-pkce" class="f2-step" data-done="true">3. PKCE S256</div>
     </div>
 
@@ -631,6 +631,10 @@ def approval_form(params: dict, error: str = "", current_binding: str = "") -> s
       <div class="f2-meta-row">
         <span class="f2-meta-label">CALLBACK HOST</span>
         <code>{html.escape(redirect_host)}</code>
+      </div>
+      <div class="f2-meta-row">
+        <span class="f2-meta-label">DEVICE ACCESS</span>
+        <span class="f2-badge f2-badge-success">All Fleet Devices</span>
       </div>
       {binding_row}
     </div>
@@ -657,29 +661,7 @@ def approval_form(params: dict, error: str = "", current_binding: str = "") -> s
           </div>
         </div>
         <div class="f2-hint">
-          Verified once to authorize this OAuth client and never stored in the session.
-        </div>
-      </div>
-
-      <div class="f2-field">
-        <label class="f2-label" for="device_token">
-          <span>Target Device Token</span>
-          <span class="f2-req">Required</span>
-        </label>
-        <div class="f2-input-wrap">
-          <input id="device_token" class="f2-input" type="password" name="device_token"
-            placeholder="Enter enrolled device token…" autocomplete="off"
-            oninput="syncSteps()" required />
-          <div class="f2-input-actions">
-            <button type="button" class="f2-toggle-vis"
-              onclick="pasteField('device_token')">Paste</button>
-            <button type="button" class="f2-toggle-vis"
-              onclick="toggleVis('device_token', this)">Show</button>
-          </div>
-        </div>
-        <div class="f2-hint">
-          Binds this MCP connection to your enrolled machine so all tools execute on that device.
-          Issue a token in <b>Dashboard → Devices → Enroll Device</b>.
+          Enter your admin token to authorize this connection. The AI agent will gain full access to all devices.
         </div>
       </div>
 
@@ -689,7 +671,7 @@ def approval_form(params: dict, error: str = "", current_binding: str = "") -> s
         </button>
         <button id="approveBtn" type="submit" name="action" value="approve"
           class="f2-btn f2-btn-primary">
-          Approve &amp; Bind Device
+          Approve MCP Connection
         </button>
       </div>
     </form>
@@ -717,15 +699,12 @@ def approval_form(params: dict, error: str = "", current_binding: str = "") -> s
     }}
     function syncSteps() {{
       var a = document.getElementById("admin_token");
-      var d = document.getElementById("device_token");
       var sa = document.getElementById("step-admin");
-      var sd = document.getElementById("step-device");
       if (sa && a) sa.setAttribute("data-done", a.value.trim().length > 0 ? "true" : "false");
-      if (sd && d) sd.setAttribute("data-done", d.value.trim().length > 0 ? "true" : "false");
     }}
     function onSubmitForm() {{
       var btn = document.getElementById("approveBtn");
-      if (btn) btn.textContent = "Verifying & Binding…";
+      if (btn) btn.textContent = "Authorizing Fleet Access…";
     }}
     function toggleTheme() {{
       var cur = document.documentElement.getAttribute("data-theme");
@@ -842,18 +821,15 @@ def authorize_post(
         "client_name": client_name or row["client_name"] or client_id,
     }
     if not admin_ok(admin_token):
-        return HTMLResponse(approval_form(params, "Invalid admin token."), status_code=401)
-    # Device token is required on MCP OAuth approval so every OAuth session
-    # is bound to a specific enrolled device.
+        return HTMLResponse(approval_form(params, "Invalid administrator token."), status_code=401)
+    # Authenticating with only the administrator token grants access to all devices.
+    # If an optional device token is provided, bind to that device; otherwise unbound fleet access.
+    binding = ""
     cleaned_device_token = (device_token or "").strip()
-    if not cleaned_device_token:
-        return HTMLResponse(
-            approval_form(params, "Device token is required to bind this MCP connection to an enrolled device."),
-            status_code=401,
-        )
-    binding = resolve_device_token(cleaned_device_token)
-    if binding is None:
-        return HTMLResponse(approval_form(params, "Invalid device token."), status_code=401)
+    if cleaned_device_token:
+        resolved = resolve_device_token(cleaned_device_token)
+        if resolved:
+            binding = resolved
     code = secrets.token_urlsafe(32)
     conn = connect()
     conn.execute("UPDATE clients SET device_id=? WHERE client_id=?", (binding, client_id))
@@ -1007,9 +983,7 @@ def verify(authorization: str | None = Header(default=None)):
                 return JSONResponse({"ok": False}, status_code=401)
             row_keys = row.keys() if hasattr(row, "keys") else []
             tok_dev = row["device_id"] if "device_id" in row_keys and row["device_id"] else None
-            device_id = tok_dev or crow["device_id"] or None
-            if not device_id:
-                return JSONResponse({"ok": False}, status_code=401)
+            device_id = tok_dev or (crow["device_id"] if crow else None) or None
             return {"ok": True, "device_id": device_id, "client_id": row["client_id"]}
         conn.close()
     return JSONResponse({"ok": False}, status_code=401)

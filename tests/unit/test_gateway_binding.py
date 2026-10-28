@@ -73,27 +73,46 @@ def test_approve_binds_device_and_verify_returns_it(monkeypatch):
     assert r.json()["device_id"] == "dev-123"
 
 
-def test_blank_or_invalid_device_token_rejected(monkeypatch):
+def test_approve_with_admin_token_only_succeeds():
+    client = _fresh_client()
+    cid = _register(client)
+    r = _approve(client, cid, device_token="")
+    assert r.status_code == 302, r.text
+    assert "code=" in r.headers["location"]
+    assert _binding(cid) in ("", None)
+
+    now = int(time.time())
+    conn = sqlite3.connect(DB)
+    conn.execute("INSERT INTO tokens (token_hash, kind, client_id, scope, created_at, expires_at, revoked)"
+                 " VALUES (?, 'access', ?, '', ?, ?, 0)",
+                 (gateway.digest("tok-unbound"), cid, now, now + 3600))
+    conn.commit()
+    conn.close()
+    r = client.get("/internal/verify", headers={"Authorization": "Bearer tok-unbound"})
+    assert r.status_code == 200
+    assert r.json()["device_id"] is None
+
+
+def test_invalid_admin_token_rejected():
+    client = _fresh_client()
+    cid = _register(client)
+    r = client.post(
+        "/oauth/authorize",
+        data={"client_id": cid, "redirect_uri": "https://example.com/cb",
+              "admin_token": "wrong-token", "action": "approve"},
+    )
+    assert r.status_code == 401
+    assert "Invalid administrator token" in r.text
+    assert _binding(cid) in ("", None)
+
+
+def test_approve_with_optional_device_token(monkeypatch):
     client = _fresh_client()
     cid = _register(client)
     monkeypatch.setattr(gateway, "resolve_device_token",
                         lambda t: "dev-123" if t == "good-token" else None)
-
-    # Blank device token is rejected because device_token is required
-    r_blank = _approve(client, cid, device_token="")
-    assert r_blank.status_code == 401
-    assert "Device token is required" in r_blank.text
-    assert _binding(cid) in ("", None)
-
-    # Invalid device token is rejected
-    r_bad = _approve(client, cid, device_token="bad-token")
-    assert r_bad.status_code == 401
-    assert "Invalid device token" in r_bad.text
-    assert _binding(cid) in ("", None)
-
-    # Valid device token succeeds and binds the client
-    r_ok = _approve(client, cid, device_token="good-token")
-    assert r_ok.status_code == 302
+    r = _approve(client, cid, device_token="good-token")
+    assert r.status_code == 302
     assert _binding(cid) == "dev-123"
 
 

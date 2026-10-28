@@ -72,6 +72,15 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
             approval_granted=approval_granted,
             policy=policy,
         ),
+        "read_file": lambda a: tools.read_file(a["path"], int(a.get("max_chars", 100000)), policy=policy),
+        "write_file": lambda a: tools.write_file(
+            a["path"],
+            a["content"],
+            bool(a.get("overwrite", False)),
+            approval_granted=approval_granted,
+            is_admin=is_admin,
+            policy=policy,
+        ),
     }
     handler = handlers.get(tool)
     if handler is None:

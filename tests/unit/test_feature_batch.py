@@ -111,11 +111,23 @@ def test_select_device_and_list_devices(monkeypatch):
         res = mcp_server.system_info()
         assert res["routed_to"] == "dev-win" and res["tool"] == "get_system_info"
 
+        # Direct per-call device parameter routes directly without needing select_device
+        res_direct = mcp_server.system_info(device="linux-box")
+        assert res_direct["routed_to"] == "dev-lin" and res_direct["tool"] == "get_system_info"
+
+        # Direct run_shell targeting a remote device
+        shell_res = mcp_server.run_shell("echo hi", device="windows-test")
+        assert shell_res["routed_to"] == "dev-win" and shell_res["tool"] == "run_shell"
+
         # Switch back to local
         sel_local = mcp_server.select_device("local")
         assert sel_local["selected_device"] == "local" and sel_local["mode"] == "local"
         local_info = mcp_server.system_info()
         assert "system" in local_info
+
+        # Direct targeting local explicitly works
+        local_direct = mcp_server.system_info(device="local")
+        assert "system" in local_direct
     finally:
         mcp_server._SELECTED_DEVICE.clear()
 

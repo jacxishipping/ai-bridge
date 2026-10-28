@@ -21,6 +21,7 @@ import argparse
 import functools
 import hashlib
 import hmac
+import inspect
 import json
 import os
 
@@ -99,14 +100,17 @@ def _oauth_bound_device() -> str | None:
     admin_tok = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
     if admin_tok and hmac.compare_digest(tok, admin_tok):
         return None
-    return resolve_binding(VERIFY_URL, tok)
+    try:
+        return resolve_binding(VERIFY_URL, tok)
+    except Exception:
+        return None
 
 
 def _session_device() -> str | None:
     """Device_id active for this MCP call, or None for unbound/local calls.
 
-    OAuth gateway bindings are always enforced first and cannot be overridden
-    by select_device(). Unbound sessions check _SELECTED_DEVICE."""
+    OAuth gateway bindings are always enforced first if present.
+    Unbound sessions check _SELECTED_DEVICE."""
     bound = _oauth_bound_device()
     if bound is not None:
         return bound
@@ -124,39 +128,92 @@ def _admin_token() -> str:
     return token
 
 
-def device_aware(dispatch_name: str | None = None, *, bound: str = "route"):
-    """Route a tool call to the session's bound device when there is one.
+def _resolve_device_record(target: str | None) -> dict | None:
+    """Resolve a target device identifier (id, friendly name, hostname)
+    to the device record dict, or None if target is empty/'local'."""
+    if not target:
+        return None
+    target_str = str(target).strip()
+    if target_str.lower() in ("local", "host", "droplet"):
+        return None
+    admin = _admin_token()
+    try:
+        devices = list_all_devices(CONTROL_URL, admin)
+    except Exception as exc:
+        raise RuntimeError(f"Could not retrieve device fleet from control plane: {exc}")
+    # 1. Exact ID match
+    for d in devices:
+        if d.get("id") == target_str:
+            return d
+    # 2. Case-insensitive exact name or hostname match
+    low = target_str.lower()
+    for d in devices:
+        if (d.get("name") or "").lower() == low or (d.get("hostname") or "").lower() == low:
+            return d
+    # 3. ID prefix match
+    matches = [d for d in devices if (d.get("id") or "").startswith(target_str)]
+    if len(matches) == 1:
+        return matches[0]
 
-    bound="route": run the same-named (or dispatch_name) control-plane
-      tool on the device and wait for its result.
-    bound="control": device-task helpers (status/result/cancel, device
-      info) served from the control plane instead of the droplet-local
-      runner.
-    bound="unavailable": droplet-only tools, refused in bound sessions.
-    Unbound sessions always run the original droplet-local function.
+    available = [f"'{d.get('name') or 'unnamed'}' (id: {d.get('id')})" for d in devices]
+    avail_str = ", ".join(available) if available else "No enrolled devices online"
+    raise ValueError(f"Unknown device '{target_str}'. Enrolled devices: [{avail_str}], or use 'local'. Call list_devices() for full list.")
+
+
+def _resolve_target_device(target: str | None) -> str | None:
+    rec = _resolve_device_record(target)
+    return rec["id"] if rec else None
+
+
+def device_aware(dispatch_name: str | None = None, *, bound: str = "route"):
+    """Route a tool call to a target device (specified via device=... or session default).
+
+    When a target device is active (or specified), tools with bound="route"
+    run on that device via control-plane tasks and wait for the result.
+    When targeting 'local' or when no device is selected, tools run
+    locally on the MCP host / droplet.
     """
     def deco(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            device = _session_device()
+            try:
+                sig = inspect.signature(fn)
+                bound_args = sig.bind(*args, **kwargs)
+                bound_args.apply_defaults()
+                call_args = dict(bound_args.arguments)
+            except Exception:
+                call_args = dict(kwargs)
+
+            explicit_dev = call_args.pop("device", None)
+            if explicit_dev is None:
+                explicit_dev = call_args.pop("device_id", None)
+
+            if explicit_dev is not None:
+                device = _resolve_target_device(explicit_dev)
+            else:
+                device = _session_device()
+
             if device is None:
+                kwargs.pop("device", None)
+                kwargs.pop("device_id", None)
                 return fn(*args, **kwargs)
+
             admin = _admin_token()
             if bound == "unavailable":
                 raise ValueError(
-                    "This tool acts on the droplet only and is not available "
-                    "while a remote device is selected. Call select_device('local') first.")
+                    f"Tool '{fn.__name__}' is only available on the local MCP host/droplet. "
+                    f"To run on the local host, pass device='local' or call select_device('local')."
+                )
             if bound == "route":
-                return run_device_tool(CONTROL_URL, admin, device,
-                                       dispatch_name or fn.__name__, dict(kwargs))
+                return run_device_tool(
+                    CONTROL_URL, admin, device,
+                    dispatch_name or fn.__name__, call_args
+                )
             if bound == "control":
                 name = fn.__name__
-                locked_dev = _oauth_bound_device()
                 if name in {"get_task_status", "get_task_result", "cancel_task"}:
                     tid = args[0] if args else kwargs["task_id"]
                     t_check = get_device_task(CONTROL_URL, admin, tid)
-                    if locked_dev and t_check.get("device_id") and t_check.get("device_id") != device:
-                        raise PermissionError("Task belongs to another device.")
                     if name == "get_task_status":
                         return {"task_id": t_check.get("id") or tid, "status": t_check.get("status")}
                     if name == "get_task_result":
@@ -170,73 +227,80 @@ def device_aware(dispatch_name: str | None = None, *, bound: str = "route"):
                 if name == "list_devices":
                     return fn(*args, **kwargs)
                 if name == "get_device_status":
-                    did = args[0] if args else kwargs.get("device_id", "local")
-                    target = device if did in ("local", "", device) else did
-                    if locked_dev and target != locked_dev:
-                        raise PermissionError("Session is bound to a single device.")
-                    d = get_device(CONTROL_URL, admin, target)
+                    d = _resolve_device_record(device)
                     if d is None:
-                        raise ValueError(f"Unknown device: {target}")
-                    return {"device_id": d.get("id"), "name": d.get("name"),
-                            "hostname": d.get("hostname"), "os": d.get("os"),
-                            "status": d.get("status"), "last_seen": d.get("last_seen")}
+                        raise ValueError(f"Unknown device: {device}")
+                    return {
+                        "device_id": d.get("id"), "name": d.get("name"),
+                        "hostname": d.get("hostname"), "os": d.get("os"),
+                        "status": d.get("status"), "last_seen": d.get("last_seen"),
+                    }
             return fn(*args, **kwargs)
         return wrapper
     return deco
 
 @mcp.tool()
 @device_aware("get_system_info")
-def system_info() -> dict:
-    """Return basic operating-system information without exposing secrets."""
+def system_info(device: str | None = None) -> dict:
+    """Return basic operating-system information for this machine or a fleet device.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return tools.get_system_info()
 
 @mcp.tool()
 @device_aware()
-def get_resource_usage() -> dict:
-    """CPU, memory and disk usage for this machine."""
+def get_resource_usage(device: str | None = None) -> dict:
+    """CPU, memory and disk usage for this machine or a fleet device.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return tools.get_resource_usage()
 
 @mcp.tool()
 @device_aware()
-def get_disk_usage() -> dict:
-    """Disk usage for the root filesystem."""
+def get_disk_usage(device: str | None = None) -> dict:
+    """Disk usage for the root filesystem.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return diagnostics.disk_usage("/")
 
 @mcp.tool()
 @device_aware()
-def get_memory_usage() -> dict:
-    """Memory usage for this machine."""
+def get_memory_usage(device: str | None = None) -> dict:
+    """Memory usage for this machine or a fleet device.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return diagnostics.memory_usage()
 
 @mcp.tool()
 @device_aware()
-def list_workspace(relative_directory: str = ".") -> list[dict]:
-    """List entries inside the configured workspace. No arbitrary filesystem access."""
+def list_workspace(relative_directory: str = ".", device: str | None = None) -> list[dict]:
+    """List entries inside the configured workspace. No arbitrary filesystem access.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return workspace.list_workspace(relative_directory)
 
 @mcp.tool()
 @device_aware()
-def read_workspace_file(relative_path: str) -> str:
-    """Read a UTF-8 text file inside the configured workspace (size-limited)."""
+def read_workspace_file(relative_path: str, device: str | None = None) -> str:
+    """Read a UTF-8 text file inside the configured workspace (size-limited).
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return read_workspace_text(relative_path)
 
 @mcp.tool()
 @device_aware()
-def search_workspace(query: str, relative_directory: str = ".") -> list[dict]:
-    """Search file contents inside the workspace (secret-named files excluded)."""
+def search_workspace(query: str, relative_directory: str = ".", device: str | None = None) -> list[dict]:
+    """Search file contents inside the workspace (secret-named files excluded).
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return workspace.search_workspace(query, relative_directory)
 
 @mcp.tool()
 @device_aware()
-def create_workspace_file(relative_path: str, content: str, overwrite: bool = False) -> dict:
-    """Create a file inside the workspace (Tier 2). Atomic write."""
+def create_workspace_file(relative_path: str, content: str, overwrite: bool = False, device: str | None = None) -> dict:
+    """Create a file inside the workspace (Tier 2). Atomic write.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     tools._check("create_workspace_file")
     return workspace.create_workspace_file(relative_path, content, overwrite)
 
 @mcp.tool()
 @device_aware()
-def edit_workspace_file(relative_path: str, old_text: str, new_text: str) -> dict:
-    """Edit a workspace file; a backup is taken first (Tier 3, opt-in)."""
+def edit_workspace_file(relative_path: str, old_text: str, new_text: str, device: str | None = None) -> dict:
+    """Edit a workspace file; a backup is taken first (Tier 3, opt-in).
+    device (optional): Target device name, hostname, ID, or 'local'."""
     from .policy import decide
     from .tools import default_policy
     approved = _consume_local_approval("edit_workspace_file")
@@ -247,8 +311,9 @@ def edit_workspace_file(relative_path: str, old_text: str, new_text: str) -> dic
 
 @mcp.tool()
 @device_aware()
-def move_workspace_file(source: str, destination: str) -> dict:
-    """Move/rename a file inside the workspace (Tier 3, opt-in)."""
+def move_workspace_file(source: str, destination: str, device: str | None = None) -> dict:
+    """Move/rename a file inside the workspace (Tier 3, opt-in).
+    device (optional): Target device name, hostname, ID, or 'local'."""
     from .policy import decide
     from .tools import default_policy
     approved = _consume_local_approval("move_workspace_file")
@@ -259,8 +324,9 @@ def move_workspace_file(source: str, destination: str) -> dict:
 
 @mcp.tool()
 @device_aware()
-def delete_workspace_file(relative_path: str) -> dict:
-    """Delete a workspace file. Requires a prior approval (Tier 4)."""
+def delete_workspace_file(relative_path: str, device: str | None = None) -> dict:
+    """Delete a workspace file. Requires a prior approval (Tier 4).
+    device (optional): Target device name, hostname, ID, or 'local'."""
     if not _consume_local_approval("delete_workspace_file"):
         raise PermissionError("delete_workspace_file requires an approval: call request_approval, "
                               "then approve_task with the admin token, then retry.")
@@ -268,63 +334,73 @@ def delete_workspace_file(relative_path: str) -> dict:
 
 @mcp.tool()
 @device_aware()
-def get_service_status(service: str) -> dict:
-    """Check whether a named service is active (allowlisted name only)."""
+def get_service_status(service: str, device: str | None = None) -> dict:
+    """Check whether a named service is active (allowlisted name only).
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return tools.get_service_status(service)
 
 @mcp.tool()
 @device_aware()
-def get_recent_logs(source: str = "system", lines: int = 50) -> str:
-    """Recent system logs (journalctl on Linux, fixed Event Log query on Windows)."""
+def get_recent_logs(source: str = "system", lines: int = 50, device: str | None = None) -> str:
+    """Recent system logs (journalctl on Linux, fixed Event Log query on Windows).
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return diagnostics.recent_logs(source, lines)
 
 @mcp.tool()
 @device_aware()
-def list_processes(limit: int = 50) -> list[dict]:
-    """Top processes by CPU usage."""
+def list_processes(limit: int = 50, device: str | None = None) -> list[dict]:
+    """Top processes by CPU usage.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return diagnostics.list_processes(limit)
 
 @mcp.tool()
 @device_aware()
-def list_docker_containers() -> dict:
-    """Docker containers, if Docker is installed."""
+def list_docker_containers(device: str | None = None) -> dict:
+    """Docker containers, if Docker is installed.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     result = diagnostics.list_docker_containers()
     return result if isinstance(result, dict) else {"containers": result}
 
 @mcp.tool()
 @device_aware()
-def git_status(relative_directory: str = ".") -> str:
-    """git status for a workspace directory."""
+def git_status(relative_directory: str = ".", device: str | None = None) -> str:
+    """git status for a workspace directory.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return git_ops.git_status(relative_directory)
 
 @mcp.tool()
 @device_aware()
-def git_diff(relative_directory: str = ".") -> str:
-    """git diff --stat for a workspace directory."""
+def git_diff(relative_directory: str = ".", device: str | None = None) -> str:
+    """git diff --stat for a workspace directory.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return git_ops.git_diff(relative_directory)
 
 @mcp.tool()
 @device_aware()
-def run_project_tests(test_command: str = "pytest", timeout: int = 120) -> dict:
-    """Run an allowlisted test command (pytest / npm test / go test) with a timeout."""
+def run_project_tests(test_command: str = "pytest", timeout: int = 120, device: str | None = None) -> dict:
+    """Run an allowlisted test command (pytest / npm test / go test) with a timeout.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return tools.run_project_tests(test_command, timeout)
 
 @mcp.tool()
 @device_aware()
-def run_linter(timeout: int = 60) -> dict:
-    """Run ruff check on the workspace, if ruff is installed."""
+def run_linter(timeout: int = 60, device: str | None = None) -> dict:
+    """Run ruff check on the workspace, if ruff is installed.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return tools.run_linter(timeout)
 
 @mcp.tool()
 @device_aware()
-def create_backup(relative_directory: str = ".") -> dict:
-    """Create a timestamped ZIP backup of a workspace directory."""
+def create_backup(relative_directory: str = ".", device: str | None = None) -> dict:
+    """Create a timestamped ZIP backup of a workspace directory.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return tools.create_backup(relative_directory)
 
 @mcp.tool()
 @device_aware()
-def deploy_application(project_directory: str = ".", target_directory: str = "deploy-staging") -> dict:
-    """Staging deploy inside the workspace (backup first). Not a production deploy."""
+def deploy_application(project_directory: str = ".", target_directory: str = "deploy-staging", device: str | None = None) -> dict:
+    """Staging deploy inside the workspace (backup first). Not a production deploy.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     approved = _consume_local_approval("deploy_application")
     return tools.deploy_application(project_directory, target_directory, approval_granted=approved)
 
@@ -340,8 +416,9 @@ def submit_task(task_name: str, timeout: int = 30) -> dict:
 
 @mcp.tool()
 @device_aware(bound="control")
-def get_task_status(task_id: str) -> dict:
-    """Status of a submitted task."""
+def get_task_status(task_id: str, device: str | None = None) -> dict:
+    """Status of a submitted task on droplet or target device.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     r = RUNNER.get(task_id)
     if r is None:
         raise ValueError("Unknown task_id.")
@@ -349,8 +426,9 @@ def get_task_status(task_id: str) -> dict:
 
 @mcp.tool()
 @device_aware(bound="control")
-def get_task_result(task_id: str) -> dict:
-    """Result/output of a submitted task."""
+def get_task_result(task_id: str, device: str | None = None) -> dict:
+    """Result/output of a submitted task on droplet or target device.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     r = RUNNER.get(task_id)
     if r is None:
         raise ValueError("Unknown task_id.")
@@ -358,8 +436,9 @@ def get_task_result(task_id: str) -> dict:
 
 @mcp.tool()
 @device_aware(bound="control")
-def cancel_task(task_id: str) -> dict:
-    """Cancel a running task."""
+def cancel_task(task_id: str, device: str | None = None) -> dict:
+    """Cancel a running task on droplet or target device.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return {"task_id": task_id, "cancelled": RUNNER.cancel(task_id)}
 
 @mcp.tool()
@@ -387,20 +466,23 @@ def approve_task(approval_id: str, admin_token: str) -> dict:
 
 @mcp.tool()
 @device_aware()
-def get_desktop_status() -> dict:
-    """Whether desktop automation is enabled for this machine."""
+def get_desktop_status(device: str | None = None) -> dict:
+    """Whether desktop automation is enabled for this machine or target device.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return tools.get_desktop_status()
 
 @mcp.tool()
 @device_aware()
-def capture_desktop_screenshot() -> dict:
-    """Screenshot, only when desktop automation is explicitly enabled."""
+def capture_desktop_screenshot(device: str | None = None) -> dict:
+    """Screenshot, only when desktop automation is explicitly enabled.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     return tools.capture_desktop_screenshot()
 
 @mcp.tool()
 @device_aware()
-def launch_approved_application(app_name: str, url: str | None = None) -> dict:
-    """Launch an application from the admin-approved list only."""
+def launch_approved_application(app_name: str, url: str | None = None, device: str | None = None) -> dict:
+    """Launch an application from the admin-approved list only.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     approved = _consume_local_approval("launch_approved_application")
     return tools.launch_approved_application(app_name, approval_granted=approved, url=url)
 
@@ -414,10 +496,12 @@ def perform_approved_ui_action(
     key: str | None = None,
     title: str | None = None,
     delta: int = -120,
+    device: str | None = None,
 ) -> dict:
     """Perform a structured desktop UI action (list_windows, focus_window,
     move_mouse, click, double_click, right_click, scroll, type_text,
-    press_key/hotkey). Requires desktop_enabled and Tier-3 permission."""
+    press_key/hotkey). Requires desktop_enabled and Tier-3 permission.
+    device (optional): Target device name, hostname, ID, or 'local'."""
     approved = _consume_local_approval("perform_approved_ui_action")
     return tools.perform_approved_ui_action(
         action, x=x, y=y, text=text, key=key, title=title, delta=delta, approval_granted=approved
@@ -426,28 +510,31 @@ def perform_approved_ui_action(
 @mcp.tool()
 @device_aware(bound="control")
 def list_devices() -> list[dict]:
-    """List local and control-plane enrolled devices, marking the active target device."""
-    locked = _oauth_bound_device()
+    """List all enrolled devices in the fleet and the local MCP host.
+    Returns device IDs, friendly names, OS, and online status.
+    To execute tools on any device, either:
+      1. Pass device='<device_name_or_id>' to any tool call.
+      2. Call select_device('<device_name_or_id>') to set the default target device for your session.
+      3. Use device='local' to target the MCP host/droplet."""
     active = _session_device() or "local"
     out: list[dict] = []
-    if not locked:
-        info = tools.get_system_info()
-        out.append({
-            "device_id": "local",
-            "name": "local",
-            "hostname": info["machine"],
-            "system": info["system"],
-            "status": "online",
-            "workspace": info["workspace"],
-            "active": active == "local",
-        })
+    info = tools.get_system_info()
+    out.append({
+        "device_id": "local",
+        "name": "local",
+        "hostname": info.get("machine"),
+        "system": info.get("system"),
+        "os": info.get("system"),
+        "status": "online",
+        "workspace": info.get("workspace"),
+        "active": active == "local",
+        "routing_hint": "Pass device='local' or call select_device('local') to target the droplet host.",
+    })
     token = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
     if token:
         try:
             for d in list_all_devices(CONTROL_URL, token):
                 did = d.get("id")
-                if locked and did != locked:
-                    continue
                 out.append({
                     "device_id": did,
                     "name": d.get("name"),
@@ -456,6 +543,7 @@ def list_devices() -> list[dict]:
                     "status": d.get("status"),
                     "last_seen": d.get("last_seen"),
                     "active": did == active,
+                    "routing_hint": f"Pass device='{d.get('name') or did}' to target this machine.",
                 })
         except Exception:
             pass
@@ -463,62 +551,53 @@ def list_devices() -> list[dict]:
 
 @mcp.tool()
 def select_device(device_id: str) -> dict:
-    """Switch the active target device for this MCP session by device_id,
-    device name, hostname, or 'local' (to run tools on the MCP host/droplet)."""
+    """Switch the default target device for this MCP session by device_id,
+    device name, hostname, or 'local' (to target the MCP host/droplet).
+    All subsequent tool calls without an explicit device parameter will execute on this device."""
     target = (device_id or "").strip()
-    locked = _oauth_bound_device()
-    if locked is not None and target != locked:
-        raise PermissionError(
-            f"Session is permanently bound to device '{locked}' via OAuth and cannot switch devices."
-        )
     key = _session_key()
     if len(_SELECTED_DEVICE) >= 1024 and key not in _SELECTED_DEVICE:
         _SELECTED_DEVICE.pop(next(iter(_SELECTED_DEVICE)), None)
-    if not target or target.lower() == "local":
+    if not target or target.lower() in ("local", "host", "droplet"):
         _SELECTED_DEVICE[key] = "local"
         return {
             "selected_device": "local",
             "mode": "local",
-            "note": "Device-aware tools will now execute locally on the MCP host.",
+            "note": "Tools will execute locally on the MCP host (droplet).",
         }
-    admin = _admin_token()
-    devices = list_all_devices(CONTROL_URL, admin)
-    matched = None
-    for d in devices:
-        if d.get("id") == target:
-            matched = d
-            break
-    if matched is None:
-        low = target.lower()
-        for d in devices:
-            if (d.get("name") or "").lower() == low or (d.get("hostname") or "").lower() == low:
-                matched = d
-                break
-    if matched is None:
-        raise ValueError(f"Unknown device '{target}'. Call list_devices() to see available devices.")
-    _SELECTED_DEVICE[key] = matched["id"]
+    d = _resolve_device_record(target)
+    if not d:
+        _SELECTED_DEVICE[key] = "local"
+        return {
+            "selected_device": "local",
+            "mode": "local",
+            "note": "Tools will execute locally on the MCP host (droplet).",
+        }
+    resolved = d["id"]
+    _SELECTED_DEVICE[key] = resolved
     return {
-        "selected_device": matched["id"],
-        "name": matched.get("name"),
-        "hostname": matched.get("hostname"),
-        "os": matched.get("os"),
-        "status": matched.get("status"),
+        "selected_device": resolved,
+        "name": d.get("name"),
+        "hostname": d.get("hostname"),
+        "os": d.get("os"),
+        "status": d.get("status"),
         "mode": "remote",
+        "note": f"Tools will now execute remotely on '{d.get('name') or resolved}' by default.",
     }
 
 @mcp.tool()
 @device_aware(bound="control")
 def get_device_status(device_id: str = "local") -> dict:
-    """Status of a device ('local' or an enrolled control-plane device_id)."""
-    if device_id == "local":
+    """Status of a device ('local' for MCP host, or any enrolled device name or ID)."""
+    if not device_id or device_id.strip().lower() in ("local", "host", "droplet"):
         return {"device_id": "local", "status": "online", **tools.get_resource_usage()}
-    token = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
-    if token:
-        d = get_device(CONTROL_URL, token, device_id)
-        if d is not None:
-            return {"device_id": d.get("id"), "name": d.get("name"), "status": d.get("status"),
-                    "hostname": d.get("hostname"), "os": d.get("os"), "last_seen": d.get("last_seen")}
-    raise ValueError("Local mode only knows device 'local'; use the control plane for remote devices.")
+    d = _resolve_device_record(device_id)
+    if d is not None:
+        return {
+            "device_id": d.get("id"), "name": d.get("name"), "status": d.get("status"),
+            "hostname": d.get("hostname"), "os": d.get("os"), "last_seen": d.get("last_seen"),
+        }
+    raise ValueError(f"Device '{device_id}' not found.")
 
 @mcp.tool()
 @device_aware(bound="unavailable")
@@ -529,8 +608,9 @@ def run_diagnostic_task(task_name: str) -> str:
 
 @mcp.tool()
 @device_aware()
-def run_shell(command: str, working_directory: str = "", timeout: int = 0) -> dict:
-    """Run a shell command on the selected target device (e.g. Linux, WSL, Windows) or local host.
+def run_shell(command: str, working_directory: str = "", timeout: int = 0, device: str | None = None) -> dict:
+    """Run a shell command on any enrolled device in the fleet or local host.
+    device (optional): Target device name, hostname, ID, or 'local'. Defaults to active device or local host.
     Tier-3 sensitive tool: executed on the target device via control-plane dispatch.
     timeout=0 (default) means standard execution without time limit. Output truncated per stream."""
     _require_host_tools_enabled()
@@ -542,57 +622,34 @@ def run_shell(command: str, working_directory: str = "", timeout: int = 0) -> di
 
 
 @mcp.tool()
-@device_aware(bound="unavailable")
-def read_file(path: str, max_chars: int = 100000) -> str:
-    """Read any UTF-8 text file on this machine by absolute path (host tools opt-in required)."""
-    from pathlib import Path
-
+@device_aware()
+def read_file(path: str, max_chars: int = 100000, device: str | None = None) -> str:
+    """Read any UTF-8 text file on this machine or target device by path (host tools opt-in required).
+    device (optional): Target device name, hostname, ID, or 'local'."""
     _require_host_tools_enabled()
-    target = Path(path).expanduser()
-    if is_secret_name(target):
-        raise ValueError("Refusing to read a file whose name suggests it holds secrets.")
-    try:
-        text = target.read_bytes().decode("utf-8")
-    except UnicodeDecodeError:
-        raise ValueError("not a UTF-8 text file")
-    text = redact(text)
-    if len(text) > max_chars:
-        text = text[:max_chars] + "\n[truncated]"
-    return text
+    return tools.read_file(path, max_chars)
 
 
 @mcp.tool()
-@device_aware(bound="unavailable")
-def write_file(path: str, content: str, overwrite: bool = False) -> dict:
-    """Write content to any absolute path, creating parent directories (host tools opt-in required).
+@device_aware()
+def write_file(path: str, content: str, overwrite: bool = False, device: str | None = None) -> dict:
+    """Write content to any absolute path on this machine or target device (host tools opt-in required).
+    device (optional): Target device name, hostname, ID, or 'local'.
     Refuses to overwrite an existing file unless overwrite=true."""
-    from pathlib import Path
-
     _require_host_tools_enabled()
-    target = Path(path).expanduser()
-    if is_secret_name(target):
-        raise ValueError("Refusing to write a file whose name suggests it holds secrets.")
-    if target.exists() and not overwrite:
-        raise ValueError("file exists; pass overwrite=true to replace it")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
-    return {"path": str(target), "bytes": len(content.encode("utf-8"))}
+    return tools.write_file(path, content, overwrite)
 
 
 @mcp.tool()
-def install_package(package_id: str, version: str | None = None) -> dict:
+@device_aware()
+def install_package(package_id: str, version: str | None = None, device: str | None = None) -> dict:
     """Install a software package on the target device (or local host).
     Supports Linux & WSL (apt-get on Ubuntu/Debian, dnf on Fedora/RHEL, pacman on Arch, apk on Alpine)
     and Windows (winget).
+    device (optional): Target device name, hostname, ID, or 'local'.
     Tier-3 sensitive tool: requires approval in dashboard or policy opt-in (AI_BRIDGE_ALLOW_TIER3=1)."""
-    device = _session_device()
-    if device is None:
-        approved = _consume_local_approval("install_package")
-        return tools.install_package(package_id, version, approval_granted=approved)
-    args = {"package_id": package_id}
-    if version:
-        args["version"] = version
-    return run_device_tool(CONTROL_URL, _admin_token(), device, "install_package", args)
+    approved = _consume_local_approval("install_package")
+    return tools.install_package(package_id, version, approval_granted=approved)
 
 
 class _BearerAuthMiddleware:

@@ -641,3 +641,36 @@ def run_shell(
         }
     except Exception as exc:  # noqa: BLE001
         return {"returncode": None, "error": redact(str(exc))}
+
+
+def read_file(path: str, max_chars: int = 100000, *, policy: Policy | None = None) -> str:
+    """Read a UTF-8 text file by absolute path."""
+    from pathlib import Path
+
+    _check("read_file", policy=policy)
+    target = Path(path).expanduser()
+    if is_secret_name(target):
+        raise ValueError("Refusing to read a file whose name suggests it holds secrets.")
+    try:
+        text = target.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        raise ValueError("not a UTF-8 text file")
+    text = redact(text)
+    if len(text) > max_chars:
+        text = text[:max_chars] + "\n[truncated]"
+    return text
+
+
+def write_file(path: str, content: str, overwrite: bool = False, *, approval_granted: bool = False, is_admin: bool = False, policy: Policy | None = None) -> dict:
+    """Write content to an absolute path."""
+    from pathlib import Path
+
+    _check("write_file", approval_granted=approval_granted, is_admin=is_admin, policy=policy)
+    target = Path(path).expanduser()
+    if is_secret_name(target):
+        raise ValueError("Refusing to write a file whose name suggests it holds secrets.")
+    if target.exists() and not overwrite:
+        raise ValueError("file exists; pass overwrite=true to replace it")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    return {"path": str(target), "bytes": len(content.encode("utf-8"))}

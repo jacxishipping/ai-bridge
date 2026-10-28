@@ -2245,32 +2245,32 @@ export default function App() {
 
                 <Card title="OAuth 2.0 Gateway" action={<CopyButton text={`${origin}/oauth/authorize`} label="Copy Auth URL" />}>
                   <Badge value={connections ? (connections.oauth_gateway.up ? "online" : "down") : "unknown"} />
-                  <p style={{ fontSize: 13, margin: "8px 0 4px" }}>Loopback <code>:{connections?.oauth_gateway.port || 8002}</code> · Device Token Required</p>
-                  <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>Binds MCP bearer tokens to enrolled devices</span>
+                  <p style={{ fontSize: 13, margin: "8px 0 4px" }}>Loopback <code>:{connections?.oauth_gateway.port || 8002}</code> · Admin Token Auth</p>
+                  <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>Fleet-wide MCP access with Admin Token only</span>
                 </Card>
               </div>
 
-              <Card title="MCP Client Setup & Required Device Binding Workflow">
+              <Card title="MCP Client Setup & Fleet-Wide AI Connection Workflow">
                 <div className="f2-stepper">
                   <div className="f2-step-box">
-                    <span className="f2-step-num">STEP 01 · ENROLL DEVICE</span>
-                    <b>Issue Device Token</b>
+                    <span className="f2-step-num">STEP 01 · ADD MCP SERVER</span>
+                    <b>Connect Claude / Cursor / ChatGPT</b>
                     <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
-                      Go to <b>Devices → Enroll Device</b> to generate a one-time token for your Windows or Linux agent.
+                      Point your MCP client to <code>{origin}/mcp</code>. It automatically discovers OAuth 2.1 or accepts Bearer auth.
                     </span>
                   </div>
                   <div className="f2-step-box">
-                    <span className="f2-step-num">STEP 02 · ADD MCP SERVER</span>
-                    <b>Connect Claude / ChatGPT</b>
+                    <span className="f2-step-num">STEP 02 · AUTHENTICATE</span>
+                    <b>Enter Admin Token Only</b>
                     <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
-                      Point your MCP client to <code>{origin}/mcp</code>. It will automatically discover OAuth 2.1 + PKCE metadata.
+                      Provide your <code>AI_BRIDGE_ADMIN_TOKEN</code>. No device tokens required to connect.
                     </span>
                   </div>
                   <div className="f2-step-box">
-                    <span className="f2-step-num">STEP 03 · AUTHORIZE &amp; BIND</span>
-                    <b>Enter Admin + Device Token</b>
+                    <span className="f2-step-num">STEP 03 · FLEET CONTROL</span>
+                    <b>Access All Enrolled Devices</b>
                     <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
-                      On the Fluent 2 consent screen, provide both tokens so every MCP tool call is routed to your device.
+                      The AI agent can list all devices (<code>list_devices()</code>), switch targets (<code>select_device()</code>), or pass <code>device="..."</code> to any tool.
                     </span>
                   </div>
                 </div>
