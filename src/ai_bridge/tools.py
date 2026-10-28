@@ -576,6 +576,12 @@ def perform_approved_ui_action(
     if action in {"drag", "mouse_drag"}:
         if x is None or y is None or start_x is None or start_y is None:
             raise ValueError(f"Action '{action}' requires start_x, start_y, x, and y coordinates.")
+    if action == "type_text" and not text:
+        raise ValueError("Action 'type_text' requires a non-empty string in 'text'.")
+    if action in {"press_key", "hotkey"} and not key:
+        raise ValueError(f"Action '{action}' requires a 'key' parameter.")
+    if action == "focus_window" and not title:
+        raise ValueError("Action 'focus_window' requires a non-empty window title in 'title'.")
 
     if platform.system() == "Windows":
         extra = {}
