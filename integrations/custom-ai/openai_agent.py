@@ -121,3 +121,4 @@ def run_agent_loop(user_instruction: str, max_turns: int = 8):
 if __name__ == "__main__":
     prompt = sys.argv[1] if len(sys.argv) > 1 else "List open windows on windows-pc and check uname on ubuntu"
     run_agent_loop(prompt)
+

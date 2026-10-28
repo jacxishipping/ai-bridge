@@ -328,3 +328,4 @@ class AIBridgeClient:
             "device": device,
         }
         return self._request("POST", "/v1/chat/completions", payload=payload, timeout=120)
+

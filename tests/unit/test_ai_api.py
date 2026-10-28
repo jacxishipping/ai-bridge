@@ -290,3 +290,80 @@ def test_ai_bridge_client_sdk(monkeypatch):
 
     chat_res = sdk.chat([{"role": "user", "content": "ping"}])
     assert chat_res["choices"][0]["message"]["content"] == "pong"
+
+
+def test_ai_settings_endpoints(fresh_client):
+    client, _ = fresh_client
+
+    # 1. Initial settings
+    res = client.get("/api/settings/ai", headers={"Authorization": f"Bearer {ADMIN_TOKEN}"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert "keys_configured" in data
+
+    # 2. Save an API key (bypass live probe by setting test_connection=False or using ollama)
+    save_res = client.post(
+        "/api/settings/ai",
+        json={"provider": "ollama", "model": "llama3.2", "test_connection": False},
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+    )
+    assert save_res.status_code == 200
+    save_data = save_res.json()
+    assert save_data["ok"] is True
+    assert save_data["provider"] == "ollama"
+
+    # 3. Save an OpenAI key with test_connection=False
+    save_oai = client.post(
+        "/api/settings/ai",
+        json={"provider": "openai", "model": "gpt-4o", "api_key": "sk-proj-test1234567890abcdef", "test_connection": False},
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+    )
+    assert save_oai.status_code == 200
+    assert save_oai.json()["masked_key"].startswith("sk-proj")
+
+    # 4. Check settings again
+    res2 = client.get("/api/settings/ai", headers={"Authorization": f"Bearer {ADMIN_TOKEN}"})
+    data2 = res2.json()
+    assert data2["keys_configured"]["openai"] is True
+    assert data2["masked_keys"]["openai"].startswith("sk-proj")
+
+    # 5. Clear key
+    clear_res = client.post(
+        "/api/settings/ai",
+        json={"provider": "openai", "clear": True},
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+    )
+    assert clear_res.status_code == 200
+    res3 = client.get("/api/settings/ai", headers={"Authorization": f"Bearer {ADMIN_TOKEN}"})
+    assert res3.json()["keys_configured"]["openai"] is False
+
+
+def test_ai_chat_endpoint(fresh_client):
+    client, _ = fresh_client
+
+    # Enroll a test device
+    client.post(
+        "/api/devices/enroll",
+        json={"name": "srv-node", "hostname": "node1", "os": "Linux Ubuntu"},
+        headers={"X-Admin-Token": ADMIN_TOKEN},
+    )
+
+    # Chat with smart intent
+    res = client.post(
+        "/api/ai/chat",
+        json={
+            "messages": [
+                {"role": "user", "content": "list devices"},
+            ],
+            "device": "auto",
+        },
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert "message" in data
+    assert data["message"]["role"] == "assistant"
+    assert "srv-node" in data["message"]["content"]
+

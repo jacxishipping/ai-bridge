@@ -1,12 +1,57 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { api, token, sessionToken } from "./api";
 
 interface AiApiHubProps {
   devices: any[];
 }
 
+interface ChatMessageItem {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+  screenshot?: string | null;
+  steps?: any[];
+}
+
 export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
-  const [activeSubTab, setActiveSubTab] = useState<"invoker" | "agent" | "docs">("invoker");
+  const [activeTab, setActiveTab] = useState<"chat" | "settings" | "invoker" | "docs">("chat");
+
+  // AI Settings State
+  const [aiSettings, setAiSettings] = useState<{
+    provider: string;
+    model: string;
+    keys_configured: Record<string, boolean>;
+    masked_keys: Record<string, string>;
+    is_connected: boolean;
+  } | null>(null);
+
+  const [inputProvider, setInputProvider] = useState<string>("openai");
+  const [inputModel, setInputModel] = useState<string>("gpt-4o");
+  const [inputApiKey, setInputApiKey] = useState<string>("");
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [isSavingKey, setIsSavingKey] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{ text: string; error?: boolean } | null>(null);
+
+  // Chat State
+  const [chatMessages, setChatMessages] = useState<ChatMessageItem[]>([
+    {
+      id: "welcome",
+      role: "assistant",
+      content:
+        "👋 **Welcome to AI Bridge Fleet Copilot!**\n\n" +
+        "I am connected to your computers and servers. You can speak to me naturally to control devices:\n" +
+        "- **Windows GUI**: Take screenshots, click coordinates, type keystrokes, and focus open apps.\n" +
+        "- **Linux Servers**: Run terminal commands, inspect services, check Docker, and monitor CPU/RAM.\n\n" +
+        "Try asking me a question or click one of the suggested actions below!",
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    },
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [isSendingChat, setIsSendingChat] = useState(false);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  // Tool Invoker State
   const [tools, setTools] = useState<any[]>([]);
   const [loadingTools, setLoadingTools] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<string>("auto");
@@ -16,25 +61,34 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
   const [executionResult, setExecutionResult] = useState<any>(null);
   const [execDuration, setExecDuration] = useState<number | null>(null);
 
-  // Agent State
-  const [agentPrompt, setAgentPrompt] = useState<string>("List directory contents on windows-pc and check memory usage on ubuntu");
-  const [agentProvider, setAgentProvider] = useState<string>("openai");
-  const [agentModel, setAgentModel] = useState<string>("gpt-4o");
-  const [agentApiKey, setAgentApiKey] = useState<string>("");
-  const [isRunningAgent, setIsRunningAgent] = useState(false);
-  const [agentResult, setAgentResult] = useState<any>(null);
-
   // Docs State
   const [codeLang, setCodeLang] = useState<"python" | "openai" | "claude" | "curl" | "typescript">("python");
   const [copied, setCopied] = useState(false);
 
-  // Active Origin & Token
   const activeToken = sessionToken() || token() || "YOUR_AI_BRIDGE_TOKEN";
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://jxiptvplayer.app";
 
   useEffect(() => {
+    loadAiSettings();
     loadTools();
-  }, [selectedDevice]);
+  }, []);
+
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages, isSendingChat]);
+
+  async function loadAiSettings() {
+    try {
+      const res = await api.getAiSettings();
+      if (res && res.ok) {
+        setAiSettings(res);
+        if (res.provider) setInputProvider(res.provider);
+        if (res.model) setInputModel(res.model);
+      }
+    } catch (err) {
+      console.error("Failed to load AI settings:", err);
+    }
+  }
 
   async function loadTools() {
     setLoadingTools(true);
@@ -45,42 +99,120 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
         setTools(res.tools);
       }
     } catch (err) {
-      console.error("Failed to load tools catalog", err);
+      console.error("Failed to load tools catalog:", err);
     } finally {
       setLoadingTools(false);
     }
   }
 
-  // Pre-fill args when tool changes
-  function handleToolChange(toolName: string) {
-    setSelectedTool(toolName);
-    const found = tools.find(t => t.name === toolName);
-    if (toolName === "run_shell") {
-      setToolArgsStr('{\n  "command": "uptime"\n}');
-    } else if (toolName === "take_screenshot" || toolName === "capture_desktop_screenshot") {
-      setToolArgsStr('{\n  "quality": 70\n}');
-    } else if (toolName === "mouse_click") {
-      setToolArgsStr('{\n  "x": 500,\n  "y": 300,\n  "button": "left",\n  "clicks": 1\n}');
-    } else if (toolName === "keyboard_type") {
-      setToolArgsStr('{\n  "text": "Hello from AI Bridge!\\n"\n}');
-    } else if (toolName === "read_file") {
-      setToolArgsStr('{\n  "path": "/etc/os-release"\n}');
-    } else if (toolName === "focus_window") {
-      setToolArgsStr('{\n  "title": "Notepad"\n}');
-    } else if (found && found.parameters && found.parameters.properties) {
-      const props = found.parameters.properties;
-      const defaults: Record<string, any> = {};
-      Object.keys(props).forEach(k => {
-        if (k !== "device") {
-          defaults[k] = props[k].default !== undefined ? props[k].default : "";
-        }
+  // Handle Provider Change in Settings
+  function handleProviderChange(newProv: string) {
+    setInputProvider(newProv);
+    if (newProv === "openai") setInputModel("gpt-4o");
+    else if (newProv === "anthropic") setInputModel("claude-3-5-sonnet-20241022");
+    else if (newProv === "gemini") setInputModel("gemini-1.5-flash");
+    else if (newProv === "groq") setInputModel("llama-3.3-70b-versatile");
+    else if (newProv === "deepseek") setInputModel("deepseek-chat");
+    else if (newProv === "ollama") setInputModel("llama3.2");
+  }
+
+  // Save / Connect API Key
+  async function handleSaveKey(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!inputApiKey.trim() && inputProvider !== "ollama") {
+      setSaveMessage({ text: "Please enter an API key.", error: true });
+      return;
+    }
+    setIsSavingKey(true);
+    setSaveMessage(null);
+
+    try {
+      const res = await api.saveAiSettings({
+        provider: inputProvider,
+        model: inputModel,
+        api_key: inputApiKey.trim(),
+        test_connection: inputProvider !== "ollama",
       });
-      setToolArgsStr(JSON.stringify(defaults, null, 2));
-    } else {
-      setToolArgsStr("{}");
+      if (res && res.ok) {
+        setSaveMessage({ text: res.message || `Connected to ${inputProvider} successfully!`, error: false });
+        setInputApiKey("");
+        await loadAiSettings();
+      } else {
+        setSaveMessage({ text: res.message || "Failed to connect.", error: true });
+      }
+    } catch (err: any) {
+      setSaveMessage({ text: err.message || "Validation failed.", error: true });
+    } finally {
+      setIsSavingKey(false);
     }
   }
 
+  // Clear / Disconnect Key
+  async function handleClearKey(providerName: string) {
+    if (!confirm(`Are you sure you want to disconnect the API key for ${providerName}?`)) return;
+    try {
+      await api.saveAiSettings({ provider: providerName, clear: true });
+      await loadAiSettings();
+      setSaveMessage({ text: `Disconnected ${providerName} key.`, error: false });
+    } catch (err: any) {
+      alert("Failed to disconnect: " + err.message);
+    }
+  }
+
+  // Send Chat Message
+  async function handleSendChat(customText?: string) {
+    const textToSend = (customText !== undefined ? customText : chatInput).trim();
+    if (!textToSend || isSendingChat) return;
+
+    const userMsg: ChatMessageItem = {
+      id: "msg-" + Date.now(),
+      role: "user",
+      content: textToSend,
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+
+    setChatMessages(prev => [...prev, userMsg]);
+    if (customText === undefined) setChatInput("");
+    setIsSendingChat(true);
+
+    try {
+      // Send conversation to backend
+      const historyPayload = chatMessages
+        .filter(m => m.id !== "welcome")
+        .concat(userMsg)
+        .map(m => ({ role: m.role, content: m.content }));
+
+      const res = await api.aiChat({
+        messages: historyPayload,
+        provider: aiSettings?.provider || inputProvider,
+        model: aiSettings?.model || inputModel,
+        device: selectedDevice,
+      });
+
+      const assistantMsg: ChatMessageItem = {
+        id: "msg-" + (Date.now() + 1),
+        role: "assistant",
+        content: res?.message?.content || res?.error || "Done.",
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        screenshot: res?.screenshot || null,
+        steps: res?.steps || [],
+      };
+
+      setChatMessages(prev => [...prev, assistantMsg]);
+    } catch (err: any) {
+      const errorMsg: ChatMessageItem = {
+        id: "msg-" + (Date.now() + 1),
+        role: "assistant",
+        content: `⚠️ **Error communicating with AI**: ${err.message || String(err)}\n\n*Make sure your AI API key is connected in the "Connect AI API Key" tab above.*`,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+      setChatMessages(prev => [...prev, errorMsg]);
+    } finally {
+      setIsSendingChat(false);
+    }
+  }
+
+  // Execute Individual Tool
   async function handleExecuteTool() {
     setIsExecuting(true);
     setExecutionResult(null);
@@ -114,43 +246,25 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
     }
   }
 
-  async function handleRunAgent() {
-    if (!agentPrompt.trim()) return;
-    setIsRunningAgent(true);
-    setAgentResult(null);
-
-    try {
-      const res = await api.aiAgent({
-        prompt: agentPrompt,
-        device: selectedDevice === "auto" ? undefined : selectedDevice,
-        provider: agentProvider,
-        model: agentModel,
-        api_key: agentApiKey.trim() || undefined,
-      });
-      setAgentResult(res);
-    } catch (err: any) {
-      setAgentResult({ ok: false, error: err.message || String(err) });
-    } finally {
-      setIsRunningAgent(false);
-    }
+  function handleToolChange(toolName: string) {
+    setSelectedTool(toolName);
+    if (toolName === "run_shell") setToolArgsStr('{\n  "command": "uptime"\n}');
+    else if (toolName === "take_screenshot" || toolName === "capture_desktop_screenshot") setToolArgsStr('{\n  "quality": 70\n}');
+    else if (toolName === "mouse_click") setToolArgsStr('{\n  "x": 500,\n  "y": 300,\n  "button": "left",\n  "clicks": 1\n}');
+    else if (toolName === "keyboard_type") setToolArgsStr('{\n  "text": "Hello from AI Bridge!\\n"\n}');
+    else if (toolName === "read_file") setToolArgsStr('{\n  "path": "/etc/os-release"\n}');
+    else setToolArgsStr("{}");
   }
 
   function renderCodeSnippet() {
-    const isWin = selectedDevice.includes("win");
-    const sampleDev = selectedDevice !== "auto" ? selectedDevice : (isWin ? "windows-pc" : "ubuntu");
-
     if (codeLang === "python") {
-      return `# Install: pip install ai-bridge
-from ai_bridge import AIBridgeClient
+      return `from ai_bridge import AIBridgeClient
 
-client = AIBridgeClient(
-    base_url="${baseUrl}",
-    token="${activeToken}"
-)
+client = AIBridgeClient(base_url="${baseUrl}", token="${activeToken}")
 
 # 1. Discover online fleet devices
 devices = client.list_devices()
-print("Connected fleet:", [d["name"] for d in devices])
+print("Fleet:", [d["name"] for d in devices])
 
 # 2. Run shell command on Linux
 res = client.run_shell("uname -a", device="ubuntu")
@@ -163,71 +277,35 @@ print(f"Windows screen: {shot.get('width')}x{shot.get('height')}")
 client.mouse_click(x=350, y=200, device="windows-pc")
 client.keyboard_type("notepad.exe\\n", device="windows-pc")`;
     }
-
     if (codeLang === "openai") {
-      return `import json
-from openai import OpenAI
-from ai_bridge import AIBridgeClient
+      return `from openai import OpenAI
 
-# Initialize AI Bridge and OpenAI clients
-bridge = AIBridgeClient(base_url="${baseUrl}", token="${activeToken}")
-client = OpenAI(api_key="your-openai-api-key")
-
-# 1. Fetch live tool definitions formatted for OpenAI Function Calling
-tools = bridge.get_tools(format="openai")
-
-# 2. Send prompt to GPT-4o
-messages = [{"role": "user", "content": "Check uptime on ubuntu and capture windows-pc screenshot"}]
-resp = client.chat.completions.create(
-    model="gpt-4o",
-    messages=messages,
-    tools=tools,
-    tool_choice="auto"
+# Connect directly to AI Bridge using standard OpenAI SDK
+client = OpenAI(
+    base_url="${baseUrl}/v1",
+    api_key="${activeToken}"
 )
 
-# 3. Execute requested tool calls against your devices
-for call in resp.choices[0].message.tool_calls or []:
-    args = json.loads(call.function.arguments)
-    target = args.pop("device", None)
-    result = bridge.execute(call.function.name, device=target, args=args)
-    print(f"Executed {call.function.name} on {target}:", result)`;
-    }
-
-    if (codeLang === "claude") {
-      return `from anthropic import Anthropic
-from ai_bridge import AIBridgeClient
-
-bridge = AIBridgeClient(base_url="${baseUrl}", token="${activeToken}")
-claude = Anthropic(api_key="your-anthropic-api-key")
-
-# Fetch tools formatted for Claude
-tools = bridge.get_tools(format="anthropic")
-
-response = claude.messages.create(
-    model="claude-3-5-sonnet-20241022",
-    max_tokens=4096,
-    messages=[{"role": "user", "content": "List running docker containers on ubuntu"}],
-    tools=tools
+response = client.chat.completions.create(
+    model="ai-bridge-agent",
+    messages=[{"role": "user", "content": "Check disk space on ubuntu and take a screenshot of windows-pc"}]
 )
-print(response.content)`;
-    }
 
+print(response.choices[0].message.content)`;
+    }
     if (codeLang === "curl") {
-      return `# 1. Synchronously execute any tool on any device:
+      return `# Synchronously execute any tool on any device:
 curl -X POST "${baseUrl}/api/ai/execute" \\
   -H "Authorization: Bearer ${activeToken}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "tool": "run_shell",
-    "device": "${sampleDev}",
+    "device": "ubuntu",
     "args": { "command": "uname -a" },
     "timeout": 30
   }'
 
-# 2. Get OpenAI-compatible tools JSON:
-curl -s -H "Authorization: Bearer ${activeToken}" "${baseUrl}/api/ai/tools?format=openai"
-
-# 3. Query OpenAI-compatible completions endpoint:
+# Query OpenAI-compatible completions endpoint:
 curl -X POST "${baseUrl}/v1/chat/completions" \\
   -H "Authorization: Bearer ${activeToken}" \\
   -H "Content-Type: application/json" \\
@@ -236,50 +314,24 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
     "messages": [{"role": "user", "content": "list devices"}]
   }'`;
     }
-
-    if (codeLang === "typescript") {
-      return `// Direct Fetch API in Node.js or Browser
-const BASE_URL = "${baseUrl}";
-const TOKEN = "${activeToken}";
-
-async function executeDeviceTool(tool: string, device: string, args: Record<string, any>) {
-  const resp = await fetch(\`\${BASE_URL}/api/ai/execute\`, {
-    method: "POST",
-    headers: {
-      "Authorization": \`Bearer \${TOKEN}\`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ tool, device, args, timeout: 30 })
-  });
-  return await resp.json();
-}
-
-// Example: run command on ubuntu server
-executeDeviceTool("run_shell", "ubuntu", { command: "df -h" })
-  .then(res => console.log("Output:", res));`;
-    }
-
     return "";
   }
 
-  function copyCode() {
-    const text = renderCodeSnippet();
-    navigator.clipboard?.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  const selectedToolMeta = tools.find(t => t.name === selectedTool);
+  const activeProvider = aiSettings?.provider || inputProvider;
+  const isConnected = aiSettings?.is_connected || false;
+  const activeMaskedKey = aiSettings?.masked_keys?.[activeProvider] || "";
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      {/* Top Banner & Quick Status */}
+      {/* ================= TOP CONNECTION BANNER ================= */}
       <div
         className="f2-card"
         style={{
-          background: "linear-gradient(135deg, rgba(0,120,212,0.1) 0%, rgba(135,100,184,0.1) 100%)",
-          border: "1px solid var(--colorBrandStroke1)",
-          padding: 18,
+          background: isConnected
+            ? "linear-gradient(135deg, rgba(16,124,65,0.08) 0%, rgba(0,120,212,0.08) 100%)"
+            : "linear-gradient(135deg, rgba(255,185,0,0.1) 0%, rgba(0,120,212,0.08) 100%)",
+          border: isConnected ? "1px solid rgba(16,124,65,0.4)" : "1px solid rgba(255,185,0,0.5)",
+          padding: "16px 20px",
           borderRadius: 8,
           display: "flex",
           justifyContent: "space-between",
@@ -288,73 +340,479 @@ executeDeviceTool("run_shell", "ubuntu", { command: "df -h" })
           gap: 12,
         }}
       >
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 20 }}>🤖</span>
-            <span style={{ fontSize: 16, fontWeight: 600 }}>AI API & Custom LLM Integration Hub</span>
-            <span className="f2-badge" style={{ background: "var(--colorBrandBackground)", color: "#fff", fontSize: 11, padding: "2px 8px" }}>
-              v1.0 Ready
-            </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: "50%",
+              background: isConnected ? "rgba(16,124,65,0.15)" : "rgba(255,185,0,0.2)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 20,
+            }}
+          >
+            {isConnected ? "🟢" : "🟡"}
           </div>
-          <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 13, marginTop: 4 }}>
-            Connect custom AI agents, OpenAI, Anthropic Claude, Gemini, DeepSeek, or local Ollama to control your Windows & Linux fleet.
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 16, fontWeight: 700 }}>
+                {isConnected
+                  ? `AI Connected: ${activeProvider.toUpperCase()} (${aiSettings?.model || inputModel})`
+                  : "No AI API Key Connected"}
+              </span>
+              <span
+                className="f2-badge"
+                style={{
+                  background: isConnected ? "rgba(16,124,65,0.15)" : "rgba(255,185,0,0.2)",
+                  color: isConnected ? "var(--colorStatusSuccessForeground1)" : "var(--colorStatusWarningForeground1)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+              >
+                {isConnected ? "Active & Ready" : "Smart Intent Mode"}
+              </span>
+            </div>
+            <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 13, marginTop: 2 }}>
+              {isConnected
+                ? `Key: ${activeMaskedKey} • Full multi-step reasoning enabled across your ${devices.length} fleet device(s).`
+                : "Connect your OpenAI, Claude, Gemini, or Groq API key below to unlock full conversational reasoning."}
+            </div>
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)", textTransform: "uppercase" }}>Base URL</div>
-            <code style={{ fontSize: 12, fontWeight: 600 }}>{baseUrl}</code>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)", textTransform: "uppercase" }}>Online Devices</div>
-            <span style={{ fontSize: 14, fontWeight: 700, color: "var(--colorStatusSuccessForeground1)" }}>
-              {devices.filter(d => d.status === "online").length} of {devices.length} Online
-            </span>
-          </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            type="button"
+            className="f2-btn f2-btn-sm"
+            onClick={() => setActiveTab("settings")}
+            style={{ fontWeight: 600 }}
+          >
+            🔑 {isConnected ? "Change / Manage Keys" : "Connect AI API Key"}
+          </button>
         </div>
       </div>
 
-      {/* Sub-Navigation Tabs */}
+      {/* ================= NAVIGATION TABS ================= */}
       <div className="f2-tabs" style={{ borderBottom: "1px solid var(--colorNeutralStroke2)" }}>
         <button
           type="button"
           className="f2-tab-btn"
-          data-active={String(activeSubTab === "invoker")}
-          onClick={() => setActiveSubTab("invoker")}
+          data-active={String(activeTab === "chat")}
+          onClick={() => setActiveTab("chat")}
         >
-          ⚡ Live Tool Runner & Tester
+          💬 Fleet Copilot Chat
         </button>
         <button
           type="button"
           className="f2-tab-btn"
-          data-active={String(activeSubTab === "agent")}
-          onClick={() => setActiveSubTab("agent")}
+          data-active={String(activeTab === "settings")}
+          onClick={() => setActiveTab("settings")}
         >
-          🧠 Autonomous Agent Playground
+          🔑 Connect AI API Key
         </button>
         <button
           type="button"
           className="f2-tab-btn"
-          data-active={String(activeSubTab === "docs")}
-          onClick={() => setActiveSubTab("docs")}
+          data-active={String(activeTab === "invoker")}
+          onClick={() => setActiveTab("invoker")}
         >
-          💻 SDK & Integration Code Generator
+          ⚡ Live Tool Tester
+        </button>
+        <button
+          type="button"
+          className="f2-tab-btn"
+          data-active={String(activeTab === "docs")}
+          onClick={() => setActiveTab("docs")}
+        >
+          💻 SDK & REST Snippets
         </button>
       </div>
 
-      {/* ================= TAB 1: LIVE TOOL RUNNER ================= */}
-      {activeSubTab === "invoker" && (
+      {/* ================= TAB 1: COPILOT CHAT ================= */}
+      {activeTab === "chat" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+          {/* Active Fleet Device Chips */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--colorNeutralForeground3)" }}>
+              FLEET STATUS:
+            </span>
+            {devices.map(d => {
+              const isWin = d.os && d.os.toLowerCase().includes("win");
+              return (
+                <span
+                  key={d.id}
+                  className="f2-badge"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                    padding: "4px 10px",
+                    background: "var(--colorNeutralBackground3)",
+                  }}
+                >
+                  <span>{isWin ? "🪟" : "🐧"}</span>
+                  <strong>{d.name}</strong>
+                  <span style={{ fontSize: 11, color: d.status === "online" ? "green" : "gray" }}>
+                    ● {d.status}
+                  </span>
+                </span>
+              );
+            })}
+          </div>
+
+          {/* Chat Messages Card */}
+          <div
+            className="f2-card"
+            style={{
+              padding: 16,
+              minHeight: 460,
+              maxHeight: 620,
+              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+              background: "var(--colorNeutralBackground1)",
+            }}
+          >
+            {chatMessages.map(msg => (
+              <div
+                key={msg.id}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: msg.role === "user" ? "flex-end" : "flex-start",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: "var(--colorNeutralForeground3)",
+                    marginBottom: 4,
+                    display: "flex",
+                    gap: 6,
+                    alignItems: "center",
+                  }}
+                >
+                  <span>{msg.role === "user" ? "👤 You" : "🤖 AI Fleet Copilot"}</span>
+                  <span>•</span>
+                  <span>{msg.timestamp}</span>
+                </div>
+
+                <div
+                  style={{
+                    maxWidth: "85%",
+                    padding: "12px 16px",
+                    borderRadius: 8,
+                    background:
+                      msg.role === "user"
+                        ? "var(--colorBrandBackground)"
+                        : "var(--colorNeutralBackground3)",
+                    color: msg.role === "user" ? "#ffffff" : "var(--colorNeutralForeground1)",
+                    fontSize: 13.5,
+                    lineHeight: 1.55,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                  }}
+                >
+                  {msg.content}
+
+                  {/* Inline Screenshot Preview if generated */}
+                  {msg.screenshot && (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
+                        📸 Captured Display Output:
+                      </div>
+                      <img
+                        src={`data:image/jpeg;base64,${msg.screenshot}`}
+                        alt="Captured Desktop"
+                        style={{
+                          maxWidth: "100%",
+                          maxHeight: 340,
+                          borderRadius: 6,
+                          border: "1px solid rgba(0,0,0,0.2)",
+                          cursor: "pointer",
+                        }}
+                        onClick={() => {
+                          const w = window.open("");
+                          w?.document.write(`<img src="data:image/jpeg;base64,${msg.screenshot}" style="max-width:100%" />`);
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Tool Invocations Trace */}
+                  {msg.steps && msg.steps.length > 0 && (
+                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.1)", fontSize: 11 }}>
+                      <span style={{ fontWeight: 600 }}>Tools invoked: </span>
+                      {msg.steps.map((s, i) => (
+                        <span
+                          key={i}
+                          style={{
+                            display: "inline-block",
+                            background: "rgba(0,0,0,0.08)",
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            marginRight: 4,
+                            fontFamily: "monospace",
+                          }}
+                        >
+                          {s.tool} ({s.device})
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {isSendingChat && (
+              <div style={{ display: "flex", gap: 8, alignItems: "center", color: "var(--colorNeutralForeground3)", fontSize: 13 }}>
+                <span style={{ animation: "spin 1s linear infinite" }}>⚙️</span>
+                <span>AI Copilot is reasoning and coordinating with devices...</span>
+              </div>
+            )}
+
+            <div ref={chatBottomRef} />
+          </div>
+
+          {/* Quick Action Suggestion Chips */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[
+              { label: "📸 Screenshot windows-pc", prompt: "Take a screenshot of windows-pc and show me what is on screen" },
+              { label: "🐧 Ubuntu Uptime & Disk", prompt: "Check uptime, CPU load, and disk space on ubuntu" },
+              { label: "🪟 Windows Apps", prompt: "List open application windows on windows-pc" },
+              { label: "🩺 Full Fleet Health", prompt: "Provide a complete health and telemetry status summary for all devices in our fleet" },
+            ].map((chip, idx) => (
+              <button
+                key={idx}
+                type="button"
+                className="f2-btn f2-btn-sm"
+                style={{ fontSize: 12, padding: "4px 10px", borderRadius: 16 }}
+                onClick={() => handleSendChat(chip.prompt)}
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Chat Input Bar */}
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              type="text"
+              className="f2-input"
+              style={{ flex: 1, padding: "10px 14px", fontSize: 14 }}
+              placeholder="Ask AI to run commands, check servers, or automate Windows GUI..."
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendChat();
+                }
+              }}
+              disabled={isSendingChat}
+            />
+            <button
+              type="button"
+              className="f2-btn f2-btn-primary"
+              style={{ padding: "0 22px", fontWeight: 600 }}
+              onClick={() => handleSendChat()}
+              disabled={isSendingChat || !chatInput.trim()}
+            >
+              Send ➔
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ================= TAB 2: CONNECT AI API KEY ================= */}
+      {activeTab === "settings" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 16, alignItems: "start" }}>
+          {/* Key Input Form */}
+          <div className="f2-card" style={{ padding: 20 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>
+              Connect Your AI API Key
+            </div>
+            <div style={{ fontSize: 13, color: "var(--colorNeutralForeground3)", marginBottom: 16 }}>
+              Store your OpenAI, Anthropic Claude, Gemini, or Groq API key securely in AI Bridge.
+              Once saved, the Dashboard Chat and all AI agent tasks use this key automatically.
+            </div>
+
+            <form onSubmit={handleSaveKey} style={{ display: "grid", gap: 14 }}>
+              {/* Provider Selection */}
+              <div>
+                <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>AI Provider</label>
+                <select
+                  className="f2-input"
+                  style={{ width: "100%" }}
+                  value={inputProvider}
+                  onChange={e => handleProviderChange(e.target.value)}
+                >
+                  <option value="openai">OpenAI (GPT-4o, GPT-4o-mini, o1)</option>
+                  <option value="anthropic">Anthropic Claude (Claude 3.5 Sonnet)</option>
+                  <option value="gemini">Google Gemini (Gemini 1.5 Flash / Pro)</option>
+                  <option value="groq">Groq (Ultra-Fast Llama 3.3 70B)</option>
+                  <option value="deepseek">DeepSeek (DeepSeek V3 / R1)</option>
+                  <option value="ollama">Local Ollama (Offline / Self-Hosted)</option>
+                </select>
+              </div>
+
+              {/* Model Input */}
+              <div>
+                <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>Model Name</label>
+                <input
+                  type="text"
+                  className="f2-input"
+                  style={{ width: "100%" }}
+                  value={inputModel}
+                  onChange={e => setInputModel(e.target.value)}
+                />
+              </div>
+
+              {/* API Key Input */}
+              {inputProvider !== "ollama" ? (
+                <div>
+                  <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>
+                    API Key for {inputProvider.toUpperCase()}
+                  </label>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input
+                      type={showApiKey ? "text" : "password"}
+                      className="f2-input"
+                      style={{ flex: 1, fontFamily: "monospace" }}
+                      placeholder={
+                        inputProvider === "openai" ? "sk-proj-..."
+                        : inputProvider === "anthropic" ? "sk-ant-..."
+                        : inputProvider === "gemini" ? "AIzaSy..."
+                        : "Your API Key"
+                      }
+                      value={inputApiKey}
+                      onChange={e => setInputApiKey(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="f2-btn"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      title="Show/Hide Key"
+                    >
+                      {showApiKey ? "🙈" : "👁️"}
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)", marginTop: 4 }}>
+                    Keys travel over HTTPS only and are never exposed in client logs.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ background: "var(--colorNeutralBackground3)", padding: 10, borderRadius: 6, fontSize: 12 }}>
+                  Ollama runs locally at <code>http://localhost:11434</code> without external API keys.
+                </div>
+              )}
+
+              {saveMessage && (
+                <div
+                  style={{
+                    padding: 10,
+                    borderRadius: 6,
+                    fontSize: 13,
+                    background: saveMessage.error ? "rgba(197,34,31,0.1)" : "rgba(16,124,65,0.1)",
+                    color: saveMessage.error ? "var(--colorStatusDangerForeground1)" : "var(--colorStatusSuccessForeground1)",
+                    border: saveMessage.error ? "1px solid rgba(197,34,31,0.3)" : "1px solid rgba(16,124,65,0.3)",
+                  }}
+                >
+                  {saveMessage.text}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className="f2-btn f2-btn-primary"
+                style={{ padding: "10px 0", fontWeight: 700 }}
+                disabled={isSavingKey}
+              >
+                {isSavingKey ? "Verifying with Provider..." : "🔒 Test & Save AI Connection"}
+              </button>
+            </form>
+          </div>
+
+          {/* Configured Keys Card */}
+          <div className="f2-card" style={{ padding: 20 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
+              Configured AI Providers
+            </div>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              {[
+                { id: "openai", name: "OpenAI", desc: "GPT-4o, GPT-4o-mini" },
+                { id: "anthropic", name: "Anthropic", desc: "Claude 3.5 Sonnet" },
+                { id: "gemini", name: "Google Gemini", desc: "Gemini 1.5 Flash / Pro" },
+                { id: "groq", name: "Groq", desc: "Llama 3.3 70B (Fast)" },
+                { id: "deepseek", name: "DeepSeek", desc: "DeepSeek V3 / R1" },
+              ].map(prov => {
+                const isConf = aiSettings?.keys_configured?.[prov.id];
+                const masked = aiSettings?.masked_keys?.[prov.id];
+
+                return (
+                  <div
+                    key={prov.id}
+                    style={{
+                      background: "var(--colorNeutralBackground3)",
+                      padding: "10px 14px",
+                      borderRadius: 6,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{prov.name}</div>
+                      <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
+                        {isConf ? `Connected (${masked})` : "Not connected"}
+                      </div>
+                    </div>
+
+                    <div>
+                      {isConf ? (
+                        <button
+                          type="button"
+                          className="f2-btn f2-btn-sm"
+                          style={{ color: "var(--colorStatusDangerForeground1)", fontSize: 11 }}
+                          onClick={() => handleClearKey(prov.id)}
+                        >
+                          Disconnect
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="f2-btn f2-btn-sm"
+                          style={{ fontSize: 11 }}
+                          onClick={() => {
+                            handleProviderChange(prov.id);
+                          }}
+                        >
+                          Configure
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= TAB 3: LIVE TOOL RUNNER ================= */}
+      {activeTab === "invoker" && (
         <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.8fr", gap: 16, alignItems: "start" }}>
-          {/* Left Form */}
           <div className="f2-card" style={{ padding: 16 }}>
-            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, display: "flex", justifyContent: "space-between" }}>
-              <span>Execute Tool Synchronously</span>
-              <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>POST /api/ai/execute</span>
+            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>
+              Execute Tool Synchronously (POST /api/ai/execute)
             </div>
 
             <div style={{ display: "grid", gap: 12 }}>
-              {/* Target Device */}
               <div>
                 <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>Target Device</label>
                 <select
@@ -373,69 +831,29 @@ executeDeviceTool("run_shell", "ubuntu", { command: "df -h" })
                 </select>
               </div>
 
-              {/* Tool Selector */}
               <div>
-                <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>
-                  Select Tool ({loadingTools ? "Loading..." : `${tools.length} available`})
-                </label>
+                <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>Select Tool</label>
                 <select
                   className="f2-input"
                   style={{ width: "100%" }}
                   value={selectedTool}
                   onChange={e => handleToolChange(e.target.value)}
                 >
-                  <optgroup label="Terminal & Shell">
-                    <option value="run_shell">run_shell (Execute Bash / PowerShell)</option>
-                    <option value="install_package">install_package (apt, pip, npm, winget)</option>
-                  </optgroup>
-                  <optgroup label="Windows Desktop GUI Automation">
-                    <option value="take_screenshot">take_screenshot (Desktop Screen Capture)</option>
-                    <option value="mouse_click">mouse_click (Click coordinates)</option>
-                    <option value="mouse_move">mouse_move (Move cursor)</option>
-                    <option value="mouse_scroll">mouse_scroll (Wheel scroll)</option>
-                    <option value="keyboard_type">keyboard_type (Type keystrokes)</option>
-                    <option value="keyboard_press">keyboard_press (Hotkeys: win, enter, ctrl+c)</option>
-                    <option value="list_desktop_windows">list_desktop_windows (Open windows)</option>
-                    <option value="focus_window">focus_window (Bring app to front)</option>
-                    <option value="get_screen_size">get_screen_size (Resolution)</option>
-                  </optgroup>
-                  <optgroup label="Files & Workspace">
-                    <option value="read_file">read_file (Read contents from path)</option>
-                    <option value="write_file">write_file (Write file)</option>
-                    <option value="list_workspace">list_workspace (Directory listing)</option>
-                  </optgroup>
-                  <optgroup label="System Telemetry & Health">
-                    <option value="list_devices">list_devices (Fleet summary)</option>
-                    <option value="get_system_info">get_system_info (Hardware specs)</option>
-                    <option value="get_resource_usage">get_resource_usage (CPU, RAM, Uptime)</option>
-                    <option value="get_disk_usage">get_disk_usage (Drive storage)</option>
-                    <option value="list_processes">list_processes (Top processes)</option>
-                    <option value="list_docker_containers">list_docker_containers (Docker)</option>
-                  </optgroup>
+                  <option value="run_shell">run_shell (Execute Bash / PowerShell)</option>
+                  <option value="take_screenshot">take_screenshot (Desktop Screen Capture)</option>
+                  <option value="mouse_click">mouse_click (Click coordinates)</option>
+                  <option value="keyboard_type">keyboard_type (Type keystrokes)</option>
+                  <option value="list_desktop_windows">list_desktop_windows (Open windows)</option>
+                  <option value="read_file">read_file (Read file)</option>
+                  <option value="get_system_info">get_system_info (Hardware specs)</option>
                 </select>
               </div>
 
-              {/* Tool Meta Info */}
-              {selectedToolMeta && (
-                <div style={{ background: "var(--colorNeutralBackground3)", padding: 8, borderRadius: 6, fontSize: 12 }}>
-                  <div style={{ color: "var(--colorNeutralForeground2)" }}>{selectedToolMeta.description}</div>
-                  <div style={{ marginTop: 4, display: "flex", gap: 8, fontSize: 11 }}>
-                    <span className="f2-badge" style={{ background: "rgba(0,120,212,0.15)", color: "var(--colorBrandForeground1)" }}>
-                      Tier {selectedToolMeta.tier}
-                    </span>
-                    <span className="f2-badge" style={{ background: "rgba(0,0,0,0.08)" }}>
-                      Category: {selectedToolMeta.category}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Arguments JSON */}
               <div>
                 <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>Arguments (JSON)</label>
                 <textarea
                   className="f2-input"
-                  style={{ width: "100%", height: 120, fontFamily: "monospace", fontSize: 12 }}
+                  style={{ width: "100%", height: 110, fontFamily: "monospace", fontSize: 12 }}
                   value={toolArgsStr}
                   onChange={e => setToolArgsStr(e.target.value)}
                 />
@@ -453,10 +871,9 @@ executeDeviceTool("run_shell", "ubuntu", { command: "df -h" })
             </div>
           </div>
 
-          {/* Right Output Viewer */}
           <div className="f2-card" style={{ padding: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <span style={{ fontWeight: 600, fontSize: 14 }}>Real-Time Execution Result</span>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>Real-Time Result</span>
               {execDuration !== null && (
                 <span className="f2-badge" style={{ background: "rgba(16,124,65,0.15)", color: "var(--colorStatusSuccessForeground1)" }}>
                   {execDuration} ms
@@ -464,62 +881,23 @@ executeDeviceTool("run_shell", "ubuntu", { command: "df -h" })
               )}
             </div>
 
-            {!executionResult && !isExecuting && (
-              <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--colorNeutralForeground3)", fontSize: 13 }}>
-                Click <strong>"Execute Tool"</strong> to submit a synchronous call to your target computer and view the immediate output.
-              </div>
-            )}
-
-            {isExecuting && (
-              <div style={{ textAlign: "center", padding: "40px 20px" }}>
-                <div style={{ fontSize: 16, fontWeight: 600 }}>Executing task on device...</div>
-                <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", marginTop: 4 }}>
-                  Control plane is dispatching to agent poller via task queue.
-                </div>
-              </div>
-            )}
-
-            {executionResult && (
+            {executionResult ? (
               <div>
-                <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
-                  <span
-                    className="f2-badge"
-                    style={{
-                      background: executionResult.ok ? "rgba(16,124,65,0.15)" : "rgba(197,34,31,0.15)",
-                      color: executionResult.ok ? "var(--colorStatusSuccessForeground1)" : "var(--colorStatusDangerForeground1)",
-                    }}
-                  >
-                    Status: {executionResult.status || (executionResult.ok ? "success" : "failed")}
-                  </span>
-                  {executionResult.device_name && (
-                    <span className="f2-badge">Device: {executionResult.device_name}</span>
-                  )}
-                  {executionResult.task_id && (
-                    <span className="f2-badge" style={{ fontFamily: "monospace" }}>Task ID: {executionResult.task_id}</span>
-                  )}
-                </div>
-
-                {/* If result contains screenshot, render image! */}
-                {executionResult.result && executionResult.result.screenshot && (
+                {executionResult.result?.screenshot && (
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Live Captured Screen:</div>
                     <img
                       src={`data:image/jpeg;base64,${executionResult.result.screenshot}`}
                       alt="Captured Display"
-                      style={{ maxWidth: "100%", maxHeight: 320, borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)" }}
+                      style={{ maxWidth: "100%", maxHeight: 300, borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)" }}
                     />
                   </div>
                 )}
-
-                <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "var(--colorNeutralForeground3)", marginBottom: 4 }}>
-                  JSON Response Payload
-                </div>
                 <pre
                   style={{
                     background: "var(--colorNeutralBackground3)",
                     padding: 12,
                     borderRadius: 6,
-                    maxHeight: 380,
+                    maxHeight: 340,
                     overflow: "auto",
                     fontFamily: "monospace",
                     fontSize: 12,
@@ -528,206 +906,45 @@ executeDeviceTool("run_shell", "ubuntu", { command: "df -h" })
                   {JSON.stringify(executionResult, null, 2)}
                 </pre>
               </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ================= TAB 2: AGENT PLAYGROUND ================= */}
-      {activeSubTab === "agent" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.8fr", gap: 16, alignItems: "start" }}>
-          {/* Agent Settings & Prompt */}
-          <div className="f2-card" style={{ padding: 16 }}>
-            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>
-              Autonomous ReAct Fleet Agent
-            </div>
-
-            <div style={{ display: "grid", gap: 12 }}>
-              <div>
-                <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>Natural Language Instruction</label>
-                <textarea
-                  className="f2-input"
-                  style={{ width: "100%", height: 90, fontSize: 13 }}
-                  placeholder="e.g. List files in workspace on windows-pc, then inspect uptime on ubuntu"
-                  value={agentPrompt}
-                  onChange={e => setAgentPrompt(e.target.value)}
-                />
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <div>
-                  <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>LLM Provider</label>
-                  <select
-                    className="f2-input"
-                    style={{ width: "100%" }}
-                    value={agentProvider}
-                    onChange={e => {
-                      setAgentProvider(e.target.value);
-                      if (e.target.value === "groq") setAgentModel("llama-3.3-70b-versatile");
-                      else if (e.target.value === "deepseek") setAgentModel("deepseek-chat");
-                      else if (e.target.value === "ollama") setAgentModel("llama3.2");
-                      else setAgentModel("gpt-4o");
-                    }}
-                  >
-                    <option value="openai">OpenAI (GPT-4o, o1)</option>
-                    <option value="groq">Groq (Ultra-Fast Llama 3.3)</option>
-                    <option value="deepseek">DeepSeek (V3, R1)</option>
-                    <option value="ollama">Ollama (Local Offline)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>Model</label>
-                  <input
-                    type="text"
-                    className="f2-input"
-                    style={{ width: "100%" }}
-                    value={agentModel}
-                    onChange={e => setAgentModel(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>
-                  API Key (BYOK - Bring Your Own Key)
-                </label>
-                <input
-                  type="password"
-                  className="f2-input"
-                  style={{ width: "100%" }}
-                  placeholder="Optional if configured on server via env"
-                  value={agentApiKey}
-                  onChange={e => setAgentApiKey(e.target.value)}
-                />
-                <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)", marginTop: 2 }}>
-                  Keys stay confidential and are used only to drive the tool calling loop.
-                </div>
-              </div>
-
-              <button
-                type="button"
-                className="f2-btn f2-btn-primary"
-                style={{ width: "100%", padding: "8px 0" }}
-                disabled={isRunningAgent}
-                onClick={handleRunAgent}
-              >
-                {isRunningAgent ? "Agent Running Loop..." : "🚀 Run Fleet Instruction"}
-              </button>
-            </div>
-          </div>
-
-          {/* Agent Output & Steps Tree */}
-          <div className="f2-card" style={{ padding: 16 }}>
-            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>
-              Agent Reasoning & Action Trajectory
-            </div>
-
-            {!agentResult && !isRunningAgent && (
+            ) : (
               <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--colorNeutralForeground3)", fontSize: 13 }}>
-                Enter an instruction and click <strong>"Run Fleet Instruction"</strong>. The agent will inspect devices, invoke tools, and report the answer.
-              </div>
-            )}
-
-            {isRunningAgent && (
-              <div style={{ textAlign: "center", padding: "40px 20px" }}>
-                <div style={{ fontSize: 15, fontWeight: 600 }}>Autonomous agent reasoning...</div>
-                <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", marginTop: 4 }}>
-                  Interacting with LLM and dispatching tool tasks to enrolled agents.
-                </div>
-              </div>
-            )}
-
-            {agentResult && (
-              <div style={{ display: "grid", gap: 12 }}>
-                {/* Final AI Answer */}
-                <div
-                  style={{
-                    background: "rgba(0,120,212,0.08)",
-                    border: "1px solid var(--colorBrandStroke1)",
-                    borderRadius: 6,
-                    padding: 14,
-                  }}
-                >
-                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--colorBrandForeground1)", marginBottom: 4 }}>
-                    Final AI Response
-                  </div>
-                  <div style={{ fontSize: 14, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
-                    {agentResult.response || agentResult.error || "Execution finished."}
-                  </div>
-                </div>
-
-                {/* Steps Traces */}
-                {agentResult.steps && agentResult.steps.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
-                      Action Trace ({agentResult.steps.length} Tool Calls)
-                    </div>
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {agentResult.steps.map((st: any, idx: number) => (
-                        <div
-                          key={idx}
-                          style={{
-                            background: "var(--colorNeutralBackground3)",
-                            padding: 10,
-                            borderRadius: 6,
-                            fontSize: 12,
-                          }}
-                        >
-                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                            <span style={{ fontWeight: 600, color: "var(--colorBrandForeground1)" }}>
-                              Step {st.step || idx + 1}: {st.tool}
-                            </span>
-                            <span className="f2-badge">Device: {st.device}</span>
-                          </div>
-                          <div style={{ fontSize: 11, color: "var(--colorNeutralForeground2)", fontFamily: "monospace" }}>
-                            Args: {JSON.stringify(st.args || {})}
-                          </div>
-                          {st.result && (
-                            <div style={{ marginTop: 4, maxHeight: 80, overflow: "auto", fontFamily: "monospace", fontSize: 11 }}>
-                              Result: {JSON.stringify(st.result)}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                Click "Execute Tool" to run a command or desktop action.
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* ================= TAB 3: CODE GENERATOR ================= */}
-      {activeSubTab === "docs" && (
+      {/* ================= TAB 4: CODE GENERATOR ================= */}
+      {activeTab === "docs" && (
         <div className="f2-card" style={{ padding: 18 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div>
-              <div style={{ fontWeight: 600, fontSize: 15 }}>Ready-to-Use SDK & API Code Snippets</div>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>SDK & REST API Code Generator</div>
               <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", marginTop: 2 }}>
-                Pre-configured with your current base URL and authentication token.
+                Pre-filled with your current base URL and active token.
               </div>
             </div>
 
             <button
               type="button"
               className="f2-btn"
-              onClick={copyCode}
+              onClick={() => {
+                navigator.clipboard?.writeText(renderCodeSnippet());
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
               style={{ padding: "6px 14px", fontWeight: 600 }}
             >
-              {copied ? "✓ Copied to Clipboard!" : "📋 Copy Code"}
+              {copied ? "✓ Copied!" : "📋 Copy Code"}
             </button>
           </div>
 
-          {/* Lang Selector Pills */}
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
             {[
               { id: "python", label: "Python SDK" },
-              { id: "openai", label: "OpenAI Function Calling" },
-              { id: "claude", label: "Anthropic Claude 3.5" },
+              { id: "openai", label: "OpenAI Client (/v1)" },
               { id: "curl", label: "cURL / Bash" },
-              { id: "typescript", label: "TypeScript / Fetch" },
             ].map(item => (
               <button
                 key={item.id}
@@ -754,7 +971,6 @@ executeDeviceTool("run_shell", "ubuntu", { command: "df -h" })
               fontSize: 13,
               lineHeight: 1.5,
               overflow: "auto",
-              maxHeight: 450,
             }}
           >
             {renderCodeSnippet()}

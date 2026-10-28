@@ -541,6 +541,115 @@ class ChatCompletionIn(BaseModel):
     api_key: str | None = None
 
 
+class AISettingsIn(BaseModel):
+    provider: str = "openai"  # openai | anthropic | gemini | groq | deepseek | ollama
+    model: str | None = None
+    api_key: str | None = None
+    test_connection: bool = True
+    clear: bool = False
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str | None = None
+    name: str | None = None
+    screenshot: str | None = None
+
+
+class AIChatIn(BaseModel):
+    messages: list[ChatMessage]
+    provider: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    device: str | None = "auto"
+    tenant: str = "default"
+
+
+def mask_key(k: str) -> str:
+    if not k:
+        return ""
+    if len(k) <= 8:
+        return "****"
+    return f"{k[:7]}...{k[-4:]}"
+
+
+def validate_llm_key(provider: str, api_key: str) -> tuple[bool, str]:
+    """Test connection with the provider to verify the API key is active."""
+    p = provider.lower().strip()
+    key = api_key.strip()
+    if not key:
+        return False, "API key cannot be empty."
+
+    try:
+        if p == "openai":
+            req = urllib.request.Request(
+                "https://api.openai.com/v1/models",
+                headers={"Authorization": f"Bearer {key}", "User-Agent": "AI-Bridge/0.3"}
+            )
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                if 200 <= resp.status < 300:
+                    return True, "OpenAI connection verified successfully."
+        elif p == "groq":
+            req = urllib.request.Request(
+                "https://api.groq.com/openai/v1/models",
+                headers={"Authorization": f"Bearer {key}", "User-Agent": "AI-Bridge/0.3"}
+            )
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                if 200 <= resp.status < 300:
+                    return True, "Groq connection verified successfully."
+        elif p == "deepseek":
+            req = urllib.request.Request(
+                "https://api.deepseek.com/models",
+                headers={"Authorization": f"Bearer {key}", "User-Agent": "AI-Bridge/0.3"}
+            )
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                if 200 <= resp.status < 300:
+                    return True, "DeepSeek connection verified successfully."
+        elif p == "gemini":
+            req = urllib.request.Request(
+                f"https://generativelanguage.googleapis.com/v1beta/models?key={key}",
+                headers={"User-Agent": "AI-Bridge/0.3"}
+            )
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                if 200 <= resp.status < 300:
+                    return True, "Google Gemini connection verified successfully."
+        elif p == "anthropic":
+            payload = {
+                "model": "claude-3-5-sonnet-20241022",
+                "max_tokens": 1,
+                "messages": [{"role": "user", "content": "ping"}]
+            }
+            req = urllib.request.Request(
+                "https://api.anthropic.com/v1/messages",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "x-api-key": key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                    "User-Agent": "AI-Bridge/0.3"
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                if 200 <= resp.status < 300:
+                    return True, "Anthropic Claude connection verified successfully."
+        elif p == "ollama":
+            return True, "Ollama connection configured."
+        else:
+            return False, f"Unsupported provider: {p}"
+    except urllib.error.HTTPError as err:
+        err_msg = err.read().decode("utf-8") if err.fp else ""
+        try:
+            err_json = json.loads(err_msg)
+            msg = err_json.get("error", {}).get("message") or err_json.get("message") or err_msg
+        except Exception:
+            msg = err_msg or str(err)
+        return False, f"Provider rejected key (HTTP {err.code}): {msg[:180]}"
+    except Exception as exc:
+        return False, f"Could not reach provider: {exc}"
+    return False, "Validation failed."
+
+
 def extract_bearer_token(auth_header: str | None) -> str | None:
     if not auth_header:
         return None
@@ -798,17 +907,38 @@ def attach_ai_routes(
         """
         actor, role = _resolve_auth(req, x_admin_token, x_session_token)
 
-        # Determine LLM API Key and Base URL
-        provider = (body.provider or "openai").lower()
+        # Determine LLM Provider, Model and API Key
+        provider = (body.provider or "").lower().strip()
+        if not provider:
+            def_p = conn.execute("SELECT value FROM settings WHERE key='ai_default_provider'").fetchone()
+            provider = (def_p["value"] if def_p and def_p["value"] else "openai").lower().strip()
+
         api_key = (
             body.api_key
             or req.headers.get("x-llm-api-key")
             or req.headers.get("x-openai-api-key")
-            or os.environ.get(f"AI_BRIDGE_{provider.upper()}_API_KEY")
-            or os.environ.get(f"{provider.upper()}_API_KEY")
-            or os.environ.get("AI_BRIDGE_OPENAI_API_KEY")
-            or os.environ.get("OPENAI_API_KEY")
         )
+        if not api_key:
+            row = conn.execute("SELECT value FROM settings WHERE key=?", (f"ai_{provider}_key",)).fetchone()
+            if row and row["value"]:
+                api_key = str(row["value"]).strip()
+        if not api_key and provider == "openai":
+            row = conn.execute("SELECT value FROM settings WHERE key='ai_default_key'").fetchone()
+            if row and row["value"]:
+                api_key = str(row["value"]).strip()
+        if not api_key:
+            api_key = (
+                os.environ.get(f"AI_BRIDGE_{provider.upper()}_API_KEY")
+                or os.environ.get(f"{provider.upper()}_API_KEY")
+                or os.environ.get("AI_BRIDGE_OPENAI_API_KEY")
+                or os.environ.get("OPENAI_API_KEY")
+            )
+
+        model = body.model
+        if not model:
+            def_m = conn.execute("SELECT value FROM settings WHERE key='ai_default_model'").fetchone()
+            if def_m and def_m["value"]:
+                model = str(def_m["value"]).strip()
 
         # Fetch devices in tenant for context
         devices = conn.execute("SELECT id, name, hostname, os, status FROM devices WHERE tenant=? AND revoked=0", (body.tenant,)).fetchall()
@@ -836,11 +966,17 @@ def attach_ai_routes(
                 target = win_dev["name"] if win_dev else "local"
                 exec_in = AIExecuteIn(tool="take_screenshot", device=target, tenant=body.tenant)
                 res = await execute_ai_tool(exec_in, req, x_admin_token=x_admin_token, x_session_token=x_session_token)
+                screenshot_data = None
+                if isinstance(res, dict):
+                    inner = res.get("result", {})
+                    if isinstance(inner, dict) and inner.get("screenshot"):
+                        screenshot_data = inner.get("screenshot")
                 return {
                     "ok": True,
                     "provider": "smart-intent",
                     "response": f"Captured screenshot from {target}.",
                     "steps": [{"tool": "take_screenshot", "device": target, "result": res}],
+                    "screenshot": screenshot_data,
                 }
 
             # Device list intent
@@ -876,15 +1012,18 @@ def attach_ai_routes(
         base_url = body.base_url or (
             "https://api.groq.com/openai/v1" if provider == "groq"
             else "https://api.deepseek.com/v1" if provider == "deepseek"
+            else "https://generativelanguage.googleapis.com/v1beta/openai" if provider == "gemini"
             else "http://localhost:11434/v1" if provider == "ollama"
             else "https://api.openai.com/v1"
         )
-        model = body.model or (
-            "llama-3.3-70b-versatile" if provider == "groq"
-            else "deepseek-chat" if provider == "deepseek"
-            else "llama3" if provider == "ollama"
-            else "gpt-4o"
-        )
+        if not model:
+            model = (
+                "llama-3.3-70b-versatile" if provider == "groq"
+                else "deepseek-chat" if provider == "deepseek"
+                else "gemini-1.5-flash" if provider == "gemini"
+                else "llama3" if provider == "ollama"
+                else "gpt-4o"
+            )
 
         tools_spec = build_tool_specs(tool_format="openai")
         messages = [
@@ -1087,3 +1226,144 @@ def attach_ai_routes(
             })
 
         return {"ok": True, "tenant": tenant, "count": len(out), "devices": out}
+
+    # 7. AI Provider Settings & API Keys Management
+    @app.get("/api/settings/ai")
+    def get_ai_settings(
+        req: Request,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        """Return configured AI providers, models, and masked API keys."""
+        _resolve_auth(req, x_admin_token, x_session_token)
+        providers = ["openai", "anthropic", "gemini", "groq", "deepseek"]
+        configured = {}
+        masked = {}
+        for p in providers:
+            row = conn.execute("SELECT value FROM settings WHERE key=?", (f"ai_{p}_key",)).fetchone()
+            val = str(row["value"]).strip() if row and row["value"] else ""
+            if not val:
+                val = os.environ.get(f"AI_BRIDGE_{p.upper()}_API_KEY") or os.environ.get(f"{p.upper()}_API_KEY", "")
+            configured[p] = bool(val)
+            if val:
+                masked[p] = mask_key(val)
+
+        def_p = conn.execute("SELECT value FROM settings WHERE key='ai_default_provider'").fetchone()
+        def_m = conn.execute("SELECT value FROM settings WHERE key='ai_default_model'").fetchone()
+
+        active_provider = (def_p["value"] if def_p and def_p["value"] else "openai").strip()
+        active_model = (def_m["value"] if def_m and def_m["value"] else ("gpt-4o" if active_provider == "openai" else "claude-3-5-sonnet")).strip()
+
+        return {
+            "ok": True,
+            "provider": active_provider,
+            "model": active_model,
+            "keys_configured": configured,
+            "masked_keys": masked,
+            "is_connected": bool(configured.get(active_provider) or active_provider == "ollama"),
+        }
+
+    @app.post("/api/settings/ai")
+    def update_ai_settings(
+        body: AISettingsIn,
+        req: Request,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        """Save, test, or clear AI API keys for a provider."""
+        actor, role = _resolve_auth(req, x_admin_token, x_session_token)
+        p = body.provider.lower().strip()
+        m = (body.model or "").strip()
+
+        if body.clear:
+            conn.execute("DELETE FROM settings WHERE key=?", (f"ai_{p}_key",))
+            conn.commit()
+            audit(actor, "", f"clear_ai_key_{p}", {}, "allowed")
+            return {"ok": True, "message": f"Cleared API key for {p.capitalize()}."}
+
+        key = (body.api_key or "").strip()
+        if p != "ollama" and not key:
+            raise HTTPException(status_code=400, detail="API key is required.")
+
+        if body.test_connection:
+            valid, msg = validate_llm_key(p, key)
+            if not valid:
+                raise HTTPException(status_code=400, detail=msg)
+
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (f"ai_{p}_key", key))
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_default_provider', ?)", (p,))
+        if m:
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_default_model', ?)", (m,))
+        conn.commit()
+
+        audit(actor, "", f"set_ai_key_{p}", {"model": m}, "allowed")
+        return {
+            "ok": True,
+            "message": f"Successfully connected to {p.capitalize()}!",
+            "provider": p,
+            "model": m or ("gpt-4o" if p == "openai" else "claude-3-5-sonnet" if p == "anthropic" else "gemini-1.5-pro"),
+            "masked_key": mask_key(key),
+        }
+
+    # 8. Conversational Dashboard AI Copilot
+    @app.post("/api/ai/chat")
+    async def ai_chat(
+        body: AIChatIn,
+        req: Request,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        """Conversational AI Copilot for the Dashboard with fleet awareness,
+        tool calling, and live screenshot attachments."""
+        actor, role = _resolve_auth(req, x_admin_token, x_session_token)
+
+        last_prompt = ""
+        for m in reversed(body.messages):
+            if m.role == "user" and m.content:
+                last_prompt = m.content
+                break
+        if not last_prompt:
+            return {"ok": True, "message": {"role": "assistant", "content": "How can I help you manage your computer fleet?"}}
+
+        agent_in = AIAgentIn(
+            prompt=last_prompt,
+            device=body.device,
+            provider=body.provider or "openai",
+            model=body.model,
+            api_key=body.api_key,
+            tenant=body.tenant,
+        )
+
+        agent_res = await run_autonomous_agent(agent_in, req, x_admin_token=x_admin_token, x_session_token=x_session_token)
+        if isinstance(agent_res, Response):
+            return agent_res
+
+        # Check if any step captured a screenshot
+        screenshot_b64 = agent_res.get("screenshot")
+        steps = agent_res.get("steps", [])
+        if not screenshot_b64:
+            for st in steps:
+                res = st.get("result", {})
+                if isinstance(res, dict):
+                    inner = res.get("result", {})
+                    if isinstance(inner, dict) and "screenshot" in inner and inner["screenshot"]:
+                        screenshot_b64 = inner["screenshot"]
+                        break
+                    elif "screenshot" in res and res["screenshot"]:
+                        screenshot_b64 = res["screenshot"]
+                        break
+
+        resp_text = agent_res.get("response") or agent_res.get("error") or "Operation complete."
+
+        return {
+            "ok": True,
+            "message": {
+                "role": "assistant",
+                "content": resp_text,
+                "screenshot": screenshot_b64,
+            },
+            "steps": steps,
+            "screenshot": screenshot_b64,
+            "provider": agent_res.get("provider"),
+            "model": agent_res.get("model"),
+        }

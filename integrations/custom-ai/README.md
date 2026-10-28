@@ -164,3 +164,4 @@ All tool invocations made by custom AI agents pass through AI Bridge's server-si
 - **Tier 2 (Low Risk)**: File creation, test runs within confinement.
 - **Tier 3 (Sensitive / Desktop GUI)**: Shell execution, mouse/keyboard input, screenshots. Allowed unattended when configured or when targeting an unrestricted Linux server.
 - **Tier 4 (High Risk)**: Irreversible deletions or privileged mutations require explicit approval via the dashboard or `/api/approvals`.
+

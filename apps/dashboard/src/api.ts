@@ -93,4 +93,9 @@ export const api = {
   aiAgent: (body: { prompt: string; device?: string; provider?: string; model?: string; api_key?: string }) =>
     call("/api/ai/agent", "POST", body),
   aiFleet: () => call("/api/ai/devices"),
+  getAiSettings: () => call("/api/settings/ai"),
+  saveAiSettings: (body: { provider: string; model?: string; api_key?: string; test_connection?: boolean; clear?: boolean }) =>
+    call("/api/settings/ai", "POST", body),
+  aiChat: (body: { messages: any[]; provider?: string; model?: string; api_key?: string; device?: string }) =>
+    call("/api/ai/chat", "POST", body),
 };
