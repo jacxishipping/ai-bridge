@@ -38,3 +38,27 @@ def list_elements() -> dict:
 
 def set_of_marks(max_marks: int = 40) -> dict:
     return tools.set_of_marks_screenshot(max_marks=max_marks)
+
+
+if __name__ == "__main__":
+    import json
+
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
+    if cmd == "status":
+        print(json.dumps(status(), indent=2))
+    elif cmd == "screenshot":
+        print(json.dumps(screenshot(), indent=2))
+    elif cmd == "ocr":
+        print(json.dumps(ocr(), indent=2))
+    elif cmd == "list_elements":
+        print(json.dumps(list_elements(), indent=2))
+    elif cmd == "set_of_marks":
+        print(json.dumps(set_of_marks(), indent=2))
+    elif cmd == "click_text" and len(sys.argv) > 2:
+        print(json.dumps(click_text(sys.argv[2]), indent=2))
+    elif cmd == "click_element" and len(sys.argv) > 2:
+        print(json.dumps(click_element(mark_id=sys.argv[2]), indent=2))
+    elif cmd == "launch" and len(sys.argv) > 2:
+        print(json.dumps(launch(sys.argv[2]), indent=2))
+    else:
+        print(f"Unknown or incomplete command: {cmd}")
