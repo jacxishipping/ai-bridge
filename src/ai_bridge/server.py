@@ -828,6 +828,58 @@ def install_package(package_id: str, version: str | None = None, device: str | N
     return tools.install_package(package_id, version, approval_granted=approved)
 
 
+@mcp.tool()
+@device_aware("ocr_screen")
+def ocr_screen(device: str | None = None) -> dict:
+    """Run native OCR on the current desktop display and return extracted text with pixel coordinates.
+    device (optional): Target device name (e.g. 'windows-pc') or 'local'."""
+    approved = _consume_local_approval("ocr_screen")
+    return tools.ocr_screen(approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("click_text")
+def click_text(text: str, occurrence: int = 1, button: str = "left", clicks: int = 1, device: str | None = None) -> dict:
+    """Find and click visible text on screen using native OCR + UI grounding (no pixel guessing needed).
+    text: Text on screen to locate and click.
+    occurrence: 1st, 2nd, etc. occurrence if text appears multiple times (default 1).
+    button: 'left', 'right', 'middle'.
+    clicks: 1 (single click) or 2 (double click).
+    device (optional): Target device name (e.g. 'windows-pc') or 'local'."""
+    approved = _consume_local_approval("click_text")
+    return tools.click_text(text, occurrence=occurrence, button=button, clicks=clicks, approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("click_element")
+def click_element(mark_id: str | None = None, name: str | None = None, button: str = "left", clicks: int = 1, device: str | None = None) -> dict:
+    """Click a labeled mark (from set_of_marks_screenshot) or element name.
+    mark_id: Tag number (e.g. '1', '2') from set_of_marks_screenshot.
+    name: Text or control name.
+    device (optional): Target device name (e.g. 'windows-pc') or 'local'."""
+    approved = _consume_local_approval("click_element")
+    return tools.click_element(mark_id=mark_id, name=name, button=button, clicks=clicks, approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("list_ui_elements")
+def list_ui_elements(device: str | None = None) -> dict:
+    """List visible interactive Windows controls (menus, buttons, input fields, child controls) with labels and bounds.
+    device (optional): Target device name (e.g. 'windows-pc') or 'local'."""
+    approved = _consume_local_approval("list_ui_elements")
+    return tools.list_ui_elements(approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("set_of_marks_screenshot")
+def set_of_marks_screenshot(max_marks: int = 40, device: str | None = None) -> dict:
+    """Capture a screenshot with numbered visual tag badges ([1], [2], [3]) overlaid over interactive elements.
+    max_marks: Maximum elements to tag (default 40).
+    device (optional): Target device name (e.g. 'windows-pc') or 'local'."""
+    approved = _consume_local_approval("set_of_marks_screenshot")
+    return tools.set_of_marks_screenshot(max_marks=max_marks, approval_granted=approved)
+
+
 class _BearerAuthMiddleware:
     """Enforce bearer token authentication and normalize Accept & path on Streamable HTTP."""
 

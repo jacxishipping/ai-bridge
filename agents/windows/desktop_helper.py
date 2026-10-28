@@ -23,3 +23,18 @@ def screenshot() -> dict:
 
 def launch(app_name: str) -> dict:
     return tools.launch_approved_application(app_name)
+
+def ocr() -> dict:
+    return tools.ocr_screen()
+
+def click_text(text: str, occurrence: int = 1, button: str = "left", clicks: int = 1) -> dict:
+    return tools.click_text(text, occurrence=occurrence, button=button, clicks=clicks)
+
+def click_element(mark_id: str | None = None, name: str | None = None, button: str = "left", clicks: int = 1) -> dict:
+    return tools.click_element(mark_id=mark_id, name=name, button=button, clicks=clicks)
+
+def list_elements() -> dict:
+    return tools.list_ui_elements()
+
+def set_of_marks(max_marks: int = 40) -> dict:
+    return tools.set_of_marks_screenshot(max_marks=max_marks)

@@ -17,6 +17,7 @@ Rate limiting: 120 requests/minute per token/IP (in-memory, per process).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
 import ipaddress
 import json
@@ -32,7 +33,7 @@ from pathlib import Path
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 from starlette.datastructures import Headers
 
@@ -88,8 +89,20 @@ def _rate_limit(key: str, limit: int = 120, window: int = 60) -> None:
             raise HTTPException(status_code=429, detail="Rate limit exceeded.")
 
 
-def send_webhook_notification(webhook_url: str, event: dict, timeout: int = 10) -> dict:
-    """Send a JSON notification to a Slack, Discord, Telegram Bot, or generic webhook URL."""
+def make_quick_sig(admin_token: str | None, approval_id: str, decision: str) -> str:
+    secret = (admin_token or "ai-bridge-secret").encode("utf-8")
+    msg = f"{approval_id}:{decision}".encode("utf-8")
+    return hmac.new(secret, msg, hashlib.sha256).hexdigest()[:32]
+
+
+def send_webhook_notification(
+    webhook_url: str,
+    event: dict,
+    admin_token: str | None = None,
+    public_base_url: str | None = None,
+    timeout: int = 10,
+) -> dict:
+    """Send a formatted notification to Slack, Discord, Telegram Bot, or generic webhook URL with 1-click mobile approval links."""
     url = (webhook_url or "").strip()
     if not url:
         return {"ok": False, "error": "No webhook URL configured."}
@@ -97,32 +110,123 @@ def send_webhook_notification(webhook_url: str, event: dict, timeout: int = 10) 
         _validate_webhook_url(url)
     except HTTPException as exc:
         return {"ok": False, "error": exc.detail}
+
     safe_args = redact_obj(event.get("args") or {})
+    args_json = json.dumps(safe_args, indent=2)
+    tool = event.get("tool", "unknown_tool")
+    tier = event.get("tier", "unknown")
+    dev_name = event.get("device_name") or event.get("device_id") or "Device"
+    app_id = event.get("approval_id") or ""
+    task_id = event.get("task_id") or ""
+    evt_type = event.get("event", "approval_requested")
+
+    base_url = (public_base_url or os.environ.get("AI_BRIDGE_PUBLIC_URL") or "https://jxiptvplayer.app").rstrip("/")
+
+    approve_url = ""
+    deny_url = ""
+    if app_id:
+        app_sig = make_quick_sig(admin_token, app_id, "approved")
+        den_sig = make_quick_sig(admin_token, app_id, "denied")
+        approve_url = f"{base_url}/api/approvals/quick/{app_id}?decision=approved&sig={app_sig}"
+        deny_url = f"{base_url}/api/approvals/quick/{app_id}?decision=denied&sig={den_sig}"
+
     text = (
         f"[AI Bridge Approval Required]\n"
-        f"Tool: {event.get('tool')} (Tier {event.get('tier')})\n"
-        f"Device: {event.get('device_name') or event.get('device_id')}\n"
-        f"Task ID: {event.get('task_id')}\n"
-        f"Approval ID: {event.get('approval_id')}\n"
+        f"Tool: {tool} (Tier {tier})\n"
+        f"Device: {dev_name}\n"
+        f"Task ID: {task_id}\n"
+        f"Approval ID: {app_id}\n"
         f"Args: {json.dumps(safe_args)[:300]}"
     )
-    payload: dict = {
+    payload = {
         "text": text,
         "content": text,
-        "event": event.get("event", "approval_requested"),
-        "approval_id": event.get("approval_id"),
-        "task_id": event.get("task_id"),
+        "event": evt_type,
+        "approval_id": app_id,
+        "task_id": task_id,
         "device_id": event.get("device_id"),
-        "device_name": event.get("device_name"),
-        "tool": event.get("tool"),
-        "tier": event.get("tier"),
+        "device_name": dev_name,
+        "tool": tool,
+        "tier": tier,
         "args": safe_args,
+        "quick_approve_url": approve_url,
+        "quick_deny_url": deny_url,
     }
+
     parsed = urllib.parse.urlparse(url)
-    if "api.telegram.org" in (parsed.netloc or ""):
+    netloc = (parsed.netloc or "").lower()
+
+    if "discord.com" in netloc:
+        if evt_type == "approval_requested" and approve_url:
+            payload["content"] = f"🚨 **[AI Bridge] Approval Required: `{tool}`**"
+            payload["embeds"] = [
+                {
+                    "title": f"Tier-{tier} Operation Requested",
+                    "description": f"**Device:** `{dev_name}`\n**Tool:** `{tool}`\n**Task ID:** `{task_id}`\n**Approval ID:** `{app_id}`\n\n**Arguments:**\n```{args_json[:500]}```",
+                    "color": 15158332,
+                    "fields": [
+                        {"name": "Quick Approve (1-Click)", "value": f"[✅ Approve via Mobile]({approve_url})", "inline": True},
+                        {"name": "Quick Deny (1-Click)", "value": f"[❌ Deny via Mobile]({deny_url})", "inline": True},
+                    ],
+                    "footer": {"text": "AI Bridge Security Control Plane • HMAC Signed"},
+                }
+            ]
+        else:
+            payload["content"] = f"ℹ️ **[AI Bridge Notification]** `{evt_type}` on `{dev_name}`\nTool: `{tool}`\nTask: `{task_id}`"
+    elif "api.telegram.org" in netloc:
         qs = urllib.parse.parse_qs(parsed.query)
-        if "chat_id" in qs and qs["chat_id"]:
-            payload["chat_id"] = qs["chat_id"][0]
+        chat_id = qs.get("chat_id", [""])[0]
+        if chat_id:
+            payload["chat_id"] = chat_id
+        text_lines = [
+            f"🚨 *[AI Bridge] Approval Required*",
+            f"*Tool:* `{tool}` (Tier {tier})",
+            f"*Device:* `{dev_name}`",
+            f"*Task ID:* `{task_id}`",
+            f"*Approval ID:* `{app_id}`",
+            f"*Args:*\n`{args_json[:300]}`",
+        ]
+        payload["text"] = "\n".join(text_lines)
+        payload["parse_mode"] = "Markdown"
+        if approve_url and deny_url:
+            payload["reply_markup"] = {
+                "inline_keyboard": [
+                    [
+                        {"text": "✅ Approve (1-Click)", "url": approve_url},
+                        {"text": "❌ Deny (1-Click)", "url": deny_url},
+                    ]
+                ]
+            }
+    elif "hooks.slack.com" in netloc:
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "🚨 AI Bridge: Approval Required"},
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Tool:*\n{tool} (Tier {tier})"},
+                    {"type": "mrkdwn", "text": f"*Device:*\n{dev_name}"},
+                    {"type": "mrkdwn", "text": f"*Task ID:*\n{task_id}"},
+                    {"type": "mrkdwn", "text": f"*Approval ID:*\n{app_id}"},
+                ],
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Arguments:*\n```{args_json[:400]}```"},
+            },
+        ]
+        if approve_url and deny_url:
+            blocks.append({
+                "type": "actions",
+                "elements": [
+                    {"type": "button", "text": {"type": "plain_text", "text": "✅ Approve"}, "style": "primary", "url": approve_url},
+                    {"type": "button", "text": {"type": "plain_text", "text": "❌ Deny"}, "style": "danger", "url": deny_url},
+                ],
+            })
+        payload["blocks"] = blocks
+
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -227,6 +331,155 @@ class OAuthClientUpdateIn(BaseModel):
     redirect_uris: str | None = None
 
 
+def _render_quick_decision_html(
+    title: str,
+    badge_class: str,
+    badge_icon: str,
+    badge_text: str,
+    heading: str,
+    message: str,
+    details: dict | None = None,
+) -> str:
+    details_rows = ""
+    if details:
+        for k, v in details.items():
+            details_rows += f'<div class="row"><span class="label">{k}</span><span class="value">{v}</span></div>'
+        details_html = f'<div class="details-card">{details_rows}</div>'
+    else:
+        details_html = ""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>{title} • AI Bridge</title>
+  <style>
+    :root {{
+      --bg: #0f141c;
+      --card-bg: rgba(26, 34, 46, 0.94);
+      --card-border: rgba(255, 255, 255, 0.12);
+      --text: #f3f6fa;
+      --text-muted: #94a3b8;
+      --accent: #0078d4;
+      --success: #107c41;
+      --success-bg: rgba(16, 124, 65, 0.18);
+      --danger: #d83b01;
+      --danger-bg: rgba(216, 59, 1, 0.18);
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
+    }}
+    @media (prefers-color-scheme: light) {{
+      :root {{
+        --bg: #f5f7fa;
+        --card-bg: rgba(255, 255, 255, 0.96);
+        --card-border: rgba(0, 0, 0, 0.1);
+        --text: #1e293b;
+        --text-muted: #64748b;
+        --accent: #0067b8;
+        --success: #107c41;
+        --success-bg: #dff6dd;
+        --danger: #c42b1c;
+        --danger-bg: #fde7e9;
+      }}
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      -webkit-font-smoothing: antialiased;
+    }}
+    .container {{
+      max-width: 440px;
+      width: 100%;
+      background: var(--card-bg);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 32px 24px;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.3);
+      text-align: center;
+      animation: popIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }}
+    @keyframes popIn {{
+      from {{ opacity: 0; transform: scale(0.96); }}
+      to {{ opacity: 1; transform: scale(1); }}
+    }}
+    .badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      margin-bottom: 20px;
+    }}
+    .badge.approved {{ background: var(--success-bg); color: var(--success); border: 1px solid var(--success); }}
+    .badge.denied {{ background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }}
+    .badge.info {{ background: rgba(0, 120, 212, 0.15); color: var(--accent); border: 1px solid var(--accent); }}
+    h1 {{ font-size: 22px; font-weight: 700; margin-bottom: 10px; letter-spacing: -0.02em; }}
+    p.subtitle {{ color: var(--text-muted); font-size: 14px; line-height: 1.5; margin-bottom: 24px; }}
+    p.subtitle b {{ color: var(--text); }}
+    p.subtitle code {{ background: rgba(125,125,125,0.2); padding: 2px 6px; border-radius: 4px; font-size: 13px; }}
+    .details-card {{
+      background: rgba(125, 125, 125, 0.08);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 24px;
+      text-align: left;
+      font-size: 13px;
+    }}
+    .row {{ display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--card-border); }}
+    .row:last-child {{ border-bottom: none; }}
+    .label {{ color: var(--text-muted); font-weight: 500; }}
+    .value {{ font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 600; word-break: break-all; }}
+    .actions {{ display: flex; flex-direction: column; gap: 10px; }}
+    .btn {{
+      display: block;
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 14px;
+      text-align: center;
+      transition: filter 0.15s ease;
+    }}
+    .btn-primary {{ background: var(--accent); color: #fff; }}
+    .btn-primary:hover {{ filter: brightness(1.1); }}
+    .footer-note {{ font-size: 11px; color: var(--text-muted); margin-top: 20px; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="badge {badge_class}">
+      <span>{badge_icon}</span>
+      <span>{badge_text}</span>
+    </div>
+    <h1>{heading}</h1>
+    <p class="subtitle">{message}</p>
+    {details_html}
+    <div class="actions">
+      <a href="/" class="btn btn-primary">Open AI Bridge Dashboard</a>
+    </div>
+    <div class="footer-note">
+      Cryptographically signed via HMAC-SHA256 • AI Bridge Control Plane
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+
 def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -> FastAPI:
     token = admin_token or os.environ.get("AI_BRIDGE_ADMIN_TOKEN")
     data_dir = Path(os.environ.get("AI_BRIDGE_DATA_DIR", str(Path.home() / ".ai-bridge")))
@@ -250,6 +503,20 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         if row is not None and row["value"] is not None:
             return str(row["value"]).strip()
         return os.environ.get("AI_BRIDGE_WEBHOOK_URL", "").strip()
+
+    def get_public_base_url(req: Request | None = None) -> str:
+        row = conn.execute("SELECT value FROM settings WHERE key='public_url'").fetchone()
+        if row is not None and row["value"]:
+            return str(row["value"]).strip().rstrip("/")
+        env_url = os.environ.get("AI_BRIDGE_PUBLIC_URL")
+        if env_url:
+            return env_url.strip().rstrip("/")
+        if req is not None:
+            host = req.headers.get("x-forwarded-host") or req.headers.get("host")
+            proto = req.headers.get("x-forwarded-proto") or req.url.scheme
+            if host:
+                return f"{proto}://{host}".rstrip("/")
+        return "https://jxiptvplayer.app"
 
     def auth_context(x_admin_token: str | None = None, x_session_token: str | None = None, authorization: str | None = None):
         """Return (actor, role). Session tokens outrank the legacy admin token."""
@@ -820,7 +1087,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         return {"device_id": device_id, "queued_tasks": queued}
 
     @app.post("/api/tasks")
-    def submit_task(body: TaskIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+    def submit_task(body: TaskIn, request: Request, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         actor = require_role("operator", x_admin_token, x_session_token)
         if app.state.emergency_stop:
             raise HTTPException(status_code=403, detail="Emergency stop is active; no new tasks accepted.")
@@ -885,7 +1152,8 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                     "args": body.args,
                     "policy_version": policy_version,
                 }
-                threading.Thread(target=send_webhook_notification, args=(wh_url, evt), daemon=True).start()
+                pub_url = get_public_base_url(request)
+                threading.Thread(target=send_webhook_notification, args=(wh_url, evt, token, pub_url), daemon=True).start()
         return {"task_id": task_id, "status": status, "tier": tier.value, "approval_id": approval_id}
 
     @app.get("/api/tasks")
@@ -1059,6 +1327,154 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         audit(actor, "", "decide_approval", {"approval_id": approval_id, "decision": body.decision, "reason": body.reason}, "allowed")
         return {"approval_id": approval_id, "status": body.decision, "decided_by": actor, "decided_at": now}
 
+    @app.get("/api/approvals/quick/{approval_id}", response_class=HTMLResponse)
+    def quick_approval(approval_id: str, decision: str = "approved", sig: str = ""):
+        expire_pending_approvals()
+        decision = (decision or "").strip().lower()
+        if decision not in {"approved", "denied"}:
+            return HTMLResponse(
+                content=_render_quick_decision_html(
+                    title="Invalid Request",
+                    badge_class="denied",
+                    badge_icon="❌",
+                    badge_text="INVALID DECISION",
+                    heading="Invalid Action",
+                    message="Decision parameter must be either 'approved' or 'denied'.",
+                ),
+                status_code=400,
+            )
+
+        expected_sig = make_quick_sig(token, approval_id, decision)
+        if not sig or not hmac.compare_digest(sig.strip(), expected_sig):
+            return HTMLResponse(
+                content=_render_quick_decision_html(
+                    title="Verification Failed",
+                    badge_class="denied",
+                    badge_icon="🛡️",
+                    badge_text="ACCESS DENIED",
+                    heading="Signature Verification Failed",
+                    message="The HMAC signature for this quick approval action is invalid or has expired. Please sign into the dashboard to review and authorize.",
+                ),
+                status_code=403,
+            )
+
+        row = conn.execute("SELECT * FROM approvals WHERE id=?", (approval_id,)).fetchone()
+        if row is None:
+            return HTMLResponse(
+                content=_render_quick_decision_html(
+                    title="Not Found",
+                    badge_class="info",
+                    badge_icon="❓",
+                    badge_text="NOT FOUND",
+                    heading="Approval Request Not Found",
+                    message=f"Approval '{approval_id}' was not found or may have already been cleared.",
+                ),
+                status_code=404,
+            )
+
+        task = conn.execute("SELECT * FROM tasks WHERE id=?", (row["task_id"],)).fetchone() if row["task_id"] else None
+        dev_name = "Workstation"
+        tool_name = row["tool"] or "Operation"
+        tier_num = "3"
+        if task:
+            dev_row = conn.execute("SELECT name FROM devices WHERE id=?", (task["device_id"],)).fetchone()
+            if dev_row:
+                dev_name = dev_row["name"]
+            tool_name = task["tool"]
+            tier_num = str(task["tier"])
+
+        now = dbmod.now()
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(now))
+
+        if row["status"] != "pending":
+            status_text = row["status"].upper()
+            badge_cls = "approved" if row["status"] == "approved" else "denied"
+            icon = "✅" if row["status"] == "approved" else "❌"
+            return HTMLResponse(
+                content=_render_quick_decision_html(
+                    title=f"Already {status_text}",
+                    badge_class=badge_cls,
+                    badge_icon=icon,
+                    badge_text=f"ALREADY {status_text}",
+                    heading="Request Already Decided",
+                    message=f"This approval request was previously decided as <b>{row['status']}</b> by <code>{row['decided_by']}</code>.",
+                    details={
+                        "Tool": f"{tool_name} (Tier {tier_num})",
+                        "Device": dev_name,
+                        "Task ID": row["task_id"] or "N/A",
+                        "Approval ID": approval_id,
+                        "Decided At": now_str,
+                    },
+                ),
+                status_code=200,
+            )
+
+        if row["expires_at"] is not None and row["expires_at"] <= now:
+            return HTMLResponse(
+                content=_render_quick_decision_html(
+                    title="Expired Request",
+                    badge_class="denied",
+                    badge_icon="⏰",
+                    badge_text="EXPIRED",
+                    heading="Approval Expired",
+                    message="This approval request has exceeded its time-to-live deadline and was automatically cancelled for safety.",
+                    details={
+                        "Tool": f"{tool_name} (Tier {tier_num})",
+                        "Device": dev_name,
+                        "Task ID": row["task_id"] or "N/A",
+                        "Approval ID": approval_id,
+                    },
+                ),
+                status_code=410,
+            )
+
+        conn.execute("UPDATE approvals SET status=?, decided_by=?, decided_at=? WHERE id=? AND status='pending'", (decision, "mobile_quick_approval", now, approval_id))
+        if row["task_id"]:
+            new_status = "queued" if decision == "approved" else "cancelled"
+            conn.execute("UPDATE tasks SET status=?, updated_at=? WHERE id=?", (new_status, now, row["task_id"]))
+        conn.commit()
+        notify_tasks()
+        audit("mobile_quick_approval", "", "decide_approval", {"approval_id": approval_id, "decision": decision, "channel": "mobile_hmac"}, "allowed")
+
+        if decision == "approved":
+            return HTMLResponse(
+                content=_render_quick_decision_html(
+                    title="Action Approved",
+                    badge_class="approved",
+                    badge_icon="✅",
+                    badge_text="OPERATION APPROVED",
+                    heading="Execution Authorized",
+                    message=f"Task <code>{row['task_id']}</code> has been authorized and queued for execution on <b>{dev_name}</b>.",
+                    details={
+                        "Tool": f"{tool_name} (Tier {tier_num})",
+                        "Device": dev_name,
+                        "Task ID": row["task_id"] or "N/A",
+                        "Approval ID": approval_id,
+                        "Time": now_str,
+                    },
+                ),
+                status_code=200,
+            )
+        else:
+            return HTMLResponse(
+                content=_render_quick_decision_html(
+                    title="Action Denied",
+                    badge_class="denied",
+                    badge_icon="❌",
+                    badge_text="OPERATION DENIED",
+                    heading="Execution Blocked",
+                    message=f"Task <code>{row['task_id']}</code> has been rejected and cancelled. The target device will not execute this action.",
+                    details={
+                        "Tool": f"{tool_name} (Tier {tier_num})",
+                        "Device": dev_name,
+                        "Task ID": row["task_id"] or "N/A",
+                        "Approval ID": approval_id,
+                        "Time": now_str,
+                    },
+                ),
+                status_code=200,
+            )
+
     @app.put("/api/approvals/{approval_id}")
     def update_approval(approval_id: str, body: ApprovalUpdateIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         actor = require_role("admin", x_admin_token, x_session_token)
@@ -1166,16 +1582,21 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         if not url:
             raise HTTPException(status_code=400, detail="No webhook URL configured.")
         _validate_webhook_url(url)
-        res = send_webhook_notification(url, {
-            "event": "webhook_test",
-            "approval_id": "test-approval",
-            "task_id": "test-task",
-            "device_id": "test-device",
-            "device_name": "test-device",
-            "tool": "test_webhook",
-            "tier": 3,
-            "args": {"test": True},
-        })
+        res = send_webhook_notification(
+            url,
+            {
+                "event": "webhook_test",
+                "approval_id": "test-approval",
+                "task_id": "test-task",
+                "device_id": "test-device",
+                "device_name": "test-device",
+                "tool": "test_webhook",
+                "tier": 3,
+                "args": {"test": True},
+            },
+            admin_token=token,
+            public_base_url=get_public_base_url(),
+        )
         return res
 
     # --- Auth: local users / sessions ------------------------------------

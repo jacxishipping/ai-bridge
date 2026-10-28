@@ -783,6 +783,126 @@ def get_screen_size(
         "get_screen_size", approval_granted=True, policy=eff_policy
     )
 
+
+def ocr_screen(*, approval_granted: bool = False, policy: Policy | None = None) -> dict:
+    """Run native OCR on the current desktop screen and return recognized text with coordinates."""
+    eff_policy = policy or default_policy()
+    _check("ocr_screen", approval_granted=approval_granted, policy=eff_policy)
+    from . import vision
+    shot_res = capture_desktop_screenshot(approval_granted=approval_granted, policy=eff_policy)
+    if not shot_res.get("available") or not shot_res.get("path"):
+        return {"ok": False, "error": "Unable to capture desktop screenshot for OCR."}
+    ocr_res = vision.run_ocr(shot_res["path"])
+    return {
+        "ok": ocr_res.get("ok", False),
+        "text": ocr_res.get("text", ""),
+        "line_count": len(ocr_res.get("lines", [])),
+        "lines": ocr_res.get("lines", []),
+        "words": ocr_res.get("words", []),
+        "screenshot_path": shot_res.get("path"),
+    }
+
+
+def click_text(
+    text: str,
+    *,
+    occurrence: int = 1,
+    button: str = "left",
+    clicks: int = 1,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Find text on screen using native OCR + UI grounding and click its center (no pixel guessing)."""
+    eff_policy = policy or default_policy()
+    _check("click_text", approval_granted=approval_granted, policy=eff_policy)
+    from . import vision
+    shot_res = capture_desktop_screenshot(approval_granted=approval_granted, policy=eff_policy)
+    img_path = shot_res.get("path") if shot_res.get("available") else None
+    res = vision.find_text_coordinates(text, image_path=img_path, occurrence=occurrence)
+    if not res.get("found") or not res.get("match"):
+        raise ValueError(f"Text {text!r} not found on screen.")
+
+    cx, cy = res["x"], res["y"]
+    action_type = "double_click" if clicks == 2 else "triple_click" if clicks >= 3 else "right_click" if button == "right" else "click"
+    ui_res = perform_approved_ui_action(action_type, x=cx, y=cy, approval_granted=approval_granted, policy=eff_policy)
+    return {
+        "ok": True,
+        "action": "click_text",
+        "clicked_text": text,
+        "matched_text": res["match"].get("text"),
+        "x": cx,
+        "y": cy,
+        "bounds": res["match"].get("bounds"),
+        "button": button,
+        "clicks": clicks,
+        "ui_result": ui_res,
+    }
+
+
+def click_element(
+    mark_id: str | None = None,
+    name: str | None = None,
+    *,
+    button: str = "left",
+    clicks: int = 1,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Click a labeled mark (from set_of_marks_screenshot) or element name."""
+    eff_policy = policy or default_policy()
+    _check("click_element", approval_granted=approval_granted, policy=eff_policy)
+    target_text = str(mark_id) if mark_id is not None else str(name or "")
+    if not target_text:
+        raise ValueError("Either 'mark_id' or 'name' must be provided to click_element.")
+    return click_text(target_text, button=button, clicks=clicks, approval_granted=approval_granted, policy=eff_policy)
+
+
+def list_ui_elements(*, approval_granted: bool = False, policy: Policy | None = None) -> dict:
+    """List visible interactive Windows controls (menus, buttons, input fields, child controls) with labels and bounds."""
+    eff_policy = policy or default_policy()
+    _check("list_ui_elements", approval_granted=approval_granted, policy=eff_policy)
+    from . import vision
+    ctrls = vision.list_win32_ui_controls()
+    return {"ok": True, "count": len(ctrls), "elements": ctrls}
+
+
+def set_of_marks_screenshot(
+    *,
+    max_marks: int = 40,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Capture a screenshot with numbered Set-of-Marks badges ([1], [2], [3]) overlaid over interactive elements."""
+    eff_policy = policy or default_policy()
+    _check("set_of_marks_screenshot", approval_granted=approval_granted, policy=eff_policy)
+    from . import vision
+    try:
+        from PIL import Image
+    except ImportError:
+        raise RuntimeError("Pillow is required for set_of_marks_screenshot.")
+
+    shot_res = capture_desktop_screenshot(approval_granted=approval_granted, policy=eff_policy)
+    if not shot_res.get("available") or not shot_res.get("path"):
+        return {"available": False, "note": "Screenshot unavailable."}
+
+    img = Image.open(shot_res["path"])
+    ann_img, marks = vision.generate_set_of_marks(img, image_path=shot_res["path"], max_marks=max_marks)
+
+    out = get_settings().data_dir / f"annotated-screenshot-{int(time.time())}.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    ann_img.save(out)
+    b64, mime = _encode_image_base64(ann_img)
+
+    return {
+        "ok": True,
+        "available": True,
+        "path": str(out),
+        "image_base64": b64,
+        "mime_type": mime,
+        "mark_count": len(marks),
+        "marks": marks,
+    }
+
 # --- Software installation & shell execution (approval-gated, Tier-3) -----
 _PACKAGE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+$")
 _LINUX_PKG_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._+-]*$")

@@ -113,6 +113,35 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         "get_screen_size": lambda a: tools.get_screen_size(
             policy=policy,
         ),
+        "ocr_screen": lambda a: tools.ocr_screen(
+            approval_granted=approval_granted,
+            policy=policy,
+        ),
+        "click_text": lambda a: tools.click_text(
+            a["text"],
+            occurrence=int(a.get("occurrence", 1)),
+            button=str(a.get("button", "left")),
+            clicks=int(a.get("clicks", 1)),
+            approval_granted=approval_granted,
+            policy=policy,
+        ),
+        "click_element": lambda a: tools.click_element(
+            mark_id=a.get("mark_id"),
+            name=a.get("name"),
+            button=str(a.get("button", "left")),
+            clicks=int(a.get("clicks", 1)),
+            approval_granted=approval_granted,
+            policy=policy,
+        ),
+        "list_ui_elements": lambda a: tools.list_ui_elements(
+            approval_granted=approval_granted,
+            policy=policy,
+        ),
+        "set_of_marks_screenshot": lambda a: tools.set_of_marks_screenshot(
+            max_marks=int(a.get("max_marks", 40)),
+            approval_granted=approval_granted,
+            policy=policy,
+        ),
         "install_package": lambda a: tools.install_package(
             a["package_id"],
             a.get("version"),

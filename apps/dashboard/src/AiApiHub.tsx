@@ -264,6 +264,11 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
     setSelectedTool(toolName);
     if (toolName === "run_shell") setToolArgsStr('{\n  "command": "uptime"\n}');
     else if (toolName === "take_screenshot" || toolName === "capture_desktop_screenshot") setToolArgsStr('{\n  "quality": 70\n}');
+    else if (toolName === "click_text") setToolArgsStr('{\n  "text": "Settings",\n  "button": "left",\n  "clicks": 1\n}');
+    else if (toolName === "click_element") setToolArgsStr('{\n  "mark_id": "1",\n  "button": "left"\n}');
+    else if (toolName === "ocr_screen") setToolArgsStr('{\n  "lang": "en"\n}');
+    else if (toolName === "set_of_marks_screenshot") setToolArgsStr('{}');
+    else if (toolName === "list_ui_elements") setToolArgsStr('{}');
     else if (toolName === "mouse_click") setToolArgsStr('{\n  "x": 500,\n  "y": 300,\n  "button": "left",\n  "clicks": 1\n}');
     else if (toolName === "keyboard_type") setToolArgsStr('{\n  "text": "Hello from AI Bridge!\\n"\n}');
     else if (toolName === "read_file") setToolArgsStr('{\n  "path": "/etc/os-release"\n}');
@@ -280,15 +285,17 @@ client = AIBridgeClient(base_url="${baseUrl}", token="${activeToken}")
 devices = client.list_devices()
 print("Fleet:", [d["name"] for d in devices])
 
-# 2. Run shell command on Linux
-res = client.run_shell("uname -a", device="ubuntu")
-print("Linux output:", res)
+# 2. Grounded UI Automation (Zero pixel coordinate guessing!)
+# Find text on screen via native Windows OCR and click it directly:
+click_res = client.execute("click_text", {"text": "Settings"}, device="windows-pc")
+print("Clicked button:", click_res)
 
-# 3. Take screenshot & control Windows GUI
+# Or list all recognized buttons and menus with exact bounding boxes:
+elements = client.execute("list_ui_elements", {}, device="windows-pc")
+print(f"Discovered {len(elements.get('elements', []))} UI controls")
+
+# 3. Take screenshot & type text
 shot = client.take_screenshot(device="windows-pc", quality=75)
-print(f"Windows screen: {shot.get('width')}x{shot.get('height')}")
-
-client.mouse_click(x=350, y=200, device="windows-pc")
 client.keyboard_type("notepad.exe\\n", device="windows-pc")`;
     }
     if (codeLang === "openai") {
@@ -600,6 +607,9 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {[
               { label: "📸 Screenshot windows-pc", prompt: "Take a screenshot of windows-pc and show me what is on screen" },
+              { label: "🔤 Native OCR & Text Grounding", prompt: "Run OCR on windows-pc screen and list all detected text buttons with coordinates" },
+              { label: "🎯 Click by Text (Zero Guesswork)", prompt: "Find and click the 'Settings' button on windows-pc" },
+              { label: "🏷️ Set-of-Marks Overlay", prompt: "Generate a set of marks screenshot on windows-pc and enumerate all clickable UI elements" },
               { label: "🐧 Ubuntu Uptime & Disk", prompt: "Check uptime, CPU load, and disk space on ubuntu" },
               { label: "🪟 Windows Apps", prompt: "List open application windows on windows-pc" },
               { label: "🩺 Full Fleet Health", prompt: "Provide a complete health and telemetry status summary for all devices in our fleet" },

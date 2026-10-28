@@ -2118,16 +2118,42 @@ export default function App() {
                 )}
               </Card>
 
-              <Card title="Approval Webhook Notifications (Slack / Discord / Telegram / Custom)">
+              <Card title="Multi-Channel Approval Alerts & 1-Click Mobile Approvals (Telegram / Discord / Slack)">
                 <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--colorNeutralForeground2)" }}>
-                  Receive an instant HTTP POST notification whenever a task enters <code>needs_approval</code>. Supports Slack, Discord, Telegram Bot URLs (<code>https://api.telegram.org/botTOKEN/sendMessage?chat_id=ID</code>), or any JSON endpoint.
+                  Receive real-time push alerts whenever a task enters <code>needs_approval</code>. Supports <b>Telegram Bots</b> (with native inline action buttons), <b>Discord</b> (rich embeds), <b>Slack</b> (interactive block kit), or any generic webhook.
                 </p>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                  <button
+                    type="button"
+                    className="f2-btn f2-btn-sm"
+                    style={{ fontSize: 11, padding: "3px 8px" }}
+                    onClick={() => setWebhookUrl("https://api.telegram.org/bot<BOT_TOKEN>/sendMessage?chat_id=<CHAT_ID>")}
+                  >
+                    📱 Telegram Template
+                  </button>
+                  <button
+                    type="button"
+                    className="f2-btn f2-btn-sm"
+                    style={{ fontSize: 11, padding: "3px 8px" }}
+                    onClick={() => setWebhookUrl("https://discord.com/api/webhooks/<WEBHOOK_ID>/<WEBHOOK_TOKEN>")}
+                  >
+                    💬 Discord Template
+                  </button>
+                  <button
+                    type="button"
+                    className="f2-btn f2-btn-sm"
+                    style={{ fontSize: 11, padding: "3px 8px" }}
+                    onClick={() => setWebhookUrl("https://hooks.slack.com/services/<T>/<B>/<X>")}
+                  >
+                    💼 Slack Template
+                  </button>
+                </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <input
                     className="f2-input"
                     value={webhookUrl}
                     onChange={e => setWebhookUrl(e.target.value)}
-                    placeholder="https://hooks.slack.com/services/... or https://discord.com/api/webhooks/..."
+                    placeholder="https://api.telegram.org/... or https://discord.com/api/webhooks/... or https://hooks.slack.com/..."
                     style={{ flex: 1, minWidth: 280 }}
                   />
                   <button
@@ -2162,6 +2188,10 @@ export default function App() {
                   >
                     Send Test Alert
                   </button>
+                </div>
+                <div style={{ marginTop: 12, padding: "8px 12px", background: "rgba(0, 120, 212, 0.08)", border: "1px solid rgba(0, 120, 212, 0.2)", borderRadius: 6, fontSize: 12, color: "var(--colorNeutralForeground2)", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span>🛡️</span>
+                  <span><b>1-Click Mobile Authorization:</b> Outgoing alerts include HMAC-SHA256 signed buttons allowing you to securely approve or deny tasks directly from your phone in one click.</span>
                 </div>
               </Card>
 

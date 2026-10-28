@@ -41,6 +41,11 @@ DESKTOP_TOOLS = {
     "list_desktop_windows",
     "focus_window",
     "get_screen_size",
+    "ocr_screen",
+    "click_text",
+    "click_element",
+    "list_ui_elements",
+    "set_of_marks_screenshot",
 }
 
 # Master tool catalog with descriptions and JSON schema properties
@@ -148,6 +153,66 @@ TOOL_CATALOG: dict[str, dict[str, Any]] = {
                 "device": {"type": "string", "description": "Target device."},
             },
             "required": ["key"],
+        },
+    },
+    "click_text": {
+        "description": "Find and click any visible text, button, or label on the desktop screen using native OCR + UI grounding (no pixel guessing needed).",
+        "category": "desktop",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Text or label on screen to locate and click."},
+                "occurrence": {"type": "integer", "description": "Which occurrence to click if text appears multiple times (default 1).", "default": 1},
+                "button": {"type": "string", "description": "Mouse button: 'left', 'right', 'middle'.", "default": "left"},
+                "clicks": {"type": "integer", "description": "Number of clicks: 1 for single click, 2 for double click.", "default": 1},
+                "device": {"type": "string", "description": "Target device."},
+            },
+            "required": ["text"],
+        },
+    },
+    "click_element": {
+        "description": "Click a labeled mark (from set_of_marks_screenshot) or UI element name on screen.",
+        "category": "desktop",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "mark_id": {"type": "string", "description": "Numbered mark tag (e.g. '1', '2') from set_of_marks_screenshot."},
+                "name": {"type": "string", "description": "Name or text of the control to click."},
+                "button": {"type": "string", "description": "Mouse button: 'left' or 'right'.", "default": "left"},
+                "clicks": {"type": "integer", "description": "Click count: 1 (single) or 2 (double).", "default": 1},
+                "device": {"type": "string", "description": "Target device."},
+            },
+        },
+    },
+    "ocr_screen": {
+        "description": "Run native OCR on the current desktop screen and return recognized text lines, words, and exact bounding boxes.",
+        "category": "desktop",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string", "description": "Target device."},
+            },
+        },
+    },
+    "set_of_marks_screenshot": {
+        "description": "Capture a desktop screenshot with numbered visual tag badges ([1], [2], [3]) overlaid over interactive elements, returning the annotated image and element index.",
+        "category": "desktop",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "max_marks": {"type": "integer", "description": "Maximum elements to tag (default 40).", "default": 40},
+                "device": {"type": "string", "description": "Target device."},
+            },
+        },
+    },
+    "list_ui_elements": {
+        "description": "List visible interactive Windows controls (menus, buttons, input fields, child controls) with labels and coordinates.",
+        "category": "desktop",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "device": {"type": "string", "description": "Target device."},
+            },
         },
     },
     "list_desktop_windows": {
