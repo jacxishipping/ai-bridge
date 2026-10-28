@@ -32,6 +32,7 @@ def _make_client():
 
 
 def test_encode_image_base64_produces_jpeg():
+    pytest.importorskip("PIL")
     from PIL import Image
 
     img = Image.new("RGB", (64, 48), color=(40, 80, 120))

@@ -569,6 +569,14 @@ def perform_approved_ui_action(
     }
     if action not in allowed_actions:
         raise ValueError(f"Unsupported UI action {action!r}. Choose one of: {', '.join(sorted(allowed_actions))}")
+
+    if action in {"click", "double_click", "triple_click", "right_click", "middle_click", "move_mouse"}:
+        if x is None or y is None:
+            raise ValueError(f"Action '{action}' requires integer x and y coordinates.")
+    if action in {"drag", "mouse_drag"}:
+        if x is None or y is None or start_x is None or start_y is None:
+            raise ValueError(f"Action '{action}' requires start_x, start_y, x, and y coordinates.")
+
     if platform.system() == "Windows":
         extra = {}
         if start_x is not None or start_y is not None:

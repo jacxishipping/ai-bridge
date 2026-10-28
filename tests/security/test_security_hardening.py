@@ -1,3 +1,4 @@
+import sys
 import pytest
 
 from ai_bridge import diagnostics, execution, tools
@@ -70,6 +71,6 @@ def test_run_shell_scrubs_child_environment(monkeypatch):
     monkeypatch.setenv("AI_BRIDGE_ADMIN_TOKEN", "super-secret-admin")
     monkeypatch.setenv("AI_BRIDGE_DEVICE_TOKEN", "super-secret-device")
     policy = Policy(allow_writes=True, max_tier_unattended=4)
-    # Echo environment variable in child shell
-    res = tools.run_shell("python -c \"import os; print('ADMIN:', os.environ.get('AI_BRIDGE_ADMIN_TOKEN', 'UNSET'))\"", approval_granted=True, policy=policy)
+    py = sys.executable or "python3"
+    res = tools.run_shell(f'"{py}" -c "import os; print(\'ADMIN:\', os.environ.get(\'AI_BRIDGE_ADMIN_TOKEN\', \'UNSET\'))"', approval_granted=True, policy=policy)
     assert "ADMIN: UNSET" in res["stdout"]

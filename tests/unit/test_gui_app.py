@@ -75,6 +75,7 @@ def test_connection_ping_error_mock():
         assert "Connection refused" in detail
 
 
+@pytest.mark.skipif(platform.system() != "Windows", reason="Windows registry requires Windows platform")
 def test_autostart_registry_mock():
     with patch("winreg.OpenKey"), patch("winreg.SetValueEx"), patch("winreg.CloseKey"):
         res = gui_app.set_windows_autostart(True)
