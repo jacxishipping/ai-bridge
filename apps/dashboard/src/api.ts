@@ -90,12 +90,12 @@ export const api = {
     call(`/api/ai/tools?format=${encodeURIComponent(format)}${device ? `&device=${encodeURIComponent(device)}` : ""}`),
   aiExecute: (body: { tool: string; device?: string; args?: any; timeout?: number }) =>
     call("/api/ai/execute", "POST", body),
-  aiAgent: (body: { prompt: string; device?: string; provider?: string; model?: string; api_key?: string }) =>
+  aiAgent: (body: { prompt: string; device?: string; provider?: string; model?: string; api_key?: string; base_url?: string }) =>
     call("/api/ai/agent", "POST", body),
   aiFleet: () => call("/api/ai/devices"),
   getAiSettings: () => call("/api/settings/ai"),
-  saveAiSettings: (body: { provider: string; model?: string; api_key?: string; test_connection?: boolean; clear?: boolean }) =>
+  saveAiSettings: (body: { provider: string; model?: string; api_key?: string; base_url?: string; test_connection?: boolean; clear?: boolean }) =>
     call("/api/settings/ai", "POST", body),
-  aiChat: (body: { messages: any[]; provider?: string; model?: string; api_key?: string; device?: string }) =>
+  aiChat: (body: { messages: any[]; provider?: string; model?: string; api_key?: string; base_url?: string; device?: string }) =>
     call("/api/ai/chat", "POST", body),
 };

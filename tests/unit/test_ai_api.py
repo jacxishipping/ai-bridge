@@ -367,3 +367,66 @@ def test_ai_chat_endpoint(fresh_client):
     assert data["message"]["role"] == "assistant"
     assert "srv-node" in data["message"]["content"]
 
+
+def test_custom_ai_settings_and_execution(fresh_client):
+    client, _ = fresh_client
+
+    # 1. Validation fails without base_url for custom provider
+    fail_res = client.post(
+        "/api/settings/ai",
+        json={"provider": "custom", "api_key": "test-key-123", "base_url": "", "test_connection": True},
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+    )
+    assert fail_res.status_code == 400
+    assert "Base URL is required" in fail_res.json()["detail"]
+
+    # 2. Validation fails with invalid URL scheme
+    fail_res2 = client.post(
+        "/api/settings/ai",
+        json={"provider": "custom", "api_key": "test-key-123", "base_url": "ftp://my-server/v1", "test_connection": True},
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+    )
+    assert fail_res2.status_code == 400
+    assert "Base URL must start with http://" in fail_res2.json()["detail"]
+
+    # 3. Save custom AI settings (bypassing live external network probe in unit tests)
+    save_res = client.post(
+        "/api/settings/ai",
+        json={
+            "provider": "custom",
+            "model": "mistralai/mixtral-8x7b-instruct",
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key": "sk-or-v1-9876543210fedcba",
+            "test_connection": False,
+        },
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+    )
+    assert save_res.status_code == 200
+    data = save_res.json()
+    assert data["ok"] is True
+    assert data["provider"] == "custom"
+    assert data["base_url"] == "https://openrouter.ai/api/v1"
+    assert data["masked_key"].startswith("sk-or")
+
+    # 4. Verify settings endpoint reports custom AI as active and connected
+    res = client.get("/api/settings/ai", headers={"Authorization": f"Bearer {ADMIN_TOKEN}"})
+    assert res.status_code == 200
+    s_data = res.json()
+    assert s_data["provider"] == "custom"
+    assert s_data["model"] == "mistralai/mixtral-8x7b-instruct"
+    assert s_data["custom_base_url"] == "https://openrouter.ai/api/v1"
+    assert s_data["keys_configured"]["custom"] is True
+    assert s_data["masked_keys"]["custom"].startswith("sk-or")
+    assert s_data["is_connected"] is True
+
+    # 5. Clear custom AI settings
+    clear_res = client.post(
+        "/api/settings/ai",
+        json={"provider": "custom", "clear": True},
+        headers={"Authorization": f"Bearer {ADMIN_TOKEN}"},
+    )
+    assert clear_res.status_code == 200
+    res2 = client.get("/api/settings/ai", headers={"Authorization": f"Bearer {ADMIN_TOKEN}"})
+    assert res2.json()["custom_base_url"] == ""
+    assert res2.json()["keys_configured"]["custom"] is False
+

@@ -542,9 +542,10 @@ class ChatCompletionIn(BaseModel):
 
 
 class AISettingsIn(BaseModel):
-    provider: str = "openai"  # openai | anthropic | gemini | groq | deepseek | ollama
+    provider: str = "openai"  # openai | anthropic | gemini | groq | deepseek | ollama | custom
     model: str | None = None
     api_key: str | None = None
+    base_url: str | None = None
     test_connection: bool = True
     clear: bool = False
 
@@ -561,6 +562,7 @@ class AIChatIn(BaseModel):
     provider: str | None = None
     model: str | None = None
     api_key: str | None = None
+    base_url: str | None = None
     device: str | None = "auto"
     tenant: str = "default"
 
@@ -573,12 +575,70 @@ def mask_key(k: str) -> str:
     return f"{k[:7]}...{k[-4:]}"
 
 
-def validate_llm_key(provider: str, api_key: str) -> tuple[bool, str]:
+def validate_llm_key(
+    provider: str,
+    api_key: str,
+    base_url: str | None = None,
+    model: str | None = None,
+) -> tuple[bool, str]:
     """Test connection with the provider to verify the API key is active."""
     p = provider.lower().strip()
     key = api_key.strip()
     if p == "ollama":
         return True, "Ollama local provider selected."
+    if p == "custom":
+        url = (base_url or "").strip().rstrip("/")
+        if not url:
+            return False, "Base URL is required for custom AI provider (e.g. https://openrouter.ai/api/v1)."
+        if not (url.startswith("http://") or url.startswith("https://")):
+            return False, "Base URL must start with http:// or https://"
+
+        headers = {"User-Agent": "AI-Bridge/0.3"}
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+
+        # 1. Probe /models
+        try:
+            req = urllib.request.Request(f"{url}/models", headers=headers)
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                if 200 <= resp.status < 300:
+                    return True, "Custom AI endpoint verified successfully via /models."
+        except urllib.error.HTTPError as err:
+            if err.code in (401, 403):
+                err_msg = err.read().decode("utf-8") if err.fp else ""
+                return False, f"Custom AI endpoint rejected key (HTTP {err.code}): {err_msg[:160]}"
+            # If 404 or 405, continue to chat probe
+        except Exception as exc:
+            return False, f"Could not reach Custom AI endpoint at {url}: {exc}"
+
+        # 2. Probe /chat/completions
+        try:
+            test_payload = {
+                "model": model or "default",
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1,
+            }
+            req2 = urllib.request.Request(
+                f"{url}/chat/completions",
+                data=json.dumps(test_payload).encode("utf-8"),
+                headers={**headers, "Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req2, timeout=12) as resp:
+                if 200 <= resp.status < 300:
+                    return True, "Custom AI endpoint verified successfully via /chat/completions."
+        except urllib.error.HTTPError as err:
+            err_msg = err.read().decode("utf-8") if err.fp else ""
+            if err.code in (401, 403):
+                return False, f"Custom AI endpoint rejected key (HTTP {err.code}): {err_msg[:160]}"
+            if err.code in (400, 422):
+                return True, "Custom AI endpoint reached and authenticated."
+            return False, f"Custom AI endpoint returned HTTP {err.code}: {err_msg[:160]}"
+        except Exception as exc:
+            return False, f"Could not reach Custom AI endpoint at {url}: {exc}"
+
+        return True, "Custom AI endpoint connection configured."
+
     if not key:
         return False, "API key cannot be empty."
 
@@ -911,7 +971,7 @@ def attach_ai_routes(
 
         # Determine LLM Provider, Model and API Key
         provider = (body.provider or "").lower().strip()
-        if not provider:
+        if not provider or provider == "auto":
             def_p = conn.execute("SELECT value FROM settings WHERE key='ai_default_provider'").fetchone()
             provider = (def_p["value"] if def_p and def_p["value"] else "openai").lower().strip()
 
@@ -932,15 +992,38 @@ def attach_ai_routes(
             api_key = (
                 os.environ.get(f"AI_BRIDGE_{provider.upper()}_API_KEY")
                 or os.environ.get(f"{provider.upper()}_API_KEY")
+                or (os.environ.get("AI_BRIDGE_CUSTOM_API_KEY") if provider == "custom" else None)
                 or os.environ.get("AI_BRIDGE_OPENAI_API_KEY")
                 or os.environ.get("OPENAI_API_KEY")
             )
 
         model = body.model
         if not model:
-            def_m = conn.execute("SELECT value FROM settings WHERE key='ai_default_model'").fetchone()
-            if def_m and def_m["value"]:
-                model = str(def_m["value"]).strip()
+            if provider == "custom":
+                custom_m = conn.execute("SELECT value FROM settings WHERE key='ai_custom_model'").fetchone()
+                if custom_m and custom_m["value"]:
+                    model = str(custom_m["value"]).strip()
+            if not model:
+                def_m = conn.execute("SELECT value FROM settings WHERE key='ai_default_model'").fetchone()
+                if def_m and def_m["value"]:
+                    model = str(def_m["value"]).strip()
+
+        base_url = body.base_url
+        if not base_url:
+            if provider == "custom":
+                custom_u = conn.execute("SELECT value FROM settings WHERE key='ai_custom_base_url'").fetchone()
+                if custom_u and custom_u["value"]:
+                    base_url = str(custom_u["value"]).strip()
+                if not base_url:
+                    base_url = os.environ.get("AI_BRIDGE_CUSTOM_BASE_URL", "")
+            else:
+                base_url = (
+                    "https://api.groq.com/openai/v1" if provider == "groq"
+                    else "https://api.deepseek.com/v1" if provider == "deepseek"
+                    else "https://generativelanguage.googleapis.com/v1beta/openai" if provider == "gemini"
+                    else "http://localhost:11434/v1" if provider == "ollama"
+                    else "https://api.openai.com/v1"
+                )
 
         # Fetch devices in tenant for context
         devices = conn.execute("SELECT id, name, hostname, os, status FROM devices WHERE tenant=? AND revoked=0", (body.tenant,)).fetchall()
@@ -957,8 +1040,12 @@ def attach_ai_routes(
             f"4. Provide clear, concise summaries of your actions and results."
         )
 
+        # If custom provider is requested without base_url
+        if provider == "custom" and not base_url:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "Custom AI Provider requires a Base URL configured in Settings or passed in 'base_url'."})
+
         # If no external LLM key is configured, perform smart intent execution
-        if not api_key and provider != "ollama":
+        if not api_key and provider not in ("ollama", "custom"):
             # Smart intent handling for common operations
             prompt_low = body.prompt.lower().strip()
 
@@ -1011,21 +1098,10 @@ def attach_ai_routes(
             }
 
         # Multi-turn autonomous tool execution loop with OpenAI-compatible API
-        base_url = body.base_url or (
-            "https://api.groq.com/openai/v1" if provider == "groq"
-            else "https://api.deepseek.com/v1" if provider == "deepseek"
-            else "https://generativelanguage.googleapis.com/v1beta/openai" if provider == "gemini"
-            else "http://localhost:11434/v1" if provider == "ollama"
-            else "https://api.openai.com/v1"
-        )
+        if not base_url:
+            base_url = "https://api.openai.com/v1"
         if not model:
-            model = (
-                "llama-3.3-70b-versatile" if provider == "groq"
-                else "deepseek-chat" if provider == "deepseek"
-                else "gemini-1.5-flash" if provider == "gemini"
-                else "llama3" if provider == "ollama"
-                else "gpt-4o"
-            )
+            model = "gpt-4o" if provider == "openai" else "default"
 
         tools_spec = build_tool_specs(tool_format="openai")
         messages = [
@@ -1046,8 +1122,11 @@ def attach_ai_routes(
 
             req_headers = {
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key or 'ollama'}",
             }
+            if api_key:
+                req_headers["Authorization"] = f"Bearer {api_key}"
+            elif provider == "ollama":
+                req_headers["Authorization"] = "Bearer ollama"
 
             req_obj = urllib.request.Request(
                 f"{base_url.rstrip('/')}/chat/completions",
@@ -1238,7 +1317,7 @@ def attach_ai_routes(
     ):
         """Return configured AI providers, models, and masked API keys."""
         _resolve_auth(req, x_admin_token, x_session_token)
-        providers = ["openai", "anthropic", "gemini", "groq", "deepseek"]
+        providers = ["openai", "anthropic", "gemini", "groq", "deepseek", "custom"]
         configured = {}
         masked = {}
         for p in providers:
@@ -1250,11 +1329,28 @@ def attach_ai_routes(
             if val:
                 masked[p] = mask_key(val)
 
+        custom_url_row = conn.execute("SELECT value FROM settings WHERE key='ai_custom_base_url'").fetchone()
+        custom_base_url = str(custom_url_row["value"]).strip() if custom_url_row and custom_url_row["value"] else ""
+        if not custom_base_url:
+            custom_base_url = os.environ.get("AI_BRIDGE_CUSTOM_BASE_URL", "")
+
+        custom_model_row = conn.execute("SELECT value FROM settings WHERE key='ai_custom_model'").fetchone()
+        custom_model = str(custom_model_row["value"]).strip() if custom_model_row and custom_model_row["value"] else ""
+
+        if custom_base_url:
+            configured["custom"] = True
+
         def_p = conn.execute("SELECT value FROM settings WHERE key='ai_default_provider'").fetchone()
         def_m = conn.execute("SELECT value FROM settings WHERE key='ai_default_model'").fetchone()
 
         active_provider = (def_p["value"] if def_p and def_p["value"] else "openai").strip()
         active_model = (def_m["value"] if def_m and def_m["value"] else ("gpt-4o" if active_provider == "openai" else "claude-3-5-sonnet")).strip()
+
+        is_connected = bool(
+            configured.get(active_provider)
+            or active_provider == "ollama"
+            or (active_provider == "custom" and bool(custom_base_url))
+        )
 
         return {
             "ok": True,
@@ -1262,7 +1358,9 @@ def attach_ai_routes(
             "model": active_model,
             "keys_configured": configured,
             "masked_keys": masked,
-            "is_connected": bool(configured.get(active_provider) or active_provider == "ollama"),
+            "custom_base_url": custom_base_url,
+            "custom_model": custom_model,
+            "is_connected": is_connected,
         }
 
     @app.post("/api/settings/ai")
@@ -1276,35 +1374,51 @@ def attach_ai_routes(
         actor, role = _resolve_auth(req, x_admin_token, x_session_token)
         p = body.provider.lower().strip()
         m = (body.model or "").strip()
+        base_u = (body.base_url or "").strip()
 
         if body.clear:
             conn.execute("DELETE FROM settings WHERE key=?", (f"ai_{p}_key",))
+            if p == "custom":
+                conn.execute("DELETE FROM settings WHERE key='ai_custom_base_url'")
+                conn.execute("DELETE FROM settings WHERE key='ai_custom_model'")
             conn.commit()
             audit(actor, "", f"clear_ai_key_{p}", {}, "allowed")
-            return {"ok": True, "message": f"Cleared API key for {p.capitalize()}."}
+            return {"ok": True, "message": f"Cleared settings and API key for {p.capitalize()}."}
 
         key = (body.api_key or "").strip()
-        if p != "ollama" and not key:
+        if p not in ("ollama", "custom") and not key:
             raise HTTPException(status_code=400, detail="API key is required.")
+        if p == "custom" and not base_u:
+            existing_url = conn.execute("SELECT value FROM settings WHERE key='ai_custom_base_url'").fetchone()
+            if not existing_url or not existing_url["value"]:
+                raise HTTPException(status_code=400, detail="Base URL is required for custom AI provider (e.g. https://openrouter.ai/api/v1).")
+            base_u = str(existing_url["value"]).strip()
 
         if body.test_connection:
-            valid, msg = validate_llm_key(p, key)
+            valid, msg = validate_llm_key(p, key, base_url=base_u, model=m)
             if not valid:
                 raise HTTPException(status_code=400, detail=msg)
 
-        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (f"ai_{p}_key", key))
+        if key:
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (f"ai_{p}_key", key))
+        if p == "custom" and base_u:
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_custom_base_url', ?)", (base_u,))
+            if m:
+                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_custom_model', ?)", (m,))
+
         conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_default_provider', ?)", (p,))
         if m:
             conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_default_model', ?)", (m,))
         conn.commit()
 
-        audit(actor, "", f"set_ai_key_{p}", {"model": m}, "allowed")
+        audit(actor, "", f"set_ai_key_{p}", {"model": m, "base_url": base_u}, "allowed")
         return {
             "ok": True,
             "message": f"Successfully connected to {p.capitalize()}!",
             "provider": p,
             "model": m or ("gpt-4o" if p == "openai" else "claude-3-5-sonnet" if p == "anthropic" else "gemini-1.5-pro"),
-            "masked_key": mask_key(key),
+            "base_url": base_u if p == "custom" else None,
+            "masked_key": mask_key(key) if key else "",
         }
 
     # 8. Conversational Dashboard AI Copilot
@@ -1327,12 +1441,29 @@ def attach_ai_routes(
         if not last_prompt:
             return {"ok": True, "message": {"role": "assistant", "content": "How can I help you manage your computer fleet?"}}
 
+        chat_prov = (body.provider or "").lower().strip()
+        if not chat_prov or chat_prov == "auto":
+            def_p = conn.execute("SELECT value FROM settings WHERE key='ai_default_provider'").fetchone()
+            chat_prov = (def_p["value"] if def_p and def_p["value"] else "openai").lower().strip()
+
+        chat_mod = (body.model or "").strip()
+        if not chat_mod:
+            if chat_prov == "custom":
+                custom_m = conn.execute("SELECT value FROM settings WHERE key='ai_custom_model'").fetchone()
+                if custom_m and custom_m["value"]:
+                    chat_mod = str(custom_m["value"]).strip()
+            if not chat_mod:
+                def_m = conn.execute("SELECT value FROM settings WHERE key='ai_default_model'").fetchone()
+                if def_m and def_m["value"]:
+                    chat_mod = str(def_m["value"]).strip()
+
         agent_in = AIAgentIn(
             prompt=last_prompt,
             device=body.device,
-            provider=body.provider or "openai",
-            model=body.model,
+            provider=chat_prov,
+            model=chat_mod or None,
             api_key=body.api_key,
+            base_url=body.base_url,
             tenant=body.tenant,
         )
 

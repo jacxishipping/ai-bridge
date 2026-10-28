@@ -23,11 +23,14 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
     model: string;
     keys_configured: Record<string, boolean>;
     masked_keys: Record<string, string>;
+    custom_base_url?: string;
+    custom_model?: string;
     is_connected: boolean;
   } | null>(null);
 
   const [inputProvider, setInputProvider] = useState<string>("openai");
   const [inputModel, setInputModel] = useState<string>("gpt-4o");
+  const [inputBaseUrl, setInputBaseUrl] = useState<string>("https://openrouter.ai/api/v1");
   const [inputApiKey, setInputApiKey] = useState<string>("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [isSavingKey, setIsSavingKey] = useState(false);
@@ -84,6 +87,7 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
         setAiSettings(res);
         if (res.provider) setInputProvider(res.provider);
         if (res.model) setInputModel(res.model);
+        if (res.custom_base_url) setInputBaseUrl(res.custom_base_url);
       }
     } catch (err) {
       console.error("Failed to load AI settings:", err);
@@ -114,12 +118,20 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
     else if (newProv === "groq") setInputModel("llama-3.3-70b-versatile");
     else if (newProv === "deepseek") setInputModel("deepseek-chat");
     else if (newProv === "ollama") setInputModel("llama3.2");
+    else if (newProv === "custom") {
+      if (!inputModel || inputModel === "gpt-4o" || inputModel === "llama3.2") setInputModel("mistralai/mixtral-8x7b-instruct");
+      if (!inputBaseUrl) setInputBaseUrl("https://openrouter.ai/api/v1");
+    }
   }
 
   // Save / Connect API Key
   async function handleSaveKey(e?: React.FormEvent) {
     if (e) e.preventDefault();
-    if (!inputApiKey.trim() && inputProvider !== "ollama") {
+    if (inputProvider === "custom" && !inputBaseUrl.trim()) {
+      setSaveMessage({ text: "Please enter a Base URL for your custom AI provider.", error: true });
+      return;
+    }
+    if (!inputApiKey.trim() && inputProvider !== "ollama" && inputProvider !== "custom") {
       setSaveMessage({ text: "Please enter an API key.", error: true });
       return;
     }
@@ -131,6 +143,7 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
         provider: inputProvider,
         model: inputModel,
         api_key: inputApiKey.trim(),
+        base_url: inputBaseUrl.trim(),
         test_connection: inputProvider !== "ollama",
       });
       if (res && res.ok) {
@@ -186,6 +199,7 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
         messages: historyPayload,
         provider: aiSettings?.provider || inputProvider,
         model: aiSettings?.model || inputModel,
+        base_url: aiSettings?.custom_base_url || (inputProvider === "custom" ? inputBaseUrl : undefined),
         device: selectedDevice,
       });
 
@@ -359,7 +373,9 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 16, fontWeight: 700 }}>
                 {isConnected
-                  ? `AI Connected: ${activeProvider.toUpperCase()} (${aiSettings?.model || inputModel})`
+                  ? activeProvider === "custom"
+                    ? `AI Connected: Custom AI (${aiSettings?.model || inputModel})`
+                    : `AI Connected: ${activeProvider.toUpperCase()} (${aiSettings?.model || inputModel})`
                   : "No AI API Key Connected"}
               </span>
               <span
@@ -376,8 +392,10 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
             </div>
             <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 13, marginTop: 2 }}>
               {isConnected
-                ? `Key: ${activeMaskedKey} • Full multi-step reasoning enabled across your ${devices.length} fleet device(s).`
-                : "Connect your OpenAI, Claude, Gemini, or Groq API key below to unlock full conversational reasoning."}
+                ? activeProvider === "custom"
+                  ? `Key: ${activeMaskedKey || "Configured"} • Base URL: ${aiSettings?.custom_base_url || inputBaseUrl} • Full multi-step reasoning enabled across your ${devices.length} fleet device(s).`
+                  : `Key: ${activeMaskedKey || "Configured"} • Full multi-step reasoning enabled across your ${devices.length} fleet device(s).`
+                : "Connect your OpenAI, Claude, Gemini, Groq, or Custom AI API key below to unlock full conversational reasoning."}
             </div>
           </div>
         </div>
@@ -657,8 +675,49 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                   <option value="groq">Groq (Ultra-Fast Llama 3.3 70B)</option>
                   <option value="deepseek">DeepSeek (DeepSeek V3 / R1)</option>
                   <option value="ollama">Local Ollama (Offline / Self-Hosted)</option>
+                  <option value="custom">⚡ Custom AI Endpoint (OpenRouter, Together, LocalAI, vLLM, LM Studio)</option>
                 </select>
               </div>
+
+              {/* Custom Base URL Input if Custom AI selected */}
+              {inputProvider === "custom" && (
+                <div>
+                  <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>
+                    Custom Base URL (OpenAI-compatible)
+                  </label>
+                  <input
+                    type="text"
+                    className="f2-input"
+                    style={{ width: "100%", fontFamily: "monospace", fontSize: 13 }}
+                    placeholder="https://openrouter.ai/api/v1 or http://localhost:8000/v1"
+                    value={inputBaseUrl}
+                    onChange={e => setInputBaseUrl(e.target.value)}
+                  />
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                    <span style={{ fontSize: 11, color: "var(--colorNeutralForeground3)", alignSelf: "center" }}>Presets:</span>
+                    {[
+                      { name: "OpenRouter", url: "https://openrouter.ai/api/v1", model: "mistralai/mixtral-8x7b-instruct" },
+                      { name: "Together AI", url: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
+                      { name: "Mistral", url: "https://api.mistral.ai/v1", model: "mistral-large-latest" },
+                      { name: "LM Studio", url: "http://localhost:1234/v1", model: "local-model" },
+                      { name: "LocalAI / vLLM", url: "http://localhost:8000/v1", model: "default" },
+                    ].map(p => (
+                      <button
+                        key={p.name}
+                        type="button"
+                        className="f2-btn f2-btn-sm"
+                        style={{ fontSize: 11, padding: "2px 8px" }}
+                        onClick={() => {
+                          setInputBaseUrl(p.url);
+                          setInputModel(p.model);
+                        }}
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Model Input */}
               <div>
@@ -667,6 +726,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                   type="text"
                   className="f2-input"
                   style={{ width: "100%" }}
+                  placeholder={inputProvider === "custom" ? "e.g. mistralai/mixtral-8x7b-instruct, gpt-4o, etc." : "Model name"}
                   value={inputModel}
                   onChange={e => setInputModel(e.target.value)}
                 />
@@ -676,7 +736,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
               {inputProvider !== "ollama" ? (
                 <div>
                   <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>
-                    API Key for {inputProvider.toUpperCase()}
+                    API Key for {inputProvider === "custom" ? "Custom AI Endpoint" : inputProvider.toUpperCase()}
                   </label>
                   <div style={{ display: "flex", gap: 6 }}>
                     <input
@@ -687,6 +747,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                         inputProvider === "openai" ? "sk-proj-..."
                         : inputProvider === "anthropic" ? "sk-ant-..."
                         : inputProvider === "gemini" ? "AIzaSy..."
+                        : inputProvider === "custom" ? "Custom API key or Bearer token (optional for local/no-auth)"
                         : "Your API Key"
                       }
                       value={inputApiKey}
@@ -702,7 +763,9 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                     </button>
                   </div>
                   <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)", marginTop: 4 }}>
-                    Keys travel over HTTPS only and are never exposed in client logs.
+                    {inputProvider === "custom"
+                      ? "Custom keys are sent via Authorization: Bearer <key> to your Base URL."
+                      : "Keys travel over HTTPS only and are never exposed in client logs."}
                   </div>
                 </div>
               ) : (
@@ -750,6 +813,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                 { id: "gemini", name: "Google Gemini", desc: "Gemini 1.5 Flash / Pro" },
                 { id: "groq", name: "Groq", desc: "Llama 3.3 70B (Fast)" },
                 { id: "deepseek", name: "DeepSeek", desc: "DeepSeek V3 / R1" },
+                { id: "custom", name: "Custom AI Endpoint", desc: aiSettings?.custom_base_url || "OpenRouter, Together, LocalAI, vLLM" },
               ].map(prov => {
                 const isConf = aiSettings?.keys_configured?.[prov.id];
                 const masked = aiSettings?.masked_keys?.[prov.id];
@@ -769,7 +833,11 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 13 }}>{prov.name}</div>
                       <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
-                        {isConf ? `Connected (${masked})` : "Not connected"}
+                        {isConf
+                          ? prov.id === "custom"
+                            ? `Connected (${masked || "No Key"}) • ${aiSettings?.custom_base_url}`
+                            : `Connected (${masked})`
+                          : "Not connected"}
                       </div>
                     </div>
 
