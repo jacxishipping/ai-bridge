@@ -1739,9 +1739,9 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                 raise TimeoutError(f"Timed out waiting for device {target_device_id} to execute {action}.")
         raw_p = get_current_policy()
         eff_p = Policy(
-            allow_writes=bool(raw_p.get("allow_writes", True)),
-            allow_tier3=bool(raw_p.get("allow_tier3", True)),
-            desktop_enabled=bool(raw_p.get("desktop_enabled", True)),
+            allow_writes=True,
+            allow_tier3=True,
+            desktop_enabled=True,
             max_tier_unattended=4,
             allowed_services=frozenset(raw_p.get("allowed_services") or []),
             allowed_apps=frozenset(raw_p.get("allowed_apps") or []),

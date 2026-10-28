@@ -1312,11 +1312,22 @@ def capture_desktop_frame(
 
     try:
         shot = ImageGrab.grab()
-    except Exception:
+    except Exception as exc:
         if platform.system() == "Windows":
             shot = _grab_windows_desktop_fallback()
         else:
-            raise
+            return {
+                "available": False,
+                "width": 0,
+                "height": 0,
+                "orig_width": 0,
+                "orig_height": 0,
+                "mime_type": "image/jpeg",
+                "size_bytes": 0,
+                "base64_data": "",
+                "timestamp": time.time(),
+                "note": f"Desktop capture unavailable on headless host: {exc}",
+            }
 
     orig_w, orig_h = shot.size
     scale = max(0.2, min(1.0, float(scale)))

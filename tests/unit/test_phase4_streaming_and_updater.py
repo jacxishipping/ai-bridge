@@ -1,4 +1,6 @@
 import json
+import os
+import platform
 import time
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +10,10 @@ from ai_bridge.control.app import create_app
 from ai_bridge.policy import Policy
 
 
-def test_capture_desktop_frame_primitives():
+def test_capture_desktop_frame_primitives(monkeypatch):
+    if platform.system() != "Windows" and "DISPLAY" not in os.environ:
+        from PIL import Image
+        monkeypatch.setattr("PIL.ImageGrab.grab", lambda: Image.new("RGB", (800, 600), (30, 30, 30)))
     p = Policy(allow_tier3=True, desktop_enabled=True)
     frame = tools.capture_desktop_frame(scale=0.5, quality=60, approval_granted=True, policy=p)
     assert frame["available"] is True
@@ -20,7 +25,10 @@ def test_capture_desktop_frame_primitives():
     assert len(frame["base64_data"]) > 0
 
 
-def test_desktop_streaming_endpoint(tmp_path):
+def test_desktop_streaming_endpoint(tmp_path, monkeypatch):
+    if platform.system() != "Windows" and "DISPLAY" not in os.environ:
+        from PIL import Image
+        monkeypatch.setattr("PIL.ImageGrab.grab", lambda: Image.new("RGB", (800, 600), (30, 30, 30)))
     admin_token = "adm-tok-p4"
     app = create_app(admin_token=admin_token, db_path=tmp_path / "control.db")
     client = TestClient(app)
