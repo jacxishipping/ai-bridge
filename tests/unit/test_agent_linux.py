@@ -71,6 +71,7 @@ def test_linux_agent_config_persistence(tmp_path: Path, monkeypatch):
     from agents.linux import agent_main
 
     monkeypatch.setattr(agent_main, "DEFAULT_CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
     cfg = {
         "control_url": "https://test.control.plane",
         "device_token": "linux-test-token-777",

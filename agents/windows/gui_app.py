@@ -929,6 +929,19 @@ class AgentGuiApp:
             cursor="hand2",
         ).grid(row=1, column=3, padx=(6, 0))
 
+        tk.Button(
+            cfg_inner,
+            text="🔄 Reload",
+            command=self.reload_token_from_disk,
+            bg=t["card_alt"],
+            fg=t["fg"],
+            relief="flat",
+            font=("Segoe UI", 9),
+            padx=8,
+            pady=2,
+            cursor="hand2",
+        ).grid(row=1, column=4, padx=(6, 0))
+
         # Controls row
         ctrl_row = tk.Frame(cfg_card, bg=t["card"])
         ctrl_row.pack(fill="x", padx=14, pady=(2, 10))
@@ -2659,6 +2672,22 @@ class AgentGuiApp:
         self.root.clipboard_append(tok)
         self.log("Copied Device Token to clipboard.", "info")
 
+    def reload_token_from_disk(self) -> None:
+        """Reload device token from ~/.ai-bridge/device.token."""
+        if TOKEN_FILE.exists():
+            try:
+                tok = TOKEN_FILE.read_text(encoding="utf-8").strip()
+                if tok:
+                    self.token_var.set(tok)
+                    self.save_current_config()
+                    self.log(f"Reloaded valid device token from disk: {tok[:8]}...", "ok")
+                    messagebox.showinfo("Token Loaded", f"Device token reloaded successfully from {TOKEN_FILE}!")
+                    return
+            except Exception as exc:
+                messagebox.showerror("Error", f"Failed to read token file: {exc}")
+                return
+        messagebox.showwarning("File Not Found", f"No token file found at {TOKEN_FILE}")
+
     def _copy_device_id(self) -> None:
         did = self.device_id_var.get().strip()
         if not did or did == "—":
@@ -2769,6 +2798,15 @@ class AgentGuiApp:
     def start_agent(self) -> None:
         if self.running:
             return
+        # If token in memory is empty or a dummy test token, automatically reload valid token from disk
+        if TOKEN_FILE.exists():
+            try:
+                disk_tok = TOKEN_FILE.read_text(encoding="utf-8").strip()
+                if disk_tok and (not self.token_var.get().strip() or "test-token" in self.token_var.get()):
+                    self.token_var.set(disk_tok)
+                    self.log(f"Loaded valid device token from disk: {disk_tok[:8]}...", "ok")
+            except Exception:
+                pass
         url = self.url_var.get().strip()
         tok = self.token_var.get().strip()
         if not url or not tok:
@@ -2899,8 +2937,17 @@ class AgentGuiApp:
                     break
                 had_error = True
                 wait_time = poller.backoff
-                self.root.after(0, lambda w=wait_time: self.status_var.set(f"● Retry in {w:.0f}s"))
-                self.log(f"Connection issue (retry in {wait_time:.0f}s): {exc}", "warn")
+                err_msg = str(exc)
+                if "401" in err_msg:
+                    self.root.after(0, lambda: self.status_var.set("✕ 401 Unauthorized"))
+                    self.log(
+                        "Authentication failed: Device Token is invalid or expired (HTTP 401). "
+                        "Click 'Reload' next to Token or paste your valid Device Token in Settings.",
+                        "err",
+                    )
+                else:
+                    self.root.after(0, lambda w=wait_time: self.status_var.set(f"● Retry in {w:.0f}s"))
+                    self.log(f"Connection issue (retry in {wait_time:.0f}s): {exc}", "warn")
                 self.stop_event.wait(wait_time)
                 poller.backoff = min(poller.backoff * 2, 60.0)
 

@@ -146,3 +146,4 @@ def test_auto_route_to_windows_device_on_headless_host(monkeypatch):
 
     target = mcp_server._find_default_windows_device()
     assert target == "win-box-12", f"Expected to find online Windows workstation 'win-box-12', got {target}"
+
