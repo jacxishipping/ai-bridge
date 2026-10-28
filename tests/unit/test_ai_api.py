@@ -78,6 +78,15 @@ def test_ai_tools_auth_required(fresh_client):
     assert res.status_code == 401
 
 
+def test_bearer_auth_normalization_on_standard_endpoints(fresh_client):
+    client, _ = fresh_client
+    # Standard endpoints like /api/devices and /api/tasks accept Authorization: Bearer
+    res = client.get("/api/devices", headers={"Authorization": f"Bearer {ADMIN_TOKEN}"})
+    assert res.status_code == 200
+    res_tasks = client.get("/api/tasks", headers={"Authorization": f"Bearer {ADMIN_TOKEN}"})
+    assert res_tasks.status_code == 200
+
+
 def test_ai_execute_local_tool(fresh_client):
     client, _ = fresh_client
     res = client.post(

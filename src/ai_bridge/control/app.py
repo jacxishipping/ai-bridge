@@ -34,6 +34,7 @@ from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from starlette.datastructures import Headers
 
 from ..policy import TOOL_TIERS
 from ..security import redact, redact_obj
@@ -1655,6 +1656,20 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         notify_tasks()
         audit("device", row["id"], task["tool"], json.loads(task["args_json"] or "{}"), body.status, body.result[:500], tenant=task["tenant"])
         return {"task_id": task_id, "status": body.status}
+
+    @app.middleware("http")
+    async def bearer_auth_normalization(request: Request, call_next):
+        auth = request.headers.get("authorization")
+        if auth and auth.strip().lower().startswith("bearer "):
+            token_str = auth.strip()[7:].strip()
+            raw_headers = list(request.scope.get("headers", []))
+            hdr_keys = {h[0].lower() for h in raw_headers}
+            if b"x-admin-token" not in hdr_keys and b"x-session-token" not in hdr_keys:
+                raw_headers.append((b"x-admin-token", token_str.encode("utf-8")))
+                raw_headers.append((b"x-session-token", token_str.encode("utf-8")))
+                request.scope["headers"] = raw_headers
+                request._headers = Headers(scope=request.scope)
+        return await call_next(request)
 
     @app.middleware("http")
     async def rate_limit_middleware(request: Request, call_next):
