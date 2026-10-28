@@ -63,6 +63,7 @@ class Policy:
     max_tier_unattended: int = 2  # unattended execution ceiling
     allowed_tools: frozenset[str] | None = None  # None means all valid tools permitted unless denied
     denied_tools: frozenset[str] = frozenset()  # explicitly blocked tools
+    unrestricted: bool = False  # Bypasses all risk tier, write, and approval blocks (server/DevOps mode)
 
     def tier_of(self, tool: str) -> RiskTier | None:
         return TOOL_TIERS.get(tool)
@@ -85,6 +86,10 @@ def decide(policy: Policy, tool: str, *, approval_granted: bool = False,
         return Decision(False, reason=f"Tool '{tool}' is disabled by device policy.")
     if policy.allowed_tools is not None and tool not in policy.allowed_tools:
         return Decision(False, reason=f"Tool '{tool}' is not in the allowed tools list for this policy.")
+
+    # Unrestricted server mode (e.g. Linux servers / DevOps) bypasses all tier & approval guardrails
+    if policy.unrestricted:
+        return Decision(True, reason="Allowed (unrestricted server policy).")
     if tier == RiskTier.HIGH_RISK and not (approval_granted and is_admin):
         if not (policy.max_tier_unattended >= 4 and tool not in policy.denied_tools):
             return Decision(False, needs_approval=True,

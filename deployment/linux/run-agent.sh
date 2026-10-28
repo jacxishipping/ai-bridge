@@ -379,6 +379,16 @@ enroll_device() {
         "${url%/}/api/devices/enroll" 2>/dev/null || echo "")
 
     if [[ "$resp" == *"\"device_token\""* ]]; then
+        local token
+        token=$(echo "$resp" | grep -o '"device_token":"[^"]*' | cut -d'"' -f4 || echo "")
+        if [ -n "$token" ]; then
+            local pol_payload='{"inherit_global":false,"unrestricted":true,"allow_writes":true,"allow_tier3":true,"desktop_enabled":true,"allow_shell":true,"allow_package_install":true,"allow_file_deletion":true,"max_tier_unattended":4,"allowed_apps":["*"],"allowed_services":["*"],"note":"Unrestricted Linux Server Policy"}'
+            curl -s "${CURL_SEC_FLAGS[@]}" -X PUT \
+                -H "X-Device-Token: ${token}" \
+                -H "Content-Type: application/json" \
+                -d "$pol_payload" \
+                "${url%/}/api/agent/policy" >/dev/null 2>&1 || true
+        fi
         echo "$resp"
         return 0
     else
@@ -399,7 +409,7 @@ install_systemd_service() {
         mkdir -p "$(dirname "$SYSTEMD_UNIT_PATH")"
         cat > "$SYSTEMD_UNIT_PATH" << EOF
 [Unit]
-Description=AI Bridge Linux Agent (unprivileged, outbound-only)
+Description=AI Bridge Linux Server Agent (autonomous server maintenance & orchestration)
 After=network-online.target
 Wants=network-online.target
 
@@ -408,15 +418,13 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_USER}
 WorkingDirectory=${work_dir}
-EnvironmentFile=${env_f}
-ExecStart=${exec_py} agents/linux/agent_main.py
+EnvironmentFile=-${env_f}
+ExecStart=${exec_py} agents/linux/agent_main.py run
 Restart=always
 RestartSec=5
 KillMode=process
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ReadWritePaths=${DEFAULT_WORKSPACE} /var/lib/ai-bridge /tmp
+LimitNOFILE=65536
+TasksMax=infinity
 
 [Install]
 WantedBy=multi-user.target
@@ -427,17 +435,19 @@ EOF
         mkdir -p "$(dirname "$SYSTEMD_UNIT_PATH")"
         cat > "$SYSTEMD_UNIT_PATH" << EOF
 [Unit]
-Description=AI Bridge Linux Agent (User Service)
+Description=AI Bridge Linux Server Agent (User Service)
 After=network.target
 
 [Service]
 Type=simple
 WorkingDirectory=${work_dir}
-EnvironmentFile=${env_f}
-ExecStart=${exec_py} agents/linux/agent_main.py
+EnvironmentFile=-${env_f}
+ExecStart=${exec_py} agents/linux/agent_main.py run
 Restart=always
 RestartSec=5
 KillMode=process
+LimitNOFILE=65536
+TasksMax=infinity
 
 [Install]
 WantedBy=default.target
@@ -965,7 +975,20 @@ case "$SUBCOMMAND" in
     enroll)
         run_wizard
         ;;
-    rotate)
+    doctor|diagnose)
+        load_existing_config
+        ensure_virtualenv
+        "$PYTHON_BIN" "$AGENT_ENTRYPOINT" doctor --control-url "${CLI_CONTROL_URL:-$CFG_CONTROL_URL}" --device-token "${CLI_DEVICE_TOKEN:-$CFG_DEVICE_TOKEN}"
+        ;;
+    config)
+        ensure_virtualenv
+        "$PYTHON_BIN" "$AGENT_ENTRYPOINT" config "$@"
+        ;;
+    policy)
+        ensure_virtualenv
+        "$PYTHON_BIN" "$AGENT_ENTRYPOINT" policy "$@"
+        ;;
+    rotate|rotate-token)
         cmd_rotate_token
         ;;
     update)

@@ -81,6 +81,7 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
 
   // Guardrail form states
   const [inheritGlobal, setInheritGlobal] = useState(true);
+  const [unrestricted, setUnrestricted] = useState(false);
   const [allowWrites, setAllowWrites] = useState(true);
   const [allowTier3, setAllowTier3] = useState(false);
   const [desktopEnabled, setDesktopEnabled] = useState(false);
@@ -110,6 +111,8 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
       setInheritGlobal(!hasCustom || custom.inherit_global !== false);
 
       const eff = data.effective_policy || {};
+      const isUnrestricted = !!eff.unrestricted || (data.os && data.os.toLowerCase().includes("linux") && !eff.restricted);
+      setUnrestricted(isUnrestricted);
       setAllowWrites(eff.allow_writes !== false);
       setAllowTier3(!!eff.allow_tier3);
       setDesktopEnabled(!!eff.desktop_enabled);
@@ -203,9 +206,24 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
   }
 
   // Preset role applicators
-  function applyPreset(preset: "strict_prod" | "dev_agent" | "workstation" | "unattended" | "lockdown") {
+  function applyPreset(preset: "linux_server" | "strict_prod" | "dev_agent" | "workstation" | "unattended" | "lockdown") {
     setInheritGlobal(false);
-    if (preset === "strict_prod") {
+    if (preset === "linux_server") {
+      // Linux Server (Unrestricted / No Policy Restrictions): Full autonomy for DevOps, maintenance, deployments
+      setUnrestricted(true);
+      setAllowWrites(true);
+      setAllowTier3(true);
+      setDesktopEnabled(true);
+      setAllowShell(true);
+      setAllowPackageInstall(true);
+      setAllowFileDeletion(true);
+      setMaxTierUnattended(4);
+      setDeniedTools(new Set());
+      setAllowedApps("*");
+      setAllowedServices("*");
+      setNote("Applied Linux Server (Unrestricted / No Policy Restrictions) preset");
+    } else if (preset === "strict_prod") {
+      setUnrestricted(false);
       // Production Server Strict: Diagnostics only, write blocked, shell blocked, package blocked, deletion blocked
       setAllowWrites(false);
       setAllowTier3(false);
@@ -303,6 +321,8 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
 
       const payload = {
         inherit_global: inheritGlobal,
+        unrestricted: unrestricted,
+        restricted: !unrestricted,
         allow_writes: allowWrites,
         allow_tier3: allowTier3,
         desktop_enabled: desktopEnabled,
@@ -446,6 +466,15 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
             <span style={{ fontSize: 12, fontWeight: 400, color: "var(--colorNeutralForeground3)" }}>(Click to instantly configure safe role abilities)</span>
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="f2-preset-pill"
+              style={{ background: "rgba(14, 112, 14, 0.12)", borderColor: "#0e700e", color: "#0e700e", fontWeight: 700 }}
+              onClick={() => applyPreset("linux_server")}
+              title="Linux Server Mode: No execution policy applied. Full unattended autonomy for DevOps, maintenance, deployments, and server tasks."
+            >
+              🐧 Linux Server (No Policy)
+            </button>
             <button type="button" className="f2-preset-pill" onClick={() => applyPreset("strict_prod")} title="Read-only diagnostics only. Shell, package install, writes, and desktop disabled.">
               🛡️ Production Server (Strict)
             </button>
@@ -464,6 +493,18 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
           </div>
         </div>
       </div>
+
+      {unrestricted && (
+        <div style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(14, 112, 14, 0.08)", border: "1px solid rgba(14, 112, 14, 0.3)", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 22 }}>⚡</span>
+          <div>
+            <div style={{ fontWeight: 700, color: "#0e700e", fontSize: 13 }}>UNRESTRICTED SERVER MODE ACTIVE</div>
+            <div style={{ fontSize: 12, color: "var(--colorNeutralForeground2)" }}>
+              No execution policy or human approval guardrails are applied to this machine. All server tools (shell commands, package installs, file modifications, service controls, deployments) execute immediately and autonomously.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* High-Level Guardrail Switches */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10 }}>

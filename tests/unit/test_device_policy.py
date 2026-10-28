@@ -191,3 +191,46 @@ def test_device_policy_full_unattended_skips_approval(test_setup):
     assert res_t4_unattended.json()["status"] == "queued"
     assert res_t4_unattended.json()["approval_id"] is None
 
+
+def test_linux_device_unrestricted_policy_auto_configured(tmp_path: Path):
+    db_file = tmp_path / "control.db"
+    app = create_app(admin_token="adm-secret", db_path=db_file)
+    client = TestClient(app)
+
+    # Enroll a Linux server device
+    res = client.post(
+        "/api/devices/enroll",
+        json={"name": "ubuntu-server", "os": "linux", "hostname": "prod-node-1", "unrestricted": True},
+        headers={"X-Admin-Token": "adm-secret"},
+    )
+    assert res.status_code == 200
+    device_id = res.json()["device_id"]
+
+    # Verify policy returns unrestricted server policy
+    pol_res = client.get(f"/api/devices/{device_id}/policy", headers={"X-Admin-Token": "adm-secret"})
+    assert pol_res.status_code == 200
+    eff = pol_res.json()["effective_policy"]
+    assert eff["unrestricted"] is True
+    assert eff["max_tier_unattended"] == 4
+    assert eff["allow_tier3"] is True
+    assert eff["allow_writes"] is True
+
+    # Submitting Tier-3 and Tier-4 tasks should immediately queue without approval
+    res_shell = client.post(
+        "/api/tasks",
+        json={"device_id": device_id, "tool": "run_shell", "args": {"command": "uptime"}},
+        headers={"X-Admin-Token": "adm-secret"},
+    )
+    assert res_shell.status_code == 200
+    assert res_shell.json()["status"] == "queued"
+    assert res_shell.json()["approval_id"] is None
+
+    res_del = client.post(
+        "/api/tasks",
+        json={"device_id": device_id, "tool": "delete_workspace_file", "args": {"relative_path": "temp.log"}},
+        headers={"X-Admin-Token": "adm-secret"},
+    )
+    assert res_del.status_code == 200
+    assert res_del.json()["status"] == "queued"
+    assert res_del.json()["approval_id"] is None
+

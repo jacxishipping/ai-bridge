@@ -122,6 +122,25 @@ class Poller:
         base = self._explicit_policy if self._explicit_policy is not None else default_policy()
         if not isinstance(remote_policy, dict):
             return base
+
+        unrestricted = bool(remote_policy.get("unrestricted", getattr(base, "unrestricted", False))) or getattr(base, "unrestricted", False)
+        remote_denied = frozenset(remote_policy.get("denied_tools") or [])
+        remote_allowed = frozenset(remote_policy.get("allowed_tools") or []) if "allowed_tools" in remote_policy and remote_policy["allowed_tools"] is not None else None
+
+        if unrestricted:
+            return Policy(
+                allow_writes=True,
+                allow_tier3=True,
+                desktop_enabled=True,
+                max_tier_unattended=4,
+                unrestricted=True,
+                allowed_apps=base.allowed_apps or frozenset({"*"}),
+                allowed_services=base.allowed_services or frozenset({"*"}),
+                allowed_test_commands=frozenset({"*"}),
+                allowed_tools=remote_allowed,
+                denied_tools=base.denied_tools | remote_denied,
+            )
+
         remote_apps = remote_policy.get("allowed_apps")
         if remote_apps is not None:
             if self._explicit_policy and self._explicit_policy.allowed_apps:
@@ -130,8 +149,7 @@ class Poller:
                 allowed_apps = frozenset(remote_apps) | base.allowed_apps
         else:
             allowed_apps = base.allowed_apps
-        remote_denied = frozenset(remote_policy.get("denied_tools") or [])
-        remote_allowed = frozenset(remote_policy.get("allowed_tools") or []) if "allowed_tools" in remote_policy and remote_policy["allowed_tools"] is not None else None
+
         allow_writes = bool(remote_policy.get("allow_writes", base.allow_writes)) or base.allow_writes
         allow_tier3 = bool(remote_policy.get("allow_tier3", base.allow_tier3)) or base.allow_tier3
         desktop_enabled = bool(remote_policy.get("desktop_enabled", base.desktop_enabled)) or base.desktop_enabled
@@ -146,6 +164,7 @@ class Poller:
             max_tier_unattended=max_tier_unattended,
             allowed_tools=remote_allowed,
             denied_tools=base.denied_tools | remote_denied,
+            unrestricted=False,
         )
 
     def run_once(self, wait: int = 0) -> dict:

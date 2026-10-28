@@ -565,7 +565,11 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
               <span>Heartbeat: <b>{rel(health.last_seen_ts)}</b></span>
             </div>
 
-            {dev.has_custom_policy ? (
+            {dev.effective_policy?.unrestricted || (dev.os && dev.os.toLowerCase().includes("linux") && !dev.effective_policy?.restricted) ? (
+              <span className="f2-badge" data-tone="green" style={{ background: "rgba(14, 112, 14, 0.15)", color: "#0e700e", fontWeight: 700 }} title="Unrestricted Server Mode: No execution policy applied. Full unattended autonomy.">
+                ⚡ Unrestricted Server Policy
+              </span>
+            ) : dev.has_custom_policy ? (
               <span className="f2-badge" data-tone="amber" title="Custom device guardrails active">
                 🛡️ Custom Abilities
               </span>

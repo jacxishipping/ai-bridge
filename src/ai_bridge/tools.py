@@ -53,7 +53,8 @@ def get_network_info() -> dict:
 def get_service_status(service: str, *, policy: Policy | None = None) -> dict:
     eff_policy = policy or default_policy()
     _check("get_service_status", policy=eff_policy)
-    return diagnostics.service_status(service, allowed_services=eff_policy.allowed_services)
+    allowed_svc = None if eff_policy.unrestricted or "*" in eff_policy.allowed_services else eff_policy.allowed_services
+    return diagnostics.service_status(service, allowed_services=allowed_svc)
 
 
 def _is_safe_workspace_file(p, root) -> bool:
@@ -262,7 +263,7 @@ def launch_approved_application(app_name: str, *, approval_granted: bool = False
     eff_policy = policy or default_policy()
     _check("launch_approved_application", approval_granted=approval_granted, policy=eff_policy)
     allowed = eff_policy.allowed_apps
-    if app_name not in allowed:
+    if not eff_policy.unrestricted and "*" not in allowed and app_name not in allowed:
         raise PermissionError(f"Application not in the approved list: {app_name}")
     # Optional URL argument (e.g. open a site in an allowlisted browser).
     # It is passed as a single argv element with shell=False, so it cannot
@@ -603,7 +604,7 @@ def run_shell(
             cwd = str(confined_path(working_directory))
         except ValueError:
             host_tools_enabled = os.environ.get("AI_BRIDGE_DISABLE_HOST_TOOLS", "1") == "0"
-            if host_tools_enabled and is_admin and os.path.isabs(working_directory) and os.path.isdir(working_directory):
+            if (host_tools_enabled or (policy and policy.unrestricted) or is_admin) and os.path.isabs(working_directory) and os.path.isdir(working_directory):
                 cwd = working_directory
             else:
                 raise

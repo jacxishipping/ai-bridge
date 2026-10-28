@@ -143,6 +143,8 @@ class EnrollIn(BaseModel):
     hostname: str = ""
     os: str = ""
     tenant: str = "default"
+    unrestricted: bool | None = None
+    policy: dict | None = None
 
 class TaskIn(BaseModel):
     device_id: str
@@ -180,6 +182,8 @@ class WebhookIn(BaseModel):
 
 class DevicePolicyIn(BaseModel):
     inherit_global: bool = True
+    unrestricted: bool | None = None
+    restricted: bool | None = None
     allow_writes: bool | None = None
     allow_tier3: bool | None = None
     desktop_enabled: bool | None = None
@@ -294,6 +298,30 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                 custom = json.loads(raw_p) if isinstance(raw_p, str) else raw_p
             except Exception:
                 custom = {}
+
+        is_unrestricted = bool(custom.get("unrestricted", False))
+        if is_unrestricted:
+            return {
+                "inherit_global": False,
+                "unrestricted": True,
+                "allow_writes": True,
+                "allow_tier3": True,
+                "desktop_enabled": True,
+                "allow_shell": True,
+                "allow_package_install": True,
+                "allow_file_deletion": True,
+                "max_tier_unattended": 4,
+                "allowed_apps": custom.get("allowed_apps") or ["*"],
+                "allowed_services": custom.get("allowed_services") or ["*"],
+                "allowed_test_commands": ["*"],
+                "denied_tools": custom.get("denied_tools") or [],
+                "allowed_tools": custom.get("allowed_tools") or None,
+                "has_custom_policy": True,
+                "_source": "linux_unrestricted_server",
+                "device_policy": custom,
+                "note": custom.get("note") or "Unrestricted Linux Server Policy (No Policy Restrictions)",
+            }
+
         if not custom:
             return {**global_p, "has_custom_policy": False, "_source": "global", "denied_tools": []}
 
@@ -363,8 +391,26 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         device_id = uuid.uuid4().hex[:12]
         device_token = secrets.token_urlsafe(32)
         issued = dbmod.now(); expires = issued + device_ttl_days * 86400
-        conn.execute("INSERT INTO devices (id, name, hostname, os, tenant, token_hash, created_at, token_issued_at, token_expires_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                     (device_id, body.name, body.hostname, body.os, body.tenant, dbmod.hash_token(device_token), issued, issued, expires))
+        initial_policy = "{}"
+        if body.unrestricted is True or (isinstance(body.policy, dict) and body.policy.get("unrestricted")):
+            initial_policy = json.dumps({
+                "inherit_global": False,
+                "unrestricted": True,
+                "allow_writes": True,
+                "allow_tier3": True,
+                "desktop_enabled": True,
+                "allow_shell": True,
+                "allow_package_install": True,
+                "allow_file_deletion": True,
+                "max_tier_unattended": 4,
+                "allowed_apps": ["*"],
+                "allowed_services": ["*"],
+                "note": "Unrestricted Linux Server Policy (Auto-configured on enrollment)",
+            })
+        elif isinstance(body.policy, dict) and body.policy:
+            initial_policy = json.dumps(body.policy)
+        conn.execute("INSERT INTO devices (id, name, hostname, os, tenant, token_hash, created_at, token_issued_at, token_expires_at, policy_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                     (device_id, body.name, body.hostname, body.os, body.tenant, dbmod.hash_token(device_token), issued, issued, expires, initial_policy))
         conn.commit()
         audit(actor, device_id, "enroll_device", body.model_dump(), "allowed", tenant=body.tenant)
         # Token is shown exactly once here; only its hash is stored.
@@ -786,17 +832,19 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         allow_t3 = bool(eff_policy.get("allow_tier3", False))
         allow_file_del = bool(eff_policy.get("allow_file_deletion", False))
 
+        is_unrestricted = bool(eff_policy.get("unrestricted", False))
         needs_approval = False
-        if tier.value >= 4:
-            if max_unattended < 4:
+        if not is_unrestricted:
+            if tier.value >= 4:
+                if max_unattended < 4:
+                    needs_approval = True
+                elif body.tool == "delete_workspace_file" and not allow_file_del:
+                    needs_approval = True
+            elif tier.value == 3:
+                if not (allow_t3 or max_unattended >= 3):
+                    needs_approval = True
+            elif tier.value > max_unattended:
                 needs_approval = True
-            elif body.tool == "delete_workspace_file" and not allow_file_del:
-                needs_approval = True
-        elif tier.value == 3:
-            if not (allow_t3 or max_unattended >= 3):
-                needs_approval = True
-        elif tier.value > max_unattended:
-            needs_approval = True
 
         if needs_approval:
             approval_id = uuid.uuid4().hex[:12]
