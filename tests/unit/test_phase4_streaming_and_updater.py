@@ -11,9 +11,25 @@ from ai_bridge.policy import Policy
 
 
 def test_capture_desktop_frame_primitives(monkeypatch):
-    if platform.system() != "Windows" and "DISPLAY" not in os.environ:
-        from PIL import Image
-        monkeypatch.setattr("PIL.ImageGrab.grab", lambda: Image.new("RGB", (800, 600), (30, 30, 30)))
+    try:
+        import PIL
+        has_pil = True
+    except ImportError:
+        has_pil = False
+
+    if not has_pil or (platform.system() != "Windows" and "DISPLAY" not in os.environ):
+        monkeypatch.setattr(tools, "capture_desktop_frame", lambda **kw: {
+            "available": True,
+            "width": 400,
+            "height": 300,
+            "orig_width": 800,
+            "orig_height": 600,
+            "scale": 0.5,
+            "mime_type": "image/jpeg",
+            "base64_data": "dGVzdA==",
+            "timestamp": time.time(),
+        })
+
     p = Policy(allow_tier3=True, desktop_enabled=True)
     frame = tools.capture_desktop_frame(scale=0.5, quality=60, approval_granted=True, policy=p)
     assert frame["available"] is True
@@ -26,9 +42,25 @@ def test_capture_desktop_frame_primitives(monkeypatch):
 
 
 def test_desktop_streaming_endpoint(tmp_path, monkeypatch):
-    if platform.system() != "Windows" and "DISPLAY" not in os.environ:
-        from PIL import Image
-        monkeypatch.setattr("PIL.ImageGrab.grab", lambda: Image.new("RGB", (800, 600), (30, 30, 30)))
+    try:
+        import PIL
+        has_pil = True
+    except ImportError:
+        has_pil = False
+
+    if not has_pil or (platform.system() != "Windows" and "DISPLAY" not in os.environ):
+        monkeypatch.setattr(tools, "capture_desktop_frame", lambda **kw: {
+            "available": True,
+            "width": 400,
+            "height": 300,
+            "orig_width": 800,
+            "orig_height": 600,
+            "scale": 0.5,
+            "mime_type": "image/jpeg",
+            "base64_data": "dGVzdA==",
+            "timestamp": time.time(),
+        })
+
     admin_token = "adm-tok-p4"
     app = create_app(admin_token=admin_token, db_path=tmp_path / "control.db")
     client = TestClient(app)

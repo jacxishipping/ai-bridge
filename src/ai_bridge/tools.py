@@ -1307,8 +1307,23 @@ def capture_desktop_frame(
     """Capture a lightweight scaled desktop frame optimized for real-time visual streaming."""
     eff_policy = policy or default_policy()
     _check("capture_desktop_screenshot", approval_granted=approval_granted, policy=eff_policy)
-    from PIL import Image, ImageGrab
     import io, base64
+
+    try:
+        from PIL import Image, ImageGrab
+    except Exception as exc:
+        return {
+            "available": False,
+            "width": 0,
+            "height": 0,
+            "orig_width": 0,
+            "orig_height": 0,
+            "mime_type": "image/jpeg",
+            "size_bytes": 0,
+            "base64_data": "",
+            "timestamp": time.time(),
+            "note": f"Desktop capture requires Pillow: {exc}",
+        }
 
     try:
         shot = ImageGrab.grab()
