@@ -61,12 +61,18 @@ def _consume_local_approval(tool_name: str) -> bool:
     return False
 
 
-def _require_host_tools_enabled() -> None:
-    if os.environ.get("AI_BRIDGE_DISABLE_HOST_TOOLS", "1") != "0":
-        raise PermissionError("Unconfined host tools are disabled by default (set AI_BRIDGE_DISABLE_HOST_TOOLS=0 to enable).")
+def _require_host_tools_enabled(is_admin: bool = False) -> None:
+    if is_admin:
+        return
+    if os.environ.get("AI_BRIDGE_DISABLE_HOST_TOOLS", "0") == "1":
+        raise PermissionError("Unconfined host tools are disabled (AI_BRIDGE_DISABLE_HOST_TOOLS=1).")
 
 
-mcp = FastMCP("ai-bridge")
+mcp = FastMCP(
+    "ai-bridge",
+    stateless_http=True,
+    json_response=True,
+)
 
 VERIFY_URL = os.environ.get("AI_BRIDGE_GATEWAY_VERIFY_URL", "http://127.0.0.1:8002/internal/verify")
 CONTROL_URL = os.environ.get("AI_BRIDGE_CONTROL_URL", "http://127.0.0.1:8000")
@@ -777,11 +783,11 @@ def run_shell(command: str, working_directory: str = "", timeout: int = 0, devic
     device (optional): Target device name, hostname, ID, or 'local'. Defaults to active device or local host.
     Tier-3 sensitive tool: executed on the target device via control-plane dispatch.
     timeout=0 (default) means standard execution without time limit. Output truncated per stream."""
-    _require_host_tools_enabled()
-    approved = _consume_local_approval("run_shell")
     admin_tok = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
     bearer = _bearer_token()
     is_admin = bool(admin_tok and bearer and hmac.compare_digest(bearer, admin_tok))
+    _require_host_tools_enabled(is_admin=is_admin)
+    approved = _consume_local_approval("run_shell")
     return tools.run_shell(command, working_directory, timeout, approval_granted=approved, is_admin=is_admin)
 
 
@@ -790,7 +796,10 @@ def run_shell(command: str, working_directory: str = "", timeout: int = 0, devic
 def read_file(path: str, max_chars: int = 100000, device: str | None = None) -> str:
     """Read any UTF-8 text file on this machine or target device by path (host tools opt-in required).
     device (optional): Target device name, hostname, ID, or 'local'."""
-    _require_host_tools_enabled()
+    admin_tok = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
+    bearer = _bearer_token()
+    is_admin = bool(admin_tok and bearer and hmac.compare_digest(bearer, admin_tok))
+    _require_host_tools_enabled(is_admin=is_admin)
     return tools.read_file(path, max_chars)
 
 
@@ -800,7 +809,10 @@ def write_file(path: str, content: str, overwrite: bool = False, device: str | N
     """Write content to any absolute path on this machine or target device (host tools opt-in required).
     device (optional): Target device name, hostname, ID, or 'local'.
     Refuses to overwrite an existing file unless overwrite=true."""
-    _require_host_tools_enabled()
+    admin_tok = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
+    bearer = _bearer_token()
+    is_admin = bool(admin_tok and bearer and hmac.compare_digest(bearer, admin_tok))
+    _require_host_tools_enabled(is_admin=is_admin)
     return tools.write_file(path, content, overwrite)
 
 
@@ -817,12 +829,41 @@ def install_package(package_id: str, version: str | None = None, device: str | N
 
 
 class _BearerAuthMiddleware:
-    """Enforce bearer token authentication on Streamable HTTP unless AI_BRIDGE_HTTP_ALLOW_ANON=1."""
+    """Enforce bearer token authentication and normalize Accept & path on Streamable HTTP."""
 
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http":
+            # 1. Path normalization: route / and /mcp/ to /mcp so discovery probes to root succeed
+            path = scope.get("path", "")
+            if path in ("/", "", "/mcp/"):
+                scope["path"] = "/mcp"
+
+            # 2. Accept header normalization: FastMCP strictly requires application/json.
+            # Clients like ChatGPT, curl, and requests send Accept: */* or omit it.
+            # Normalizing ensures content negotiation never returns 406.
+            raw_headers = list(scope.get("headers", []))
+            normalized_headers = []
+            has_accept = False
+            for k, v in raw_headers:
+                if k.lower() == b"accept":
+                    has_accept = True
+                    val_str = v.decode("latin1", errors="replace")
+                    parts = [p.strip() for p in val_str.split(",") if p.strip()] if val_str else []
+                    if "application/json" not in val_str:
+                        parts.append("application/json")
+                    if "text/event-stream" not in val_str:
+                        parts.append("text/event-stream")
+                    new_val = ", ".join(parts) if parts else "application/json, text/event-stream"
+                    normalized_headers.append((k, new_val.encode("latin1")))
+                else:
+                    normalized_headers.append((k, v))
+            if not has_accept:
+                normalized_headers.append((b"accept", b"application/json, text/event-stream"))
+            scope["headers"] = normalized_headers
+
         if scope.get("type") != "http" or os.environ.get("AI_BRIDGE_HTTP_ALLOW_ANON") == "1":
             await self.app(scope, receive, send)
             return

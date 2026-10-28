@@ -133,6 +133,7 @@ def protected_resource():
 
 
 @app.get("/.well-known/oauth-authorization-server")
+@app.get("/.well-known/openid-configuration")
 def authorization_server():
     return {
         "issuer": ISSUER,
@@ -148,6 +149,8 @@ def authorization_server():
             "client_secret_post",
             "client_secret_basic",
         ],
+        "scopes_supported": ["openid", "offline_access", "mcp"],
+        "id_token_signing_alg_values_supported": ["RS256", "HS256", "none"],
         "revocation_endpoint_auth_methods_supported": ["none"],
     }
 
@@ -873,10 +876,10 @@ def issue_pair(client_id: str, scope: str, device_id: str = "") -> dict:
     conn.close()
     return {
         "access_token": access,
-        "token_type": "Bearer",
+        "token_type": "bearer",
         "expires_in": ACCESS_TTL,
         "refresh_token": refresh,
-        "scope": scope,
+        "scope": scope or "offline_access mcp",
     }
 
 

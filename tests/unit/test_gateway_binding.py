@@ -20,8 +20,12 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 
 def _fresh_client():
+    gateway.DB_PATH = DB
     if DB.exists():
-        DB.unlink()
+        try:
+            DB.unlink()
+        except OSError:
+            pass
     gateway.init_db()
     return TestClient(gateway.app, raise_server_exceptions=False)
 
