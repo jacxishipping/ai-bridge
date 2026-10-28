@@ -8,6 +8,7 @@ Provides:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -768,8 +769,10 @@ def attach_ai_routes(
                         "duration_ms": duration_ms,
                     }
 
-            with task_cond:
-                task_cond.wait(timeout=0.2)
+            rem = deadline - time.time()
+            if rem <= 0:
+                break
+            await asyncio.sleep(min(0.1, rem))
 
         # Still running
         return {
