@@ -63,11 +63,11 @@ def grab_screen(scale: float = 0.75):
         else:
             raise
     scale = max(0.2, min(1.0, float(scale)))
-    if scale < 0.99:
-        shot = shot.resize(
-            (max(100, int(shot.width * scale)), max(100, int(shot.height * scale))),
-            Image.Resampling.BILINEAR,
-        )
+    # Video codecs (H.264 / VP8) require even width & height (divisible by 2)
+    target_w = max(120, (int(shot.width * scale) // 2) * 2)
+    target_h = max(120, (int(shot.height * scale) // 2) * 2)
+    if target_w != shot.width or target_h != shot.height:
+        shot = shot.resize((target_w, target_h), Image.Resampling.BILINEAR)
     if shot.mode in ("RGBA", "P"):
         shot = shot.convert("RGB")
     return shot
@@ -78,15 +78,32 @@ class ScreenTrack:
     importing this module never requires aiortc)."""
 
     def __new__(cls, *args, **kwargs):
-        from aiortc import MediaStreamTrack
+        import fractions
+        from aiortc import VideoStreamTrack
 
-        class _Track(MediaStreamTrack):
+        class _Track(VideoStreamTrack):
             kind = "video"
 
             def __init__(self, scale: float = 0.75, fps: int = 10):
                 super().__init__()
                 self._scale = scale
                 self._fps = max(1, min(30, int(fps)))
+                self._step = int((1.0 / self._fps) * 90000)
+
+            async def next_timestamp(self) -> tuple[int, fractions.Fraction]:
+                if self.readyState != "live":
+                    from aiortc.mediastreams import MediaStreamError
+                    raise MediaStreamError
+
+                if hasattr(self, "_timestamp"):
+                    self._timestamp += self._step
+                    wait = self._start + (self._timestamp / 90000) - time.time()
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+                else:
+                    self._start = time.time()
+                    self._timestamp = 0
+                return self._timestamp, fractions.Fraction(1, 90000)
 
             async def recv(self):
                 import av
@@ -244,11 +261,30 @@ class AgentStreamer:
                 await pc.setRemoteDescription(RTCSessionDescription(sdp=answer["sdp"], type=answer["type"]))
             for cand in sess.get("viewer_candidates", [])[seen_viewer_candidates:]:
                 try:
-                    from aiortc import RTCIceCandidate
+                    from aiortc.sdp import candidate_from_sdp
 
-                    await pc.addIceCandidate(RTCIceCandidate(
-                        candidate=cand["candidate"], sdpMid=cand.get("sdpMid"),
-                        sdpMLineIndex=cand.get("sdpMLineIndex")))
+                    raw_cand = cand.get("candidate")
+                    cand_str = ""
+                    sdp_mid = cand.get("sdpMid")
+                    sdp_mline_index = cand.get("sdpMLineIndex")
+
+                    if isinstance(raw_cand, dict):
+                        cand_str = raw_cand.get("candidate", "")
+                        if not sdp_mid:
+                            sdp_mid = raw_cand.get("sdpMid")
+                        if sdp_mline_index is None:
+                            sdp_mline_index = raw_cand.get("sdpMLineIndex")
+                    elif isinstance(raw_cand, str):
+                        cand_str = raw_cand
+
+                    if cand_str:
+                        clean_str = cand_str.replace("a=candidate:", "").replace("candidate:", "")
+                        parsed = candidate_from_sdp(clean_str)
+                        if sdp_mid is not None:
+                            parsed.sdpMid = sdp_mid
+                        if sdp_mline_index is not None:
+                            parsed.sdpMLineIndex = sdp_mline_index
+                        await pc.addIceCandidate(parsed)
                 except Exception:
                     pass
                 seen_viewer_candidates += 1

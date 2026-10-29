@@ -531,8 +531,14 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
         pcRef.current = pc;
 
         pc.ontrack = (evt) => {
-          if (videoRef.current && evt.streams && evt.streams[0]) {
-            videoRef.current.srcObject = evt.streams[0];
+          if (videoRef.current) {
+            if (evt.streams && evt.streams[0]) {
+              videoRef.current.srcObject = evt.streams[0];
+            } else if (evt.track) {
+              const stream = new MediaStream([evt.track]);
+              videoRef.current.srcObject = stream;
+            }
+            videoRef.current.play().catch(() => {});
           }
         };
         pc.onicecandidate = (evt) => {
@@ -1148,13 +1154,17 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
                   muted
                   onClick={handleCanvasClick}
                   onContextMenu={handleCanvasClick}
+                  onLoadedMetadata={() => {
+                    if (videoRef.current) {
+                      videoRef.current.play().catch(() => {});
+                    }
+                  }}
                   style={{
                     maxWidth: "100%",
                     maxHeight: "75vh",
                     objectFit: "contain",
                     cursor: dualControlActive ? "crosshair" : "default",
                     userSelect: "none",
-                    background: "#000",
                   }}
                 />
                 {webrtcStatus !== "connected" && (
