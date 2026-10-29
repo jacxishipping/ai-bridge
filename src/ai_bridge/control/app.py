@@ -2506,7 +2506,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         task_id = uuid.uuid4().hex[:12]
         now_ts = dbmod.now()
         conn.execute(
-            "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, created_at, updated_at) VALUES (?,?,?,?,?,'queued',?,?)",
+            "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, created_at, updated_at) VALUES (?,?,?,?,?,?,'queued',?,?)",
             (task_id, device_id, "default", tool,
              json.dumps({"session_id": session_id, "scale": scale, "fps": fps}), t_val, now_ts, now_ts),
         )

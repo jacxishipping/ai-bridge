@@ -166,3 +166,65 @@ def test_fleet_update_endpoints(tmp_path, monkeypatch):
     assert b_res.json()["device_count"] == 1
     assert "batch_id" in b_res.json()
 
+
+
+def test_webrtc_session_endpoints(tmp_path):
+    admin_token = "adm-tok-p4"
+    app = create_app(admin_token=admin_token, db_path=tmp_path / "control.db")
+    client = TestClient(app)
+
+    # Enroll a device
+    dev = client.post("/api/devices/enroll", json={"name": "stream-node", "os": "Windows"}, headers={"X-Admin-Token": admin_token}).json()
+    dev_id = dev["device_id"]
+    dev_token = dev["device_token"]
+
+    # 1. Create WebRTC session for enrolled device
+    create_res = client.post(
+        f"/api/devices/{dev_id}/desktop/webrtc/session",
+        json={"scale": 0.5, "fps": 15},
+        headers={"X-Admin-Token": admin_token},
+    )
+    assert create_res.status_code == 200, f"Error: {create_res.text}"
+    data = create_res.json()
+    assert "session_id" in data
+    sess_id = data["session_id"]
+    assert data["status"] == "waiting"
+
+    # Verify task was queued for the agent
+    task_res = client.get("/api/agent/tasks/next", headers={"X-Device-Token": dev_token})
+    assert task_res.status_code == 200
+    task_data = task_res.json()
+    assert task_data["task"]["tool"] == "start_webrtc_stream"
+    assert json.loads(task_data["task"]["args_json"])["session_id"] == sess_id
+
+    # 2. Agent fetches session
+    agent_sess = client.get(f"/api/agent/webrtc/{sess_id}", headers={"X-Device-Token": dev_token})
+    assert agent_sess.status_code == 200
+    assert agent_sess.json()["id"] == sess_id
+
+    # 3. Agent posts offer
+    offer_res = client.post(
+        f"/api/agent/webrtc/{sess_id}/offer",
+        json={"sdp": "v=0\r\no=...", "type": "offer"},
+        headers={"X-Device-Token": dev_token},
+    )
+    assert offer_res.status_code == 200
+
+    # 4. Viewer reads session and checks offer
+    viewer_sess = client.get(f"/api/devices/{dev_id}/desktop/webrtc/{sess_id}", headers={"X-Admin-Token": admin_token})
+    assert viewer_sess.status_code == 200
+    assert viewer_sess.json()["status"] == "offered"
+    assert viewer_sess.json()["offer"]["type"] == "offer"
+
+    # 5. Viewer posts answer
+    ans_res = client.post(
+        f"/api/devices/{dev_id}/desktop/webrtc/{sess_id}/answer",
+        json={"sdp": "v=0\r\n...", "type": "answer"},
+        headers={"X-Admin-Token": admin_token},
+    )
+    assert ans_res.status_code == 200
+
+    # 6. End session
+    del_res = client.delete(f"/api/devices/{dev_id}/desktop/webrtc/{sess_id}", headers={"X-Admin-Token": admin_token})
+    assert del_res.status_code == 200
+    assert del_res.json()["status"] == "ended"
