@@ -6,6 +6,8 @@ import { AiApiHub } from "./AiApiHub";
 import { WorkflowPlanner } from "./WorkflowPlanner";
 import { FleetOperations } from "./FleetOperations";
 import { LiveDesktopStudio } from "./LiveDesktopStudio";
+import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
+import { Pager } from "./Pager";
 
 type View = "overview" | "devices" | "device_detail" | "tasks" | "approvals" | "audit" | "policies" | "connections" | "ai_api" | "workflows" | "fleet_ops" | "live_studio" | "logs";
 type Theme = "light" | "dark";
@@ -379,10 +381,24 @@ function parseTaskResult(raw: string): { parsed: any; imageBase64: string | null
 }
 
 export default function App() {
-  const [view, setView] = useState<View>("overview");
-  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("ai_bridge_theme") as Theme) || "light");
+  const [view, setView] = useState<View>(() => {
+    const v = new URLSearchParams(window.location.search).get("view");
+    const valid: View[] = ["overview", "devices", "device_detail", "tasks", "approvals", "audit", "policies", "connections", "ai_api", "workflows", "fleet_ops", "live_studio", "logs"];
+    return v && (valid as string[]).includes(v) ? (v as View) : "overview";
+  });
+  const [theme, setTheme] = useState<Theme>(() => {
+    const stored = localStorage.getItem("ai_bridge_theme") as Theme | null;
+    if (stored === "light" || stored === "dark") return stored;
+    // No saved preference: follow the OS, instead of always defaulting to light.
+    return typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  });
   const [authTab, setAuthTab] = useState<"token" | "user">("token");
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [emergencyArmed, setEmergencyArmed] = useState(false);
+  const emergencyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notice, setNotice] = useState<{ intent: "success" | "info" | "warning" | "error"; text: string } | null>(null);
   const [tok, setTok] = useState(token());
   const [oidcEnabled, setOidcEnabled] = useState(false);
@@ -402,17 +418,29 @@ export default function App() {
   const [taskTool, setTaskTool] = useState("capture_desktop_screenshot");
   const [taskArgs, setTaskArgs] = useState("{}");
   const [taskStatus, setTaskStatus] = useState("all");
+  const [deviceQuery, setDeviceQuery] = useState("");
+  const [deviceSort, setDeviceSort] = useState<"name" | "status">("name");
+  const [devicePage, setDevicePage] = useState(0);
+  const [taskQuery, setTaskQuery] = useState("");
+  const [taskSort, setTaskSort] = useState<"newest" | "oldest" | "tool">("newest");
+  const [taskPage, setTaskPage] = useState(0);
+  const [auditSort, setAuditSort] = useState<"newest" | "oldest">("newest");
+  const [auditPage, setAuditPage] = useState(0);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(null);
   const [auditQuery, setAuditQuery] = useState("");
   const [auditTool, setAuditTool] = useState("all");
   const [logService, setLogService] = useState("control");
   const [logCount, setLogCount] = useState(100);
-  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
   const [devicePolicyModalId, setDevicePolicyModalId] = useState<string | null>(null);
-  const [selectedDeviceIdForDashboard, setSelectedDeviceIdForDashboard] = useState<string | null>(null);
+  const [selectedDeviceIdForDashboard, setSelectedDeviceIdForDashboard] = useState<string | null>(() => {
+    return new URLSearchParams(window.location.search).get("device");
+  });
+  const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
   const [policySubTab, setPolicySubTab] = useState<"global" | "devices">("global");
   const [selectedPolicyDeviceId, setSelectedPolicyDeviceId] = useState<string>("");
   const [editModal, setEditModal] = useState<{
@@ -444,6 +472,7 @@ export default function App() {
         setLightbox(null);
         setEditModal(null);
         setDevicePolicyModalId(null);
+        setEmergencyArmed(false);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -452,6 +481,7 @@ export default function App() {
 
   async function load(v: View = view) {
     setErr("");
+    setLoading(true);
     try {
       api.me().then(setMe).catch(() => {});
       if (v === "overview") {
@@ -513,10 +543,27 @@ export default function App() {
         const r = await api.logs(logService, logCount);
         setLogLines(r.lines || []);
       }
+      setLastUpdated(Date.now());
     } catch (e: any) {
       setErr(e.message);
+    } finally {
+      setLoading(false);
     }
   }
+
+  // Success/info notices auto-dismiss; warnings and errors stay until dismissed.
+  useEffect(() => {
+    if (!notice || notice.intent === "warning" || notice.intent === "error") return;
+    const id = setTimeout(() => setNotice(null), 8000);
+    return () => clearTimeout(id);
+  }, [notice]);
+
+  // The armed Emergency Stop state must not outlive this component.
+  useEffect(() => {
+    return () => {
+      if (emergencyTimer.current) clearTimeout(emergencyTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (tok || sessionToken()) load();
@@ -532,9 +579,48 @@ export default function App() {
     if (st) {
       localStorage.setItem("ai_bridge_session_token", st);
       setTok("session");
-      window.history.replaceState({}, "", window.location.pathname);
+      // Keep deep-link params when stripping the one-time token from the URL.
+      const kept = new URLSearchParams();
+      const v = params.get("view");
+      if (v) kept.set("view", v);
+      const d = params.get("device");
+      if (d) kept.set("device", d);
+      const qs = kept.toString();
+      window.history.replaceState({}, "", qs ? `?${qs}` : window.location.pathname);
     }
     api.oidcConfigured().then(r => setOidcEnabled(!!r.enabled)).catch(() => {});
+  }, []);
+
+  // Deep links: the current view (and device, for Device 360) live in the
+  // URL, so refresh, back/forward and shared links restore the same place.
+  // First sync replaces (no extra history entry); later changes push.
+  const navSyncedRef = useRef(false);
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set("view", view);
+    if (view === "device_detail" && selectedDeviceIdForDashboard) params.set("device", selectedDeviceIdForDashboard);
+    const qs = `?${params.toString()}`;
+    if (window.location.search === qs) return;
+    if (!navSyncedRef.current) {
+      navSyncedRef.current = true;
+      window.history.replaceState({}, "", qs);
+    } else {
+      window.history.pushState({}, "", qs);
+    }
+  }, [view, selectedDeviceIdForDashboard]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const params = new URLSearchParams(window.location.search);
+      const v = params.get("view");
+      const valid: View[] = ["overview", "devices", "device_detail", "tasks", "approvals", "audit", "policies", "connections", "ai_api", "workflows", "fleet_ops", "live_studio", "logs"];
+      if (v && (valid as string[]).includes(v)) setView(v as View);
+      const d = params.get("device");
+      if (d) setSelectedDeviceIdForDashboard(d);
+      else if (params.get("view") !== "device_detail") setSelectedDeviceIdForDashboard(null);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   useEffect(() => {
@@ -630,7 +716,7 @@ export default function App() {
                 <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4, color: "var(--colorNeutralForeground2)" }}>
                   Administrator Token (<code>AI_BRIDGE_ADMIN_TOKEN</code>)
                 </label>
-                <input name="t" type="password" className="f2-input" placeholder="Paste your admin token…" style={{ width: "100%" }} required />
+                <input name="t" type="password" className="f2-input" placeholder="Paste your admin token…" style={{ width: "100%" }} required aria-label="Administrator token" autoComplete="current-password" />
               </div>
               <button type="submit" className="f2-btn f2-btn-primary" style={{ height: 36 }}>
                 Sign in with Admin Token
@@ -651,8 +737,8 @@ export default function App() {
               }}
               style={{ display: "grid", gap: 10 }}
             >
-              <input name="u" className="f2-input" placeholder="Username" style={{ width: "100%" }} required />
-              <input name="p" type="password" className="f2-input" placeholder="Password" style={{ width: "100%" }} required />
+              <input name="u" className="f2-input" placeholder="Username" style={{ width: "100%" }} required aria-label="Username" autoComplete="username" />
+              <input name="p" type="password" className="f2-input" placeholder="Password" style={{ width: "100%" }} required aria-label="Password" autoComplete="current-password" />
               <button type="submit" className="f2-btn f2-btn-primary" style={{ height: 36 }}>
                 Sign in as User
               </button>
@@ -681,7 +767,34 @@ export default function App() {
   const audit24h = audit.filter(a => a.ts && Date.now() / 1000 - a.ts < 86400).length;
   const pending = approvals.filter(a => a.status === "pending");
   const maxTask = Math.max(1, ...Object.values(taskByStatus));
-  const filteredTasks = taskStatus === "all" ? tasks : tasks.filter(t => t.status === taskStatus);
+  const filteredTasks = tasks
+    .filter(t => {
+      if (taskStatus !== "all" && t.status !== taskStatus) return false;
+      if (!taskQuery) return true;
+      const devName = devices.find(dd => dd.id === t.device_id)?.name || "";
+      const hay = `${t.id || ""} ${t.tool || ""} ${devName} ${t.status || ""}`.toLowerCase();
+      return hay.includes(taskQuery.toLowerCase());
+    })
+    .sort((a, b) => {
+      if (taskSort === "tool") return String(a.tool || "").localeCompare(String(b.tool || ""));
+      const ta = a.created_at || 0, tb = b.created_at || 0;
+      return taskSort === "oldest" ? ta - tb : tb - ta;
+    });
+  const pagedTasks = filteredTasks.slice(taskPage * 25, taskPage * 25 + 25);
+  const searchedDevices = devices
+    .filter(d => {
+      if (!deviceQuery) return true;
+      const hay = `${d.name || ""} ${d.hostname || ""} ${d.os || ""} ${d.id || ""}`.toLowerCase();
+      return hay.includes(deviceQuery.toLowerCase());
+    })
+    .sort((a, b) => {
+      if (deviceSort === "status") {
+        const rank = (x: any) => (x.revoked ? 2 : x.status === "online" ? 0 : 1);
+        return rank(a) - rank(b) || String(a.name || "").localeCompare(String(b.name || ""));
+      }
+      return String(a.name || "").localeCompare(String(b.name || ""));
+    });
+  const pagedDevices = searchedDevices.slice(devicePage * 20, devicePage * 20 + 20);
   const filteredAudit = audit
     .filter(a => {
       if (auditTool !== "all" && a.tool !== auditTool) return false;
@@ -689,7 +802,8 @@ export default function App() {
       const hay = `${a.actor || ""} ${a.tool || ""} ${a.decision || ""} ${a.device_id || ""}`.toLowerCase();
       return hay.includes(auditQuery.toLowerCase());
     })
-    .slice(0, 100);
+    .sort((a, b) => (auditSort === "oldest" ? (a.ts || 0) - (b.ts || 0) : (b.ts || 0) - (a.ts || 0)));
+  const pagedAudit = filteredAudit.slice(auditPage * 25, auditPage * 25 + 25);
   const deviceNameOf = (id: string) => (devices.find(d => d.id === id)?.name || id || "").slice(0, 24);
   const origin = window.location.origin;
   const meta = VIEW_META[view];
@@ -759,8 +873,11 @@ export default function App() {
             <span>Auto-refresh</span>
           </label>
 
-          <button type="button" className="f2-btn f2-btn-sm" onClick={() => load()}>
-            Refresh
+          <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", whiteSpace: "nowrap" }} title={autoRefresh ? "Auto-refresh is on (every 15s)" : "Auto-refresh is off — press Refresh for the latest data"}>
+            {lastUpdated ? `Updated ${new Date(lastUpdated).toLocaleTimeString()}` : "Not updated yet"}{autoRefresh ? "" : " · auto-refresh off"}
+          </span>
+          <button type="button" className="f2-btn f2-btn-sm" onClick={() => load()} disabled={loading} aria-busy={loading}>
+            {loading ? "Refreshing…" : "Refresh"}
           </button>
 
           <button
@@ -787,14 +904,26 @@ export default function App() {
           ) : (
             <button
               type="button"
-              className="f2-btn f2-btn-danger f2-btn-sm"
+              className={`f2-btn f2-btn-danger f2-btn-sm${emergencyArmed ? " f2-btn-armed" : ""}`}
+              aria-pressed={emergencyArmed}
+              title={emergencyArmed ? "Click again to confirm the emergency stop" : "Arm the emergency stop (click again to confirm)"}
               onClick={async () => {
+                if (!emergencyArmed) {
+                  // Two-step confirmation: a single stray click in the
+                  // topbar must not halt the whole task queue.
+                  setEmergencyArmed(true);
+                  if (emergencyTimer.current) clearTimeout(emergencyTimer.current);
+                  emergencyTimer.current = setTimeout(() => setEmergencyArmed(false), 6000);
+                  return;
+                }
+                if (emergencyTimer.current) clearTimeout(emergencyTimer.current);
+                setEmergencyArmed(false);
                 await api.emergencyStop();
                 setNotice({ intent: "warning", text: "Emergency stop activated. New tasks are blocked." });
                 load();
               }}
             >
-              Emergency Stop
+              {emergencyArmed ? "Confirm Emergency Stop?" : "Emergency Stop"}
             </button>
           )}
 
@@ -960,7 +1089,7 @@ export default function App() {
         </nav>
 
         {/* Fluent 2 Workspace Canvas */}
-        <main className="f2-canvas">
+        <main className="f2-canvas" aria-busy={loading}>
           <div className="f2-page-header">
             <div>
               <div className="f2-breadcrumb">
@@ -974,6 +1103,21 @@ export default function App() {
               <p className="f2-page-subtitle">{meta.subtitle}</p>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                type="button"
+                className="f2-btn f2-btn-sm"
+                title="Copy a link to this exact view"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard?.writeText(window.location.href);
+                    setNotice({ intent: "success", text: "Link copied to clipboard." });
+                  } catch {
+                    setErr("Could not copy the link. Copy it from the address bar instead.");
+                  }
+                }}
+              >
+                🔗 Copy link
+              </button>
               {view !== "tasks" && (
                 <button
                   type="button"
@@ -998,7 +1142,10 @@ export default function App() {
           {err && (
             <div className="f2-messagebar" data-intent="error">
               <span><b>Connection issue:</b> {err}</span>
-              <button type="button" className="f2-btn f2-btn-sm" onClick={() => setErr("")}>Dismiss</button>
+              <span style={{ display: "inline-flex", gap: 6 }}>
+                <button type="button" className="f2-btn f2-btn-sm" onClick={() => load()}>Retry</button>
+                <button type="button" className="f2-btn f2-btn-sm" onClick={() => setErr("")}>Dismiss</button>
+              </span>
             </div>
           )}
 
@@ -1006,6 +1153,13 @@ export default function App() {
             <div className="f2-messagebar" data-intent={notice.intent}>
               <span>{notice.text}</span>
               <button type="button" className="f2-btn f2-btn-sm" onClick={() => setNotice(null)}>Dismiss</button>
+            </div>
+          )}
+
+          {loading && (
+            <div className="f2-loading" role="status" aria-live="polite">
+              <span className="f2-spinner" aria-hidden="true" />
+              <span>Loading {meta.title}…</span>
             </div>
           )}
 
@@ -1263,7 +1417,20 @@ export default function App() {
                 </Card>
               )}
 
-              <Card title={`Fleet Inventory (${devices.length})`}>
+              <Card title={`Fleet Inventory (${searchedDevices.length} of ${devices.length})`}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+                  <input
+                    className="f2-input"
+                    value={deviceQuery}
+                    onChange={e => { setDeviceQuery(e.target.value); setDevicePage(0); }}
+                    placeholder="Search by name, hostname, OS, or ID…"
+                    style={{ flex: 1, minWidth: 240 }}
+                  />
+                  <select className="f2-select" value={deviceSort} onChange={e => { setDeviceSort(e.target.value as any); setDevicePage(0); }}>
+                    <option value="name">Sort: Name A–Z</option>
+                    <option value="status">Sort: Status (online first)</option>
+                  </select>
+                </div>
                 <div className="f2-table-wrap">
                   <table className="f2-table">
                     <thead>
@@ -1278,7 +1445,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {devices.map(d => {
+                      {pagedDevices.map(d => {
                         const expSoon = d.token_expires_at && Date.now() / 1000 > d.token_expires_at - 86400;
                         const tags: string[] = Array.isArray(d.tags) ? d.tags : [];
                         const caps: string[] = Array.isArray(d.capabilities) ? d.capabilities : [];
@@ -1420,16 +1587,22 @@ export default function App() {
                                     title: `Revoke token for device "${d.name}"`,
                                     icon: "revoke",
                                     danger: true,
-                                    onClick: async () => {
-                                      if (confirm(`Revoke device "${d.name}" (${d.id})?`)) {
-                                        try {
-                                          await api.revoke(d.id);
-                                          setNotice({ intent: "warning", text: `Revoked device ${d.name}.` });
-                                          load();
-                                        } catch (ex: any) {
-                                          setErr(`Revoke failed: ${ex.message}`);
-                                        }
-                                      }
+                                    onClick: () => {
+                                      setConfirmReq({
+                                        title: `Revoke device "${d.name}"?`,
+                                        message: `This revokes the device token for ${d.name} (${d.id}). The agent will stop connecting until it is re-enrolled. This cannot be undone from here.`,
+                                        confirmLabel: "Revoke device",
+                                        danger: true,
+                                        onConfirm: async () => {
+                                          try {
+                                            await api.revoke(d.id);
+                                            setNotice({ intent: "warning", text: `Revoked device ${d.name}.` });
+                                            load();
+                                          } catch (ex: any) {
+                                            setErr(`Revoke failed: ${ex.message}`);
+                                          }
+                                        },
+                                      });
                                     },
                                   },
                                   {
@@ -1438,16 +1611,22 @@ export default function App() {
                                     title: `Permanently delete device "${d.name}"`,
                                     icon: "delete",
                                     danger: true,
-                                    onClick: async () => {
-                                      if (confirm(`Permanently delete device "${d.name}" (${d.id})?`)) {
-                                        try {
-                                          await api.deleteDevice(d.id);
-                                          setNotice({ intent: "warning", text: `Deleted device ${d.name} (${d.id}).` });
-                                          load();
-                                        } catch (ex: any) {
-                                          setErr(`Delete failed: ${ex.message}`);
-                                        }
-                                      }
+                                    onClick: () => {
+                                      setConfirmReq({
+                                        title: `Permanently delete device "${d.name}"?`,
+                                        message: `This removes ${d.name} (${d.id}) and its record from the control plane. The agent on that machine will no longer be managed. This cannot be undone.`,
+                                        confirmLabel: "Delete permanently",
+                                        danger: true,
+                                        onConfirm: async () => {
+                                          try {
+                                            await api.deleteDevice(d.id);
+                                            setNotice({ intent: "warning", text: `Deleted device ${d.name} (${d.id}).` });
+                                            load();
+                                          } catch (ex: any) {
+                                            setErr(`Delete failed: ${ex.message}`);
+                                          }
+                                        },
+                                      });
                                     },
                                   },
                                 ]}
@@ -1459,6 +1638,7 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
+              <Pager total={searchedDevices.length} page={devicePage} pageSize={20} onPage={setDevicePage} />
               </Card>
             </div>
           )}
@@ -1574,7 +1754,7 @@ export default function App() {
                         type="button"
                         className="f2-chip"
                         data-active={String(taskStatus === s)}
-                        onClick={() => setTaskStatus(s)}
+                        onClick={() => { setTaskStatus(s); setTaskPage(0); }}
                       >
                         {s}
                       </button>
@@ -1582,16 +1762,24 @@ export default function App() {
                     <button
                       type="button"
                       className="f2-btn f2-btn-danger f2-btn-sm"
-                      onClick={async () => {
-                        if (confirm(`Clear ${taskStatus === "all" ? "all finished (completed/failed/cancelled)" : taskStatus} tasks?`)) {
-                          try {
-                            const r = await api.clearTasks(taskStatus);
-                            setNotice({ intent: "info", text: `Deleted ${r.deleted_count} task record(s).` });
-                            load();
-                          } catch (ex: any) {
-                            setErr(`Clear tasks failed: ${ex.message}`);
-                          }
-                        }
+                      onClick={() => {
+                        setConfirmReq({
+                          title: `Clear ${taskStatus === "all" ? "finished" : taskStatus} tasks?`,
+                          message: taskStatus === "all"
+                            ? "This deletes all finished task records (completed, failed and cancelled). Running and queued tasks are kept. This cannot be undone."
+                            : `This deletes all ${taskStatus} task records. This cannot be undone.`,
+                          confirmLabel: "Clear tasks",
+                          danger: true,
+                          onConfirm: async () => {
+                            try {
+                              const r = await api.clearTasks(taskStatus);
+                              setNotice({ intent: "info", text: `Deleted ${r.deleted_count} task record(s).` });
+                              load();
+                            } catch (ex: any) {
+                              setErr(`Clear tasks failed: ${ex.message}`);
+                            }
+                          },
+                        });
                       }}
                     >
                       Clear {taskStatus === "all" ? "Finished" : taskStatus}
@@ -1599,6 +1787,20 @@ export default function App() {
                   </div>
                 }
               >
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+                  <input
+                    className="f2-input"
+                    value={taskQuery}
+                    onChange={e => { setTaskQuery(e.target.value); setTaskPage(0); }}
+                    placeholder="Search by task ID, tool, device, or status…"
+                    style={{ flex: 1, minWidth: 240 }}
+                  />
+                  <select className="f2-select" value={taskSort} onChange={e => { setTaskSort(e.target.value as any); setTaskPage(0); }}>
+                    <option value="newest">Sort: Newest first</option>
+                    <option value="oldest">Sort: Oldest first</option>
+                    <option value="tool">Sort: Tool A–Z</option>
+                  </select>
+                </div>
                 <div className="f2-table-wrap">
                   <table className="f2-table">
                     <thead>
@@ -1613,7 +1815,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredTasks.slice(0, 100).map(t => {
+                      {pagedTasks.map(t => {
                         const isOpen = expandedTaskId === t.id;
                         const info = isOpen ? parseTaskResult(t.result || "") : null;
                         return (
@@ -1637,7 +1839,7 @@ export default function App() {
                                       onClick: async () => {
                                         const idToDecide = t.approval_id || approvals.find(a => a.task_id === t.id)?.id;
                                         if (!idToDecide) {
-                                          alert("Could not locate approval record ID for this task.");
+                                          setErr("Could not locate approval record ID for this task. Refresh the task list and try again.");
                                           return;
                                         }
                                         try {
@@ -1658,7 +1860,7 @@ export default function App() {
                                       onClick: async () => {
                                         const idToDecide = t.approval_id || approvals.find(a => a.task_id === t.id)?.id;
                                         if (!idToDecide) {
-                                          alert("Could not locate approval record ID for this task.");
+                                          setErr("Could not locate approval record ID for this task. Refresh the task list and try again.");
                                           return;
                                         }
                                         try {
@@ -1711,16 +1913,22 @@ export default function App() {
                                       title: `Delete task ${t.id}`,
                                       icon: "delete",
                                       danger: true,
-                                      onClick: async () => {
-                                        if (confirm(`Delete task ${t.id} (${t.tool})?`)) {
-                                          try {
-                                            await api.deleteTask(t.id);
-                                            setNotice({ intent: "info", text: `Deleted task ${t.id}.` });
-                                            load();
-                                          } catch (ex: any) {
-                                            setErr(`Delete task failed: ${ex.message}`);
-                                          }
-                                        }
+                                      onClick: () => {
+                                        setConfirmReq({
+                                          title: `Delete task ${t.id}?`,
+                                          message: `This deletes the record for task ${t.id} (${t.tool}). It does not stop a task that is already running on a device. This cannot be undone.`,
+                                          confirmLabel: "Delete task",
+                                          danger: true,
+                                          onConfirm: async () => {
+                                            try {
+                                              await api.deleteTask(t.id);
+                                              setNotice({ intent: "info", text: `Deleted task ${t.id}.` });
+                                              load();
+                                            } catch (ex: any) {
+                                              setErr(`Delete task failed: ${ex.message}`);
+                                            }
+                                          },
+                                        });
                                       },
                                     },
                                   ]}
@@ -1763,7 +1971,7 @@ export default function App() {
                                           style={{ background: "#0e700e", borderColor: "#0e700e", color: "#ffffff", fontWeight: 700 }}
                                           onClick={async () => {
                                             const apId = t.approval_id || approvals.find(a => a.task_id === t.id)?.id;
-                                            if (!apId) return alert("Could not find approval record ID for this task.");
+                                            if (!apId) { setErr("Could not find approval record ID for this task. Refresh the task list and try again."); return; }
                                             try {
                                               await api.decide(apId, "approved");
                                               setNotice({ intent: "success", text: `Approved task ${t.id} (${t.tool}). Released to agent.` });
@@ -1780,7 +1988,7 @@ export default function App() {
                                           className="f2-btn f2-btn-danger f2-btn-sm"
                                           onClick={async () => {
                                             const apId = t.approval_id || approvals.find(a => a.task_id === t.id)?.id;
-                                            if (!apId) return alert("Could not find approval record ID for this task.");
+                                            if (!apId) { setErr("Could not find approval record ID for this task. Refresh the task list and try again."); return; }
                                             try {
                                               await api.decide(apId, "denied");
                                               setNotice({ intent: "warning", text: `Denied task ${t.id} (${t.tool}).` });
@@ -1873,6 +2081,7 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
+                <Pager total={filteredTasks.length} page={taskPage} pageSize={25} onPage={setTaskPage} />
               </Card>
             </div>
           )}
@@ -1949,16 +2158,22 @@ export default function App() {
                           title: `Delete approval record ${a.id}`,
                           icon: "delete",
                           danger: true,
-                          onClick: async () => {
-                            if (confirm(`Delete approval record ${a.id} (${a.tool})?`)) {
-                              try {
-                                await api.deleteApproval(a.id);
-                                setNotice({ intent: "info", text: `Deleted approval ${a.id}.` });
-                                load();
-                              } catch (ex: any) {
-                                setErr(`Delete approval failed: ${ex.message}`);
-                              }
-                            }
+                          onClick: () => {
+                            setConfirmReq({
+                              title: `Delete approval record ${a.id}?`,
+                              message: `This deletes the approval record for ${a.id} (${a.tool}). A pending task linked to it will no longer be approvable from this record. This cannot be undone.`,
+                              confirmLabel: "Delete record",
+                              danger: true,
+                              onConfirm: async () => {
+                                try {
+                                  await api.deleteApproval(a.id);
+                                  setNotice({ intent: "info", text: `Deleted approval ${a.id}.` });
+                                  load();
+                                } catch (ex: any) {
+                                  setErr(`Delete approval failed: ${ex.message}`);
+                                }
+                              },
+                            });
                           },
                         },
                       ]}
@@ -1973,7 +2188,7 @@ export default function App() {
           {/* ==================== AUDIT ==================== */}
           {view === "audit" && (
             <Card
-              title={`Audit Trail (${filteredAudit.length} events shown)`}
+              title={`Audit Trail (${filteredAudit.length} events)`}
               action={<button type="button" className="f2-btn f2-btn-sm" onClick={async () => {
                 try { const data = await api.exportAudit(); const blob = new Blob([data.events.map((e: any) => JSON.stringify(e)).join("\n")], { type: "application/x-ndjson" });
                   const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "ai-bridge-audit.jsonl"; link.click(); URL.revokeObjectURL(url);
@@ -1984,15 +2199,19 @@ export default function App() {
                 <input
                   className="f2-input"
                   value={auditQuery}
-                  onChange={e => setAuditQuery(e.target.value)}
+                  onChange={e => { setAuditQuery(e.target.value); setAuditPage(0); }}
                   placeholder="Filter by actor, tool, device ID, or decision…"
                   style={{ flex: 1, minWidth: 240 }}
                 />
-                <select className="f2-select" value={auditTool} onChange={e => setAuditTool(e.target.value)}>
+                <select className="f2-select" value={auditTool} onChange={e => { setAuditTool(e.target.value); setAuditPage(0); }}>
                   <option value="all">All tools</option>
                   {[...new Set(audit.map(a => a.tool).filter(Boolean))].map(t => (
                     <option key={t} value={t}>{t}</option>
                   ))}
+                </select>
+                <select className="f2-select" value={auditSort} onChange={e => { setAuditSort(e.target.value as any); setAuditPage(0); }}>
+                  <option value="newest">Sort: Newest first</option>
+                  <option value="oldest">Sort: Oldest first</option>
                 </select>
               </div>
 
@@ -2008,7 +2227,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredAudit.map(a => (
+                    {pagedAudit.map(a => (
                       <tr key={a.id}>
                         <td>{fmt(a.ts)}</td>
                         <td><b>{a.actor || "—"}</b></td>
@@ -2020,6 +2239,7 @@ export default function App() {
                   </tbody>
                 </table>
               </div>
+              <Pager total={filteredAudit.length} page={auditPage} pageSize={25} onPage={setAuditPage} />
             </Card>
           )}
 
@@ -2318,16 +2538,22 @@ export default function App() {
                                     title: `Delete policy version v${p.version}`,
                                     icon: "delete",
                                     danger: true,
-                                    onClick: async () => {
-                                      if (confirm(`Delete policy version v${p.version}?`)) {
-                                        try {
-                                          await api.deletePolicyVersion(p.version);
-                                          setNotice({ intent: "info", text: `Deleted policy version v${p.version}.` });
-                                          load();
-                                        } catch (ex: any) {
-                                          setErr(`Delete policy failed: ${ex.message}`);
-                                        }
-                                      }
+                                    onClick: () => {
+                                      setConfirmReq({
+                                        title: `Delete policy version v${p.version}?`,
+                                        message: "This deletes that saved policy version from history. The currently active policy is not changed. This cannot be undone.",
+                                        confirmLabel: "Delete version",
+                                        danger: true,
+                                        onConfirm: async () => {
+                                          try {
+                                            await api.deletePolicyVersion(p.version);
+                                            setNotice({ intent: "info", text: `Deleted policy version v${p.version}.` });
+                                            load();
+                                          } catch (ex: any) {
+                                            setErr(`Delete policy failed: ${ex.message}`);
+                                          }
+                                        },
+                                      });
                                     },
                                   },
                                 ]}
@@ -2444,16 +2670,22 @@ export default function App() {
                                         title: `Delete OAuth client "${c.client_name || cid}" and revoke tokens`,
                                         icon: "delete",
                                         danger: true,
-                                        onClick: async () => {
-                                          if (confirm(`Delete OAuth client "${c.client_name || cid}" and revoke its tokens?`)) {
-                                            try {
-                                              await api.deleteOAuthClient(cid);
-                                              setNotice({ intent: "warning", text: `Deleted OAuth client ${c.client_name || cid}.` });
-                                              load();
-                                            } catch (ex: any) {
-                                              setErr(`Delete OAuth client failed: ${ex.message}`);
-                                            }
-                                          }
+                                        onClick: () => {
+                                          setConfirmReq({
+                                            title: `Delete OAuth client "${c.client_name || cid}"?`,
+                                            message: "This deletes the client and revokes its tokens. Any integration using it will stop working until it is recreated. This cannot be undone.",
+                                            confirmLabel: "Delete client",
+                                            danger: true,
+                                            onConfirm: async () => {
+                                              try {
+                                                await api.deleteOAuthClient(cid);
+                                                setNotice({ intent: "warning", text: `Deleted OAuth client ${c.client_name || cid}.` });
+                                                load();
+                                              } catch (ex: any) {
+                                                setErr(`Delete OAuth client failed: ${ex.message}`);
+                                              }
+                                            },
+                                          });
                                         },
                                       },
                                     ]}
@@ -2534,6 +2766,9 @@ export default function App() {
         </main>
       </div>
 
+      {/* Shared in-app confirmation dialog */}
+      <ConfirmDialog request={confirmReq} onClose={() => setConfirmReq(null)} />
+
       {/* Fluent 2 Screenshot Lightbox Modal */}
       {lightbox && (
         <div className="f2-modal-backdrop" onClick={() => setLightbox(null)}>
@@ -2564,6 +2799,7 @@ export default function App() {
               value={cmdQuery}
               onChange={e => setCmdQuery(e.target.value)}
               placeholder="Type a view name, tool preset, or action (Esc to close)…"
+              aria-label="Search views, tool presets, and actions"
             />
             <div className="f2-cmd-list">
               <div className="f2-nav-section-label">Navigate Views</div>

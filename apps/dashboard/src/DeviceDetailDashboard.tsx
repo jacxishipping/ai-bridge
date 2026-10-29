@@ -111,6 +111,7 @@ export function DeviceDetailDashboard({
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [overview, setOverview] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<"specs" | "network" | "servers" | "terminal" | "apps" | "vision" | "history">("specs");
 
@@ -212,7 +213,7 @@ export function DeviceDetailDashboard({
         loadData(true);
       }, 2500);
     } catch (err: any) {
-      alert(`Diagnostic trigger failed: ${err.message}`);
+      setError(`Diagnostic trigger failed: ${err.message}`);
       setRefreshing(false);
     }
   };
@@ -242,7 +243,7 @@ export function DeviceDetailDashboard({
         setTimeout(() => setShowFullDiagModal(false), 800);
       }, 3000);
     } catch (err: any) {
-      alert(`Diagnostic suite error: ${err.message}`);
+      setError(`Diagnostic suite error: ${err.message}`);
       setShowFullDiagModal(false);
     }
   };
@@ -313,11 +314,11 @@ export function DeviceDetailDashboard({
       const args: any = { action: uiActionModal.action, x: uiActionModal.x, y: uiActionModal.y };
       if (uiActionModal.text) args.text = uiActionModal.text;
       await api.submitTask(deviceId, "perform_approved_ui_action", args);
-      alert(`UI action (${uiActionModal.action}) queued at (${uiActionModal.x}, ${uiActionModal.y}).`);
+      setNotice(`UI action (${uiActionModal.action}) queued at (${uiActionModal.x}, ${uiActionModal.y}).`);
       setUiActionModal(null);
       setTimeout(() => loadData(true), 2500);
     } catch (err: any) {
-      alert(`UI action error: ${err.message}`);
+      setError(`UI action error: ${err.message}`);
     }
   };
 
@@ -328,12 +329,12 @@ export function DeviceDetailDashboard({
       const args: any = { app_name: launchAppModal };
       if (launchUrl.trim()) args.url = launchUrl.trim();
       await api.submitTask(deviceId, "launch_approved_application", args);
-      alert(`Launch task queued for ${launchAppModal}.`);
+      setNotice(`Launch task queued for ${launchAppModal}.`);
       setLaunchAppModal(null);
       setLaunchUrl("");
       setTimeout(() => loadData(true), 2000);
     } catch (err: any) {
-      alert(`Launch error: ${err.message}`);
+      setError(`Launch error: ${err.message}`);
     } finally {
       setLaunching(false);
     }
@@ -346,13 +347,13 @@ export function DeviceDetailDashboard({
       const args: any = { package_id: installPackageId.trim() };
       if (installVersion.trim()) args.version = installVersion.trim();
       await api.submitTask(deviceId, "install_package", args);
-      alert(`Package installation task submitted for ${installPackageId}. Check Approvals if gated.`);
+      setNotice(`Package installation task submitted for ${installPackageId}. Check Approvals if gated.`);
       setShowInstallModal(false);
       setInstallPackageId("");
       setInstallVersion("");
       setTimeout(() => loadData(true), 2500);
     } catch (err: any) {
-      alert(`Install task error: ${err.message}`);
+      setError(`Install task error: ${err.message}`);
     } finally {
       setInstalling(false);
     }
@@ -474,6 +475,16 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
 
   return (
     <div style={{ display: "grid", gap: 18 }}>
+      {notice && (
+        <div className="f2-messagebar" data-intent="success">
+          <span>{notice}</span>
+        </div>
+      )}
+      {error && (
+        <div className="f2-messagebar" data-intent="error">
+          <span>{error}</span>
+        </div>
+      )}
       {/* Top Header Card */}
       <div className="f2-card" style={{ padding: "18px 20px" }}>
         {/* Navigation Breadcrumb & Device Switcher */}
@@ -827,10 +838,10 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
                     onClick={async () => {
                       try {
                         await api.decide(ap.id, "approved");
-                        alert(`Approved ${ap.tool} (${ap.id}). Task queued to execute.`);
+                        setNotice(`Approved ${ap.tool} (${ap.id}). Task queued to execute.`);
                         loadData();
                       } catch (e: any) {
-                        alert(`Approve failed: ${e.message}`);
+                        setError(`Approve failed: ${e.message}`);
                       }
                     }}
                   >
@@ -842,10 +853,10 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
                     onClick={async () => {
                       try {
                         await api.decide(ap.id, "denied");
-                        alert(`Denied ${ap.tool} (${ap.id}).`);
+                        setNotice(`Denied ${ap.tool} (${ap.id}).`);
                         loadData();
                       } catch (e: any) {
-                        alert(`Deny failed: ${e.message}`);
+                        setError(`Deny failed: ${e.message}`);
                       }
                     }}
                   >
@@ -875,19 +886,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
             className="f2-tab"
             data-active={activeTab === tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            style={{
-              padding: "10px 16px",
-              border: "none",
-              borderBottom: activeTab === tab.id ? "3px solid var(--colorBrandBackground)" : "3px solid transparent",
-              background: "transparent",
-              fontWeight: activeTab === tab.id ? 600 : 500,
-              color: activeTab === tab.id ? "var(--colorBrandForeground1)" : "var(--colorNeutralForeground2)",
-              cursor: "pointer",
-              fontSize: 14,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-            }}
+
           >
             <span>{tab.label}</span>
             {tab.count !== null && (
@@ -1625,10 +1624,10 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
                 onClick={async () => {
                   try {
                     await api.submitTask(deviceId, "perform_approved_ui_action", { action: "list_windows" });
-                    alert("List windows task queued.");
+                    setNotice("List windows task queued.");
                     setTimeout(() => loadData(true), 2500);
                   } catch (e: any) {
-                    alert(e.message);
+                    setError(e.message);
                   }
                 }}
               >
@@ -1754,7 +1753,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
       {showFullDiagModal && (
         <div className="f2-dialog-overlay">
           <div className="f2-dialog" style={{ maxWidth: 440 }}>
-            <h3 style={{ margin: "0 0 12px 0", fontSize: 17 }}>Running Full Diagnostics Suite</h3>
+            <h3 className="f2-section-title" style={{ marginBottom: 12 }}>Running Full Diagnostics Suite</h3>
             <p style={{ fontSize: 13, color: "var(--colorNeutralForeground2)", marginBottom: 16 }}>
               Dispatching parallel diagnostic probes (System, Resource Gauges, Network Sockets, Processes, Docker, Vision) to <b>{dev.name}</b>...
             </p>
@@ -1777,7 +1776,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
         <div className="f2-dialog-overlay" onClick={() => setShowExportModal(false)}>
           <div className="f2-dialog" onClick={e => e.stopPropagation()} style={{ maxWidth: 680, maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <h3 style={{ margin: 0, fontSize: 17 }}>Device Diagnostic Report: {dev.name}</h3>
+              <h3 className="f2-section-title">Device Diagnostic Report: {dev.name}</h3>
               <div style={{ display: "flex", gap: 8 }}>
                 <button
                   type="button"
@@ -1785,7 +1784,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
                   onClick={() => {
                     const content = exportFormat === "markdown" ? generateMarkdownReport() : JSON.stringify(overview, null, 2);
                     navigator.clipboard?.writeText(content);
-                    alert("Report copied to clipboard!");
+                    setNotice("Report copied to clipboard!");
                   }}
                   style={{ fontSize: 12 }}
                 >
@@ -1827,7 +1826,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
       {uiActionModal && (
         <div className="f2-dialog-overlay" onClick={() => setUiActionModal(null)}>
           <div className="f2-dialog" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
-            <h3 style={{ margin: "0 0 12px 0", fontSize: 17 }}>Perform UI Action at ({uiActionModal.x}, {uiActionModal.y})</h3>
+            <h3 className="f2-section-title" style={{ marginBottom: 12 }}>Perform UI Action at ({uiActionModal.x}, {uiActionModal.y})</h3>
             <div style={{ marginBottom: 12 }}>
               <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Action Type:</label>
               <select
@@ -1868,7 +1867,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
       {launchAppModal && (
         <div className="f2-dialog-overlay" onClick={() => setLaunchAppModal(null)}>
           <div className="f2-dialog" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
-            <h3 style={{ margin: "0 0 12px 0", fontSize: 17 }}>Launch Application: {launchAppModal}</h3>
+            <h3 className="f2-section-title" style={{ marginBottom: 12 }}>Launch Application: {launchAppModal}</h3>
             <p style={{ fontSize: 13, color: "var(--colorNeutralForeground2)", marginBottom: 16 }}>
               Dispatch a policy-governed task to launch <code>{launchAppModal}</code> on device <b>{dev.name}</b>.
             </p>
@@ -1900,7 +1899,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
       {showInstallModal && (
         <div className="f2-dialog-overlay" onClick={() => setShowInstallModal(false)}>
           <div className="f2-dialog" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
-            <h3 style={{ margin: "0 0 12px 0", fontSize: 17 }}>Deploy / Install Package</h3>
+            <h3 className="f2-section-title" style={{ marginBottom: 12 }}>Deploy / Install Package</h3>
             <p style={{ fontSize: 13, color: "var(--colorNeutralForeground2)", marginBottom: 16 }}>
               Install a package onto <b>{dev.name}</b> via package manager (winget on Windows, apt-get on Ubuntu/Debian).
             </p>
@@ -1949,7 +1948,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
         <div className="f2-dialog-overlay" onClick={() => setSelectedTaskJson(null)}>
           <div className="f2-dialog" onClick={e => e.stopPropagation()} style={{ maxWidth: 680, maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <h3 style={{ margin: 0, fontSize: 17 }}>Task Inspector: {selectedTaskJson.tool} ({selectedTaskJson.id})</h3>
+              <h3 className="f2-section-title">Task Inspector: {selectedTaskJson.tool} ({selectedTaskJson.id})</h3>
               <button type="button" className="f2-btn" style={{ padding: "2px 8px" }} onClick={() => setSelectedTaskJson(null)}>✕</button>
             </div>
             <div style={{ overflowY: "auto", flex: 1, padding: 4 }}>

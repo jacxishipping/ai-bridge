@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
 import { api } from "./api";
 
 export interface ToolMetadata {
@@ -95,6 +96,7 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
   const [deviceData, setDeviceData] = useState<any>(null);
   const [err, setErr] = useState("");
   const [notice, setNotice] = useState("");
+  const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
 
   // Guardrail form states
   const [inheritGlobal, setInheritGlobal] = useState(true);
@@ -366,20 +368,27 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
   }
 
   async function handleReset() {
-    if (!confirm(`Reset policy for device "${deviceData?.device_name || deviceId}" back to the global server policy?`)) return;
-    setResetting(true);
-    setErr("");
-    setNotice("");
-    try {
-      await api.resetDevicePolicy(deviceId);
-      setNotice(`Device policy reset to inherit global fleet guardrails.`);
-      await fetchPolicy();
-      if (onSaved) onSaved({ reset: true });
-    } catch (e: any) {
-      setErr(`Reset failed: ${e.message}`);
-    } finally {
-      setResetting(false);
-    }
+    setConfirmReq({
+      title: `Reset policy for "${deviceData?.device_name || deviceId}"?`,
+      message: "The device's custom guardrails will be removed and it will inherit the global server policy. Its current custom settings will be lost.",
+      confirmLabel: "Reset to global policy",
+      danger: true,
+      onConfirm: async () => {
+        setResetting(true);
+        setErr("");
+        setNotice("");
+        try {
+          await api.resetDevicePolicy(deviceId);
+          setNotice(`Device policy reset to inherit global fleet guardrails.`);
+          await fetchPolicy();
+          if (onSaved) onSaved({ reset: true });
+        } catch (e: any) {
+          setErr(`Reset failed: ${e.message}`);
+        } finally {
+          setResetting(false);
+        }
+      },
+    });
   }
 
   // Filter tools
@@ -399,6 +408,7 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      <ConfirmDialog request={confirmReq} onClose={() => setConfirmReq(null)} />
       {/* Device Info & Scope Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", padding: "14px 16px", borderRadius: 8, background: "var(--colorNeutralBackground2)", border: "1px solid var(--colorNeutralStroke2)" }}>
         <div>

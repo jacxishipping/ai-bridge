@@ -64,6 +64,13 @@ class Poller:
     ):
         self.control_url = control_url.rstrip("/")
         self.device_token = device_token
+        # WebRTC streaming tasks need these to signal back to the plane.
+        try:
+            from ai_bridge import webrtc_stream
+
+            webrtc_stream.set_agent_context(self.control_url, self.device_token)
+        except Exception:
+            pass
         self._explicit_policy = policy
         self.policy = policy if policy is not None else default_policy()
         self.token_file = token_file or (Path.home() / ".ai-bridge" / "device.token")

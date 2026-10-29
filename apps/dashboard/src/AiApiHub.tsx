@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { api, token, sessionToken } from "./api";
+import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
 
 interface AiApiHubProps {
   devices: any[];
@@ -35,6 +36,7 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
   const [showApiKey, setShowApiKey] = useState(false);
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ text: string; error?: boolean } | null>(null);
+  const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
 
   // Chat State
   const [chatMessages, setChatMessages] = useState<ChatMessageItem[]>([
@@ -57,6 +59,7 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
   // Tool Invoker State
   const [tools, setTools] = useState<any[]>([]);
   const [loadingTools, setLoadingTools] = useState(false);
+  const [toolsError, setToolsError] = useState<string | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<string>("auto");
   const [selectedTool, setSelectedTool] = useState<string>("run_shell");
   const [toolArgsStr, setToolArgsStr] = useState<string>('{\n  "command": "uname -a"\n}');
@@ -90,7 +93,7 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
         if (res.custom_base_url) setInputBaseUrl(res.custom_base_url);
       }
     } catch (err) {
-      console.error("Failed to load AI settings:", err);
+      setSaveMessage({ text: "Failed to load AI settings: " + (err as any)?.message, error: true });
     }
   }
 
@@ -102,8 +105,8 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
       if (res && res.tools) {
         setTools(res.tools);
       }
-    } catch (err) {
-      console.error("Failed to load tools catalog:", err);
+    } catch (err: any) {
+      setToolsError(`Failed to load tools catalog: ${err.message}`);
     } finally {
       setLoadingTools(false);
     }
@@ -162,14 +165,21 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
 
   // Clear / Disconnect Key
   async function handleClearKey(providerName: string) {
-    if (!confirm(`Are you sure you want to disconnect the API key for ${providerName}?`)) return;
-    try {
-      await api.saveAiSettings({ provider: providerName, clear: true });
-      await loadAiSettings();
-      setSaveMessage({ text: `Disconnected ${providerName} key.`, error: false });
-    } catch (err: any) {
-      alert("Failed to disconnect: " + err.message);
-    }
+    setConfirmReq({
+      title: `Disconnect the ${providerName} API key?`,
+      message: "The stored key will be removed and Fleet Copilot will fall back to Smart Intent Mode until a new key is connected. This cannot be undone.",
+      confirmLabel: "Disconnect key",
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await api.saveAiSettings({ provider: providerName, clear: true });
+          await loadAiSettings();
+          setSaveMessage({ text: `Disconnected ${providerName} key.`, error: false });
+        } catch (err: any) {
+          setSaveMessage({ text: "Failed to disconnect: " + err.message, error: true });
+        }
+      },
+    });
   }
 
   // Send Chat Message
@@ -237,7 +247,7 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
     try {
       parsedArgs = toolArgsStr.trim() ? JSON.parse(toolArgsStr) : {};
     } catch (err: any) {
-      alert("Invalid JSON arguments: " + err.message);
+      setExecutionResult({ ok: false, error: "Invalid JSON arguments: " + err.message });
       setIsExecuting(false);
       return;
     }
@@ -344,6 +354,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      <ConfirmDialog request={confirmReq} onClose={() => setConfirmReq(null)} />
       {/* ================= TOP CONNECTION BANNER ================= */}
       <div
         className="f2-card"
@@ -889,6 +900,12 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
             <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>
               Execute Tool Synchronously (POST /api/ai/execute)
             </div>
+            {toolsError && (
+              <div className="f2-messagebar" data-intent="error">
+                <span>{toolsError}</span>
+                <button type="button" className="f2-btn f2-btn-sm" onClick={() => { setToolsError(null); loadTools(); }}>Retry</button>
+              </div>
+            )}
 
             <div style={{ display: "grid", gap: 12 }}>
               <div>

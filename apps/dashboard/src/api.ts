@@ -121,6 +121,16 @@ export const api = {
   runScheduleNow: (id: string) => call(`/api/schedules/${encodeURIComponent(id)}/run-now`, "POST", {}),
   desktopFrame: (deviceId: string, scale = 0.75, quality = 70) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/frame?scale=${scale}&quality=${quality}`),
+  createWebrtcSession: (deviceId: string, scale = 0.75, fps = 10) =>
+    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/session`, "POST", { scale, fps }),
+  getWebrtcSession: (deviceId: string, sessionId: string) =>
+    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}`),
+  postWebrtcAnswer: (deviceId: string, sessionId: string, answer: any) =>
+    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}/answer`, "POST", answer),
+  postWebrtcCandidate: (deviceId: string, sessionId: string, candidate: any) =>
+    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}/candidates`, "POST", { candidate }),
+  endWebrtcSession: (deviceId: string, sessionId: string) =>
+    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}`, "DELETE"),
   sendDesktopInput: (deviceId: string, body: any) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/input`, "POST", body),
   fleetVersion: () => call("/api/fleet/version"),

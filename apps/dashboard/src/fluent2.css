@@ -1519,3 +1519,272 @@ code, pre {
 .f2-segment-free {
   background-color: var(--colorNeutralBackground4);
 }
+
+/* ==========================================================================
+   UI/UX fixes (2026-10-28): previously undefined palette tokens, focus,
+   reduced motion, loading state, and small-screen topbar behaviour.
+   ========================================================================== */
+
+/* Palette tokens referenced inline in App.tsx / DeviceDetailDashboard.tsx /
+   WorkflowPlanner.tsx but never defined above. Without these, warning
+   banners and nav badges rendered with transparent backgrounds/borders. */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --colorPaletteAmberBackground1: #fff9f5;
+  --colorPaletteAmberBorder1: #fdcfb4;
+  --colorPaletteAmberForeground1: #bc4b09;
+  --colorPaletteGreenBackground3: #107c10;
+  --colorPaletteBlueBackground2: #0078d4;
+  --colorPaletteRedBackground3: #c50f1f;
+  --colorPaletteRedForeground1: #b10e1c;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --colorPaletteAmberBackground1: #4a1e04;
+  --colorPaletteAmberBorder1: #8a3707;
+  --colorPaletteAmberForeground1: #f8965d;
+  --colorPaletteGreenBackground3: #107c10;
+  --colorPaletteBlueBackground2: #0f6cbd;
+  --colorPaletteRedBackground3: #c50f1f;
+  --colorPaletteRedForeground1: #eeacb2;
+}
+
+/* Visible keyboard focus everywhere, not just KPI cards and switches.
+   Inputs keep their Fluent underline, but also get a real outline so
+   keyboard users never lose their place. */
+button:focus-visible,
+a:focus-visible,
+.f2-nav-item:focus-visible,
+.f2-chip:focus-visible,
+.f2-icon-btn:focus-visible,
+.f2-cmd-item:focus-visible,
+.f2-copy-pill:focus-visible,
+.f2-filter-chip:focus-visible,
+.f2-input:focus-visible,
+.f2-select:focus-visible {
+  outline: 2px solid var(--colorCompoundBrandStroke);
+  outline-offset: 2px;
+}
+
+/* Respect reduced-motion preferences: no pulse, shimmer, or slide-in. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .f2-kpi-card:hover {
+    transform: none;
+  }
+}
+
+/* Non-blocking loading indicator for the main canvas. It is announced
+   politely by screen readers and does not replace content on auto-refresh,
+   so it cannot flicker the whole view every 15 seconds. */
+.f2-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: var(--borderRadiusMedium);
+  background-color: var(--colorNeutralBackground2);
+  color: var(--colorNeutralForeground2);
+  font-size: 13px;
+}
+
+.f2-spinner {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--colorNeutralStroke2);
+  border-top-color: var(--colorBrandForeground1);
+  animation: f2-spin 0.8s linear infinite;
+}
+
+@keyframes f2-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Two-step destructive action: the armed state is visually unmistakable
+   and reverts on its own, so a stray click cannot stop the whole queue. */
+.f2-btn-armed {
+  background-color: var(--colorDangerButtonBackground) !important;
+  border-color: var(--colorDangerButtonBackground) !important;
+  color: #ffffff !important;
+  animation: f2-armed-pulse 1s ease-in-out infinite;
+}
+
+@keyframes f2-armed-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(197, 15, 31, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(197, 15, 31, 0);
+  }
+}
+
+/* Small screens: keep the topbar usable instead of wrapping into a tall
+   stack. Hide the persona text and the search hint, keep the icons. */
+@media (max-width: 640px) {
+  .f2-search-trigger {
+    min-width: 0;
+    gap: 6px;
+  }
+  .f2-search-trigger .f2-kbd {
+    display: none;
+  }
+  .f2-persona > span:last-child {
+    display: none;
+  }
+  .f2-canvas {
+    padding: 12px;
+  }
+  .f2-page-title {
+    font-size: 20px;
+    line-height: 28px;
+  }
+}
+
+/* ==========================================================================
+   UI unification (2026-10-28): classes that components already referenced
+   but that were never defined, plus shared tokens for action colours that
+   Fleet/Live previously hard-coded (and that broke in dark mode).
+   ========================================================================== */
+
+:root,
+[data-theme="light"] {
+  --colorActionBlue: #0078d4;
+  --colorActionGreen: #107c41;
+  --colorActionRed: #e81123;
+  --colorActionPurple: #8764b8;
+}
+
+[data-theme="dark"] {
+  --colorActionBlue: #479ef5;
+  --colorActionGreen: #54b054;
+  --colorActionRed: #dc626d;
+  --colorActionPurple: #b19cd9;
+}
+
+/* Form labels: AiApiHub used .f2-label with no definition. */
+.f2-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--colorNeutralForeground2);
+}
+
+/* Tabs: AiApiHub (.f2-tabs/.f2-tab-btn) and DeviceDetail (.f2-tab)
+   previously rendered as plain unstyled buttons. One tab style, driven
+   by data-active, for every page. */
+.f2-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+  overflow-x: auto;
+}
+
+.f2-tab-btn,
+.f2-tab {
+  appearance: none;
+  padding: 10px 16px;
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--colorNeutralForeground2);
+  font-family: var(--fontFamilyBase);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.f2-tab-btn:hover,
+.f2-tab:hover {
+  color: var(--colorNeutralForeground1);
+  background-color: var(--colorSubtleBackgroundHover);
+}
+
+.f2-tab-btn[data-active="true"],
+.f2-tab[data-active="true"] {
+  border-bottom-color: var(--colorBrandBackground);
+  color: var(--colorBrandForeground1);
+  font-weight: 600;
+}
+
+/* Dialogs: DeviceDetail used .f2-dialog-overlay/.f2-dialog with no
+   definition, so its modals rendered unpositioned. Alias the modal
+   system App.tsx already uses. */
+.f2-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background-color: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.f2-dialog {
+  width: 100%;
+  background-color: var(--colorNeutralBackground1);
+  border: 1px solid var(--colorNeutralStroke1);
+  border-radius: var(--borderRadiusXLarge);
+  box-shadow: var(--shadow28);
+  max-width: 92vw;
+  max-height: 90vh;
+  overflow: auto;
+  padding: 20px;
+}
+
+/* Shared section heading and muted text, so sub-pages stop inventing
+   their own h2/h3 sizes and grey colours. */
+.f2-section-title {
+  margin: 0;
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 600;
+  color: var(--colorNeutralForeground1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.f2-muted {
+  color: var(--colorNeutralForeground3);
+  font-size: 13px;
+}
+
+/* Generic panel: the same surface as .f2-card, for components that
+   previously used rgba(125,125,125,…) panels that ignored the theme. */
+.f2-panel {
+  background-color: var(--colorNeutralBackground1);
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: var(--borderRadiusLarge);
+  box-shadow: var(--shadow2);
+  padding: 16px 20px;
+}
+
+/* Shared confirm dialog action row (ConfirmDialog.tsx). */
+.f2-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

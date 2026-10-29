@@ -7,8 +7,23 @@ here — this is the server-side enforcement point, not the prompt.
 """
 from __future__ import annotations
 
-from .. import diagnostics, git_ops, tools, workspace
+from .. import diagnostics, git_ops, tools, workspace, webrtc_stream
 from ..policy import TOOL_TIERS, Policy, RiskTier, decide
+
+
+def _start_webrtc_from_task(a: dict) -> dict:
+    """Start an agent-side WebRTC stream. The poller registers the
+    control URL + device token as agent context at startup; without it
+    the task cannot signal and fails with a clear message."""
+    ctx = webrtc_stream._AGENT_CONTEXT
+    if not ctx.get("control_url") or not ctx.get("device_token"):
+        raise RuntimeError("Agent context (control URL / device token) is not set; cannot start WebRTC stream.")
+    session_id = a["session_id"]
+    signaling = webrtc_stream.HttpSignaling(ctx["control_url"], ctx["device_token"], session_id)
+    return webrtc_stream.start_stream(
+        session_id, signaling,
+        scale=float(a.get("scale", 0.75)), fps=int(a.get("fps", 10)),
+    )
 
 
 def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
@@ -196,6 +211,8 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
             approval_granted=approval_granted,
             policy=policy,
         ),
+        "start_webrtc_stream": lambda a: _start_webrtc_from_task(a),
+        "stop_webrtc_stream": lambda a: webrtc_stream.stop_stream(a["session_id"]),
         "read_file": lambda a: tools.read_file(a["path"], int(a.get("max_chars", 100000)), policy=policy),
         "write_file": lambda a: tools.write_file(
             a["path"],

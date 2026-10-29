@@ -101,7 +101,7 @@ export const WorkflowPlanner: React.FC<WorkflowPlannerProps> = ({ devices, onNot
       if (tRes && tRes.templates) setTemplates(tRes.templates);
       if (Array.isArray(wRes)) setWorkflowHistory(wRes);
     } catch (err: any) {
-      console.error("Failed loading workflow data:", err);
+      if (onNotice) onNotice({ intent: "error", text: `Failed loading workflow data: ${err.message}` });
     }
   }
 
@@ -144,7 +144,7 @@ export const WorkflowPlanner: React.FC<WorkflowPlannerProps> = ({ devices, onNot
 
   async function handleExecuteWorkflow() {
     if (!steps.length) {
-      alert("Workflow must contain at least one step.");
+      if (onNotice) onNotice({ intent: "error", text: "Workflow must contain at least one step." });
       return;
     }
     setIsRunning(true);
@@ -195,7 +195,7 @@ export const WorkflowPlanner: React.FC<WorkflowPlannerProps> = ({ devices, onNot
       await api.cancelWorkflow(activeWorkflow.id);
       if (onNotice) onNotice({ intent: "info", text: "Workflow cancelled." });
     } catch (err: any) {
-      alert("Failed to cancel: " + err.message);
+      if (onNotice) onNotice({ intent: "error", text: "Failed to cancel: " + err.message });
     }
   }
 
@@ -205,10 +205,7 @@ export const WorkflowPlanner: React.FC<WorkflowPlannerProps> = ({ devices, onNot
       <div className="f2-card" style={{ padding: "18px 22px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
-              <span>⚡</span> Autonomous Workflows & Multi-Turn Plan Execution
-            </h2>
-            <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--colorNeutralForeground2)" }}>
+            <p className="f2-muted" style={{ margin: 0 }}>
               Compose, verify, and execute multi-step agentic plans on remote Windows & Linux devices with automatic OCR verification and retry.
             </p>
           </div>
@@ -437,10 +434,10 @@ export const WorkflowPlanner: React.FC<WorkflowPlannerProps> = ({ devices, onNot
                         : "rgba(0, 120, 212, 0.15)",
                     color:
                       activeWorkflow.status === "completed"
-                        ? "#107c41"
+                        ? "var(--colorActionGreen)"
                         : activeWorkflow.status === "failed"
                         ? "#d83b01"
-                        : "#0078d4",
+                        : "var(--colorActionBlue)",
                   }}
                 >
                   {activeWorkflow.status === "running" ? "🔄 Running" : activeWorkflow.status}
@@ -584,10 +581,10 @@ export const WorkflowPlanner: React.FC<WorkflowPlannerProps> = ({ devices, onNot
                               : "rgba(0, 120, 212, 0.15)",
                           color:
                             wf.status === "completed"
-                              ? "#107c41"
+                              ? "var(--colorActionGreen)"
                               : wf.status === "failed"
                               ? "#d83b01"
-                              : "#0078d4",
+                              : "var(--colorActionBlue)",
                         }}
                       >
                         {wf.status}

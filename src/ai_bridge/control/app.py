@@ -2372,6 +2372,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
 
     # --- Phase 4: Visual Streaming, Dual Control & Fleet Auto-Updater ---
     app.state.latest_frames = {}
+    app.state.webrtc_sessions = {}
 
     @app.get("/api/devices/{device_id}/desktop/frame")
     def get_desktop_frame(
@@ -2482,6 +2483,160 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
 
         audit(actor, device_id, f"dual_control_{action}", {"x": abs_x, "y": abs_y, "key": body.key, "text": bool(body.text)}, "executed")
         return {"ok": True, "action": action, "x": abs_x, "y": abs_y, "result": res}
+
+    # --- WebRTC desktop streaming (signaling only; media is peer-to-peer) ---
+    def _webrtc_sessions() -> dict:
+        return app.state.__dict__.setdefault("webrtc_sessions", {})
+
+    def _get_webrtc_session(device_id: str, session_id: str) -> dict:
+        sess = _webrtc_sessions().get(session_id)
+        if sess is None or sess.get("device_id") != device_id:
+            raise HTTPException(status_code=404, detail="WebRTC session not found.")
+        if time.time() - float(sess.get("created_at", 0)) > 600:
+            sess["status"] = "ended"
+            raise HTTPException(status_code=410, detail="WebRTC session expired.")
+        return sess
+
+    def _queue_webrtc_task(device_id: str, session_id: str, scale: float, fps: int, tool: str = "start_webrtc_stream") -> None:
+        dev_row = conn.execute("SELECT * FROM devices WHERE id=? AND revoked=0", (device_id,)).fetchone()
+        if dev_row is None:
+            raise HTTPException(status_code=404, detail="Device not found.")
+        tier = TOOL_TIERS.get(tool)
+        t_val = tier.value if tier else 3
+        task_id = uuid.uuid4().hex[:12]
+        now_ts = dbmod.now()
+        conn.execute(
+            "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, created_at, updated_at) VALUES (?,?,?,?,?,'queued',?,?)",
+            (task_id, device_id, "default", tool,
+             json.dumps({"session_id": session_id, "scale": scale, "fps": fps}), t_val, now_ts, now_ts),
+        )
+        conn.commit()
+        notify_tasks()
+
+    @app.post("/api/devices/{device_id}/desktop/webrtc/session")
+    def create_webrtc_session(
+        device_id: str,
+        body: dict = Body(default={}),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("viewer", x_admin_token, x_session_token)
+        scale = max(0.2, min(1.0, float(body.get("scale", 0.75))))
+        fps = max(1, min(30, int(body.get("fps", 10))))
+        session_id = uuid.uuid4().hex[:12]
+        sess = {
+            "id": session_id, "device_id": device_id, "status": "waiting",
+            "offer": None, "answer": None, "agent_candidates": [], "viewer_candidates": [],
+            "created_at": time.time(), "scale": scale, "fps": fps, "error": None,
+        }
+        _webrtc_sessions()[session_id] = sess
+        audit(actor, device_id, "start_webrtc_stream", {"session_id": session_id}, "allowed")
+        if device_id == "local":
+            try:
+                from ai_bridge import webrtc_stream
+
+                webrtc_stream.start_stream(session_id, webrtc_stream.DictSignaling(sess), scale=scale, fps=fps)
+            except Exception as exc:
+                sess["status"] = "error"
+                sess["error"] = str(exc)
+        else:
+            _queue_webrtc_task(device_id, session_id, scale, fps)
+        return {"session_id": session_id, "status": sess["status"], "scale": scale, "fps": fps}
+
+    @app.get("/api/devices/{device_id}/desktop/webrtc/{session_id}")
+    def get_webrtc_session(
+        device_id: str, session_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        sess = _get_webrtc_session(device_id, session_id)
+        return {k: sess.get(k) for k in ("id", "device_id", "status", "offer", "answer", "agent_candidates", "viewer_candidates", "error", "scale", "fps")}
+
+    @app.post("/api/devices/{device_id}/desktop/webrtc/{session_id}/answer")
+    def post_webrtc_answer(
+        device_id: str, session_id: str, body: dict = Body(default={}),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        sess = _get_webrtc_session(device_id, session_id)
+        sess["answer"] = {"sdp": body.get("sdp"), "type": body.get("type", "answer")}
+        sess["status"] = "answered"
+        return {"ok": True}
+
+    @app.post("/api/devices/{device_id}/desktop/webrtc/{session_id}/candidates")
+    def post_webrtc_viewer_candidate(
+        device_id: str, session_id: str, body: dict = Body(default={}),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        sess = _get_webrtc_session(device_id, session_id)
+        if body.get("candidate"):
+            sess.setdefault("viewer_candidates", []).append(body["candidate"])
+        return {"ok": True}
+
+    @app.delete("/api/devices/{device_id}/desktop/webrtc/{session_id}")
+    def end_webrtc_session(
+        device_id: str, session_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        sess = _get_webrtc_session(device_id, session_id)
+        sess["status"] = "ended"
+        if device_id != "local":
+            try:
+                _queue_webrtc_task(device_id, session_id, 0.75, 10, tool="stop_webrtc_stream")
+            except Exception:
+                pass
+        else:
+            try:
+                from ai_bridge import webrtc_stream
+
+                webrtc_stream.stop_stream(session_id)
+            except Exception:
+                pass
+        return {"ok": True, "status": "ended"}
+
+    @app.get("/api/agent/webrtc/{session_id}")
+    def agent_get_webrtc_session(session_id: str, x_device_token: str | None = Header(default=None)):
+        row = device_row(x_device_token)
+        sess = _webrtc_sessions().get(session_id)
+        if sess is None or sess.get("device_id") != row["id"]:
+            raise HTTPException(status_code=404, detail="WebRTC session not found.")
+        return {k: sess.get(k) for k in ("id", "device_id", "status", "offer", "answer", "agent_candidates", "viewer_candidates", "error", "scale", "fps", "created_at")}
+
+    @app.post("/api/agent/webrtc/{session_id}/offer")
+    def agent_post_webrtc_offer(session_id: str, body: dict = Body(default={}), x_device_token: str | None = Header(default=None)):
+        row = device_row(x_device_token)
+        sess = _webrtc_sessions().get(session_id)
+        if sess is None or sess.get("device_id") != row["id"]:
+            raise HTTPException(status_code=404, detail="WebRTC session not found.")
+        sess["offer"] = {"sdp": body.get("sdp"), "type": body.get("type", "offer")}
+        sess["status"] = "offered"
+        return {"ok": True}
+
+    @app.post("/api/agent/webrtc/{session_id}/candidates")
+    def agent_post_webrtc_candidate(session_id: str, body: dict = Body(default={}), x_device_token: str | None = Header(default=None)):
+        row = device_row(x_device_token)
+        sess = _webrtc_sessions().get(session_id)
+        if sess is None or sess.get("device_id") != row["id"]:
+            raise HTTPException(status_code=404, detail="WebRTC session not found.")
+        if body.get("candidate"):
+            sess.setdefault("agent_candidates", []).append(body["candidate"])
+        return {"ok": True}
+
+    @app.post("/api/agent/webrtc/{session_id}/error")
+    def agent_post_webrtc_error(session_id: str, body: dict = Body(default={}), x_device_token: str | None = Header(default=None)):
+        row = device_row(x_device_token)
+        sess = _webrtc_sessions().get(session_id)
+        if sess is None or sess.get("device_id") != row["id"]:
+            raise HTTPException(status_code=404, detail="WebRTC session not found.")
+        sess["status"] = "error"
+        sess["error"] = body.get("error", "Stream failed.")
+        return {"ok": True}
 
     @app.get("/api/fleet/version")
     def get_fleet_version(

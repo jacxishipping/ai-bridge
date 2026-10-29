@@ -44,6 +44,8 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "capture_desktop_screenshot": RiskTier.SENSITIVE,
     "take_screenshot": RiskTier.SENSITIVE,
     "capture_desktop_frame": RiskTier.SENSITIVE,
+    "start_webrtc_stream": RiskTier.SENSITIVE,
+    "stop_webrtc_stream": RiskTier.SENSITIVE,
     "update_fleet_agent": RiskTier.SENSITIVE,
     "ocr_screen": RiskTier.SENSITIVE,
     "click_text": RiskTier.SENSITIVE,
@@ -118,7 +120,7 @@ def decide(policy: Policy, tool: str, *, approval_granted: bool = False,
                             reason="High-risk operation requires explicit human approval.")
     if tier == RiskTier.SENSITIVE:
         desktop_tools = {
-            "capture_desktop_screenshot", "take_screenshot", "launch_approved_application",
+            "capture_desktop_screenshot", "take_screenshot", "start_webrtc_stream", "launch_approved_application",
             "perform_approved_ui_action", "mouse_click", "mouse_move", "mouse_scroll",
             "mouse_drag", "keyboard_type", "keyboard_press", "press_hotkey", "focus_window",
             "ocr_screen", "click_text", "click_element", "list_ui_elements", "set_of_marks_screenshot",
