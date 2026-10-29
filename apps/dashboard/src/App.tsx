@@ -542,6 +542,8 @@ export default function App() {
       } else if (v === "logs") {
         const r = await api.logs(logService, logCount);
         setLogLines(r.lines || []);
+      } else if (v === "live_studio" || v === "fleet_ops") {
+        setDevices(await api.devices().catch(() => []));
       }
       setLastUpdated(Date.now());
     } catch (e: any) {

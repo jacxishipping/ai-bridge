@@ -2418,6 +2418,37 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                 return cached
             return {"available": False, "error": str(exc)}
 
+    @app.get("/api/fleet/desktop/frames")
+    def get_fleet_desktop_frames(
+        os: str | None = None,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        query = "SELECT id, name, hostname, os, status, last_seen FROM devices WHERE revoked=0"
+        params = []
+        if os:
+            query += " AND (LOWER(os) LIKE ? OR LOWER(name) LIKE ?)"
+            params.extend([f"%{os.lower()}%", f"%{os.lower()}%"])
+        rows = conn.execute(query, tuple(params)).fetchall()
+        now_ts = time.time()
+        result = []
+        for r in rows:
+            dev_id = r["id"]
+            frame = app.state.latest_frames.get(dev_id)
+            is_recent = bool(frame and (now_ts - frame.get("timestamp", 0)) < 25.0)
+            result.append({
+                "device_id": dev_id,
+                "name": r["name"],
+                "hostname": r["hostname"],
+                "os": r["os"],
+                "status": r["status"],
+                "last_seen": r["last_seen"],
+                "frame": frame if is_recent else None,
+                "frame_age_s": round(now_ts - frame.get("timestamp", 0), 1) if (frame and "timestamp" in frame) else None,
+            })
+        return {"devices": result, "count": len(result), "timestamp": now_ts}
+
     @app.post("/api/devices/{device_id}/desktop/input")
     def send_desktop_input(
         device_id: str,
@@ -3243,6 +3274,15 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
                      (body.status, body.result[:MAX_RESULT_CHARS], dbmod.now(), task_id))
         conn.commit()
         notify_tasks()
+        if task["tool"] in ("capture_desktop_frame", "take_screenshot"):
+            try:
+                res_obj = json.loads(body.result)
+                if isinstance(res_obj, dict) and res_obj.get("base64_data"):
+                    if "timestamp" not in res_obj:
+                        res_obj["timestamp"] = time.time()
+                    app.state.latest_frames[row["id"]] = res_obj
+            except Exception:
+                pass
         audit("device", row["id"], task["tool"], json.loads(task["args_json"] or "{}"), body.status, body.result[:500], tenant=task["tenant"])
         return {"task_id": task_id, "status": body.status}
 

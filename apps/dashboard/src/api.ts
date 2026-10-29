@@ -121,6 +121,8 @@ export const api = {
   runScheduleNow: (id: string) => call(`/api/schedules/${encodeURIComponent(id)}/run-now`, "POST", {}),
   desktopFrame: (deviceId: string, scale = 0.75, quality = 70) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/frame?scale=${scale}&quality=${quality}`),
+  fleetDesktopFrames: (os?: string) =>
+    call(`/api/fleet/desktop/frames${os ? `?os=${encodeURIComponent(os)}` : ""}`),
   createWebrtcSession: (deviceId: string, scale = 0.75, fps = 10) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/session`, "POST", { scale, fps }),
   getWebrtcSession: (deviceId: string, sessionId: string) =>

@@ -228,3 +228,40 @@ def test_webrtc_session_endpoints(tmp_path):
     del_res = client.delete(f"/api/devices/{dev_id}/desktop/webrtc/{sess_id}", headers={"X-Admin-Token": admin_token})
     assert del_res.status_code == 200
     assert del_res.json()["status"] == "ended"
+
+
+def test_fleet_desktop_frames_endpoint(tmp_path):
+    admin_token = "adm-tok-p4"
+    app = create_app(admin_token=admin_token, db_path=tmp_path / "control.db")
+    client = TestClient(app)
+
+    # Enroll Windows device and Linux device
+    win_dev = client.post("/api/devices/enroll", json={"name": "win-box", "os": "Windows 11 Pro"}, headers={"X-Admin-Token": admin_token}).json()
+    lin_dev = client.post("/api/devices/enroll", json={"name": "lin-srv", "os": "Ubuntu 24.04 LTS"}, headers={"X-Admin-Token": admin_token}).json()
+
+    # Pre-populate cached frame for win_dev
+    app.state.latest_frames[win_dev["device_id"]] = {
+        "available": True,
+        "width": 1024,
+        "height": 576,
+        "base64_data": "dGVzdF93aW5kb3dz",
+        "timestamp": time.time(),
+    }
+
+    # 1. Query all devices
+    res_all = client.get("/api/fleet/desktop/frames", headers={"X-Admin-Token": admin_token})
+    assert res_all.status_code == 200
+    data_all = res_all.json()
+    assert data_all["count"] == 2
+    dev_ids = [d["device_id"] for d in data_all["devices"]]
+    assert win_dev["device_id"] in dev_ids
+    assert lin_dev["device_id"] in dev_ids
+
+    # 2. Query Windows-only filter
+    res_win = client.get("/api/fleet/desktop/frames?os=windows", headers={"X-Admin-Token": admin_token})
+    assert res_win.status_code == 200
+    data_win = res_win.json()
+    assert data_win["count"] == 1
+    assert data_win["devices"][0]["device_id"] == win_dev["device_id"]
+    assert data_win["devices"][0]["frame"] is not None
+    assert data_win["devices"][0]["frame"]["width"] == 1024

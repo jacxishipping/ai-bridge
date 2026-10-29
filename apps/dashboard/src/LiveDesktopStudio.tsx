@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "./api";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
 
@@ -7,8 +7,359 @@ interface LiveDesktopStudioProps {
   onNotice?: (notice: { intent: "success" | "error" | "info"; text: string }) => void;
 }
 
+// Helper to determine if a node is running Windows
+const isWindowsDevice = (d: any): boolean => {
+  const osStr = (d.os || "").toLowerCase();
+  const nameStr = (d.name || "").toLowerCase();
+  return osStr.includes("win") || nameStr.includes("win");
+};
+
+// -------------------------------------------------------------
+// Component: WindowsLiveCard (Card for each device on the Wall)
+// -------------------------------------------------------------
+interface WindowsLiveCardProps {
+  device: any;
+  isStreaming: boolean;
+  scale: number;
+  quality: number;
+  refreshIntervalMs: number;
+  onTakeControl: (deviceId: string) => void;
+  onSendHotkey: (deviceId: string, combo: string) => void;
+  onNotice: (msg: string) => void;
+  onError: (msg: string) => void;
+}
+
+const WindowsLiveCard: React.FC<WindowsLiveCardProps> = ({
+  device,
+  isStreaming,
+  scale,
+  quality,
+  refreshIntervalMs,
+  onTakeControl,
+  onSendHotkey,
+  onNotice,
+  onError,
+}) => {
+  const [frame, setFrame] = useState<any | null>(null);
+  const [fps, setFps] = useState<number>(0);
+  const [latencyMs, setLatencyMs] = useState<number>(0);
+  const [cardError, setCardError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<number>(0);
+  const [isHovered, setIsHovered] = useState<boolean>(false);
+  const [isActionPending, setIsActionPending] = useState<boolean>(false);
+
+  const isFetchingRef = useRef<boolean>(false);
+  const frameCountRef = useRef<number>(0);
+
+  const fetchDeviceFrame = useCallback(async () => {
+    if (isFetchingRef.current || !isStreaming) return;
+    isFetchingRef.current = true;
+    const t0 = performance.now();
+    try {
+      const res = await api.desktopFrame(device.id, scale, quality);
+      if (res && res.base64_data) {
+        setFrame(res);
+        setCardError(null);
+        setLatencyMs(Math.round(performance.now() - t0));
+        setLastUpdated(Date.now());
+        frameCountRef.current += 1;
+      } else if (res && res.error) {
+        setCardError(res.error);
+      }
+    } catch (err: any) {
+      setCardError(err.message || "Failed to grab frame");
+    } finally {
+      isFetchingRef.current = false;
+    }
+  }, [device.id, isStreaming, scale, quality]);
+
+  // Main frame fetch interval
+  useEffect(() => {
+    if (!isStreaming) return;
+
+    // Initial staggered fetch
+    const initialTimer = setTimeout(fetchDeviceFrame, Math.floor(Math.random() * 400));
+    const intervalTimer = setInterval(fetchDeviceFrame, refreshIntervalMs);
+
+    // FPS counter
+    const fpsTimer = setInterval(() => {
+      setFps(frameCountRef.current);
+      frameCountRef.current = 0;
+    }, 1000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(intervalTimer);
+      clearInterval(fpsTimer);
+    };
+  }, [fetchDeviceFrame, isStreaming, refreshIntervalMs]);
+
+  const handleQuickHotkey = async (combo: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsActionPending(true);
+    try {
+      await onSendHotkey(device.id, combo);
+      onNotice(`Sent shortcut ${combo.toUpperCase()} to ${device.name}`);
+      // Refresh frame right after hotkey
+      setTimeout(fetchDeviceFrame, 300);
+    } catch (err: any) {
+      onError(err.message);
+    } finally {
+      setIsActionPending(false);
+    }
+  };
+
+  const handleQuickSnapshot = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!frame?.base64_data) return;
+    const win = window.open("");
+    if (win) {
+      win.document.write(
+        `<html><head><title>${device.name} - Snapshot</title></head><body style="margin:0;background:#0e0e0e;display:flex;justify-content:center;align-items:center;height:100vh;"><img src="data:${frame.mime_type || "image/jpeg"};base64,${frame.base64_data}" style="max-width:100%;max-height:100%;object-fit:contain;box-shadow:0 10px 40px rgba(0,0,0,0.8);"/></body></html>`
+      );
+    }
+  };
+
+  const timeAgoSec = lastUpdated ? Math.max(0, Math.round((Date.now() - lastUpdated) / 1000)) : null;
+  const isOnline = device.status === "online";
+
+  return (
+    <div
+      className="f2-card"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        borderRadius: 12,
+        overflow: "hidden",
+        border: isHovered ? "2px solid var(--colorActionBlue)" : "1px solid var(--colorNeutralStroke1)",
+        background: "var(--colorNeutralBackground1)",
+        boxShadow: isHovered ? "0 10px 24px rgba(0,0,0,0.2)" : "0 4px 12px rgba(0,0,0,0.06)",
+        transition: "all 0.18s ease-in-out",
+      }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {/* Card Header */}
+      <div
+        style={{
+          padding: "10px 14px",
+          background: "var(--colorNeutralBackground2)",
+          borderBottom: "1px solid var(--colorNeutralStroke2)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              background: isOnline ? "var(--colorActionGreen)" : "var(--colorNeutralForeground3)",
+              boxShadow: isOnline ? "0 0 8px var(--colorActionGreen)" : "none",
+              display: "inline-block",
+            }}
+            title={isOnline ? "Online & Active" : "Offline / Unreachable"}
+          />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+              <span>🪟</span>
+              <span>{device.name}</span>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)", marginTop: 1 }}>
+              {device.hostname || device.id} · <span style={{ opacity: 0.85 }}>{device.os || "Windows"}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Status / Telemetry Badges */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+          <span
+            style={{
+              padding: "2px 6px",
+              borderRadius: 4,
+              background: "rgba(16, 124, 65, 0.12)",
+              color: "var(--colorActionGreen)",
+              fontWeight: 700,
+            }}
+          >
+            {fps} FPS
+          </span>
+          <span style={{ color: "var(--colorNeutralForeground3)" }}>{latencyMs}ms</span>
+        </div>
+      </div>
+
+      {/* Screen Canvas Viewport */}
+      <div
+        onClick={() => onTakeControl(device.id)}
+        style={{
+          position: "relative",
+          width: "100%",
+          paddingTop: "56.25%", // 16:9 aspect ratio
+          background: "#08090a",
+          cursor: "pointer",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          {frame?.base64_data ? (
+            <img
+              src={`data:${frame.mime_type || "image/jpeg"};base64,${frame.base64_data}`}
+              alt={`${device.name} Desktop`}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",
+                userSelect: "none",
+              }}
+            />
+          ) : (
+            <div style={{ textAlign: "center", color: "var(--colorNeutralForeground3)", padding: 20 }}>
+              <div style={{ fontSize: 32, marginBottom: 6 }}>📡</div>
+              <div style={{ fontSize: 12, fontWeight: 600 }}>
+                {cardError ? `Stream Error: ${cardError}` : "Polling Windows Desktop..."}
+              </div>
+              <div style={{ fontSize: 10, opacity: 0.75, marginTop: 4 }}>ID: {device.id}</div>
+            </div>
+          )}
+
+          {/* Resolution Badge Overlay */}
+          {frame && (
+            <div
+              style={{
+                position: "absolute",
+                bottom: 8,
+                left: 8,
+                background: "rgba(0,0,0,0.65)",
+                color: "#fff",
+                padding: "2px 6px",
+                borderRadius: 4,
+                fontSize: 10,
+                backdropFilter: "blur(4px)",
+              }}
+            >
+              {frame.width}×{frame.height}
+              {timeAgoSec !== null && ` · ${timeAgoSec === 0 ? "live" : `${timeAgoSec}s ago`}`}
+            </div>
+          )}
+
+          {/* Hover Takeover Pill Button */}
+          {isHovered && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                background: "rgba(0,0,0,0.38)",
+                backdropFilter: "blur(2px)",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                transition: "opacity 0.15s ease",
+              }}
+            >
+              <button
+                type="button"
+                className="f2-btn f2-btn-primary"
+                style={{
+                  padding: "8px 16px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span>🎮</span> Take Dual-Control Takeover
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Card Action Ribbon */}
+      <div
+        style={{
+          padding: "8px 12px",
+          background: "var(--colorNeutralBackground2)",
+          borderTop: "1px solid var(--colorNeutralStroke2)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button
+            type="button"
+            className="f2-btn f2-btn-primary f2-btn-sm"
+            onClick={() => onTakeControl(device.id)}
+            style={{ fontSize: 11, padding: "4px 10px" }}
+          >
+            🎮 Take Control
+          </button>
+          <button
+            type="button"
+            className="f2-btn f2-btn-sm"
+            onClick={(e) => handleQuickHotkey("win+r", e)}
+            disabled={isActionPending}
+            style={{ fontSize: 11, padding: "4px 8px" }}
+            title="Dispatch Win+R Run shortcut"
+          >
+            ⌨️ Win+R
+          </button>
+          <button
+            type="button"
+            className="f2-btn f2-btn-sm"
+            onClick={handleQuickSnapshot}
+            disabled={!frame}
+            style={{ fontSize: 11, padding: "4px 8px" }}
+            title="Open high-res snapshot in new tab"
+          >
+            📸 Shot
+          </button>
+        </div>
+
+        <button
+          type="button"
+          className="f2-btn f2-btn-sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            fetchDeviceFrame();
+          }}
+          disabled={isFetchingRef.current}
+          style={{ fontSize: 11, padding: "4px 8px" }}
+          title="Refresh screenshot frame"
+        >
+          🔄
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// -------------------------------------------------------------
+// Main Component: LiveDesktopStudio
+// -------------------------------------------------------------
 export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, onNotice }) => {
+  // View mode: "wall" (Multi-device Windows Grid) or "single" (Focused Interactive Dual-Control)
+  const [viewMode, setViewMode] = useState<"wall" | "single">("wall");
   const [selectedDevice, setSelectedDevice] = useState<string>("local");
+  const [wallFilter, setWallFilter] = useState<"windows" | "all">("windows");
+  const [wallCols, setWallCols] = useState<"auto" | "2" | "3" | "4">("auto");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [wallIntervalMs, setWallIntervalMs] = useState<number>(2000);
+
+  // Single-device streaming state
   const [isStreaming, setIsStreaming] = useState<boolean>(true);
   const [dualControlActive, setDualControlActive] = useState<boolean>(false);
   const [scale, setScale] = useState<number>(0.75);
@@ -18,8 +369,7 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
   const [latencyMs, setLatencyMs] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // WebRTC is the default; screenshot frames are the fallback when ICE
-  // cannot connect, the agent lacks aiortc, or the session errors.
+
   const [streamMode, setStreamMode] = useState<"webrtc" | "frames">("webrtc");
   const [webrtcStatus, setWebrtcStatus] = useState<string>("idle");
   const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
@@ -39,7 +389,7 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
 
   // Auto-select primary Windows device if available
   useEffect(() => {
-    const winDev = devices.find((d) => d.os && d.os.toLowerCase().includes("windows"));
+    const winDev = devices.find((d) => isWindowsDevice(d));
     if (winDev && selectedDevice === "local") {
       setSelectedDevice(winDev.id);
     }
@@ -59,9 +409,27 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
     loadVersion();
   }, []);
 
-  // Frame fetch loop (fallback mode only; WebRTC mode uses the video element)
+  // Filtered devices for the Wall view
+  const filteredDevices = devices.filter((d) => {
+    if (wallFilter === "windows" && !isWindowsDevice(d)) {
+      return false;
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const name = (d.name || "").toLowerCase();
+      const host = (d.hostname || "").toLowerCase();
+      const os = (d.os || "").toLowerCase();
+      const id = (d.id || "").toLowerCase();
+      return name.includes(q) || host.includes(q) || os.includes(q) || id.includes(q);
+    }
+    return true;
+  });
+
+  const windowsCount = devices.filter(isWindowsDevice).length;
+
+  // Frame fetch loop for Single Device (fallback frames mode)
   useEffect(() => {
-    if (!isStreaming || streamMode !== "frames") return;
+    if (viewMode !== "single" || !isStreaming || streamMode !== "frames") return;
 
     let active = true;
     const fetchFrame = async () => {
@@ -87,7 +455,6 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
 
     const streamInterval = setInterval(fetchFrame, 1200);
 
-    // FPS counter loop
     const fpsInterval = setInterval(() => {
       setFps(frameCountRef.current);
       frameCountRef.current = 0;
@@ -98,37 +465,36 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
       clearInterval(streamInterval);
       clearInterval(fpsInterval);
     };
-  }, [isStreaming, selectedDevice, scale, quality, streamMode]);
+  }, [viewMode, isStreaming, selectedDevice, scale, quality, streamMode]);
 
-  // WebRTC streaming: signal through the control plane (HTTP), media
-  // peer-to-peer. On any failure, fall back to screenshot frames.
+  // WebRTC streaming for Single Device
   useEffect(() => {
-    if (!isStreaming || streamMode !== "webrtc") return;
+    if (viewMode !== "single" || !isStreaming || streamMode !== "webrtc") return;
     let cancelled = false;
     let pc: RTCPeerConnection | null = null;
     let sessionId = "";
     let seenAgentCandidates = 0;
-    let statsTimer: ReturnType<typeof setInterval> | null = null;
+    let statsTimer: any = null;
     let lastFrames = 0;
 
     const stop = async () => {
       if (statsTimer) clearInterval(statsTimer);
       if (pc) {
-        try { pc.close(); } catch { /* already closed */ }
+        try { pc.close(); } catch {}
         pc = null;
         pcRef.current = null;
       }
-      if (sessionId) {
-        const id = sessionId;
-        sessionId = "";
+      if (videoRef.current) videoRef.current.srcObject = null;
+      const id = webrtcSessionRef.current;
+      if (id) {
         webrtcSessionRef.current = null;
-        try { await api.endWebrtcSession(selectedDevice, id); } catch { /* session expires on its own */ }
+        try { await api.endWebrtcSession(selectedDevice, id); } catch {}
       }
     };
 
-    const fallback = (msg: string) => {
+    const fallback = (reason: string) => {
       if (cancelled) return;
-      setNotice(`${msg} Falling back to screenshot frames.`);
+      setError(`${reason} Falling back to screenshot frames.`);
       setStreamMode("frames");
     };
 
@@ -140,32 +506,42 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
         sessionId = sess.session_id;
         webrtcSessionRef.current = sessionId;
 
-        // Wait for the agent's offer (it starts on a queued task).
         let offer: any = null;
-        for (let i = 0; i < 30 && !cancelled; i++) {
+        for (let i = 0; i < 40; i++) {
+          if (cancelled) return;
           const s = await api.getWebrtcSession(selectedDevice, sessionId);
-          if (s.status === "error") throw new Error(s.error || "Stream failed on the agent.");
-          if (s.offer) { offer = s.offer; break; }
-          await new Promise(r => setTimeout(r, 1000));
+          if (s.status === "error") {
+            fallback(s.error || "Agent reported a WebRTC error.");
+            return;
+          }
+          if (s.offer) {
+            offer = s.offer;
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 250));
         }
-        if (cancelled) return;
-        if (!offer) throw new Error("Timed out waiting for the agent to offer a stream.");
+        if (!offer) {
+          fallback("Timed out waiting for the agent's WebRTC offer.");
+          return;
+        }
 
-        pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+        pc = new RTCPeerConnection({
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        });
         pcRef.current = pc;
-        pc.onicecandidate = (e) => {
-          if (e.candidate && sessionId) {
-            api.postWebrtcCandidate(selectedDevice, sessionId, {
-              candidate: e.candidate.candidate,
-              sdpMid: e.candidate.sdpMid,
-              sdpMLineIndex: e.candidate.sdpMLineIndex,
-            }).catch(() => {});
+
+        pc.ontrack = (evt) => {
+          if (videoRef.current && evt.streams && evt.streams[0]) {
+            videoRef.current.srcObject = evt.streams[0];
           }
         };
-        pc.ontrack = (e) => {
-          if (videoRef.current) {
-            videoRef.current.srcObject = e.streams[0];
-            videoRef.current.play().catch(() => {});
+        pc.onicecandidate = (evt) => {
+          if (evt.candidate && sessionId) {
+            api.postWebrtcCandidate(selectedDevice, sessionId, {
+              candidate: evt.candidate.candidate,
+              sdpMid: evt.candidate.sdpMid,
+              sdpMLineIndex: evt.candidate.sdpMLineIndex,
+            }).catch(() => {});
           }
         };
         pc.onconnectionstatechange = () => {
@@ -178,42 +554,51 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        // Wait for ICE gathering so the answer carries candidates inline
-        // (the agent side does not trickle; it reads them from the SDP).
-        for (let i = 0; i < 50 && pc.iceGatheringState !== "complete"; i++) {
-          await new Promise(r => setTimeout(r, 100));
-        }
-        await api.postWebrtcAnswer(selectedDevice, sessionId, { sdp: pc.localDescription?.sdp || answer.sdp, type: answer.type });
 
-        // Trickle agent candidates in the background.
+        for (let i = 0; i < 50 && pc.iceGatheringState !== "complete"; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        await api.postWebrtcAnswer(selectedDevice, sessionId, {
+          sdp: pc.localDescription?.sdp || answer.sdp,
+          type: answer.type,
+        });
+
         const candTimer = setInterval(async () => {
           if (!pc || !sessionId || cancelled) return;
           try {
             const s = await api.getWebrtcSession(selectedDevice, sessionId);
             for (const cand of (s.agent_candidates || []).slice(seenAgentCandidates)) {
               try {
-                await pc.addIceCandidate(new RTCIceCandidate({
-                  candidate: cand.candidate, sdpMid: cand.sdpMid, sdpMLineIndex: cand.sdpMLineIndex,
-                }));
-              } catch { /* stale candidate */ }
+                await pc.addIceCandidate(
+                  new RTCIceCandidate({
+                    candidate: cand.candidate,
+                    sdpMid: cand.sdpMid,
+                    sdpMLineIndex: cand.sdpMLineIndex,
+                  })
+                );
+              } catch {}
               seenAgentCandidates += 1;
             }
-          } catch { /* session poll will surface errors on the next pass */ }
+          } catch {}
         }, 1000);
-        // Tie the candidate timer to this effect's cleanup via pc close.
-        const origClose = pc.close.bind(pc);
-        pc.close = () => { clearInterval(candTimer); origClose(); };
 
-        // FPS from WebRTC stats (frames received per second).
+        const origClose = pc.close.bind(pc);
+        pc.close = () => {
+          clearInterval(candTimer);
+          origClose();
+        };
+
         statsTimer = setInterval(async () => {
           if (!pc) return;
           try {
             const stats = await pc.getStats();
             let frames = 0;
-            stats.forEach((r: any) => { if (r.type === "inbound-rtp" && r.kind === "video") frames = r.framesReceived || 0; });
+            stats.forEach((r: any) => {
+              if (r.type === "inbound-rtp" && r.kind === "video") frames = r.framesReceived || 0;
+            });
             if (lastFrames) setFps(frames - lastFrames);
             lastFrames = frames;
-          } catch { /* stats unavailable */ }
+          } catch {}
         }, 1000);
       } catch (err: any) {
         fallback(`WebRTC unavailable: ${err.message}`);
@@ -225,9 +610,9 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
       setWebrtcStatus("idle");
       void stop();
     };
-  }, [isStreaming, streamMode, selectedDevice, scale]);
+  }, [viewMode, isStreaming, streamMode, selectedDevice, scale]);
 
-  // Handle canvas clicks (Dual Control)
+  // Handle canvas clicks (Dual Control Takeover)
   const handleCanvasClick = async (e: React.MouseEvent<HTMLElement>) => {
     if (!dualControlActive) return;
 
@@ -256,17 +641,18 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
     }
   };
 
-  // Quick action dispatch
-  const handleSendHotkey = async (combo: string) => {
+  const handleSendHotkey = async (targetId: string, combo: string) => {
     try {
-      await api.sendDesktopInput(selectedDevice, {
+      await api.sendDesktopInput(targetId, {
         action: "hotkey",
         key: combo,
       });
-      setNotice(`Dispatched shortcut: ${combo}`);
-      if (onNotice) onNotice({ intent: "info", text: `Dispatched shortcut: ${combo}` });
+      const msg = `Dispatched shortcut "${combo}" to node ${targetId}`;
+      setNotice(msg);
+      if (onNotice) onNotice({ intent: "info", text: msg });
     } catch (err: any) {
       setError(err.message);
+      throw err;
     }
   };
 
@@ -281,6 +667,12 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
     } catch (err: any) {
       setError(err.message);
     }
+  };
+
+  const handleFocusDevice = (deviceId: string) => {
+    setSelectedDevice(deviceId);
+    setViewMode("single");
+    setNotice(`Switched to Focused Dual-Control on node ${deviceId}`);
   };
 
   const handleUpdateFleet = async () => {
@@ -312,8 +704,6 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
     }
   };
 
-  // Two-step confirmation, matching the topbar Emergency Stop in App.tsx:
-  // a single stray click must not halt the whole task queue.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setEmergencyArmed(false);
@@ -342,26 +732,86 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
     }
   };
 
+  const gridTemplate =
+    wallCols === "2"
+      ? "repeat(2, minmax(360px, 1fr))"
+      : wallCols === "3"
+      ? "repeat(3, minmax(300px, 1fr))"
+      : wallCols === "4"
+      ? "repeat(4, minmax(260px, 1fr))"
+      : "repeat(auto-fill, minmax(360px, 1fr))";
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <ConfirmDialog request={confirmReq} onClose={() => setConfirmReq(null)} />
-      {/* Target Machine Selector only: the page title/subtitle are
-          rendered once by the App shell. */}
-      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <label className="f2-label" style={{ marginBottom: 0 }}>Target Node:</label>
-          <select
-            className="f2-select"
-            value={selectedDevice}
-            onChange={(e) => setSelectedDevice(e.target.value)}
+
+      {/* Top Header Mode Switcher Bar */}
+      <div
+        className="f2-panel"
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 12,
+          padding: "10px 16px",
+        }}
+      >
+        {/* Mode Switch Tabs */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            type="button"
+            className={viewMode === "wall" ? "f2-btn f2-btn-primary" : "f2-btn"}
+            onClick={() => setViewMode("wall")}
+            style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}
           >
-            <option value="local">Local Control Host</option>
-            {devices.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name} ({d.os || "node"}) — {d.status}
-              </option>
-            ))}
-          </select>
+            <span>🪟</span>
+            <span>Windows Fleet Live Wall</span>
+            <span
+              style={{
+                fontSize: 11,
+                padding: "2px 7px",
+                borderRadius: 10,
+                background: viewMode === "wall" ? "rgba(255,255,255,0.25)" : "var(--colorNeutralStroke1)",
+                color: viewMode === "wall" ? "#fff" : "inherit",
+              }}
+            >
+              {windowsCount} Live
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className={viewMode === "single" ? "f2-btn f2-btn-primary" : "f2-btn"}
+            onClick={() => setViewMode("single")}
+            style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}
+          >
+            <span>🖥️</span>
+            <span>Single Focused Studio</span>
+          </button>
+        </div>
+
+        {/* Quick Global Action Status */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button
+            type="button"
+            className="f2-btn f2-btn-sm"
+            onClick={() => setIsStreaming(!isStreaming)}
+            style={{ fontWeight: 600 }}
+          >
+            {isStreaming ? "⏸ Pause All Streams" : "▶ Resume All Streams"}
+          </button>
+
+          {viewMode === "single" && (
+            <button
+              type="button"
+              className="f2-btn f2-btn-sm"
+              onClick={() => setViewMode("wall")}
+              style={{ fontWeight: 600 }}
+            >
+              ← Back to Windows Fleet Wall
+            </button>
+          )}
         </div>
       </div>
 
@@ -376,253 +826,544 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
         </div>
       )}
 
-      {/* Stream Controls & Dual-Control Toggle Bar */}
-      <div
-        className="f2-panel"
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 12,
-        }}
-      >
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <div style={{ display: "flex", gap: 4 }} role="group" aria-label="Stream mode">
-            <button type="button" className={streamMode === "webrtc" ? "f2-btn f2-btn-primary f2-btn-sm" : "f2-btn f2-btn-sm"} onClick={() => setStreamMode("webrtc")}>
-              🎥 WebRTC {webrtcStatus === "connected" ? "● LIVE" : ""}
-            </button>
-            <button type="button" className={streamMode === "frames" ? "f2-btn f2-btn-primary f2-btn-sm" : "f2-btn f2-btn-sm"} onClick={() => setStreamMode("frames")}>
-              🖼 Frames
-            </button>
-          </div>
-          <button
-            onClick={() => setIsStreaming(!isStreaming)}
-            className={isStreaming ? "f2-btn" : "f2-btn f2-btn-primary"}
+      {/* ========================================================= */}
+      {/* MODE 1: WINDOWS FLEET LIVE WALL (MULTI-DEVICE GRID)        */}
+      {/* ========================================================= */}
+      {viewMode === "wall" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Wall Controls Toolbar */}
+          <div
+            className="f2-panel"
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 12,
+              padding: "10px 14px",
+            }}
           >
-            {isStreaming ? "⏸ Pause Stream" : "▶ Resume Stream"}
-          </button>
+            {/* Filter Toggle and Search */}
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 4 }} role="group" aria-label="Filter devices">
+                <button
+                  type="button"
+                  className={wallFilter === "windows" ? "f2-btn f2-btn-primary f2-btn-sm" : "f2-btn f2-btn-sm"}
+                  onClick={() => setWallFilter("windows")}
+                >
+                  🪟 Windows Only ({windowsCount})
+                </button>
+                <button
+                  type="button"
+                  className={wallFilter === "all" ? "f2-btn f2-btn-primary f2-btn-sm" : "f2-btn f2-btn-sm"}
+                  onClick={() => setWallFilter("all")}
+                >
+                  🌐 All Nodes ({devices.length})
+                </button>
+              </div>
 
-          <button
-            onClick={() => setDualControlActive(!dualControlActive)}
-            className={dualControlActive ? "f2-btn f2-btn-primary" : "f2-btn"}
-          >
-            <span>🎮</span> Dual-Control Takeover: {dualControlActive ? "ENABLED" : "OFF"}
-          </button>
-        </div>
+              <input
+                type="text"
+                className="f2-input"
+                placeholder="Search device name, host, OS..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ width: 220, fontSize: 12, padding: "5px 10px" }}
+              />
+            </div>
 
-        {/* Stream Metrics & Settings */}
-        <div style={{ display: "flex", gap: 14, alignItems: "center", fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
-          <div>
-            FPS: <span style={{ color: "var(--colorActionGreen)", fontWeight: 700 }}>{fps}</span>
+            {/* Grid Density, Scale, and Refresh Rate */}
+            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <label className="f2-label" style={{ marginBottom: 0, fontSize: 11 }}>Grid:</label>
+                <select
+                  className="f2-select"
+                  value={wallCols}
+                  onChange={(e) => setWallCols(e.target.value as any)}
+                  style={{ fontSize: 11, padding: "4px 8px" }}
+                >
+                  <option value="auto">Auto Responsive</option>
+                  <option value="2">2 Columns</option>
+                  <option value="3">3 Columns</option>
+                  <option value="4">4 Columns</option>
+                </select>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <label className="f2-label" style={{ marginBottom: 0, fontSize: 11 }}>Rate:</label>
+                <select
+                  className="f2-select"
+                  value={wallIntervalMs}
+                  onChange={(e) => setWallIntervalMs(Number(e.target.value))}
+                  style={{ fontSize: 11, padding: "4px 8px" }}
+                >
+                  <option value={1200}>1.2s (Fast)</option>
+                  <option value={2000}>2.0s (Normal)</option>
+                  <option value={3500}>3.5s (Balanced)</option>
+                  <option value={5000}>5.0s (Low Network)</option>
+                </select>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <label className="f2-label" style={{ marginBottom: 0, fontSize: 11 }}>Quality:</label>
+                <select
+                  className="f2-select"
+                  value={scale}
+                  onChange={(e) => setScale(Number(e.target.value))}
+                  style={{ fontSize: 11, padding: "4px 8px" }}
+                >
+                  <option value={0.5}>50% Scale (High FPS)</option>
+                  <option value={0.75}>75% Scale (Balanced)</option>
+                  <option value={1.0}>100% Native</option>
+                </select>
+              </div>
+            </div>
           </div>
-          <div>
-            Latency: <span style={{ color: "inherit", fontWeight: 600 }}>{latencyMs}ms</span>
-          </div>
-          <div>
-            Res:{" "}
-            <span style={{ color: "inherit", fontWeight: 600 }}>
-              {currentFrame ? `${currentFrame.width}x${currentFrame.height}` : "—"}
-            </span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span>Quality:</span>
-            <select
-              value={scale}
-              onChange={(e) => setScale(Number(e.target.value))}
-              className="f2-select" style={{ fontSize: 11 }}
+
+          {/* Wall Grid Cards */}
+          {filteredDevices.length > 0 ? (
+            <div style={{ display: "grid", gridTemplateColumns: gridTemplate, gap: 16 }}>
+              {filteredDevices.map((dev) => (
+                <WindowsLiveCard
+                  key={dev.id}
+                  device={dev}
+                  isStreaming={isStreaming}
+                  scale={scale}
+                  quality={quality}
+                  refreshIntervalMs={wallIntervalMs}
+                  onTakeControl={handleFocusDevice}
+                  onSendHotkey={(id, combo) => handleSendHotkey(id, combo)}
+                  onNotice={(msg) => {
+                    setNotice(msg);
+                    if (onNotice) onNotice({ intent: "info", text: msg });
+                  }}
+                  onError={(err) => setError(err)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div
+              className="f2-card"
+              style={{
+                textAlign: "center",
+                padding: "48px 24px",
+                color: "var(--colorNeutralForeground3)",
+              }}
             >
-              <option value={0.5}>50% Scale (High FPS)</option>
-              <option value={0.75}>75% Scale (Balanced)</option>
-              <option value={1.0}>100% Native Scale</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Dual Control Notice Banner */}
-      {dualControlActive && (
-        <div
-          style={{
-            padding: "8px 14px",
-            background: "rgba(0,120,212,0.12)",
-            border: "1px solid var(--colorActionBlue)",
-            borderRadius: 8,
-            color: "var(--colorActionBlue)",
-            fontSize: 12,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span>
-            ⚡ <b>Human Operator Dual-Control Active</b>: Click directly on the viewport below to dispatch mouse actions to the remote desktop.
-          </span>
-          <button
-            onClick={handleEmergencyHalt}
-            className={emergencyArmed ? "f2-btn-armed" : ""}
-            aria-pressed={emergencyArmed}
-            title={emergencyArmed ? "Click again to confirm the emergency stop" : "Arm the emergency stop (click again to confirm)"}
-            style={{ padding: "4px 10px", background: "var(--colorActionRed)", color: "#fff", border: "none", borderRadius: 4, fontWeight: 700, cursor: "pointer", fontSize: 11 }}
-          >
-            {emergencyArmed ? "🛑 Confirm Emergency Stop?" : "🛑 Emergency Stop"}
-          </button>
+              <div style={{ fontSize: 44, marginBottom: 12 }}>🪟</div>
+              <h3 style={{ fontSize: 18, margin: "0 0 8px 0", color: "inherit" }}>
+                No matching Windows devices found
+              </h3>
+              <p style={{ fontSize: 13, maxWidth: 440, margin: "0 auto 16px auto" }}>
+                {wallFilter === "windows"
+                  ? "None of the enrolled nodes report a Windows operating system."
+                  : "No devices matched your search query."}
+              </p>
+              {wallFilter === "windows" && devices.length > 0 && (
+                <button
+                  type="button"
+                  className="f2-btn f2-btn-primary"
+                  onClick={() => setWallFilter("all")}
+                >
+                  Show All Enrolled Nodes ({devices.length})
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Interactive Desktop Canvas Viewport */}
-      <div
-        style={{
-          background: "#0c0d0e",
-          border: "2px solid var(--colorNeutralStroke1)",
-          borderRadius: 12,
-          overflow: "hidden",
-          position: "relative",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          minHeight: 450,
-          boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
-        }}
-        onContextMenu={(e) => e.preventDefault()}
-      >
-        {streamMode === "webrtc" ? (
-          <div style={{ position: "relative", width: "100%", display: "flex", justifyContent: "center" }}>
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              onClick={handleCanvasClick}
-              onContextMenu={handleCanvasClick}
+      {/* ========================================================= */}
+      {/* MODE 2: SINGLE FOCUSED DESKTOP STUDIO (DUAL-CONTROL)      */}
+      {/* ========================================================= */}
+      {viewMode === "single" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Target Node Selector Bar */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <button
+                type="button"
+                className="f2-btn f2-btn-sm"
+                onClick={() => setViewMode("wall")}
+                style={{ fontWeight: 600 }}
+              >
+                ← Windows Fleet Wall
+              </button>
+              <label className="f2-label" style={{ marginBottom: 0 }}>Target Node:</label>
+              <select
+                className="f2-select"
+                value={selectedDevice}
+                onChange={(e) => setSelectedDevice(e.target.value)}
+              >
+                <option value="local">Local Control Host</option>
+                {devices.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {isWindowsDevice(d) ? "🪟 " : "🐧 "}
+                    {d.name} ({d.os || "node"}) — {d.status}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
+              Active Node: <b>{selectedDevice}</b>
+            </div>
+          </div>
+
+          {/* Stream Controls & Dual-Control Toggle Bar */}
+          <div
+            className="f2-panel"
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 12,
+            }}
+          >
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 4 }} role="group" aria-label="Stream mode">
+                <button
+                  type="button"
+                  className={streamMode === "webrtc" ? "f2-btn f2-btn-primary f2-btn-sm" : "f2-btn f2-btn-sm"}
+                  onClick={() => setStreamMode("webrtc")}
+                >
+                  🎥 WebRTC {webrtcStatus === "connected" ? "● LIVE" : ""}
+                </button>
+                <button
+                  type="button"
+                  className={streamMode === "frames" ? "f2-btn f2-btn-primary f2-btn-sm" : "f2-btn f2-btn-sm"}
+                  onClick={() => setStreamMode("frames")}
+                >
+                  🖼 Frames
+                </button>
+              </div>
+
+              <button
+                onClick={() => setIsStreaming(!isStreaming)}
+                className={isStreaming ? "f2-btn" : "f2-btn f2-btn-primary"}
+              >
+                {isStreaming ? "⏸ Pause Stream" : "▶ Resume Stream"}
+              </button>
+
+              <button
+                onClick={() => setDualControlActive(!dualControlActive)}
+                className={dualControlActive ? "f2-btn f2-btn-primary" : "f2-btn"}
+              >
+                <span>🎮</span> Dual-Control Takeover: {dualControlActive ? "ENABLED" : "OFF"}
+              </button>
+            </div>
+
+            {/* Stream Metrics & Settings */}
+            <div style={{ display: "flex", gap: 14, alignItems: "center", fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
+              <div>
+                FPS: <span style={{ color: "var(--colorActionGreen)", fontWeight: 700 }}>{fps}</span>
+              </div>
+              <div>
+                Latency: <span style={{ color: "inherit", fontWeight: 600 }}>{latencyMs}ms</span>
+              </div>
+              <div>
+                Res:{" "}
+                <span style={{ color: "inherit", fontWeight: 600 }}>
+                  {currentFrame ? `${currentFrame.width}x${currentFrame.height}` : "—"}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span>Quality:</span>
+                <select
+                  value={scale}
+                  onChange={(e) => setScale(Number(e.target.value))}
+                  className="f2-select"
+                  style={{ fontSize: 11 }}
+                >
+                  <option value={0.5}>50% Scale (High FPS)</option>
+                  <option value={0.75}>75% Scale (Balanced)</option>
+                  <option value={1.0}>100% Native Scale</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Dual Control Notice Banner */}
+          {dualControlActive && (
+            <div
               style={{
-                maxWidth: "100%",
-                maxHeight: "75vh",
-                objectFit: "contain",
-                cursor: dualControlActive ? "crosshair" : "default",
-                userSelect: "none",
-                background: "#000",
+                padding: "8px 14px",
+                background: "rgba(0,120,212,0.12)",
+                border: "1px solid var(--colorActionBlue)",
+                borderRadius: 8,
+                color: "var(--colorActionBlue)",
+                fontSize: 12,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
               }}
-            />
-            {webrtcStatus !== "connected" && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, color: "var(--colorNeutralForeground3)", background: "rgba(0,0,0,0.35)" }}>
-                <div style={{ fontSize: 42 }}>📡</div>
-                <div style={{ fontWeight: 600, fontSize: 16 }}>
-                  {webrtcStatus === "connecting" ? "Starting WebRTC stream…" : `WebRTC: ${webrtcStatus}`}
-                </div>
-                <div style={{ fontSize: 12 }}>Target machine: {selectedDevice} · falling back to frames if this stalls</div>
+            >
+              <span>
+                ⚡ <b>Human Operator Dual-Control Active</b>: Click directly on the viewport below to dispatch mouse actions to the remote desktop.
+              </span>
+              <button
+                onClick={handleEmergencyHalt}
+                className={emergencyArmed ? "f2-btn-armed" : ""}
+                aria-pressed={emergencyArmed}
+                title={emergencyArmed ? "Click again to confirm the emergency stop" : "Arm the emergency stop (click again to confirm)"}
+                style={{
+                  padding: "4px 10px",
+                  background: "var(--colorActionRed)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 4,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontSize: 11,
+                }}
+              >
+                {emergencyArmed ? "🛑 Confirm Emergency Stop?" : "🛑 Emergency Stop"}
+              </button>
+            </div>
+          )}
+
+          {/* Interactive Desktop Canvas Viewport */}
+          <div
+            style={{
+              background: "#0c0d0e",
+              border: "2px solid var(--colorNeutralStroke1)",
+              borderRadius: 12,
+              overflow: "hidden",
+              position: "relative",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              minHeight: 450,
+              boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            {streamMode === "webrtc" ? (
+              <div style={{ position: "relative", width: "100%", display: "flex", justifyContent: "center" }}>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  onClick={handleCanvasClick}
+                  onContextMenu={handleCanvasClick}
+                  style={{
+                    maxWidth: "100%",
+                    maxHeight: "75vh",
+                    objectFit: "contain",
+                    cursor: dualControlActive ? "crosshair" : "default",
+                    userSelect: "none",
+                    background: "#000",
+                  }}
+                />
+                {webrtcStatus !== "connected" && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      color: "var(--colorNeutralForeground3)",
+                      background: "rgba(0,0,0,0.35)",
+                    }}
+                  >
+                    <div style={{ fontSize: 42 }}>📡</div>
+                    <div style={{ fontWeight: 600, fontSize: 16 }}>
+                      {webrtcStatus === "connecting" ? "Starting WebRTC stream…" : `WebRTC: ${webrtcStatus}`}
+                    </div>
+                    <div style={{ fontSize: 12 }}>Target machine: {selectedDevice} · falling back to frames if this stalls</div>
+                  </div>
+                )}
+              </div>
+            ) : currentFrame?.base64_data ? (
+              <img
+                ref={canvasRef}
+                src={`data:${currentFrame.mime_type || "image/jpeg"};base64,${currentFrame.base64_data}`}
+                alt="Live Remote Desktop"
+                onClick={handleCanvasClick}
+                onContextMenu={handleCanvasClick}
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "75vh",
+                  objectFit: "contain",
+                  cursor: dualControlActive ? "crosshair" : "default",
+                  userSelect: "none",
+                }}
+              />
+            ) : (
+              <div style={{ textAlign: "center", color: "var(--colorNeutralForeground3)", padding: 40 }}>
+                <div style={{ fontSize: 42, marginBottom: 10 }}>📡</div>
+                <div style={{ fontWeight: 600, fontSize: 16 }}>Connecting to remote desktop feed...</div>
+                <div style={{ fontSize: 12, marginTop: 4 }}>Target machine: {selectedDevice}</div>
               </div>
             )}
           </div>
-        ) : currentFrame?.base64_data ? (
-          <img
-            ref={canvasRef}
-            src={`data:${currentFrame.mime_type || "image/jpeg"};base64,${currentFrame.base64_data}`}
-            alt="Live Remote Desktop"
-            onClick={handleCanvasClick}
-            onContextMenu={handleCanvasClick}
+
+          {/* Virtual Operator Action Ribbon */}
+          <div
             style={{
-              maxWidth: "100%",
-              maxHeight: "75vh",
-              objectFit: "contain",
-              cursor: dualControlActive ? "crosshair" : "default",
-              userSelect: "none",
+              background: "var(--colorNeutralBackground2)",
+              border: "1px solid var(--colorNeutralStroke2)",
+              borderRadius: 10,
+              padding: 14,
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
             }}
-          />
-        ) : (
-          <div style={{ textAlign: "center", color: "var(--colorNeutralForeground3)", padding: 40 }}>
-            <div style={{ fontSize: 42, marginBottom: 10 }}>📡</div>
-            <div style={{ fontWeight: 600, fontSize: 16 }}>Connecting to remote desktop feed...</div>
-            <div style={{ fontSize: 12, marginTop: 4 }}>Target machine: {selectedDevice}</div>
+          >
+            <div style={{ fontWeight: 700, fontSize: 13, textTransform: "uppercase", color: "var(--colorNeutralForeground3)" }}>
+              Virtual Operator Controls & Shortcuts
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <button
+                type="button"
+                onClick={() => handleSendHotkey(selectedDevice, "win+r")}
+                style={{
+                  padding: "6px 12px",
+                  background: "var(--colorNeutralBackground2)",
+                  border: "1px solid var(--colorNeutralStroke1)",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                ⌨️ Win + R (Run)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSendHotkey(selectedDevice, "ctrl+s")}
+                style={{
+                  padding: "6px 12px",
+                  background: "var(--colorNeutralBackground2)",
+                  border: "1px solid var(--colorNeutralStroke1)",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                💾 Ctrl + S (Save)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSendHotkey(selectedDevice, "alt+tab")}
+                style={{
+                  padding: "6px 12px",
+                  background: "var(--colorNeutralBackground2)",
+                  border: "1px solid var(--colorNeutralStroke1)",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                🔄 Alt + Tab
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSendHotkey(selectedDevice, "ctrl+shift+esc")}
+                style={{
+                  padding: "6px 12px",
+                  background: "var(--colorNeutralBackground2)",
+                  border: "1px solid var(--colorNeutralStroke1)",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                📊 Task Manager
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSendHotkey(selectedDevice, "enter")}
+                style={{
+                  padding: "6px 12px",
+                  background: "var(--colorNeutralBackground2)",
+                  border: "1px solid var(--colorNeutralStroke1)",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                ⏎ Enter
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSendHotkey(selectedDevice, "esc")}
+                style={{
+                  padding: "6px 12px",
+                  background: "var(--colorNeutralBackground2)",
+                  border: "1px solid var(--colorNeutralStroke1)",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                ⎋ Escape
+              </button>
+
+              {/* Direct typing field */}
+              <div style={{ display: "flex", gap: 6, flex: 1, minWidth: 240 }}>
+                <input
+                  id="remote-typing-input"
+                  type="text"
+                  placeholder="Type string to send to focused control..."
+                  style={{
+                    flex: 1,
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    border: "1px solid var(--colorNeutralStroke1)",
+                    background: "transparent",
+                    color: "inherit",
+                    fontSize: 12,
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleSendText((e.target as HTMLInputElement).value);
+                      (e.target as HTMLInputElement).value = "";
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById("remote-typing-input") as HTMLInputElement;
+                    if (el) {
+                      handleSendText(el.value);
+                      el.value = "";
+                    }
+                  }}
+                  style={{
+                    padding: "6px 12px",
+                    background: "var(--colorActionBlue)",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Send Text
+                </button>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
-
-      {/* Virtual Operator Action Ribbon */}
-      <div
-        style={{
-          background: "var(--colorNeutralBackground2)",
-          border: "1px solid var(--colorNeutralStroke2)",
-          borderRadius: 10,
-          padding: 14,
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-        }}
-      >
-        <div style={{ fontWeight: 700, fontSize: 13, textTransform: "uppercase", color: "var(--colorNeutralForeground3)" }}>
-          Virtual Operator Controls & Shortcuts
         </div>
+      )}
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <button
-            onClick={() => handleSendHotkey("win+r")}
-            style={{ padding: "6px 12px", background: "var(--colorNeutralBackground2)", border: "1px solid var(--colorNeutralStroke1)", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-          >
-            ⌨️ Win + R (Run)
-          </button>
-          <button
-            onClick={() => handleSendHotkey("ctrl+s")}
-            style={{ padding: "6px 12px", background: "var(--colorNeutralBackground2)", border: "1px solid var(--colorNeutralStroke1)", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-          >
-            💾 Ctrl + S (Save)
-          </button>
-          <button
-            onClick={() => handleSendHotkey("alt+tab")}
-            style={{ padding: "6px 12px", background: "var(--colorNeutralBackground2)", border: "1px solid var(--colorNeutralStroke1)", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-          >
-            🔄 Alt + Tab
-          </button>
-          <button
-            onClick={() => handleSendHotkey("ctrl+shift+esc")}
-            style={{ padding: "6px 12px", background: "var(--colorNeutralBackground2)", border: "1px solid var(--colorNeutralStroke1)", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-          >
-            📊 Task Manager
-          </button>
-          <button
-            onClick={() => handleSendHotkey("enter")}
-            style={{ padding: "6px 12px", background: "var(--colorNeutralBackground2)", border: "1px solid var(--colorNeutralStroke1)", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-          >
-            ⏎ Enter
-          </button>
-          <button
-            onClick={() => handleSendHotkey("esc")}
-            style={{ padding: "6px 12px", background: "var(--colorNeutralBackground2)", border: "1px solid var(--colorNeutralStroke1)", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-          >
-            ⎋ Escape
-          </button>
-
-          {/* Direct typing field */}
-          <div style={{ display: "flex", gap: 6, flex: 1, minWidth: 240 }}>
-            <input
-              id="remote-typing-input"
-              type="text"
-              placeholder="Type string to send to focused control..."
-              style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)", background: "transparent", color: "inherit", fontSize: 12 }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleSendText((e.target as HTMLInputElement).value);
-                  (e.target as HTMLInputElement).value = "";
-                }
-              }}
-            />
-            <button
-              onClick={() => {
-                const el = document.getElementById("remote-typing-input") as HTMLInputElement;
-                if (el) {
-                  handleSendText(el.value);
-                  el.value = "";
-                }
-              }}
-              style={{ padding: "6px 12px", background: "var(--colorActionBlue)", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-            >
-              Send Text
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Fleet Software Lifecycle & 1-Click Updater Section */}
+      {/* ========================================================= */}
+      {/* FLEET SOFTWARE LIFECYCLE & 1-CLICK UPDATER SECTION        */}
+      {/* ========================================================= */}
       <div
         style={{
           background: "var(--colorNeutralBackground2)",
@@ -668,25 +1409,30 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
           </div>
         </div>
 
-        {/* Device Status Table */}
+        {/* Device Status Cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10 }}>
           {devices.map((d) => (
             <div
               key={d.id}
               style={{
-                background: "var(--colorNeutralBackground2)",
+                background: "var(--colorNeutralBackground1)",
                 borderRadius: 8,
                 padding: "10px 14px",
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
+                border: "1px solid var(--colorNeutralStroke1)",
               }}
             >
               <div>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{d.name}</div>
+                <div style={{ fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span>{isWindowsDevice(d) ? "🪟" : "🐧"}</span>
+                  <span>{d.name}</span>
+                </div>
                 <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>{d.os || "Device"}</div>
               </div>
               <button
+                type="button"
                 onClick={() => handleUpdateSingleDevice(d.id)}
                 style={{
                   padding: "4px 10px",
