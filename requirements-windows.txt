@@ -1,0 +1,2 @@
+# AI Bridge Windows Agent - All Required Packages
+-r deployment/windows/requirements.txt

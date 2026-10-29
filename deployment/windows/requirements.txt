@@ -1,0 +1,22 @@
+# AI Bridge Windows Agent - All Required Packages
+# Install with: pip install -r requirements.txt
+
+# Core Application Framework & Network Protocol
+fastapi>=0.110.0
+uvicorn>=0.29.0
+pydantic>=2.6.0
+psutil>=5.9.0
+httpx>=0.27.0
+cryptography>=42.0.0
+python-multipart>=0.0.9
+mcp>=1.6.0,<2.0.0
+
+# Desktop Vision, Automation & Screen Capture
+Pillow>=10.0.0
+
+# Real-Time WebRTC Desktop Media Streaming
+aiortc>=1.8.0
+av>=11.0.0
+
+# Windows System Integration & System Tray
+pystray>=0.19.5

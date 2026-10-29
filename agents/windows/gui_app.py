@@ -467,8 +467,15 @@ class SystemTrayManager:
                 None,
             )
 
-            # Use standard application icon
-            self.hicon = win32gui.LoadIcon(0, win32con.IDI_APPLICATION)
+            # Load custom AI Bridge icon if available, fallback to standard application icon
+            ico_file = Path(__file__).resolve().parents[2] / "assets" / "ai-bridge.ico"
+            if ico_file.exists():
+                try:
+                    self.hicon = win32gui.LoadImage(0, str(ico_file), win32con.IMAGE_ICON, 0, 0, win32con.LR_LOADFROMFILE | win32con.LR_DEFAULTSIZE)
+                except Exception:
+                    self.hicon = win32gui.LoadIcon(0, win32con.IDI_APPLICATION)
+            else:
+                self.hicon = win32gui.LoadIcon(0, win32con.IDI_APPLICATION)
             nid = (
                 self.hwnd,
                 0,
@@ -539,6 +546,14 @@ class AgentGuiApp:
         self.root.title("AI Bridge Windows Client (User App)")
         self.root.geometry("960x720")
         self.root.minsize(820, 600)
+
+        # Set custom AI Bridge branding icon
+        ico_path = Path(__file__).resolve().parents[2] / "assets" / "ai-bridge.ico"
+        if ico_path.exists():
+            try:
+                self.root.iconbitmap(str(ico_path))
+            except Exception:
+                pass
 
         self.cfg = load_agent_config()
         self.theme_name = self.cfg.get("theme", "dark")

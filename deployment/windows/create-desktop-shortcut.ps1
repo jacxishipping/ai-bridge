@@ -23,7 +23,12 @@ foreach ($Dir in @($DesktopDir, $StartMenuDir)) {
         $Shortcut.Arguments = "`"$GuiScript`""
         $Shortcut.WorkingDirectory = $RepoRoot
         $Shortcut.Description = "AI Bridge Windows Agent (Fluent 2 Desktop App)"
-        $Shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,18"
+        $IcoPath = Join-Path $RepoRoot "assets\ai-bridge.ico"
+        if (Test-Path $IcoPath) {
+            $Shortcut.IconLocation = "$IcoPath,0"
+        } else {
+            $Shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,18"
+        }
         $Shortcut.Save()
         Write-Host "Created shortcut: $ShortcutPath"
     }

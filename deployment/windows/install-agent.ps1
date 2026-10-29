@@ -23,7 +23,13 @@ py -3 -m venv "$env:ProgramData\ai-bridge\.venv"
 # start in the repo folder, so a relative script path fails instantly).
 $RepoRoot = (Resolve-Path "$PSScriptRoot\..\..").Path
 Set-Location $RepoRoot
-& "$env:ProgramData\ai-bridge\.venv\Scripts\python.exe" -m pip install -e .
+$VenvPy = "$env:ProgramData\ai-bridge\.venv\Scripts\python.exe"
+& $VenvPy -m pip install --upgrade pip
+$ReqFile = Join-Path $PSScriptRoot "requirements.txt"
+if (Test-Path $ReqFile) {
+    & $VenvPy -m pip install -r $ReqFile
+}
+& $VenvPy -m pip install -e .
 $AgentPath = Join-Path $RepoRoot "agents\windows\agent_main.py"
 $taskCmd = "'$env:ProgramData\ai-bridge\.venv\Scripts\python.exe' '$AgentPath' --control-url $ControlUrl --device-token $DeviceToken"
 schtasks /create /tn "AI Bridge Agent" /tr $taskCmd /sc onstart /ru $User /rl limited /f
