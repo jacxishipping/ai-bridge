@@ -79,6 +79,35 @@ flowchart LR
 
 ## Quick Start
 
+### ⚡ 1-Command Universal Magic Install (Fresh Bare Servers & Cloud Droplets)
+
+On a completely fresh server (Ubuntu, Debian, CentOS, RHEL, AlmaLinux, Rocky, Fedora, Arch, Alpine, openSUSE):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/jacxishipping/ai-bridge/main/magic-install.sh | sudo bash
+```
+
+> **Automated Magic Capabilities:**
+> - Detects Linux distribution & hardware architecture (x86_64, aarch64/ARM64).
+> - Checks and installs all missing system packages, build toolchains (`gcc`, `make`), and Python 3.10+.
+> - Auto-provisions a swapfile if the cloud instance has low RAM (<1GB) so package compilation never crashes from OOM.
+> - Clones or updates AI Bridge in `/opt/ai-bridge` and provisions an isolated virtual environment (`.venv`).
+> - Installs Xvfb & headless GUI automation packages for visual verification and screen capture.
+> - Enrolls the agent with your Control Plane (`https://jxiptvplayer.app`).
+> - Configures, hardens, and starts the systemd service (`ai-bridge-agent.service`) to auto-restart on boot.
+
+**Unattended / Automated Cloud-Init Deployment:**
+```bash
+curl -sSL https://raw.githubusercontent.com/jacxishipping/ai-bridge/main/magic-install.sh | sudo bash -s -- -y --control-url "https://jxiptvplayer.app" --admin-token "YOUR_ADMIN_TOKEN"
+```
+
+**For Fresh Windows Servers or Desktops (PowerShell as Administrator):**
+```powershell
+irm https://raw.githubusercontent.com/jacxishipping/ai-bridge/main/magic-install.ps1 | iex
+```
+
+---
+
 ### 1. Local MCP Server (Stdio)
 
 Run AI Bridge locally for Claude Desktop, Cursor, or Gemini CLI:
