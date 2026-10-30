@@ -76,10 +76,15 @@ IS_ROOT=false
 if [ "$(id -u)" -eq 0 ]; then
     IS_ROOT=true
     CONFIG_DIR="/etc/ai-bridge"
-    DEFAULT_WORKSPACE="/home/ai-bridge/ai-bridge-workspace"
+    DEFAULT_WORKSPACE="/var/lib/ai-bridge/workspace"
     SYSTEMD_UNIT_PATH="/etc/systemd/system/ai-bridge-agent.service"
     SYSTEMD_CMD="systemctl"
-    SERVICE_USER="ai-bridge"
+    # When installed in /root or running as root, default to root service user
+    if [[ "$REPO_ROOT" =~ ^/root ]] || [ "${SERVICE_USER:-root}" = "root" ]; then
+        SERVICE_USER="root"
+    else
+        SERVICE_USER="ai-bridge"
+    fi
 else
     CONFIG_DIR="${HOME}/.ai-bridge"
     DEFAULT_WORKSPACE="${HOME}/.ai-bridge/workspace"
@@ -279,13 +284,18 @@ ensure_virtualenv() {
 # --- Service Account Setup (Root Only) ---------------------------------------
 ensure_service_user() {
     if [ "$IS_ROOT" = true ]; then
-        if ! id "ai-bridge" >/dev/null 2>&1; then
-            log_info "Creating dedicated system user 'ai-bridge'..."
-            useradd --system --create-home --shell /usr/sbin/nologin ai-bridge || true
-            log_ok "User 'ai-bridge' created."
+        if [ "$SERVICE_USER" != "root" ]; then
+            if ! id "$SERVICE_USER" >/dev/null 2>&1; then
+                log_info "Creating dedicated system user '$SERVICE_USER'..."
+                useradd --system --create-home --shell /usr/sbin/nologin "$SERVICE_USER" || true
+                log_ok "User '$SERVICE_USER' created."
+            fi
+            mkdir -p "$DEFAULT_WORKSPACE" /var/lib/ai-bridge "$CONFIG_DIR"
+            chown -R "$SERVICE_USER:$SERVICE_USER" "$DEFAULT_WORKSPACE" /var/lib/ai-bridge "$CONFIG_DIR" 2>/dev/null || true
+        else
+            mkdir -p "$DEFAULT_WORKSPACE" /var/lib/ai-bridge "$CONFIG_DIR"
+            chmod 700 "$CONFIG_DIR" 2>/dev/null || true
         fi
-        mkdir -p "$DEFAULT_WORKSPACE" /var/lib/ai-bridge "$CONFIG_DIR"
-        chown -R ai-bridge:ai-bridge "$DEFAULT_WORKSPACE" /var/lib/ai-bridge "$CONFIG_DIR" 2>/dev/null || true
     fi
 }
 
@@ -332,7 +342,9 @@ EOF
     chmod 600 "$TOKEN_FILE"
 
     if [ "$IS_ROOT" = true ]; then
-        chown -R ai-bridge:ai-bridge "$CONFIG_DIR" 2>/dev/null || true
+        if [ "$SERVICE_USER" != "root" ]; then
+            chown -R "$SERVICE_USER:$SERVICE_USER" "$CONFIG_DIR" 2>/dev/null || true
+        fi
     fi
 
     log_ok "Configuration saved securely to $CONFIG_FILE"
@@ -404,6 +416,11 @@ install_systemd_service() {
     local exec_py="$PYTHON_BIN"
     local work_dir="$REPO_ROOT"
     local env_f="$CONFIG_FILE"
+
+    # If the work_dir is inside /root, service user MUST be root to prevent 200/CHDIR Permission denied
+    if [[ "$work_dir" =~ ^/root ]]; then
+        SERVICE_USER="root"
+    fi
 
     if [ "$IS_ROOT" = true ]; then
         mkdir -p "$(dirname "$SYSTEMD_UNIT_PATH")"
@@ -616,7 +633,8 @@ run_foreground() {
 }
 
 service_start() {
-    if [ ! -f "$SYSTEMD_UNIT_PATH" ]; then
+    # If unit doesn't exist OR has invalid User=ai-bridge while repo is in /root, auto-repair unit
+    if [ ! -f "$SYSTEMD_UNIT_PATH" ] || ( [[ "$REPO_ROOT" =~ ^/root ]] && grep -q "User=ai-bridge" "$SYSTEMD_UNIT_PATH" 2>/dev/null ); then
         install_systemd_service
     fi
 

@@ -251,3 +251,4 @@ def capture_desktop(monitor_index: int | None = None, scale: float = 1.0) -> Ima
         img = img.convert("RGB")
 
     return img
+

@@ -494,3 +494,4 @@ export const TerminalStudio: React.FC<TerminalStudioProps> = ({ devices, onNotic
     </div>
   );
 };
+

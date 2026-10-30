@@ -284,3 +284,4 @@ def list_terminal_sessions(device_id: str | None = None) -> list[dict]:
                     "rows": s.rows,
                 })
         return results
+

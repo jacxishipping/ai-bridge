@@ -19,3 +19,4 @@ if %EXIT_CODE% NEQ 0 (
     echo [AI Bridge] Build completed successfully. Check the 'dist' folder!
 )
 exit /b %EXIT_CODE%
+
