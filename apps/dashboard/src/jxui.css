@@ -1,0 +1,958 @@
+/* ==============================================================================
+   JXUI Design System Core — Autonomous Fleet & Edge Orchestration Cloud
+   Reimagining Enterprise UI/UX: Inspired by https://jxui.vercel.app/
+   Awwwards-Winning Silicon Valley Tier: Bento Grids, Specular Glass, 
+   Spring Kinematics, Obsidian Dark Mode, and Tactile Zero-Notch Controls.
+   ============================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap');
+
+/* ==============================================================================
+   1. Theme Variables & Token Architecture
+   ============================================================================== */
+:root,
+[data-theme="light"],
+html:not([data-theme="dark"]) {
+  color-scheme: light;
+
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', monospace;
+
+  /* JX Brand Palette */
+  --jx-primary: #4f46e5;
+  --jx-primary-hover: #4338ca;
+  --jx-primary-glow: rgba(79, 70, 229, 0.25);
+  --jx-accent: #8b5cf6;
+  --jx-cyan: #0ea5e9;
+  --jx-emerald: #10b981;
+  --jx-amber: #f59e0b;
+  --jx-rose: #f43f5e;
+
+  /* Canvas & Mesh Gradients */
+  --jx-canvas: #f8fafc;
+  --jx-canvas-gradient: radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.05) 0px, transparent 50%),
+                        radial-gradient(at 100% 100%, rgba(14, 165, 233, 0.05) 0px, transparent 50%),
+                        #f8fafc;
+  --jx-surface-base: #ffffff;
+  --jx-surface-raised: #ffffff;
+  --jx-surface-overlay: rgba(255, 255, 255, 0.88);
+  --jx-surface-glass: rgba(255, 255, 255, 0.78);
+  --jx-surface-sunken: #f1f5f9;
+  --jx-surface-hover: #f8fafc;
+  --jx-surface-active: #e2e8f0;
+
+  /* Typography */
+  --jx-text-primary: #0f172a;
+  --jx-text-secondary: #475569;
+  --jx-text-tertiary: #94a3b8;
+  --jx-text-inverse: #ffffff;
+
+  /* Strokes & Specular Highlights */
+  --jx-border-subtle: rgba(226, 232, 240, 0.85);
+  --jx-border-strong: rgba(203, 213, 225, 0.9);
+  --jx-border-focus: #6366f1;
+  --jx-specular-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.95);
+
+  /* Depth & Shadows */
+  --jx-shadow-1: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.02), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --jx-shadow-2: 0 10px 25px -4px rgba(15, 23, 42, 0.08), 0 4px 10px -2px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --jx-shadow-3: 0 20px 40px -8px rgba(15, 23, 42, 0.14), 0 8px 16px -4px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --jx-shadow-glow: 0 0 24px -4px rgba(99, 102, 241, 0.35);
+
+  /* Fluent 2 Override Tokens */
+  --fontFamilyBase: var(--font-sans);
+  --fontFamilyMonospace: var(--font-mono);
+  --colorBrandBackground: var(--jx-primary);
+  --colorBrandBackgroundHover: var(--jx-primary-hover);
+  --colorBrandBackground2: #eef2ff;
+  --colorBrandForeground1: var(--jx-primary);
+  --colorNeutralBackground1: var(--jx-surface-base);
+  --colorNeutralBackground1Hover: var(--jx-surface-hover);
+  --colorNeutralBackground2: var(--jx-canvas);
+  --colorNeutralBackground3: var(--jx-surface-sunken);
+  --colorNeutralForeground1: var(--jx-text-primary);
+  --colorNeutralForeground2: var(--jx-text-secondary);
+  --colorNeutralForeground3: var(--jx-text-tertiary);
+  --colorNeutralStroke1: var(--jx-border-subtle);
+  --colorNeutralStroke2: var(--jx-border-strong);
+  --colorHeaderAcrylic: var(--jx-surface-glass);
+}
+
+[data-theme="dark"],
+html.dark {
+  color-scheme: dark;
+
+  /* JX Brand Palette - Radiant Neon Spectrum */
+  --jx-primary: #6366f1;
+  --jx-primary-hover: #4f46e5;
+  --jx-primary-glow: rgba(99, 102, 241, 0.4);
+  --jx-accent: #a855f7;
+  --jx-cyan: #38bdf8;
+  --jx-emerald: #34d399;
+  --jx-amber: #fbbf24;
+  --jx-rose: #fb7185;
+
+  /* Surfaces & Canvas - Obsidian Glass Mesh */
+  --jx-canvas: #080c14;
+  --jx-canvas-gradient: radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.14) 0px, transparent 45%),
+                        radial-gradient(at 100% 0%, rgba(168, 85, 247, 0.10) 0px, transparent 40%),
+                        radial-gradient(at 50% 100%, rgba(14, 165, 233, 0.08) 0px, transparent 50%),
+                        #080c14;
+  --jx-surface-base: #0f172b;
+  --jx-surface-raised: #151e33;
+  --jx-surface-overlay: rgba(15, 23, 43, 0.88);
+  --jx-surface-glass: rgba(15, 23, 43, 0.75);
+  --jx-surface-sunken: #0b1120;
+  --jx-surface-hover: #1e293b;
+  --jx-surface-active: #27354f;
+
+  /* Typography */
+  --jx-text-primary: #f8fafc;
+  --jx-text-secondary: #94a3b8;
+  --jx-text-tertiary: #64748b;
+  --jx-text-inverse: #0f172a;
+
+  /* Strokes & Specular Highlights */
+  --jx-border-subtle: rgba(255, 255, 255, 0.08);
+  --jx-border-strong: rgba(255, 255, 255, 0.15);
+  --jx-border-focus: #818cf8;
+  --jx-specular-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.15);
+
+  /* Depth & Shadows */
+  --jx-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --jx-shadow-2: 0 10px 25px -4px rgba(0, 0, 0, 0.7), 0 4px 10px -2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --jx-shadow-3: 0 25px 50px -12px rgba(0, 0, 0, 0.9), 0 12px 24px -6px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  --jx-shadow-glow: 0 0 32px -4px rgba(99, 102, 241, 0.45);
+
+  /* Fluent 2 Override Tokens */
+  --fontFamilyBase: var(--font-sans);
+  --fontFamilyMonospace: var(--font-mono);
+  --colorBrandBackground: var(--jx-primary);
+  --colorBrandBackgroundHover: var(--jx-primary-hover);
+  --colorBrandBackground2: rgba(99, 102, 241, 0.2);
+  --colorBrandForeground1: var(--jx-primary);
+  --colorNeutralBackground1: var(--jx-surface-base);
+  --colorNeutralBackground1Hover: var(--jx-surface-hover);
+  --colorNeutralBackground2: var(--jx-canvas);
+  --colorNeutralBackground3: var(--jx-surface-sunken);
+  --colorNeutralForeground1: var(--jx-text-primary);
+  --colorNeutralForeground2: var(--jx-text-secondary);
+  --colorNeutralForeground3: var(--jx-text-tertiary);
+  --colorNeutralStroke1: var(--jx-border-subtle);
+  --colorNeutralStroke2: var(--jx-border-strong);
+  --colorHeaderAcrylic: var(--jx-surface-glass);
+}
+
+/* ==============================================================================
+   2. Reset & Global Aesthetics
+   ============================================================================== */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body.jx-body,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans) !important;
+  background: var(--jx-canvas-gradient) !important;
+  background-attachment: fixed !important;
+  color: var(--jx-text-primary) !important;
+  -webkit-font-smoothing: antialiased !important;
+  -moz-osx-font-smoothing: grayscale !important;
+  line-height: 1.5;
+  letter-spacing: -0.015em;
+  overflow-x: hidden;
+}
+
+::selection {
+  background-color: rgba(99, 102, 241, 0.28) !important;
+  color: var(--jx-primary) !important;
+}
+
+code, kbd, samp, pre {
+  font-family: var(--font-mono) !important;
+}
+
+/* Keyframes */
+@keyframes jx-pulse-radar {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+@keyframes jx-shimmer-flow {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes jx-command-slide {
+  from { opacity: 0; transform: translateY(-12px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes jx-toast-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ==============================================================================
+   3. JXUI Layout Shell & Floating Topbar (.f2-shell, .f2-topbar)
+   ============================================================================== */
+.f2-shell {
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 100vh !important;
+  background: transparent !important;
+}
+
+.f2-topbar {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 50 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  height: 64px !important;
+  padding: 0 28px !important;
+  background: var(--jx-surface-glass) !important;
+  backdrop-filter: blur(20px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(190%) !important;
+  border-bottom: 1px solid var(--jx-border-subtle) !important;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.05), var(--jx-specular-highlight) !important;
+}
+
+.f2-brand {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  cursor: pointer;
+}
+
+.f2-brand-logo {
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 12px !important;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: #ffffff !important;
+  font-weight: 800 !important;
+  font-size: 16px !important;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
+}
+
+.f2-brand-logo svg {
+  width: 20px !important;
+  height: 20px !important;
+}
+
+.f2-topbar-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+/* Spotlight Command Trigger (⌘K Pill) */
+.f2-search-trigger {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 7px 14px !important;
+  border-radius: 12px !important;
+  background: var(--jx-surface-sunken) !important;
+  border: 1px solid var(--jx-border-subtle) !important;
+  color: var(--jx-text-secondary) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 180ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  min-width: 230px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+.f2-search-trigger:hover {
+  border-color: var(--jx-primary) !important;
+  color: var(--jx-text-primary) !important;
+  background: var(--jx-surface-hover) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.18) !important;
+}
+
+.f2-kbd {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 2px !important;
+  padding: 2px 7px !important;
+  border-radius: 6px !important;
+  background: var(--jx-surface-base) !important;
+  border: 1px solid var(--jx-border-strong) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  color: var(--jx-text-tertiary) !important;
+  text-transform: uppercase !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Switch & Controls */
+.f2-switch-label {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  color: var(--jx-text-secondary) !important;
+  cursor: pointer !important;
+}
+
+/* ==============================================================================
+   4. JXUI Navigation Rail / Sidebar (.f2-nav, .f2-nav-item)
+   ============================================================================== */
+.f2-body {
+  display: flex !important;
+  flex: 1 !important;
+}
+
+.f2-nav {
+  width: 268px !important;
+  flex-shrink: 0 !important;
+  background: var(--jx-surface-glass) !important;
+  backdrop-filter: blur(18px) !important;
+  border-right: 1px solid var(--jx-border-subtle) !important;
+  padding: 22px 14px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+}
+
+.f2-nav-section-label {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.06em !important;
+  color: var(--jx-text-tertiary) !important;
+  padding: 14px 12px 6px !important;
+}
+
+.f2-nav-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 9px 14px !important;
+  border-radius: 12px !important;
+  color: var(--jx-text-secondary) !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 180ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  text-decoration: none !important;
+  position: relative !important;
+  border: 1px solid transparent !important;
+}
+
+.f2-nav-item:hover {
+  background: var(--jx-surface-hover) !important;
+  color: var(--jx-text-primary) !important;
+  transform: translateX(2px) !important;
+}
+
+.f2-nav-item[data-active="true"] {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.14), rgba(168, 85, 247, 0.10)) !important;
+  color: var(--jx-primary) !important;
+  font-weight: 600 !important;
+  border-color: rgba(99, 102, 241, 0.28) !important;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.14), var(--jx-specular-highlight) !important;
+}
+
+.f2-nav-item-icon {
+  width: 20px !important;
+  height: 20px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: inherit !important;
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+.f2-nav-item:hover .f2-nav-item-icon {
+  transform: scale(1.1) !important;
+}
+
+.f2-nav-counter {
+  margin-left: auto !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  padding: 2px 8px !important;
+  border-radius: 9999px !important;
+  background: var(--jx-surface-sunken) !important;
+  color: var(--jx-text-secondary) !important;
+  border: 1px solid var(--jx-border-subtle) !important;
+  font-family: var(--font-mono) !important;
+}
+
+.f2-nav-counter[data-warn="true"] {
+  background: rgba(244, 63, 94, 0.15) !important;
+  color: var(--jx-rose) !important;
+  border-color: rgba(244, 63, 94, 0.3) !important;
+  animation: jx-pulse-radar 2s infinite !important;
+}
+
+/* ==============================================================================
+   5. Canvas, Bento Cards & KPI Grid (.f2-canvas, .f2-card, .f2-kpi-card)
+   ============================================================================== */
+.f2-canvas {
+  flex: 1 !important;
+  padding: 32px 42px !important;
+  max-width: 1680px !important;
+  margin: 0 auto !important;
+  width: 100% !important;
+}
+
+.f2-page-header {
+  margin-bottom: 28px !important;
+}
+
+.f2-page-title {
+  font-size: 28px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.035em !important;
+  color: var(--jx-text-primary) !important;
+  margin: 0 0 6px !important;
+}
+
+.f2-page-subtitle {
+  font-size: 14.5px !important;
+  color: var(--jx-text-secondary) !important;
+  margin: 0 !important;
+  max-width: 820px !important;
+  line-height: 1.55 !important;
+}
+
+/* JX Bento Cards */
+.f2-card {
+  background: var(--jx-surface-raised) !important;
+  border: 1px solid var(--jx-border-subtle) !important;
+  border-radius: 20px !important;
+  padding: 24px !important;
+  box-shadow: var(--jx-shadow-1) !important;
+  transition: all 240ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.f2-card::before {
+  content: "" !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  height: 1px !important;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent) !important;
+  pointer-events: none !important;
+}
+
+.f2-card:hover {
+  border-color: rgba(99, 102, 241, 0.32) !important;
+  box-shadow: var(--jx-shadow-2) !important;
+}
+
+.f2-card-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-bottom: 18px !important;
+  padding-bottom: 14px !important;
+  border-bottom: 1px solid var(--jx-border-subtle) !important;
+}
+
+.f2-card-title {
+  font-size: 16.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em !important;
+  color: var(--jx-text-primary) !important;
+  margin: 0 !important;
+}
+
+/* Bento KPI Cards */
+.f2-kpi-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)) !important;
+  gap: 20px !important;
+  margin-bottom: 28px !important;
+}
+
+.f2-kpi-card {
+  background: var(--jx-surface-raised) !important;
+  border: 1px solid var(--jx-border-subtle) !important;
+  border-radius: 20px !important;
+  padding: 22px 24px !important;
+  box-shadow: var(--jx-shadow-1) !important;
+  transition: all 240ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  position: relative !important;
+  cursor: pointer !important;
+  overflow: hidden !important;
+}
+
+.f2-kpi-card:hover {
+  transform: translateY(-2px) !important;
+  border-color: rgba(99, 102, 241, 0.45) !important;
+  box-shadow: var(--jx-shadow-2), 0 0 20px rgba(99, 102, 241, 0.15) !important;
+}
+
+.f2-kpi-top {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-bottom: 14px !important;
+}
+
+.f2-kpi-top > span:first-child {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  color: var(--jx-text-tertiary) !important;
+}
+
+.f2-kpi-icon {
+  width: 38px !important;
+  height: 38px !important;
+  border-radius: 12px !important;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.16), rgba(168, 85, 247, 0.12)) !important;
+  color: var(--jx-primary) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+}
+
+.f2-kpi-icon svg {
+  width: 20px !important;
+  height: 20px !important;
+}
+
+.f2-kpi-value {
+  font-size: 34px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.04em !important;
+  color: var(--jx-text-primary) !important;
+  margin-bottom: 6px !important;
+}
+
+/* Secondary Grids */
+.f2-overview-secondary-grid {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)) !important;
+  gap: 20px !important;
+  margin-bottom: 28px !important;
+}
+
+/* ==============================================================================
+   6. JXUI Tactile Morphing Buttons (.f2-btn, .f2-btn-primary, .f2-icon-btn)
+   ============================================================================== */
+.f2-btn,
+button.f2-btn-primary,
+button.f2-btn-subtle,
+button.f2-btn-danger,
+.f2-btn-primary,
+.f2-btn-subtle,
+.f2-btn-danger {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  padding: 9px 18px !important;
+  border-radius: 12px !important;
+  font-family: var(--font-sans) !important;
+  font-size: 13.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  cursor: pointer !important;
+  transition: all 180ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  text-decoration: none !important;
+  position: relative !important;
+  border: 1px solid transparent !important;
+}
+
+.f2-btn:active,
+.f2-btn-primary:active,
+.f2-btn-subtle:active,
+.f2-btn-danger:active {
+  transform: scale(0.97) !important;
+}
+
+.f2-btn-primary {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  box-shadow: 0 2px 10px rgba(79, 70, 229, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
+}
+
+.f2-btn-primary:hover {
+  background: linear-gradient(135deg, #7175f3 0%, #5b53ea 100%) !important;
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+  transform: translateY(-1px) !important;
+}
+
+.f2-btn-subtle {
+  background: var(--jx-surface-sunken) !important;
+  color: var(--jx-text-secondary) !important;
+  border-color: var(--jx-border-subtle) !important;
+}
+
+.f2-btn-subtle:hover {
+  background: var(--jx-surface-hover) !important;
+  color: var(--jx-text-primary) !important;
+  border-color: var(--jx-border-strong) !important;
+  transform: translateY(-1px) !important;
+}
+
+.f2-btn-danger {
+  background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  box-shadow: 0 2px 10px rgba(244, 63, 94, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+}
+
+.f2-btn-danger:hover {
+  background: linear-gradient(135deg, #fb7185 0%, #f43f5e 100%) !important;
+  box-shadow: 0 4px 16px rgba(244, 63, 94, 0.45) !important;
+  transform: translateY(-1px) !important;
+}
+
+.f2-icon-btn {
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 10px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: var(--jx-surface-sunken) !important;
+  border: 1px solid var(--jx-border-subtle) !important;
+  color: var(--jx-text-secondary) !important;
+  cursor: pointer !important;
+  transition: all 160ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+.f2-icon-btn:hover {
+  background: var(--jx-surface-hover) !important;
+  color: var(--jx-text-primary) !important;
+  border-color: var(--jx-border-strong) !important;
+  transform: translateY(-1px) !important;
+}
+
+.f2-icon-btn-primary {
+  color: var(--jx-primary) !important;
+  border-color: rgba(99, 102, 241, 0.3) !important;
+  background: rgba(99, 102, 241, 0.1) !important;
+}
+
+.f2-icon-btn-danger {
+  color: var(--jx-rose) !important;
+  border-color: rgba(244, 63, 94, 0.3) !important;
+  background: rgba(244, 63, 94, 0.1) !important;
+}
+
+/* ==============================================================================
+   7. Zero-Notch Contextual Inputs (.f2-input, .f2-select)
+   ============================================================================== */
+.f2-input,
+.f2-select,
+textarea.f2-input,
+input.f2-input {
+  width: 100% !important;
+  padding: 10px 14px !important;
+  border-radius: 12px !important;
+  background: var(--jx-surface-sunken) !important;
+  border: 1px solid var(--jx-border-subtle) !important;
+  color: var(--jx-text-primary) !important;
+  font-family: var(--font-sans) !important;
+  font-size: 13.5px !important;
+  transition: all 180ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  outline: none !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+}
+
+.f2-input:focus,
+.f2-select:focus {
+  border-color: var(--jx-border-focus) !important;
+  background: var(--jx-surface-base) !important;
+  box-shadow: 0 0 0 3px var(--jx-primary-glow), inset 0 1px 1px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Filter Chips */
+.f2-filter-chips {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  margin-bottom: 16px !important;
+}
+
+.f2-filter-chip {
+  padding: 5px 12px !important;
+  border-radius: 10px !important;
+  background: var(--jx-surface-sunken) !important;
+  border: 1px solid var(--jx-border-subtle) !important;
+  color: var(--jx-text-secondary) !important;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 140ms ease !important;
+}
+
+.f2-filter-chip:hover {
+  background: var(--jx-surface-hover) !important;
+  color: var(--jx-text-primary) !important;
+  border-color: var(--jx-border-strong) !important;
+}
+
+.f2-filter-chip[data-active="true"] {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.12)) !important;
+  color: var(--jx-primary) !important;
+  font-weight: 600 !important;
+  border-color: rgba(99, 102, 241, 0.3) !important;
+}
+
+/* ==============================================================================
+   8. Notion/Linear Data Grids (.f2-table, .f2-table-wrap)
+   ============================================================================== */
+.f2-table-wrap,
+.f2-table-container {
+  border-radius: 18px !important;
+  border: 1px solid var(--jx-border-subtle) !important;
+  background: var(--jx-surface-raised) !important;
+  overflow: hidden !important;
+  box-shadow: var(--jx-shadow-1) !important;
+}
+
+.f2-table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  text-align: left !important;
+  font-size: 13.5px !important;
+}
+
+.f2-table th {
+  background: var(--jx-surface-sunken) !important;
+  color: var(--jx-text-secondary) !important;
+  font-weight: 700 !important;
+  font-size: 11.5px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  padding: 14px 18px !important;
+  border-bottom: 1px solid var(--jx-border-subtle) !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 10 !important;
+}
+
+.f2-table td {
+  padding: 14px 18px !important;
+  border-bottom: 1px solid var(--jx-border-subtle) !important;
+  color: var(--jx-text-primary) !important;
+  transition: background 120ms ease !important;
+}
+
+.f2-table tr:hover td {
+  background: var(--jx-surface-hover) !important;
+}
+
+.f2-table tr:last-child td {
+  border-bottom: none !important;
+}
+
+/* ==============================================================================
+   9. Badges, Chips & Progress Bars (.f2-badge, .f2-bar-row)
+   ============================================================================== */
+.f2-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  padding: 3px 10px !important;
+  border-radius: 9999px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  border: 1px solid transparent !important;
+}
+
+.f2-badge[data-tone="green"] {
+  background: rgba(16, 185, 129, 0.12) !important;
+  color: var(--jx-emerald) !important;
+  border-color: rgba(16, 185, 129, 0.25) !important;
+}
+
+.f2-badge[data-tone="green"] .f2-badge-dot {
+  background: var(--jx-emerald) !important;
+  animation: jx-pulse-radar 1.8s infinite !important;
+}
+
+.f2-badge[data-tone="red"] {
+  background: rgba(244, 63, 94, 0.12) !important;
+  color: var(--jx-rose) !important;
+  border-color: rgba(244, 63, 94, 0.25) !important;
+}
+
+.f2-badge[data-tone="red"] .f2-badge-dot {
+  background: var(--jx-rose) !important;
+}
+
+.f2-badge[data-tone="amber"] {
+  background: rgba(245, 158, 11, 0.12) !important;
+  color: var(--jx-amber) !important;
+  border-color: rgba(245, 158, 11, 0.25) !important;
+}
+
+.f2-badge[data-tone="amber"] .f2-badge-dot {
+  background: var(--jx-amber) !important;
+}
+
+.f2-badge[data-tone="grey"] {
+  background: rgba(148, 163, 184, 0.12) !important;
+  color: var(--jx-text-tertiary) !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+.f2-badge-dot {
+  width: 7px !important;
+  height: 7px !important;
+  border-radius: 50% !important;
+}
+
+/* Horizontal Progress Bars */
+.f2-bar-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  font-size: 13px !important;
+  margin-bottom: 8px !important;
+}
+
+.f2-bar-track {
+  flex: 1 !important;
+  height: 8px !important;
+  border-radius: 9999px !important;
+  background: var(--jx-surface-sunken) !important;
+  overflow: hidden !important;
+  border: 1px solid var(--jx-border-subtle) !important;
+}
+
+.f2-bar-fill {
+  height: 100% !important;
+  border-radius: 9999px !important;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6) !important;
+  transition: width 300ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+/* ==============================================================================
+   10. Command Palette Modal & Dialogs (.f2-modal-backdrop, .f2-cmd-modal)
+   ============================================================================== */
+.f2-modal-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 100 !important;
+  background: rgba(0, 0, 0, 0.65) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: center !important;
+  padding-top: 14vh !important;
+}
+
+.f2-cmd-modal {
+  width: 100% !important;
+  max-width: 620px !important;
+  background: var(--jx-surface-raised) !important;
+  border: 1px solid var(--jx-border-strong) !important;
+  border-radius: 22px !important;
+  box-shadow: var(--jx-shadow-3), var(--jx-shadow-glow) !important;
+  overflow: hidden !important;
+  animation: jx-command-slide 200ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+.f2-cmd-input {
+  width: 100% !important;
+  height: 52px !important;
+  padding: 0 20px !important;
+  border: none !important;
+  border-bottom: 1px solid var(--jx-border-subtle) !important;
+  background: transparent !important;
+  color: var(--jx-text-primary) !important;
+  font-family: var(--font-sans) !important;
+  font-size: 15.5px !important;
+  outline: none !important;
+}
+
+.f2-cmd-list {
+  max-height: 380px !important;
+  overflow-y: auto !important;
+  padding: 10px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+}
+
+.f2-cmd-item {
+  width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 10px 14px !important;
+  border-radius: 12px !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  color: var(--jx-text-primary) !important;
+  cursor: pointer !important;
+  transition: all 120ms ease !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+.f2-cmd-item:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.10)) !important;
+  color: var(--jx-primary) !important;
+}
+
+/* ==============================================================================
+   11. Terminal & Vision Studio (.f2-terminal-window, .f2-vision-hud)
+   ============================================================================== */
+.f2-terminal-window {
+  border-radius: 20px !important;
+  overflow: hidden !important;
+  background: #0b0f19 !important;
+  border: 1px solid var(--jx-border-strong) !important;
+  box-shadow: var(--jx-shadow-3) !important;
+}
+
+.f2-terminal-header {
+  height: 44px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 0 16px !important;
+  background: rgba(15, 23, 42, 0.95) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.f2-terminal-dots {
+  display: flex !important;
+  gap: 8px !important;
+}
+
+.f2-terminal-dot {
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+}
+
+.f2-terminal-body {
+  padding: 20px !important;
+  font-family: var(--font-mono) !important;
+  font-size: 13.5px !important;
+  color: #f1f5f9 !important;
+  background: #080c14 !important;
+}

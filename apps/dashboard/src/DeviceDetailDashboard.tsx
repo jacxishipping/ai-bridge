@@ -57,11 +57,11 @@ const KNOWN_PORTS: Record<number, string> = {
   27017: "MongoDB",
 };
 
-/* Fluent 2 SVG Mini Sparkline */
+/* JXUI Telemetry Neon Sparkline */
 function Sparkline({
   data,
-  color = "#0078d4",
-  height = 34,
+  color = "#6366f1",
+  height = 36,
   width = 160,
 }: {
   data: number[];
@@ -89,13 +89,14 @@ function Sparkline({
     <svg width={width} height={height} style={{ overflow: "visible", display: "block" }}>
       <defs>
         <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.32" />
+          <stop offset="0%" stopColor={color} stopOpacity="0.45" />
           <stop offset="100%" stopColor={color} stopOpacity="0.0" />
         </linearGradient>
       </defs>
       <path d={fillD} fill={`url(#${gradId})`} />
-      <path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={lastX} cy={lastY} r="3" fill={color} />
+      <path d={d} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={lastX} cy={lastY} r="3.5" fill={color} />
+      <circle cx={lastX} cy={lastY} r="6.5" fill={color} opacity="0.35" />
     </svg>
   );
 }

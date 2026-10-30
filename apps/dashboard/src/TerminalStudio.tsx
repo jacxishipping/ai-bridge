@@ -220,8 +220,9 @@ export const TerminalStudio: React.FC<TerminalStudioProps> = ({ devices, onNotic
                   fontSize: 10,
                   padding: "2px 8px",
                   borderRadius: 12,
-                  background: isWindows ? "rgba(0, 120, 212, 0.15)" : "rgba(16, 124, 65, 0.15)",
-                  color: isWindows ? "#0078d4" : "var(--colorActionGreen)",
+                  background: isWindows ? "rgba(14, 165, 233, 0.15)" : "rgba(16, 185, 129, 0.15)",
+                  color: isWindows ? "#0ea5e9" : "#10b981",
+                  border: isWindows ? "1px solid rgba(14, 165, 233, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)",
                   fontWeight: 700,
                 }}
               >

@@ -334,8 +334,16 @@ function Badge({ value, tone }: { value: string; tone?: string }) {
 }
 
 function Card({ title, action, children }: { title: string; action?: any; children: any }) {
+  const cardRef = useRef<HTMLElement>(null);
+  const handleMouseMove = (e: React.MouseEvent<HTMLElement>) => {
+    if (!cardRef.current) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    cardRef.current.style.setProperty("--mouse-x", `${e.clientX - rect.left}px`);
+    cardRef.current.style.setProperty("--mouse-y", `${e.clientY - rect.top}px`);
+  };
+
   return (
-    <section className="f2-card">
+    <section ref={cardRef} onMouseMove={handleMouseMove} className="f2-card">
       <div className="f2-card-header">
         <h3 className="f2-card-title">{title}</h3>
         {action}
@@ -822,11 +830,16 @@ export default function App() {
     <div className="f2-shell">
       {/* Fluent 2 Acrylic Top App Bar */}
       <header className="f2-topbar">
-        <div className="f2-brand">
-          <span className="f2-brand-logo">
+        <div className="f2-brand" onClick={() => setView("overview")}>
+          <span className="f2-brand-logo" title="AI Bridge JXUI Control Plane">
             <FluentIcon name="approvals" />
           </span>
-          <span>AI Bridge</span>
+          <div className="f2-brand-text">
+            <span className="f2-brand-title">
+              AI Bridge <span className="f2-brand-badge">JXUI PRO</span>
+            </span>
+            <span className="f2-brand-subtitle">Autonomous Fleet &amp; Edge Cloud</span>
+          </div>
           {health && (
             <Badge
               value={health.emergency_stop ? "EMERGENCY STOP" : "System Online"}
@@ -863,13 +876,13 @@ export default function App() {
               setCmdOpen(true);
               setCmdQuery("");
             }}
-            title="Open Command Palette (Ctrl+K)"
+            title="Open Spotlight Command Palette (⌘K / Ctrl+K)"
           >
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
               <FluentIcon name="search" />
-              <span>Search views &amp; tools…</span>
+              <span>Spotlight Command…</span>
             </span>
-            <span className="f2-kbd">Ctrl K</span>
+            <span className="f2-kbd">⌘K</span>
           </button>
 
           <label className="f2-switch-label" title="Poll control plane every 15 seconds">
@@ -892,11 +905,12 @@ export default function App() {
 
           <button
             type="button"
-            className="f2-btn f2-btn-sm"
+            className="f2-btn f2-btn-sm f2-btn-subtle"
             onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-            title="Switch between Fluent 2 Light and Dark themes"
+            title="Switch between JXUI Light and Dark Obsidian modes"
+            style={{ borderRadius: 12 }}
           >
-            <FluentIcon name="theme" /> {theme === "light" ? "Dark" : "Light"}
+            <FluentIcon name="theme" /> {theme === "light" ? "Dark Mode" : "Light Mode"}
           </button>
 
           {health?.emergency_stop ? (
