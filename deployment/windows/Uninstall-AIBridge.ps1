@@ -56,3 +56,4 @@ if ($PurgeConfig -and (Test-Path $ConfigDir)) {
 }
 
 Write-Host "Uninstallation completed successfully." -ForegroundColor Green
+

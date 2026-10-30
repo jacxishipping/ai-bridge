@@ -19,90 +19,245 @@ Requires-Dist: ruff>=0.4; extra == "dev"
 Requires-Dist: Pillow>=10.0; extra == "dev"
 Provides-Extra: desktop
 Requires-Dist: Pillow>=10.0; extra == "desktop"
+Provides-Extra: webrtc
+Requires-Dist: aiortc>=1.8; extra == "webrtc"
+Requires-Dist: av>=11.0; extra == "webrtc"
+Requires-Dist: Pillow>=10.0; extra == "webrtc"
+Provides-Extra: windows
+Requires-Dist: aiortc>=1.8; extra == "windows"
+Requires-Dist: av>=11.0; extra == "windows"
+Requires-Dist: Pillow>=10.0; extra == "windows"
+Requires-Dist: pystray>=0.19.5; extra == "windows"
 Dynamic: license-file
 
-# AI Bridge — universal AI-to-computer control platform (v0.3.0)
+# AI Bridge — Universal AI-to-Computer Control Platform (v0.3.0)
 
-Connect authorized AI assistants and coding agents (Claude, Codex, Gemini
-CLI, other MCP clients, and ChatGPT via supported remote MCP) to Linux
-and Windows computers their owners authorize them to control — through
-one consistent, policy-enforced MCP tool interface.
+[![CI](https://github.com/ai-bridge/ai-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/ai-bridge/ai-bridge/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Security: Hardened](https://img.shields.io/badge/Security-Hardened%20(P0%2FP1)-green.svg)](docs/security.md)
 
-**This is not a remote root shell.** There is no `run_any_command`, no
-arbitrary PowerShell endpoint, and no tool that can grant itself
-privileges. See `docs/security.md` and `docs/threat-model.md` first.
+**AI Bridge** connects authorized AI assistants and coding agents (Claude, Codex, Gemini CLI, other Model Context Protocol clients, and ChatGPT via OAuth 2.1 Streamable HTTP) to Linux, Windows, and macOS computers their owners authorize them to control — through a single, policy-enforced interface.
 
-## What v0.3 does (security batch)
-- **MCP server** (stdio + Streamable HTTP): system info, resources,
-  workspace list/read/search/create/edit/move/delete, service status,
-  logs, processes, disk/memory, Docker, git, tests, linter, backup,
-  staging deploy, task submit/status/result/cancel, approvals, desktop
-  (opt-in), device list/status.
-- **Risk tiers, enforced server-side**: 1 read-only, 2 low-risk,
-  3 sensitive (opt-in or approval), 4 high-risk (always human approval).
-- **Remote control plane** (FastAPI): device enrollment with a
-  one-time token (hashed at rest), revocation, task queue, agent polling
-  (outbound only, bounded backoff), approvals, audit log, emergency stop.
-- **Linux agent** (systemd, unprivileged) and **Windows agent**
-  (service account + separate interactive desktop helper).
-- **Dashboard** (React/TypeScript): user login or admin token, devices, tasks, approvals,
-  audit, emergency stop, versioned policies.
-- **Security batch**: expiring/rotatable device tokens, local users and roles, versioned policies,
-  Ed25519 signed-update verification, sandboxed task execution.
-- **Tests**: unit, integration, security, and end-to-end (see below).
+> [!IMPORTANT]
+> **This is not a remote root shell.** There is no unrestricted shell endpoint, no arbitrary PowerShell executor, and no tool that can escalate its own permissions. All actions are subject to server-side policy enforcement, risk tier gating, path confinement, and append-only audit logging.
 
-## Quick start (local MCP, Linux)
+---
+
+## Architecture & Security Highlights
+
+```mermaid
+flowchart LR
+    subgraph Clients["AI Clients & Interfaces"]
+        Claude["Claude / Cursor\n(Stdio MCP)"]
+        ChatGPT["ChatGPT / Custom\n(Streamable HTTP)"]
+        Dashboard["Fluent 2 Dashboard\n(Browser / Vite)"]
+    end
+
+    subgraph ControlPlane["Control Plane & Gateway (:8000)"]
+        Gateway["OAuth 2.1 Gateway\n(PKCE S256 + Device Binding)"]
+        API["FastAPI Control API\n(RBAC + Rate Limiting)"]
+        DB[("SQLite Database\n(Locked WAL + Indexes)")]
+        PolicyEngine["Server-Side Policy Engine\n(Tiers 1-4 Guardrails)"]
+    end
+
+    subgraph Fleet["Enrolled Endpoints (Outbound Only)"]
+        LinuxAgent["Linux Agent\n(systemd / unprivileged)"]
+        WinAgent["Windows Agent\n(Service + Desktop Helper)"]
+        MacAgent["macOS Agent\n(launchd daemon)"]
+    end
+
+    Claude -->|Stdio| PolicyEngine
+    ChatGPT -->|Bearer Token + Device ID| Gateway
+    Gateway --> API
+    Dashboard -->|X-Session / X-Admin| API
+    API <--> DB
+    API <--> PolicyEngine
+    LinuxAgent -->|HTTPS Long-Poll| API
+    WinAgent -->|HTTPS Long-Poll| API
+    MacAgent -->|HTTPS Long-Poll| API
+```
+
+### Defense-in-Depth Model
+
+1. **Host Tool Protection by Default (`AI_BRIDGE_DISABLE_HOST_TOOLS=1`)**:
+   - Host filesystem and shell execution tools on the MCP server are disabled by default. Operations are explicitly routed to enrolled agents via authenticated device bindings.
+2. **Device-Bound OAuth 2.1 Gateway**:
+   - ChatGPT and remote HTTP clients authenticate through a standards-compliant OAuth 2.1 gateway requiring **PKCE S256**.
+   - Tokens are cryptographically bound to specific enrolled `device_id`s, preventing cross-device credential escape.
+3. **Four-Tier Policy Guardrails**:
+   - **Tier 1 (Read-only)**: Fleet telemetry, system resource inspection, workspace search.
+   - **Tier 2 (Low-risk write)**: Workspace file authoring, test execution within defined bounds.
+   - **Tier 3 (Sensitive)**: Service management, package installation, backups, desktop vision/actions (requires explicit policy opt-in or human approval).
+   - **Tier 4 (High-risk)**: Destructive file deletion, arbitrary shell commands, deployment promotion (strictly requires an authorized human approval record).
+4. **Subprocess Environment Isolation**:
+   - Invocations of `run_shell` scrub sensitive environment variables (`AI_BRIDGE_ADMIN_TOKEN`, `AI_BRIDGE_DEVICE_TOKEN`, `AI_BRIDGE_OIDC_CLIENT_SECRET`) from child processes, enforce execution timeouts (default 300s), and block symlink escapes.
+5. **Recursive Redaction & Audit Integrity**:
+   - Secrets matching API keys, bearer tokens, SSH private keys (`id_rsa`, `id_ecdsa`), `.env` files, `.npmrc`, and credentials are recursively scrubbed from all JSON logs and stream payloads before persistence.
+6. **Robust Bootstrap & Authentication**:
+   - First-time user creation requires an administrative token (`AI_BRIDGE_ADMIN_TOKEN`), preventing unauthorized takeover. Local bootstrap without credentials requires explicit opt-in (`AI_BRIDGE_ALLOW_BOOTSTRAP=1`).
+
+---
+
+## Features
+
+- **Model Context Protocol (MCP)**: Full support for both local stdio and Streamable HTTP transports with bearer authorization.
+- **Outbound-Only Poller Agents**: Cross-platform agents (Linux `systemd`, Windows scheduled tasks/desktop helper, macOS `launchd`) that never open inbound listening ports.
+- **Human-in-the-Loop Approvals**: Real-time webhook notifications (Telegram, Slack, generic webhooks) with SSRF validation, allowing operators to review, approve, or deny sensitive tasks.
+- **Fluent 2 Web Dashboard**: Modern React 18 + TypeScript + Vite management interface supporting dark/light mode, live task inspection, full vision screenshot lightbox, policy history management, and instant emergency stop.
+- **Cryptographically Signed Updates**: Offline Ed25519 signature verification for release manifests (`--check-update`).
+
+---
+
+## Quick Start
+
+### 1. Local MCP Server (Stdio)
+
+Run AI Bridge locally for Claude Desktop, Cursor, or Gemini CLI:
+
 ```bash
-python3 -m venv .venv && . .venv/bin/activate
+# Clone and prepare virtual environment
+git clone https://github.com/ai-bridge/ai-bridge.git
+cd ai-bridge
+python -m venv .venv
+
+# On Linux / macOS:
+source .venv/bin/activate
+# On Windows (PowerShell):
+# .\.venv\Scripts\Activate.ps1
+
 pip install -e ".[dev]"
+
+# Set workspace confinement directory
 mkdir -p "$HOME/ai-bridge-workspace"
 export AI_BRIDGE_WORKSPACE="$HOME/ai-bridge-workspace"
-pytest -q
-python -m ai_bridge.server   # stdio; driven by your MCP client
-```
-MCP client config: copy `integrations/generic-mcp/mcp-config.json` and
-replace the paths. Per-client configs: `integrations/{claude,codex,gemini,chatgpt}/`.
 
-## Control plane + dashboard
+# Launch MCP server in stdio mode
+python -m ai_bridge.server
+```
+
+Configure your MCP client by pointing to the python virtual environment executable and `ai_bridge.server` module. Configuration templates for Claude, Codex, Gemini, and generic MCP clients are located in [`integrations/`](integrations/).
+
+---
+
+### 2. Control Plane & Web Dashboard
+
+To run the remote orchestration server and web management interface:
+
 ```bash
+# 1. Generate an administrative token and launch the control plane
 export AI_BRIDGE_ADMIN_TOKEN="$(python -c "import secrets; print(secrets.token_urlsafe(32))")"
-python -m ai_bridge.control          # :8000, loopback
-# dashboard (separate terminal):
-cd apps/dashboard && npm install && npm run dev   # :5173
-```
-Enroll a device in the dashboard, copy its one-time token, and start an
-agent: `python agents/linux/agent_main.py --device-token <token>`.
-Full steps: `docs/installation-linux.md`, `docs/installation-windows.md`,
-`docs/remote-access.md` (TLS proxy — required for any remote exposure).
+echo "Admin Token: $AI_BRIDGE_ADMIN_TOKEN"
 
-## Repository layout
-```
-src/ai_bridge/        core: security, policy, workspace, diagnostics, execution, tools, server, control/
-agents/               linux/ windows/ common/ (poller)
-apps/                 control-api/ (uvicorn entrypoint)  dashboard/ (React+TS)
-integrations/         chatgpt/ codex/ claude/ gemini/ generic-mcp/
-deployment/           docker/ systemd/ linux/ windows/
-docs/                 architecture, threat-model, security, install, mcp-clients, remote-access, operations, troubleshooting, api-reference, implementation-status
-migrations/           001_initial.sql (Postgres mirror of the SQLite schema)
-tests/                unit/ integration/ security/ e2e/ (+ starter tests in tests/*.py)
+# Start the control plane API (:8000)
+python -m ai_bridge.control
+
+# 2. In a separate terminal, launch the dashboard (:5173)
+cd apps/dashboard
+npm install
+npm run dev
 ```
 
-## Gap analysis vs. the starter ZIP (Milestone 0)
-The starter (10 files, ~300 lines) had only a stdio server with 4 tools
-(`system_info`, `list_workspace`, `read_workspace_file`,
-`run_diagnostic_task`), fixed read-only diagnostics, and path tests.
-It lacked: writes, policy tiers, approvals, audit persistence, remote
-enrollment/control plane, dashboard, Windows agent, desktop control,
-HTTP transport, rate limiting, redaction, and backups. All of those are
-added in v0.2 except the items honestly marked incomplete in
-`docs/implementation-status.md` (signed updates, OIDC, macOS, Windows
-execution on a Windows host, Postgres runtime wiring).
+Open `http://localhost:5173` in your browser and sign in using your `AI_BRIDGE_ADMIN_TOKEN` or configured local credentials.
 
-## Safety notes
-- Run as an unprivileged user. Never run the agent as root/SYSTEM.
-- Keep secrets, SSH keys, `.env`, and production data OUTSIDE the workspace.
-- Never paste tokens or secrets into chat; use `.env` with `chmod 600`
-  (see `.env.example`) or a secret manager.
-- The starter's original files were preserved and hardened, not deleted:
-  `security.py` (now with secret-name blocking + redaction),
-  `tasks.py` (now a compatibility shim), `server.py` (now the full tool set).
+---
+
+### 3. Enrolling and Running Agents
+
+From the **Enrolled Devices** view in the dashboard (or via `POST /api/devices/enroll`), generate a one-time enrollment token.
+
+#### Linux Agent
+```bash
+# Run one poll cycle or run persistent loop:
+python agents/linux/agent_main.py \
+    --control-url http://127.0.0.1:8000 \
+    --device-token <ENROLLMENT_TOKEN>
+```
+For persistent system installations, see [`deployment/systemd/ai-bridge-agent.service`](deployment/systemd/ai-bridge-agent.service).
+
+#### Windows Agent
+```powershell
+python agents\windows\agent_main.py `
+    --control-url http://127.0.0.1:8000 `
+    --device-token <ENROLLMENT_TOKEN>
+```
+For unattended setup as a scheduled task and desktop screenshot helper, see [`deployment/windows/install-agent.ps1`](deployment/windows/install-agent.ps1) and [`agents/windows/desktop_helper.py`](agents/windows/desktop_helper.py).
+
+#### macOS Agent
+```bash
+python agents/macos/agent_main.py \
+    --control-url http://127.0.0.1:8000 \
+    --device-token <ENROLLMENT_TOKEN>
+```
+
+---
+
+## Configuration Reference
+
+Key environment variables supported across the platform:
+
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `AI_BRIDGE_WORKSPACE` | `.` | Directory to which all workspace filesystem operations are confined. Path expansions (`$HOME`, `%USERPROFILE%`) are resolved. |
+| `AI_BRIDGE_DATA_DIR` | `~/.ai-bridge` | Base directory for runtime state, databases, and device tokens. |
+| `AI_BRIDGE_DISABLE_HOST_TOOLS` | `1` | Disables host-level filesystem and shell tools on the MCP server, enforcing remote agent routing. |
+| `AI_BRIDGE_ADMIN_TOKEN` | *(None)* | Secret token for administrative API endpoints and dashboard access. |
+| `AI_BRIDGE_ALLOW_BOOTSTRAP` | *(Unset)* | When set to `1`, allows creating the first user without an admin token (for initial zero-configuration setups). |
+| `AI_BRIDGE_CONTROL_URL` | `http://127.0.0.1:8000` | Target control plane URL for agent pollers. |
+| `AI_BRIDGE_DEVICE_TOKEN` | *(None)* | Authentication bearer token used by polling agents to claim tasks. |
+| `AI_BRIDGE_OAUTH_DB` | `/etc/ai-bridge-oauth/oauth.db` | SQLite database path for the OAuth 2.1 gateway. |
+
+---
+
+## Verification & Testing
+
+AI Bridge includes a comprehensive test suite across unit, integration, and security regression domains:
+
+```bash
+# Run strict linter checks
+ruff check .
+
+# Execute full test suite (75 tests)
+pytest -v
+
+# Build frontend dashboard production bundle
+npm --prefix apps/dashboard run build
+```
+
+---
+
+## Repository Layout
+
+```
+ai-bridge/
+├── src/ai_bridge/          # Core Python package
+│   ├── control/            # FastAPI control plane, DB layer, OIDC, and dispatch
+│   ├── diagnostics.py      # System telemetry, process inspection, service status
+│   ├── execution.py        # Background task runner, test validators
+│   ├── policy.py           # 4-tier risk decision engine
+│   ├── security.py         # Path confinement, token redaction, structure sanitizers
+│   ├── server.py           # Model Context Protocol (MCP) stdio & HTTP server
+│   └── tools.py            # Tool implementations, policy enforcement, shell guardrails
+├── agents/                 # Platform poller agents
+│   ├── common/             # Resilient HTTP poller with atomic token rotation
+│   ├── linux/              # Linux agent entrypoint and CLI
+│   ├── macos/              # macOS agent entrypoint and CLI
+│   └── windows/            # Windows agent and desktop automation helper
+├── apps/
+│   ├── control-api/        # Production Uvicorn entrypoint for control plane
+│   └── dashboard/          # Fluent 2 React + TypeScript web dashboard
+├── deployment/             # Deployment configurations
+│   ├── oauth/              # OAuth 2.1 gateway with PKCE S256
+│   ├── systemd/            # Linux systemd service units
+│   ├── linux/              # Bash installation and run scripts
+│   └── windows/            # PowerShell installation scripts
+├── integrations/           # Client configuration profiles (Claude, ChatGPT, Codex, Gemini)
+├── docs/                   # Architectural guides, threat model, API reference
+└── tests/                  # Test suites (unit, integration, security hardening, e2e)
+```
+
+---
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.

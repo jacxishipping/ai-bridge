@@ -329,3 +329,4 @@ if ($LaunchAfterInstall -or (-not $Silent -and -not $HeadlessService)) {
     Write-Badge "LAUNCH" "Starting AI Bridge Windows Client..." "Cyan"
     Start-Process -FilePath (if (Test-Path $VenvPythonW) { $VenvPythonW } else { $VenvPython }) -ArgumentList "`"$GuiScript`"" -WorkingDirectory $RepoRoot
 }
+

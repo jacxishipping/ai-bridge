@@ -3,6 +3,7 @@ README.md
 pyproject.toml
 src/ai_bridge/__init__.py
 src/ai_bridge/audit.py
+src/ai_bridge/client.py
 src/ai_bridge/config.py
 src/ai_bridge/device_routing.py
 src/ai_bridge/diagnostics.py
@@ -14,6 +15,8 @@ src/ai_bridge/server.py
 src/ai_bridge/tasks.py
 src/ai_bridge/tools.py
 src/ai_bridge/updates.py
+src/ai_bridge/vision.py
+src/ai_bridge/webrtc_stream.py
 src/ai_bridge/workspace.py
 src/ai_bridge.egg-info/PKG-INFO
 src/ai_bridge.egg-info/SOURCES.txt
@@ -23,6 +26,7 @@ src/ai_bridge.egg-info/requires.txt
 src/ai_bridge.egg-info/top_level.txt
 src/ai_bridge/control/__init__.py
 src/ai_bridge/control/__main__.py
+src/ai_bridge/control/ai_api.py
 src/ai_bridge/control/app.py
 src/ai_bridge/control/auth.py
 src/ai_bridge/control/db.py

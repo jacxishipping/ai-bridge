@@ -123,8 +123,31 @@ export const api = {
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/frame?scale=${scale}&quality=${quality}`),
   fleetDesktopFrames: (os?: string) =>
     call(`/api/fleet/desktop/frames${os ? `?os=${encodeURIComponent(os)}` : ""}`),
-  createWebrtcSession: (deviceId: string, scale = 0.75, fps = 10) =>
-    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/session`, "POST", { scale, fps }),
+  deviceMonitors: (deviceId: string) =>
+    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/monitors`),
+  createWebrtcSession: (deviceId: string, scale = 0.75, fps = 10, monitor_index?: number) =>
+    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/session`, "POST", { scale, fps, monitor_index }),
+  createTerminalSession: (deviceId: string, cols = 120, rows = 35) =>
+    call(`/api/devices/${encodeURIComponent(deviceId)}/terminal/sessions`, "POST", { cols, rows }),
+  listTerminalSessions: (deviceId?: string) =>
+    call(`/api/devices/${encodeURIComponent(deviceId || "local")}/terminal/sessions`),
+  writeTerminalInput: (deviceId: string, sessionId: string, input: string) =>
+    call(`/api/devices/${encodeURIComponent(deviceId)}/terminal/${encodeURIComponent(sessionId)}/input`, "POST", { input }),
+  closeTerminalSession: (deviceId: string, sessionId: string) =>
+    call(`/api/devices/${encodeURIComponent(deviceId)}/terminal/${encodeURIComponent(sessionId)}`, "DELETE"),
+  terminalStreamUrl: (deviceId: string, sessionId: string, sinceSeq = 0) => {
+    const st = sessionToken();
+    const at = token();
+    const authQuery = st ? `&session_token=${encodeURIComponent(st)}` : at ? `&token=${encodeURIComponent(at)}` : "";
+    return `${BASE}/api/devices/${encodeURIComponent(deviceId)}/terminal/${encodeURIComponent(sessionId)}/stream?since_seq=${sinceSeq}${authQuery}`;
+  },
+  streamTerminalUrl: (deviceId: string, sessionId: string, sinceSeq = 0) => {
+    const st = sessionToken();
+    const at = token();
+    const authQuery = st ? `&session_token=${encodeURIComponent(st)}` : at ? `&token=${encodeURIComponent(at)}` : "";
+    return `${BASE}/api/devices/${encodeURIComponent(deviceId)}/terminal/${encodeURIComponent(sessionId)}/stream?since_seq=${sinceSeq}${authQuery}`;
+  },
+  
   getWebrtcSession: (deviceId: string, sessionId: string) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}`),
   postWebrtcAnswer: (deviceId: string, sessionId: string, answer: any) =>

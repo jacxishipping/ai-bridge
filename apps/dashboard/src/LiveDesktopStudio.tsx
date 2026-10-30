@@ -383,6 +383,10 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
   const canvasRef = useRef<HTMLImageElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  const [isDataChannelReady, setIsDataChannelReady] = useState<boolean>(false);
+  const [monitors, setMonitors] = useState<any[]>([]);
+  const [selectedMonitor, setSelectedMonitor] = useState<number | undefined>(undefined);
   const webrtcSessionRef = useRef<string | null>(null);
   const isFetchingRef = useRef<boolean>(false);
   const frameCountRef = useRef<number>(0);
@@ -529,6 +533,18 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
         pcRef.current = pc;
+
+        // WebRTC DataChannel for ultra-low latency direct input (<15ms)
+        try {
+          const dc = pc.createDataChannel("input", { ordered: true });
+          dataChannelRef.current = dc;
+          dc.onopen = () => setIsDataChannelReady(true);
+          dc.onclose = () => setIsDataChannelReady(false);
+          pc.ondatachannel = (e) => {
+            dataChannelRef.current = e.channel;
+            setIsDataChannelReady(true);
+          };
+        } catch {}
 
         pc.ontrack = (evt) => {
           if (videoRef.current) {

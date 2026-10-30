@@ -1297,6 +1297,15 @@ def broadcast_fleet_command(
     }
 
 
+def get_system_monitors() -> list[dict]:
+    """Enumerate all physical and virtual displays on the host machine."""
+    try:
+        from ai_bridge.screen_capture import get_monitors
+        return get_monitors()
+    except Exception:
+        return [{"index": 0, "name": "Display 1 (Default)", "width": 1920, "height": 1080, "is_primary": True}]
+
+
 def capture_desktop_frame(
     scale: float = 0.75,
     quality: int = 70,

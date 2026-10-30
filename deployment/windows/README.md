@@ -91,3 +91,4 @@ Double-click `deployment\windows\Uninstall.bat` or run:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\deployment\windows\Uninstall-AIBridge.ps1 -PurgeConfig
 ```
+

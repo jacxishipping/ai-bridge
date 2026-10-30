@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field
 from starlette.datastructures import Headers
 
 from .. import tools
+from .. import terminal_manager
 from ..policy import Policy, TOOL_TIERS
 from ..security import redact, redact_obj
 from . import auth as authmod
@@ -2528,7 +2529,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
             raise HTTPException(status_code=410, detail="WebRTC session expired.")
         return sess
 
-    def _queue_webrtc_task(device_id: str, session_id: str, scale: float, fps: int, tool: str = "start_webrtc_stream") -> None:
+    def _queue_webrtc_task(device_id: str, session_id: str, scale: float, fps: int, monitor_index: int | None = None, tool: str = "start_webrtc_stream") -> None:
         dev_row = conn.execute("SELECT * FROM devices WHERE id=? AND revoked=0", (device_id,)).fetchone()
         if dev_row is None:
             raise HTTPException(status_code=404, detail="Device not found.")
@@ -2536,13 +2537,36 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         t_val = tier.value if tier else 3
         task_id = uuid.uuid4().hex[:12]
         now_ts = dbmod.now()
+        args = {"session_id": session_id, "scale": scale, "fps": fps}
+        if monitor_index is not None:
+            args["monitor_index"] = monitor_index
         conn.execute(
             "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, created_at, updated_at) VALUES (?,?,?,?,?,?,'queued',?,?)",
             (task_id, device_id, "default", tool,
-             json.dumps({"session_id": session_id, "scale": scale, "fps": fps}), t_val, now_ts, now_ts),
+             json.dumps(args), t_val, now_ts, now_ts),
         )
         conn.commit()
         notify_tasks()
+
+    @app.get("/api/devices/{device_id}/desktop/monitors")
+    def get_device_monitors(
+        device_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        if device_id == "local":
+            from ai_bridge.screen_capture import get_monitors
+            return {"monitors": get_monitors()}
+        dev_row = conn.execute("SELECT * FROM devices WHERE id=? AND revoked=0", (device_id,)).fetchone()
+        if dev_row is None:
+            from ai_bridge.screen_capture import get_monitors
+            return {"monitors": get_monitors()}
+        caps = json.loads(dev_row["capabilities_json"] or "{}")
+        mons = caps.get("monitors")
+        if not mons:
+            mons = [{"index": 0, "name": "Primary Display", "width": 1920, "height": 1080, "is_primary": True}]
+        return {"monitors": mons}
 
     @app.post("/api/devices/{device_id}/desktop/webrtc/session")
     def create_webrtc_session(
@@ -2554,25 +2578,31 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         actor = require_role("viewer", x_admin_token, x_session_token)
         scale = max(0.2, min(1.0, float(body.get("scale", 0.75))))
         fps = max(1, min(30, int(body.get("fps", 10))))
+        monitor_index = body.get("monitor_index")
+        if monitor_index is not None:
+            try:
+                monitor_index = int(monitor_index)
+            except (ValueError, TypeError):
+                monitor_index = None
         session_id = uuid.uuid4().hex[:12]
         sess = {
             "id": session_id, "device_id": device_id, "status": "waiting",
             "offer": None, "answer": None, "agent_candidates": [], "viewer_candidates": [],
-            "created_at": time.time(), "scale": scale, "fps": fps, "error": None,
+            "created_at": time.time(), "scale": scale, "fps": fps, "monitor_index": monitor_index, "error": None,
         }
         _webrtc_sessions()[session_id] = sess
-        audit(actor, device_id, "start_webrtc_stream", {"session_id": session_id}, "allowed")
+        audit(actor, device_id, "start_webrtc_stream", {"session_id": session_id, "monitor_index": monitor_index}, "allowed")
         if device_id == "local":
             try:
                 from ai_bridge import webrtc_stream
 
-                webrtc_stream.start_stream(session_id, webrtc_stream.DictSignaling(sess), scale=scale, fps=fps)
+                webrtc_stream.start_stream(session_id, webrtc_stream.DictSignaling(sess), scale=scale, fps=fps, monitor_index=monitor_index)
             except Exception as exc:
                 sess["status"] = "error"
                 sess["error"] = str(exc)
         else:
-            _queue_webrtc_task(device_id, session_id, scale, fps)
-        return {"session_id": session_id, "status": sess["status"], "scale": scale, "fps": fps}
+            _queue_webrtc_task(device_id, session_id, scale, fps, monitor_index=monitor_index)
+        return {"session_id": session_id, "status": sess["status"], "scale": scale, "fps": fps, "monitor_index": monitor_index}
 
     @app.get("/api/devices/{device_id}/desktop/webrtc/{session_id}")
     def get_webrtc_session(
@@ -2582,7 +2612,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     ):
         require_role("viewer", x_admin_token, x_session_token)
         sess = _get_webrtc_session(device_id, session_id)
-        return {k: sess.get(k) for k in ("id", "device_id", "status", "offer", "answer", "agent_candidates", "viewer_candidates", "error", "scale", "fps")}
+        return {k: sess.get(k) for k in ("id", "device_id", "status", "offer", "answer", "agent_candidates", "viewer_candidates", "error", "scale", "fps", "monitor_index")}
 
     @app.post("/api/devices/{device_id}/desktop/webrtc/{session_id}/answer")
     def post_webrtc_answer(
@@ -2668,6 +2698,96 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
         sess["status"] = "error"
         sess["error"] = body.get("error", "Stream failed.")
         return {"ok": True}
+
+    # --- Option C: Interactive Live Terminal Endpoints ---
+
+    @app.post("/api/devices/{device_id}/terminal/sessions")
+    def create_terminal_endpoint(
+        device_id: str,
+        body: dict = Body(default={}),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        cols = int(body.get("cols", 120))
+        rows = int(body.get("rows", 35))
+        sess = terminal_manager.create_terminal_session(device_id=device_id, cols=cols, rows=rows)
+        audit(actor, device_id, "create_terminal_session", {"session_id": sess.session_id, "cols": cols, "rows": rows}, "allowed")
+        return {"session_id": sess.session_id, "device_id": device_id, "cols": cols, "rows": rows, "is_alive": sess.is_alive}
+
+    @app.get("/api/devices/{device_id}/terminal/sessions")
+    def list_terminal_endpoint(
+        device_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        sessions = terminal_manager.list_terminal_sessions(device_id=device_id)
+        return {"sessions": sessions}
+
+    @app.get("/api/devices/{device_id}/terminal/{session_id}/stream")
+    def stream_terminal_endpoint(
+        device_id: str,
+        session_id: str,
+        since_seq: int = 0,
+        token: str | None = None,
+        session_token: str | None = None,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        admin_tok = x_admin_token or token
+        sess_tok = x_session_token or session_token
+        require_role("viewer", admin_tok, sess_tok, authorization)
+        sess = terminal_manager.get_terminal_session(session_id)
+        if sess is None:
+            raise HTTPException(status_code=404, detail="Terminal session not found.")
+        return StreamingResponse(sess.stream(since_seq=since_seq), media_type="text/event-stream")
+
+    @app.post("/api/devices/{device_id}/terminal/{session_id}/input")
+    def input_terminal_endpoint(
+        device_id: str,
+        session_id: str,
+        body: dict = Body(default={}),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("operator", x_admin_token, x_session_token)
+        sess = terminal_manager.get_terminal_session(session_id)
+        if sess is None:
+            raise HTTPException(status_code=404, detail="Terminal session not found.")
+        input_data = body.get("input", "")
+        sess.write(input_data)
+        return {"ok": True}
+
+    @app.post("/api/devices/{device_id}/terminal/{session_id}/resize")
+    def resize_terminal_endpoint(
+        device_id: str,
+        session_id: str,
+        body: dict = Body(default={}),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("operator", x_admin_token, x_session_token)
+        sess = terminal_manager.get_terminal_session(session_id)
+        if sess is None:
+            raise HTTPException(status_code=404, detail="Terminal session not found.")
+        cols = int(body.get("cols", 120))
+        rows = int(body.get("rows", 35))
+        sess.resize(cols, rows)
+        return {"ok": True, "cols": cols, "rows": rows}
+
+    @app.delete("/api/devices/{device_id}/terminal/{session_id}")
+    def delete_terminal_endpoint(
+        device_id: str,
+        session_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        ok = terminal_manager.close_terminal_session(session_id)
+        audit(actor, device_id, "close_terminal_session", {"session_id": session_id}, "allowed")
+        return {"ok": ok}
 
     @app.get("/api/fleet/version")
     def get_fleet_version(

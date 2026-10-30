@@ -118,3 +118,4 @@ def test_assets_icon_exists():
     png = Path("assets/ai-bridge.png")
     assert ico.exists(), "assets/ai-bridge.ico should exist"
     assert png.exists(), "assets/ai-bridge.png should exist"
+

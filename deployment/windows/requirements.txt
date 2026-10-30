@@ -20,3 +20,4 @@ av>=11.0.0
 
 # Windows System Integration & System Tray
 pystray>=0.19.5
+
