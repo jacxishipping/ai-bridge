@@ -589,19 +589,28 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    let st = params.get("session_token");
-    if (!st && window.location.hash) {
-      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-      st = hashParams.get("session_token");
+    const hashParams = window.location.hash ? new URLSearchParams(window.location.hash.replace(/^#/, "")) : null;
+    let st = params.get("session_token") || hashParams?.get("session_token");
+    let at = params.get("token") || params.get("admin_token") || hashParams?.get("token") || hashParams?.get("admin_token");
+    let th = params.get("theme") || hashParams?.get("theme");
+
+    if (th === "light" || th === "dark") {
+      localStorage.setItem("ai_bridge_theme", th);
+      setTheme(th);
     }
-    if (st) {
+    if (at) {
+      localStorage.setItem("ai_bridge_admin_token", at);
+      setTok(at);
+    } else if (st) {
       localStorage.setItem("ai_bridge_session_token", st);
       setTok("session");
+    }
+    if (st || at) {
       // Keep deep-link params when stripping the one-time token from the URL.
       const kept = new URLSearchParams();
-      const v = params.get("view");
+      const v = params.get("view") || hashParams?.get("view");
       if (v) kept.set("view", v);
-      const d = params.get("device");
+      const d = params.get("device") || hashParams?.get("device");
       if (d) kept.set("device", d);
       const qs = kept.toString();
       window.history.replaceState({}, "", qs ? `?${qs}` : window.location.pathname);
