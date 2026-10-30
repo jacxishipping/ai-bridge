@@ -1,22 +1,22 @@
-"""SQLite storage for the control plane (dev / small deployments).
+"""Dual-Engine Database Storage (SQLite for dev/edge, PostgreSQL for production clustering).
 
-Production deployments should use PostgreSQL with the same table shapes;
-see migrations/001_initial.sql and migrations/002_security_batch.sql,
-which mirror this schema. SQLite is chosen here so the plane runs with
-zero external services for testing and single-owner use.
-
-v0.3 additions: device token expiry, local users/sessions (roles),
-versioned policies. Existing databases are migrated in connect().
+Supports:
+- Zero-dependency local SQLite with WAL mode for dev and single-node setups.
+- Production PostgreSQL 16+ with connection management when DATABASE_URL is set.
+- Automatic parameter translation (? -> %s) for transparent cross-engine queries.
+- Startup schema migrations via migrations.run_migrations().
 """
 from __future__ import annotations
 
 import contextlib
 import hashlib
 import json
+import os
 import sqlite3
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from ..security import redact, redact_obj
 
@@ -86,18 +86,54 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_policies_version ON policies(version);
 """
 
 
-class _LockedResult:
-    """Materialized query result so no raw sqlite3.Cursor is read outside LockedConnection._lock."""
+def to_pg_sql(sql: str) -> str:
+    """Translate SQLite '?' parameter placeholders to PostgreSQL '%s' placeholders."""
+    parts = []
+    in_single = False
+    in_double = False
+    i = 0
+    n = len(sql)
+    while i < n:
+        ch = sql[i]
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            parts.append(ch)
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+            parts.append(ch)
+        elif ch == '?' and not in_single and not in_double:
+            parts.append('%s')
+        else:
+            parts.append(ch)
+        i += 1
+    return "".join(parts)
 
-    def __init__(self, rows: list[sqlite3.Row], rowcount: int, lastrowid: int | None) -> None:
+
+class RowDict(dict):
+    """Dictionary supporting both column-name (row['id']) and integer (row[0]) access."""
+
+    def __init__(self, data: dict, keys: list[str]) -> None:
+        super().__init__(data)
+        self._keys = keys
+
+    def __getitem__(self, item: Any) -> Any:
+        if isinstance(item, int):
+            return super().__getitem__(self._keys[item])
+        return super().__getitem__(item)
+
+
+class _LockedResult:
+    """Materialized query result so no raw database cursor is read outside lock."""
+
+    def __init__(self, rows: list[Any], rowcount: int, lastrowid: int | None) -> None:
         self._rows = rows
         self.rowcount = rowcount
         self.lastrowid = lastrowid
 
-    def fetchone(self) -> sqlite3.Row | None:
+    def fetchone(self) -> Any | None:
         return self._rows[0] if self._rows else None
 
-    def fetchall(self) -> list[sqlite3.Row]:
+    def fetchall(self) -> list[Any]:
         return list(self._rows)
 
     def __iter__(self):
@@ -110,6 +146,7 @@ class LockedConnection:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
         self._lock = threading.RLock()
+        self.dialect = "sqlite"
 
     @contextlib.contextmanager
     def transaction(self):
@@ -135,6 +172,10 @@ class LockedConnection:
         with self._lock:
             self._conn.commit()
 
+    def rollback(self) -> None:
+        with self._lock:
+            self._conn.rollback()
+
     def close(self) -> None:
         with self._lock:
             self._conn.close()
@@ -143,25 +184,91 @@ class LockedConnection:
         return getattr(self._conn, name)
 
 
-def connect(db_path: Path) -> LockedConnection:
+class PostgresConnection:
+    """Thread-safe connection wrapper for PostgreSQL using psycopg."""
+
+    def __init__(self, dsn: str):
+        import psycopg
+        self.dsn = dsn
+        self._conn = psycopg.connect(dsn, autocommit=False)
+        self._lock = threading.RLock()
+        self.dialect = "postgres"
+
+    @contextlib.contextmanager
+    def transaction(self):
+        with self._lock:
+            try:
+                yield self
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def execute(self, sql: str, parameters: tuple | list = ()) -> _LockedResult:
+        with self._lock:
+            pg_sql = to_pg_sql(sql)
+            cur = self._conn.cursor()
+            cur.execute(pg_sql, parameters)
+            if cur.description:
+                cols = [desc[0] for desc in cur.description]
+                raw_rows = cur.fetchall()
+                rows = [RowDict(dict(zip(cols, r)), cols) for r in raw_rows]
+            else:
+                rows = []
+            return _LockedResult(rows, cur.rowcount, getattr(cur, "lastrowid", None))
+
+    def executescript(self, sql_script: str):
+        with self._lock:
+            cur = self._conn.cursor()
+            for stmt in sql_script.split(";"):
+                s = stmt.strip()
+                if s:
+                    cur.execute(s)
+            self._conn.commit()
+
+    def commit(self) -> None:
+        with self._lock:
+            self._conn.commit()
+
+    def rollback(self) -> None:
+        with self._lock:
+            self._conn.rollback()
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+
+def connect(db_path: Path | None = None, database_url: str | None = None) -> LockedConnection | PostgresConnection:
+    """Connect to the database, auto-detecting PostgreSQL vs SQLite, and run migrations."""
+    db_url = database_url or os.environ.get("DATABASE_URL")
+
+    # 1. PostgreSQL Path
+    if db_url and (db_url.startswith("postgres://") or db_url.startswith("postgresql://")):
+        conn = PostgresConnection(db_url)
+        from . import migrations
+        migrations.run_migrations(conn, dialect="postgres")
+        return conn
+
+    # 2. SQLite Path
+    if db_path is None:
+        data_dir = Path(os.environ.get("AI_BRIDGE_DATA_DIR", str(Path.home() / ".ai-bridge")))
+        db_path = data_dir / "control.db"
+
+    if isinstance(db_path, str):
+        db_path = Path(db_path)
+
     db_path.parent.mkdir(parents=True, exist_ok=True)
     raw = sqlite3.connect(str(db_path), check_same_thread=False, timeout=15.0)
     raw.row_factory = sqlite3.Row
     raw.execute("PRAGMA journal_mode=WAL")
     raw.execute("PRAGMA busy_timeout=5000")
     raw.executescript(SCHEMA)
-    # Migrate databases created by v0.2 (which lacked these columns).
-    cols = {r[1] for r in raw.execute("PRAGMA table_info(devices)")}
-    for col, ddl in [("token_expires_at", "REAL"), ("token_issued_at", "REAL")]:
-        if col not in cols:
-            raw.execute(f"ALTER TABLE devices ADD COLUMN {col} {ddl}")
-    approval_cols = {r[1] for r in raw.execute("PRAGMA table_info(approvals)")}
-    approval_additions = {"expires_at": "REAL", "decided_at": "REAL", "policy_version": "INTEGER NOT NULL DEFAULT 0"}
-    for col, ddl in approval_additions.items():
-        if col not in approval_cols:
-            raw.execute(f"ALTER TABLE approvals ADD COLUMN {col} {ddl}")
-    raw.commit()
-    return LockedConnection(raw)
+
+    locked_conn = LockedConnection(raw)
+    from . import migrations
+    migrations.run_migrations(locked_conn, dialect="sqlite")
+    return locked_conn
 
 
 def hash_token(token: str) -> str:
@@ -172,7 +279,7 @@ def now() -> float:
     return time.time()
 
 
-def audit(conn: LockedConnection | sqlite3.Connection, *, tenant: str, actor: str, device_id: str,
+def audit(conn: Any, *, tenant: str, actor: str, device_id: str,
           tool: str, args: dict, decision: str, result: str = "") -> None:
     safe_args = redact_obj(json.loads(json.dumps(args or {}, default=str)))
     safe_result = redact(result or "")[:2000]

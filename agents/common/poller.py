@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from ai_bridge.control.dispatch import dispatch
 from ai_bridge.policy import Policy
 from ai_bridge.tools import default_policy
+from .spool import TaskSpooler
 
 MAX_RESULT_CHARS = 512_000
 ROTATE_THRESHOLD_SECONDS = 2 * 86400  # Rotate when < 48h remaining
@@ -74,6 +75,8 @@ class Poller:
         self._explicit_policy = policy
         self.policy = policy if policy is not None else default_policy()
         self.token_file = token_file or (Path.home() / ".ai-bridge" / "device.token")
+        spool_path = self.token_file.parent / "agent_spool.db" if self.token_file else None
+        self.spooler = TaskSpooler(spool_path)
         self.backoff = 2.0
 
     def _req(self, method: str, path: str, payload: dict | None = None, timeout: int = 15) -> dict:
@@ -202,7 +205,18 @@ class Poller:
             unrestricted=False,
         )
 
+    def _try_post_result(self, task_id: str, status: str, result: str) -> bool:
+        try:
+            self._req("POST", f"/api/agent/tasks/{task_id}/result", {"status": status, "result": result})
+            return True
+        except Exception:
+            return False
+
     def run_once(self, wait: int = 0) -> dict:
+        try:
+            self.spooler.flush(self._try_post_result)
+        except Exception:
+            pass
         self.heartbeat()
         path = f"/api/agent/tasks/next?wait={wait}" if wait > 0 else "/api/agent/tasks/next"
         nxt = self._req("GET", path, timeout=max(15, wait + 5))
@@ -225,7 +239,12 @@ class Poller:
             status, text = "failed", f"denied: {exc}"
         except Exception as exc:
             status, text = "failed", f"{type(exc).__name__}: {exc}"
-        self._req("POST", f"/api/agent/tasks/{task_id}/result", {"status": status, "result": text})
+        # Persist locally in spool before transmission
+        self.spooler.spool(task_id, status, text)
+        if self._try_post_result(task_id, status, text):
+            self.spooler.mark_flushed(task_id)
+        else:
+            print(f"[{time.strftime('%H:%M:%S')}] Task {task_id} result spooled offline (will flush upon reconnect).", flush=True)
         print(f"[{time.strftime('%H:%M:%S')}] Task {task_id} ({task['tool']}) -> {status}", flush=True)
         self.backoff = 2.0
         return {"task": task_id, "status": status}

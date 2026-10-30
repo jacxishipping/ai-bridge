@@ -1,0 +1,63 @@
+# ==============================================================================
+#  AI Bridge — Multi-Stage Production Dockerfile
+# ==============================================================================
+
+# --- Stage 1: Build Frontend Dashboard ---
+FROM node:20-alpine AS frontend-builder
+WORKDIR /build
+COPY apps/dashboard/package*.json ./
+RUN npm ci --silent
+COPY apps/dashboard/ ./
+RUN npm run build
+
+# --- Stage 2: Production Python Runtime ---
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    AI_BRIDGE_DATA_DIR=/var/lib/ai-bridge \
+    AI_BRIDGE_WORKSPACE=/var/lib/ai-bridge/workspace
+
+WORKDIR /app
+
+# Install minimal runtime system utilities
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python production dependencies
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
+COPY migrations/ ./migrations/
+
+RUN pip install --no-cache-dir gunicorn "psycopg[binary]>=3.2" "prometheus-client>=0.20" && \
+    pip install --no-cache-dir -e .
+
+# Copy built dashboard assets from Stage 1
+COPY --from=frontend-builder /build/dist /app/apps/dashboard/dist
+
+# Security hardening: Create non-root user
+RUN groupadd -g 1001 aibridge && \
+    useradd -u 1001 -g aibridge -s /bin/bash -m aibridge && \
+    mkdir -p /var/lib/ai-bridge/workspace /var/lib/ai-bridge/logs && \
+    chown -R aibridge:aibridge /app /var/lib/ai-bridge
+
+USER aibridge
+
+EXPOSE 8000
+
+# Health check using the readiness probe
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://127.0.0.1:8000/health/ready || exit 1
+
+# Launch with Gunicorn (4 Uvicorn workers)
+CMD ["gunicorn", \
+     "-w", "4", \
+     "-k", "uvicorn.workers.UvicornWorker", \
+     "-b", "0.0.0.0:8000", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-", \
+     "ai_bridge.control.app:create_app()"]

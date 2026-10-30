@@ -1,0 +1,103 @@
+# ==============================================================================
+#  AI Bridge — Production Multi-Container Orchestration Stack
+# ==============================================================================
+#  Orchestrates:
+#   - Nginx (Hardened TLS 1.3, CSP, Rate Limiting, Reverse Proxy)
+#   - Control Plane (Gunicorn 4-Worker Uvicorn Cluster)
+#   - PostgreSQL 16 (High Performance Relational Storage with Connection Pooling)
+#   - Redis 7 (Distributed Pub/Sub & Inter-Worker Synchronization)
+#   - Certbot (Automated Let's Encrypt Certificate Renewal Daemon)
+# ==============================================================================
+
+services:
+  control-api:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile.prod
+    image: ai-bridge-control:production
+    container_name: aibridge-control-api
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://ai_bridge:${POSTGRES_PASSWORD}@postgres:5432/ai_bridge
+      - REDIS_URL=redis://redis:6379/0
+      - AI_BRIDGE_ADMIN_TOKEN=${AI_BRIDGE_ADMIN_TOKEN:?Set AI_BRIDGE_ADMIN_TOKEN in .env}
+      - AI_BRIDGE_DATA_DIR=/var/lib/ai-bridge
+      - AI_BRIDGE_WORKSPACE=/var/lib/ai-bridge/workspace
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+      - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - aibridge-data:/var/lib/ai-bridge
+    networks:
+      - aibridge-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: aibridge-postgres
+    restart: always
+    environment:
+      - POSTGRES_DB=ai_bridge
+      - POSTGRES_USER=ai_bridge
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - aibridge-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_bridge -d ai_bridge"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aibridge-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: aibridge-redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes", "--loglevel", "warning"]
+    volumes:
+      - aibridge-redis:/data
+    networks:
+      - aibridge-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: aibridge-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deployment/docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - certbot-challenge:/var/www/certbot
+    depends_on:
+      - control-api
+    networks:
+      - aibridge-network
+
+  certbot:
+    image: certbot/certbot
+    container_name: aibridge-certbot
+    restart: always
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done;'"
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt
+      - certbot-challenge:/var/www/certbot
+    networks:
+      - aibridge-network
+
+volumes:
+  aibridge-data:
+  aibridge-pg:
+  aibridge-redis:
+  certbot-challenge:
+
+networks:
+  aibridge-network:
+    driver: bridge

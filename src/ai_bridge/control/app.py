@@ -33,7 +33,7 @@ from pathlib import Path
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.datastructures import Headers
 
@@ -41,7 +41,9 @@ from .. import tools
 from .. import terminal_manager
 from ..policy import Policy, TOOL_TIERS
 from ..security import redact, redact_obj
+from . import alerts as alertsmod
 from . import auth as authmod
+from . import metrics as metricsmod
 from . import db as dbmod
 from .dispatch import dispatch
 
@@ -578,11 +580,11 @@ def _render_quick_decision_html(
 """
 
 
-def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -> FastAPI:
+def create_app(*, admin_token: str | None = None, db_path: Path | None = None, database_url: str | None = None) -> FastAPI:
     token = admin_token or os.environ.get("AI_BRIDGE_ADMIN_TOKEN")
     data_dir = Path(os.environ.get("AI_BRIDGE_DATA_DIR", str(Path.home() / ".ai-bridge")))
     db_path = db_path or (data_dir / "control.db")
-    conn = dbmod.connect(db_path)
+    conn = dbmod.connect(db_path=db_path, database_url=database_url)
     app = FastAPI(title="AI Bridge Control Plane", version="0.3.0")
     app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "http://201.79.36.129", "https://jxiptvplayer.app"],
                        allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -759,6 +761,28 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
     @app.get("/health")
     def health():
         return {"status": "ok", "version": "0.3.0", "emergency_stop": app.state.emergency_stop}
+
+    @app.get("/health/live")
+    def health_live():
+        """Liveness probe: verifies process is alive and responsive."""
+        return {"status": "live", "uptime": time.time() - getattr(app.state, "_start_time", time.time())}
+
+    @app.get("/health/ready")
+    def health_ready():
+        """Readiness probe: verifies database connectivity and state."""
+        try:
+            row = conn.execute("SELECT 1 AS alive").fetchone()
+            if not row:
+                raise HTTPException(status_code=503, detail="Database unhealthy")
+            return {"status": "ready", "database": "connected", "emergency_stop": app.state.emergency_stop}
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Database probe failed: {exc}")
+
+    @app.get("/metrics")
+    def metrics_endpoint():
+        """Prometheus metrics exposition endpoint."""
+        payload, content_type = metricsmod.get_metrics_payload(conn)
+        return Response(content=payload, media_type=content_type)
 
     @app.post("/api/devices/enroll")
     def enroll(body: EnrollIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -1641,10 +1665,11 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None) -
 
     @app.post("/api/emergency-stop")
     def emergency_stop(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
-        require_admin(x_admin_token, x_session_token)
+        actor = require_admin(x_admin_token, x_session_token)
         app.state.emergency_stop = True
         notify_tasks()
-        audit("admin", "", "emergency_stop", {}, "allowed")
+        audit(actor, "", "emergency_stop", {}, "allowed")
+        alertsmod.dispatch_alert("emergency_stop", "critical", "EMERGENCY STOP ACTIVATED", {"actor": actor})
         return {"emergency_stop": True}
 
     @app.post("/api/emergency-stop/clear")
