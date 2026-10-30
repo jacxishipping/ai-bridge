@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useRef } from "react";
+import { Fragment, useEffect, useState, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { api, token, sessionToken } from "./api";
 import { DevicePolicyEditor } from "./DevicePolicyEditor";
 import { DeviceDetailDashboard } from "./DeviceDetailDashboard";
@@ -335,7 +335,7 @@ function Badge({ value, tone }: { value: string; tone?: string }) {
 
 function Card({ title, action, children }: { title: string; action?: any; children: any }) {
   const cardRef = useRef<HTMLElement>(null);
-  const handleMouseMove = (e: React.MouseEvent<HTMLElement>) => {
+  const handleMouseMove = (e: ReactMouseEvent<HTMLElement>) => {
     if (!cardRef.current) return;
     const rect = cardRef.current.getBoundingClientRect();
     cardRef.current.style.setProperty("--mouse-x", `${e.clientX - rect.left}px`);
