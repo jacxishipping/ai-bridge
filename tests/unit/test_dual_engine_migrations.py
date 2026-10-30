@@ -43,3 +43,4 @@ def test_migration_runner_lifecycle(tmp_path: Path):
     assert newly_applied == []
 
     conn.close()
+

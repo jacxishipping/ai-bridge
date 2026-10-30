@@ -128,3 +128,4 @@ class TaskSpooler:
                 break
 
         return flushed_count
+

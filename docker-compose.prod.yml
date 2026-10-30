@@ -101,3 +101,4 @@ volumes:
 networks:
   aibridge-network:
     driver: bridge
+

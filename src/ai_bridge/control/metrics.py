@@ -128,3 +128,4 @@ def get_metrics_payload(conn: Any | None = None) -> tuple[bytes, str]:
         uptime = time.time() - _START_TIME
         fallback = f"# AI Bridge Metrics (fallback)\naibridge_uptime_seconds {uptime:.2f}\n"
         return fallback.encode("utf-8"), CONTENT_TYPE_LATEST
+

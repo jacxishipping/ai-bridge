@@ -54,3 +54,4 @@ def test_spooler_partial_flush(tmp_path: Path):
     rem = spooler.get_pending()
     assert len(rem) == 1
     assert rem[0]["task_id"] == "task-B"
+

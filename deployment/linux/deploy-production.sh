@@ -183,3 +183,4 @@ echo -e "    View Logs:    docker compose -f docker-compose.prod.yml logs -f"
 echo -e "    Restart:      docker compose -f docker-compose.prod.yml restart"
 echo -e "    Stop:         docker compose -f docker-compose.prod.yml down"
 echo -e "======================================================================"
+

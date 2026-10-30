@@ -65,3 +65,4 @@ def test_alert_engine_dispatch(monkeypatch):
     assert "https://hooks.slack.com/services/T00/B00/X00" in urls
     assert "https://discord.com/api/webhooks/00/XX" in urls
     assert "https://example.com/webhook/alerts" in urls
+

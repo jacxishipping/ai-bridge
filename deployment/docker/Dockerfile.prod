@@ -61,3 +61,4 @@ CMD ["gunicorn", \
      "--access-logfile", "-", \
      "--error-logfile", "-", \
      "ai_bridge.control.app:create_app()"]
+

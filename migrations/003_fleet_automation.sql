@@ -61,3 +61,4 @@ CREATE INDEX IF NOT EXISTS idx_workflows_tenant_ts ON workflows(tenant, created_
 CREATE INDEX IF NOT EXISTS idx_telemetry_device_time ON telemetry(device_id, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_triggers_tenant ON triggers(tenant, enabled);
 CREATE INDEX IF NOT EXISTS idx_schedules_next_run ON schedules(enabled, next_run_at);
+
