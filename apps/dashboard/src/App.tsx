@@ -393,7 +393,7 @@ function parseTaskResult(raw: string): { parsed: any; imageBase64: string | null
 }
 
 export default function App() {
-  const { pushToast } = useJXTheme();
+  const { pushToast, accent, setAccent, toggleMode } = useJXTheme();
   const [view, setView] = useState<View>(() => {
     const v = new URLSearchParams(window.location.search).get("view");
     const valid: View[] = ["overview", "devices", "device_detail", "tasks", "approvals", "audit", "policies", "connections", "ai_api", "workflows", "fleet_ops", "live_studio", "logs"];
@@ -947,13 +947,40 @@ export default function App() {
           <button
             type="button"
             className="f2-btn f2-btn-subtle"
-            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+            onClick={() => {
+              const next = theme === "light" ? "dark" : "light";
+              setTheme(next);
+              if (toggleMode) toggleMode();
+            }}
             title="Switch between JXUI Light and Dark Obsidian modes"
             style={{ padding: "6px 14px", fontSize: 12.5 }}
           >
             <FluentIcon name="theme" />
             <span>{theme === "light" ? "Dark Mode" : "Light Mode"}</span>
           </button>
+
+          <div className="f2-accent-picker" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 8px", background: "var(--jx-surface-sunken)", borderRadius: 10, border: "1px solid var(--jx-border-subtle)" }} title="Switch JXUI Neon Accent Palette">
+            {(["indigo", "violet", "emerald", "rose", "ocean"] as const).map(acc => (
+              <button
+                key={acc}
+                type="button"
+                onClick={() => setAccent && setAccent(acc)}
+                title={`Accent: ${acc.charAt(0).toUpperCase() + acc.slice(1)}`}
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: "50%",
+                  background: acc === "indigo" ? "#6366f1" : acc === "violet" ? "#a855f7" : acc === "emerald" ? "#10b981" : acc === "rose" ? "#f43f5e" : "#0ea5e9",
+                  border: accent === acc ? "2px solid #ffffff" : "2px solid transparent",
+                  boxShadow: accent === acc ? "0 0 8px rgba(99, 102, 241, 0.7)" : "none",
+                  cursor: "pointer",
+                  padding: 0,
+                  transition: "transform 140ms ease",
+                  transform: accent === acc ? "scale(1.2)" : "scale(1)",
+                }}
+              />
+            ))}
+          </div>
 
           {health?.emergency_stop ? (
             <JXButton
@@ -1461,6 +1488,84 @@ export default function App() {
                     {connections ? `${connections.chatgpt.clients.length} OAuth client(s) · ${connections.chatgpt.active_access_tokens} active token(s)` : "Checking ports…"}
                   </div>
                 </div>
+              </div>
+
+              {/* JXUI Tactile Command Strip */}
+              <div className="f2-command-strip" style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                flexWrap: "wrap",
+                padding: "14px 18px",
+                background: "var(--jx-surface-glass)",
+                backdropFilter: "blur(18px)",
+                WebkitBackdropFilter: "blur(18px)",
+                border: "1px solid var(--jx-border-subtle)",
+                borderRadius: 16,
+                boxShadow: "var(--jx-shadow-1)",
+                marginBottom: 24,
+              }}>
+                <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--jx-text-tertiary)" }}>
+                  ⚡ Quick Dispatch:
+                </span>
+                <button
+                  type="button"
+                  className="f2-btn f2-btn-subtle"
+                  style={{ padding: "6px 12px", fontSize: 12 }}
+                  onClick={() => {
+                    setView("tasks");
+                    setTaskTool("run_shell");
+                    setTaskArgs('{"command": "uptime && free -h"}');
+                  }}
+                  title="Dispatch shell diagnostics task"
+                >
+                  <FluentIcon name="terminal" />
+                  <span>Fleet Uptime & RAM</span>
+                </button>
+                <button
+                  type="button"
+                  className="f2-btn f2-btn-subtle"
+                  style={{ padding: "6px 12px", fontSize: 12 }}
+                  onClick={() => {
+                    setView("tasks");
+                    setTaskTool("capture_desktop_screenshot");
+                    setTaskArgs('{}');
+                  }}
+                  title="Capture live screenshot"
+                >
+                  <FluentIcon name="live_studio" />
+                  <span>Desktop Vision Inspector</span>
+                </button>
+                <button
+                  type="button"
+                  className="f2-btn f2-btn-subtle"
+                  style={{ padding: "6px 12px", fontSize: 12 }}
+                  onClick={() => setView("ai_api")}
+                  title="Jump to AI API hub"
+                >
+                  <FluentIcon name="ai_api" />
+                  <span>AI Copilot & Hub</span>
+                </button>
+                <button
+                  type="button"
+                  className="f2-btn f2-btn-subtle"
+                  style={{ padding: "6px 12px", fontSize: 12 }}
+                  onClick={() => setView("fleet_ops")}
+                  title="Jump to Fleet Operations"
+                >
+                  <FluentIcon name="fleet_ops" />
+                  <span>Self-Healing Triggers</span>
+                </button>
+                <button
+                  type="button"
+                  className="f2-btn f2-btn-subtle"
+                  style={{ padding: "6px 12px", fontSize: 12 }}
+                  onClick={() => setView("live_studio")}
+                  title="Jump to Live Desktop Studio"
+                >
+                  <FluentIcon name="live_studio" />
+                  <span>Live Studio Stream</span>
+                </button>
               </div>
 
               {pending.length > 0 && (
