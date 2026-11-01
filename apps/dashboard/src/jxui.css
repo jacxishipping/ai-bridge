@@ -146,6 +146,26 @@ html.dark {
 /* ==============================================================================
    2. Reset & Global Aesthetics
    ============================================================================== */
+button {
+  font-family: inherit;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  color: inherit;
+}
+
+.f2-mobile-toggle {
+  display: none !important;
+}
+
+@media (max-width: 900px) {
+  .f2-mobile-toggle {
+    display: inline-flex !important;
+  }
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
 }

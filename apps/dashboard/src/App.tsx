@@ -850,15 +850,15 @@ export default function App() {
     <div className="f2-shell">
       {/* Fluent 2 Acrylic Top App Bar */}
       <header className="f2-topbar">
-        <JXButton
-          size="sm"
-          variant="soft"
+        <button
+          type="button"
+          className="f2-icon-btn f2-mobile-toggle"
           onClick={() => setMobileNavOpen(prev => !prev)}
           aria-label="Toggle navigation menu"
           title="Toggle navigation"
         >
           <FluentIcon name={mobileNavOpen ? "cancel" : "more"} />
-        </JXButton>
+        </button>
         <div className="f2-brand" onClick={() => { setView("overview"); setMobileNavOpen(false); }}>
           <span className="f2-brand-logo" title="AI Bridge JXUI Control Plane">
             <FluentIcon name="approvals" />
@@ -889,53 +889,55 @@ export default function App() {
               ⚠️ {pending.length} Action{pending.length > 1 ? "s" : ""} Pending Approval ↗
             </JXButton>
           )}
-          <JXButton
-            size="sm"
-            variant="soft"
+          <button
+            type="button"
+            className="f2-search-trigger"
             onClick={() => {
               setCmdOpen(true);
               setCmdQuery("");
             }}
             title="Open Spotlight Command Palette (⌘K / Ctrl+K)"
-            startIcon={<FluentIcon name="search" />}
-            endIcon={<span className="f2-kbd">⌘K</span>}
           >
-            Spotlight Command…
-          </JXButton>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <FluentIcon name="search" />
+              <span>Spotlight Command…</span>
+            </span>
+            <span className="f2-kbd">⌘K</span>
+          </button>
 
-          <div style={{ display: "inline-flex", alignItems: "center" }}>
-            <JXSwitch
+          <label className="f2-switch-label" style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12.5 }} title={autoRefresh ? "Auto-refresh is on (every 15s)" : "Auto-refresh is off"}>
+            <input
+              type="checkbox"
               checked={autoRefresh}
-              onChange={setAutoRefresh}
-              label="Auto-refresh"
-              size="sm"
+              onChange={e => setAutoRefresh(e.target.checked)}
+              style={{ accentColor: "var(--jx-primary)" }}
             />
-          </div>
+            <span>Auto-refresh</span>
+          </label>
 
-          <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", whiteSpace: "nowrap" }} title={autoRefresh ? "Auto-refresh is on (every 15s)" : "Auto-refresh is off — press Refresh for the latest data"}>
-            {lastUpdated ? `Updated ${new Date(lastUpdated).toLocaleTimeString()}` : "Not updated yet"}{autoRefresh ? "" : " · auto-refresh off"}
+          <span style={{ fontSize: 12, color: "var(--jx-text-tertiary)", whiteSpace: "nowrap" }} title={autoRefresh ? "Auto-refresh is on (every 15s)" : "Auto-refresh is off"}>
+            {lastUpdated ? `Updated ${new Date(lastUpdated).toLocaleTimeString()}` : "Not updated yet"}
           </span>
-          <JXButton
-            size="sm"
-            variant="outlined"
+          <button
+            type="button"
+            className="f2-btn f2-btn-subtle"
             onClick={() => load()}
             disabled={loading}
-            loading={loading}
-            loadingLabel="Refreshing…"
+            style={{ padding: "6px 14px", fontSize: 12.5 }}
           >
-            Refresh
-          </JXButton>
+            {loading ? "Refreshing…" : "Refresh"}
+          </button>
 
-          <JXButton
-            size="sm"
-            variant="soft"
-            color="secondary"
+          <button
+            type="button"
+            className="f2-btn f2-btn-subtle"
             onClick={() => setTheme(theme === "light" ? "dark" : "light")}
             title="Switch between JXUI Light and Dark Obsidian modes"
-            startIcon={<FluentIcon name="theme" />}
+            style={{ padding: "6px 14px", fontSize: 12.5 }}
           >
-            {theme === "light" ? "Dark Mode" : "Light Mode"}
-          </JXButton>
+            <FluentIcon name="theme" />
+            <span>{theme === "light" ? "Dark Mode" : "Light Mode"}</span>
+          </button>
 
           {health?.emergency_stop ? (
             <JXButton
@@ -1011,155 +1013,174 @@ export default function App() {
             role="presentation"
           />
         )}
-        {/* Fluent 2 Navigation Drawer */}
-        <nav className={`f2-nav${mobileNavOpen ? " f2-nav-open" : ""}`} aria-label="Main Navigation">
-          <div className="f2-nav-section-label">Operations</div>
-          {(["overview", "devices"] as View[]).map(v => (
-            <JXButton
-              key={v}
-              fullWidth
-              variant={view === v ? "contained" : "text"}
-              onClick={() => setView(v)}
-              startIcon={<FluentIcon name={v} />}
-              style={{ justifyContent: "flex-start", marginBottom: 3 }}
-            >
-              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
-              {v === "devices" && online.length > 0 && (
-                <span className="f2-nav-counter">{online.length}</span>
-              )}
-            </JXButton>
-          ))}
-
-          <JXButton
-            fullWidth
-            variant={view === "device_detail" ? "contained" : "text"}
-            onClick={() => {
-              if (!selectedDeviceIdForDashboard && devices.length > 0) {
-                setSelectedDeviceIdForDashboard(devices[0].id);
-              }
-              setView("device_detail");
-            }}
-            title="Inspect full system specs, running servers, apps, and health for any machine"
-            startIcon={<FluentIcon name="dashboard" />}
-            style={{ justifyContent: "flex-start", marginBottom: 3 }}
-          >
-            <span style={{ flex: 1, textAlign: "left" }}>Device 360</span>
-            {selectedDeviceIdForDashboard && (
-              <span className="f2-nav-counter" style={{ fontSize: 10 }}>
-                {deviceNameOf(selectedDeviceIdForDashboard).slice(0, 8)}
-              </span>
-            )}
-          </JXButton>
-
-          {(["tasks", "approvals"] as View[]).map(v => (
-            <JXButton
-              key={v}
-              fullWidth
-              variant={view === v ? "contained" : "text"}
-              onClick={() => setView(v)}
-              startIcon={<FluentIcon name={v} />}
-              style={{ justifyContent: "flex-start", marginBottom: 3 }}
-            >
-              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
-              {v === "approvals" && pending.length > 0 && (
-                <span className="f2-nav-counter" data-warn="true">{pending.length}</span>
-              )}
-            </JXButton>
-          ))}
-
-          <JXButton
-            fullWidth
-            variant={view === "ai_api" ? "contained" : "text"}
-            onClick={() => setView("ai_api")}
-            title="Connect your custom AI, OpenAI, Claude, or local LLMs to control fleet devices"
-            startIcon={<FluentIcon name="ai_api" />}
-            style={{ justifyContent: "flex-start", marginBottom: 3 }}
-          >
-            <span style={{ flex: 1, textAlign: "left" }}>AI API & Agents</span>
-            <span className="f2-nav-counter" style={{ background: "var(--colorBrandBackground)", color: "#fff", fontSize: 9 }}>NEW</span>
-          </JXButton>
-
-          <JXButton
-            fullWidth
-            variant={view === "workflows" ? "contained" : "text"}
-            onClick={() => setView("workflows")}
-            title="Compose and execute autonomous multi-turn plans across fleet devices with OCR verification"
-            startIcon={<FluentIcon name="workflows" />}
-            style={{ justifyContent: "flex-start", marginBottom: 3 }}
-          >
-            <span style={{ flex: 1, textAlign: "left" }}>Workflows & Plans</span>
-            <span className="f2-nav-counter" style={{ background: "var(--colorPaletteGreenBackground3)", color: "#fff", fontSize: 9 }}>AGENT</span>
-          </JXButton>
-
-          <JXButton
-            fullWidth
-            variant={view === "fleet_ops" ? "contained" : "text"}
-            onClick={() => setView("fleet_ops")}
-            title="Cross-device telemetry graphs, multi-node command bus, and self-healing triggers"
-            startIcon={<FluentIcon name="fleet_ops" />}
-            style={{ justifyContent: "flex-start", marginBottom: 3 }}
-          >
-            <span style={{ flex: 1, textAlign: "left" }}>Fleet Operations</span>
-            <span className="f2-nav-counter" style={{ background: "var(--colorPaletteBlueBackground2, #0078d4)", color: "#fff", fontSize: 9 }}>FLEET</span>
-          </JXButton>
-
-          <JXButton
-            fullWidth
-            variant={view === "live_studio" ? "contained" : "text"}
-            onClick={() => setView("live_studio")}
-            title="Real-time visual desktop stream, dual-control human takeover, and fleet auto-updater"
-            startIcon={<FluentIcon name="live_studio" />}
-            style={{ justifyContent: "flex-start", marginBottom: 3 }}
-          >
-            <span style={{ flex: 1, textAlign: "left" }}>Live Desktop Studio</span>
-            <span className="f2-nav-counter" style={{ background: "var(--colorPaletteRedBackground3, #e81123)", color: "#fff", fontSize: 9 }}>LIVE</span>
-          </JXButton>
-
-          <JXButton
-            fullWidth
-            variant={view === "terminal" ? "contained" : "text"}
-            onClick={() => { setView("terminal"); setMobileNavOpen(false); }}
-            title="Real-time interactive pseudo-terminal shell with ANSI colors"
-            startIcon={<FluentIcon name="terminal" />}
-            style={{ justifyContent: "flex-start", marginBottom: 3 }}
-          >
-            <span style={{ flex: 1, textAlign: "left" }}>Live Terminal</span>
-            <span className="f2-nav-counter" style={{ background: "var(--colorBrandBackground)", color: "#fff", fontSize: 9 }}>SHELL</span>
-          </JXButton>
-
-          <div className="f2-nav-section-label" style={{ marginTop: 8 }}>Governance & Telemetry</div>
-          {(["policies", "audit", "connections", "logs"] as View[]).map(v => (
-            <JXButton
-              key={v}
-              fullWidth
-              variant={view === v ? "contained" : "text"}
-              onClick={() => setView(v)}
-              startIcon={<FluentIcon name={v} />}
-              style={{ justifyContent: "flex-start", marginBottom: 3 }}
-            >
-              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
-            </JXButton>
-          ))}
-        </nav>
+        {/* Fluent 2 Navigation Drawer */}
+        <nav className={`f2-nav${mobileNavOpen ? " f2-nav-open" : ""}`} aria-label="Main Navigation">
+          <div className="f2-nav-section-label">Operations</div>
+          {(["overview", "devices"] as View[]).map(v => (
+            <button
+              key={v}
+              type="button"
+              className="f2-nav-item"
+              data-active={String(view === v)}
+              onClick={() => { setView(v); setMobileNavOpen(false); }}
+            >
+              <span className="f2-nav-item-icon">
+                <FluentIcon name={v} />
+              </span>
+              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
+              {v === "devices" && online.length > 0 && (
+                <span className="f2-nav-counter">{online.length}</span>
+              )}
+            </button>
+          ))}
+
+          <button
+            type="button"
+            className="f2-nav-item"
+            data-active={String(view === "device_detail")}
+            onClick={() => {
+              if (!selectedDeviceIdForDashboard && devices.length > 0) {
+                setSelectedDeviceIdForDashboard(devices[0].id);
+              }
+              setView("device_detail");
+              setMobileNavOpen(false);
+            }}
+            title="Inspect full system specs, running servers, apps, and health for any machine"
+          >
+            <span className="f2-nav-item-icon">
+              <FluentIcon name="dashboard" />
+            </span>
+            <span style={{ flex: 1, textAlign: "left" }}>Device 360</span>
+            {selectedDeviceIdForDashboard && (
+              <span className="f2-nav-counter" style={{ fontSize: 10 }}>
+                {deviceNameOf(selectedDeviceIdForDashboard).slice(0, 8)}
+              </span>
+            )}
+          </button>
+
+          {(["tasks", "approvals"] as View[]).map(v => (
+            <button
+              key={v}
+              type="button"
+              className="f2-nav-item"
+              data-active={String(view === v)}
+              onClick={() => { setView(v); setMobileNavOpen(false); }}
+            >
+              <span className="f2-nav-item-icon">
+                <FluentIcon name={v} />
+              </span>
+              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
+              {v === "approvals" && pending.length > 0 && (
+                <span className="f2-nav-counter" data-warn="true">{pending.length}</span>
+              )}
+            </button>
+          ))}
+
+          <button
+            type="button"
+            className="f2-nav-item"
+            data-active={String(view === "ai_api")}
+            onClick={() => { setView("ai_api"); setMobileNavOpen(false); }}
+            title="Connect your custom AI, OpenAI, Claude, or local LLMs to control fleet devices"
+          >
+            <span className="f2-nav-item-icon">
+              <FluentIcon name="ai_api" />
+            </span>
+            <span style={{ flex: 1, textAlign: "left" }}>AI API & Agents</span>
+            <span className="f2-nav-counter" style={{ background: "var(--jx-primary)", color: "#fff", fontSize: 9 }}>NEW</span>
+          </button>
+
+          <button
+            type="button"
+            className="f2-nav-item"
+            data-active={String(view === "workflows")}
+            onClick={() => { setView("workflows"); setMobileNavOpen(false); }}
+            title="Compose and execute autonomous multi-turn plans across fleet devices with OCR verification"
+          >
+            <span className="f2-nav-item-icon">
+              <FluentIcon name="workflows" />
+            </span>
+            <span style={{ flex: 1, textAlign: "left" }}>Workflows & Plans</span>
+            <span className="f2-nav-counter" style={{ fontSize: 9 }}>AGENT</span>
+          </button>
+
+          <button
+            type="button"
+            className="f2-nav-item"
+            data-active={String(view === "fleet_ops")}
+            onClick={() => { setView("fleet_ops"); setMobileNavOpen(false); }}
+            title="Cross-device telemetry graphs, multi-node command bus, and self-healing triggers"
+          >
+            <span className="f2-nav-item-icon">
+              <FluentIcon name="fleet_ops" />
+            </span>
+            <span style={{ flex: 1, textAlign: "left" }}>Fleet Operations</span>
+            <span className="f2-nav-counter" style={{ fontSize: 9 }}>FLEET</span>
+          </button>
+
+          <button
+            type="button"
+            className="f2-nav-item"
+            data-active={String(view === "live_studio")}
+            onClick={() => { setView("live_studio"); setMobileNavOpen(false); }}
+            title="Real-time visual desktop stream, dual-control human takeover, and fleet auto-updater"
+          >
+            <span className="f2-nav-item-icon">
+              <FluentIcon name="live_studio" />
+            </span>
+            <span style={{ flex: 1, textAlign: "left" }}>Live Desktop Studio</span>
+            <span className="f2-nav-counter" style={{ background: "var(--jx-rose)", color: "#fff", fontSize: 9 }}>LIVE</span>
+          </button>
+
+          <button
+            type="button"
+            className="f2-nav-item"
+            data-active={String(view === "terminal")}
+            onClick={() => { setView("terminal"); setMobileNavOpen(false); }}
+            title="Real-time interactive pseudo-terminal shell with ANSI colors"
+          >
+            <span className="f2-nav-item-icon">
+              <FluentIcon name="terminal" />
+            </span>
+            <span style={{ flex: 1, textAlign: "left" }}>Live Terminal</span>
+            <span className="f2-nav-counter" style={{ background: "var(--jx-primary)", color: "#fff", fontSize: 9 }}>SHELL</span>
+          </button>
+
+          <div className="f2-nav-section-label" style={{ marginTop: 8 }}>Governance & Telemetry</div>
+          {(["policies", "audit", "connections", "logs"] as View[]).map(v => (
+            <button
+              key={v}
+              type="button"
+              className="f2-nav-item"
+              data-active={String(view === v)}
+              onClick={() => { setView(v); setMobileNavOpen(false); }}
+            >
+              <span className="f2-nav-item-icon">
+                <FluentIcon name={v} />
+              </span>
+              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
+            </button>
+          ))}
+        </nav>
 
         {/* Fluent 2 Workspace Canvas */}
         <main className="f2-canvas" aria-busy={loading}>
           <div className="f2-page-header">
             <div>
-              <div className="f2-breadcrumb" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                <JXButton size="sm" variant="text" onClick={() => setView("overview")}>AI Bridge</JXButton>
-                <span className="f2-breadcrumb-sep">/</span>
+              <div className="f2-breadcrumb" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 13, marginBottom: 8 }}>
+                <span className="f2-breadcrumb-link" style={{ cursor: "pointer", color: "var(--jx-primary)", fontWeight: 500 }} onClick={() => setView("overview")}>AI Bridge</span>
+                <span className="f2-breadcrumb-sep" style={{ color: "var(--jx-text-tertiary)" }}>/</span>
                 <span style={{ color: "var(--jx-text-tertiary)" }}>{meta.group === "ops" ? "Operations" : "Governance & Telemetry"}</span>
-                <span className="f2-breadcrumb-sep">/</span>
-                <span className="f2-breadcrumb-current">{meta.title}</span>
+                <span className="f2-breadcrumb-sep" style={{ color: "var(--jx-text-tertiary)" }}>/</span>
+                <span className="f2-breadcrumb-current" style={{ color: "var(--jx-text-primary)", fontWeight: 600 }}>{meta.title}</span>
               </div>
               <h2 className="f2-page-title">{meta.title}</h2>
               <p className="f2-page-subtitle">{meta.subtitle}</p>
             </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <JXButton
-                size="sm"
-                variant="outlined"
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <button
+                type="button"
+                className="f2-btn f2-btn-subtle"
                 title="Copy a link to this exact view"
                 onClick={async () => {
                   try {
@@ -1171,27 +1192,26 @@ export default function App() {
                 }}
               >
                 🔗 Copy link
-              </JXButton>
+              </button>
               {view !== "tasks" && (
-                <JXButton
-                  size="sm"
-                  variant="contained"
-                  color="primary"
+                <button
+                  type="button"
+                  className="f2-btn f2-btn-primary"
                   onClick={() => setView("tasks")}
-                  startIcon={<FluentIcon name="tasks" />}
                 >
-                  Dispatch Task
-                </JXButton>
+                  <FluentIcon name="tasks" />
+                  <span>Dispatch Task</span>
+                </button>
               )}
               {view !== "devices" && (
-                <JXButton
-                  size="sm"
-                  variant="outlined"
+                <button
+                  type="button"
+                  className="f2-btn f2-btn-subtle"
                   onClick={() => setView("devices")}
-                  startIcon={<FluentIcon name="devices" />}
                 >
-                  Enroll Device
-                </JXButton>
+                  <FluentIcon name="devices" />
+                  <span>Enroll Device</span>
+                </button>
               )}
             </div>
           </div>
