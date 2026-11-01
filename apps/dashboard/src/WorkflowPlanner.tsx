@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { api } from "./api";
+import {
+  JXButton,
+  JXSelect,
+  JXTextField,
+  JXSwitch,
+  JXChip,
+} from "@jacxishippingorg/jx-ui-react";
 
 interface WorkflowStep {
   name: string;
@@ -211,20 +218,17 @@ export const WorkflowPlanner: React.FC<WorkflowPlannerProps> = ({ devices, onNot
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <span style={{ fontSize: 12, color: "var(--colorNeutralForeground2)" }}>Target:</span>
-            <select
-              className="f2-select"
-              value={selectedDevice}
-              onChange={e => setSelectedDevice(e.target.value)}
-              style={{ fontSize: 13, padding: "5px 10px" }}
-            >
-              <option value="auto">Auto (Online Workstation)</option>
-              {devices.map(d => (
-                <option key={d.id} value={d.name || d.id}>
-                  {d.name || d.id} ({d.os || "Device"})
-                </option>
-              ))}
-              <option value="local">Local Control Plane</option>
-            </select>
+            <div style={{ minWidth: 220 }}>
+              <JXSelect
+                options={[
+                  { id: "auto", label: "Auto (Online Workstation)" },
+                  ...devices.map(d => ({ id: d.name || d.id, label: `${d.name || d.id} (${d.os || 'Device'})` })),
+                  { id: "local", label: "Local Control Plane" }
+                ]}
+                value={selectedDevice}
+                onChange={(val: any) => setSelectedDevice(val)}
+              />
+            </div>
           </div>
         </div>
 
@@ -233,15 +237,14 @@ export const WorkflowPlanner: React.FC<WorkflowPlannerProps> = ({ devices, onNot
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--colorNeutralStroke2)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: "var(--colorNeutralForeground2)" }}>Templates:</span>
             {templates.map(tpl => (
-              <button
+              <JXButton
                 key={tpl.id}
-                type="button"
-                className="f2-btn f2-btn-sm"
-                style={{ fontSize: 12, padding: "4px 10px", borderRadius: 16 }}
+                variant="soft"
+                size="sm"
                 onClick={() => handleSelectTemplate(tpl)}
               >
                 {tpl.name}
-              </button>
+              </JXButton>
             ))}
           </div>
         )}
@@ -251,36 +254,33 @@ export const WorkflowPlanner: React.FC<WorkflowPlannerProps> = ({ devices, onNot
       <div style={{ display: "grid", gridTemplateColumns: activeWorkflow ? "1.2fr 1fr" : "1fr", gap: 16 }}>
         {/* Step Builder Panel */}
         <div className="f2-card" style={{ padding: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <input
-              type="text"
-              className="f2-input"
-              value={workflowName}
-              onChange={e => setWorkflowName(e.target.value)}
-              placeholder="Workflow Name"
-              style={{ fontSize: 15, fontWeight: 600, flex: 1, marginRight: 12 }}
-            />
-            <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={stopOnFailure}
-                  onChange={e => setStopOnFailure(e.target.checked)}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <JXTextField
+                value={workflowName}
+                onChange={(val: any) => setWorkflowName(typeof val === "string" ? val : val?.target?.value || "")}
+                placeholder="Workflow Name"
+              />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <JXSwitch
+                label="Stop on Fail"
+                checked={stopOnFailure}
+                onChange={(c: any) => setStopOnFailure(typeof c === "boolean" ? c : c?.target?.checked)}
+              />
+              <div style={{ width: 110 }}>
+                <JXSelect
+                  label="Retries"
+                  value={String(maxRetries)}
+                  onChange={(val: any) => setMaxRetries(parseInt(typeof val === "string" ? val : val?.target?.value) || 0)}
+                  options={[
+                    { id: "0", label: "0 Retries" },
+                    { id: "1", label: "1 Retry" },
+                    { id: "2", label: "2 Retries" },
+                    { id: "3", label: "3 Retries" },
+                  ]}
                 />
-                Stop on Fail
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                Retries:
-                <input
-                  type="number"
-                  className="f2-input"
-                  style={{ width: 44, padding: "2px 6px", fontSize: 12 }}
-                  min="0"
-                  max="3"
-                  value={maxRetries}
-                  onChange={e => setMaxRetries(parseInt(e.target.value) || 0)}
-                />
-              </label>
+              </div>
             </div>
           </div>
 
@@ -315,78 +315,73 @@ export const WorkflowPlanner: React.FC<WorkflowPlannerProps> = ({ devices, onNot
                   >
                     {idx + 1}
                   </span>
-                  <input
-                    type="text"
-                    className="f2-input"
-                    value={st.name}
-                    onChange={e => handleUpdateStep(idx, "name", e.target.value)}
-                    placeholder="Step description"
-                    style={{ flex: 1, fontSize: 13, padding: "4px 8px" }}
-                  />
-                  <select
-                    className="f2-select"
-                    value={st.action}
-                    onChange={e => handleUpdateStep(idx, "action", e.target.value)}
-                    style={{ fontSize: 12, padding: "4px 8px" }}
-                  >
-                    <option value="launch_approved_application">launch_approved_application</option>
-                    <option value="wait_for_text">wait_for_text (OCR Poll)</option>
-                    <option value="click_text">click_text (Grounding)</option>
-                    <option value="click_element">click_element (Mark)</option>
-                    <option value="keyboard_type">keyboard_type</option>
-                    <option value="press_hotkey">press_hotkey</option>
-                    <option value="take_screenshot">take_screenshot</option>
-                    <option value="run_shell">run_shell</option>
-                    <option value="verify_screen_contains">verify_screen_contains</option>
-                    <option value="list_ui_elements">list_ui_elements</option>
-                  </select>
+                  <div style={{ flex: 1, minWidth: 160 }}>
+                    <JXTextField
+                      value={st.name}
+                      onChange={(val: any) => handleUpdateStep(idx, "name", val)}
+                      placeholder="Step description"
+                    />
+                  </div>
+                  <div style={{ minWidth: 200 }}>
+                    <JXSelect
+                      options={[
+                        { id: "launch_approved_application", label: "launch_approved_application" },
+                        { id: "wait_for_text", label: "wait_for_text (OCR Poll)" },
+                        { id: "click_text", label: "click_text (Grounding)" },
+                        { id: "click_element", label: "click_element (Mark)" },
+                        { id: "keyboard_type", label: "keyboard_type" },
+                        { id: "press_hotkey", label: "press_hotkey" },
+                        { id: "take_screenshot", label: "take_screenshot" },
+                        { id: "run_shell", label: "run_shell" },
+                        { id: "verify_screen_contains", label: "verify_screen_contains" },
+                        { id: "list_ui_elements", label: "list_ui_elements" },
+                      ]}
+                      value={st.action}
+                      onChange={(val: any) => handleUpdateStep(idx, "action", val)}
+                    />
+                  </div>
                   <div style={{ display: "flex", gap: 4 }}>
-                    <button
-                      type="button"
-                      className="f2-btn f2-btn-sm"
-                      style={{ padding: "2px 6px" }}
+                    <JXButton
+                      variant="soft"
+                      size="sm"
                       disabled={idx === 0}
                       onClick={() => handleMoveStep(idx, "up")}
                     >
                       ▲
-                    </button>
-                    <button
-                      type="button"
-                      className="f2-btn f2-btn-sm"
-                      style={{ padding: "2px 6px" }}
+                    </JXButton>
+                    <JXButton
+                      variant="soft"
+                      size="sm"
                       disabled={idx === steps.length - 1}
                       onClick={() => handleMoveStep(idx, "down")}
                     >
                       ▼
-                    </button>
-                    <button
-                      type="button"
-                      className="f2-btn f2-btn-sm"
-                      style={{ padding: "2px 6px", color: "var(--colorPaletteRedForeground1)" }}
+                    </JXButton>
+                    <JXButton
+                      variant="soft"
+                      color="error"
+                      size="sm"
                       onClick={() => handleRemoveStep(idx)}
                     >
                       ✕
-                    </button>
+                    </JXButton>
                   </div>
                 </div>
 
                 {/* Arguments Editor */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
                   <span style={{ color: "var(--colorNeutralForeground2)", minWidth: 40 }}>Args:</span>
-                  <input
-                    type="text"
-                    className="f2-input"
-                    value={JSON.stringify(st.args)}
-                    onChange={e => {
-                      try {
-                        const parsed = JSON.parse(e.target.value);
-                        handleUpdateStep(idx, "args", parsed);
-                      } catch (_) {
-                        // user typing raw JSON
-                      }
-                    }}
-                    style={{ flex: 1, fontFamily: "monospace", fontSize: 12, padding: "4px 8px" }}
-                  />
+                  <div style={{ flex: 1 }}>
+                    <JXTextField
+                      value={JSON.stringify(st.args)}
+                      onChange={(val: any) => {
+                        try {
+                          const parsed = JSON.parse(val);
+                          handleUpdateStep(idx, "args", parsed);
+                        } catch (_) {}
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             ))}
@@ -394,23 +389,22 @@ export const WorkflowPlanner: React.FC<WorkflowPlannerProps> = ({ devices, onNot
 
           {/* Builder Buttons */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <button
-              type="button"
-              className="f2-btn f2-btn-sm"
+            <JXButton
+              variant="soft"
+              size="sm"
               onClick={handleAddStep}
-              style={{ fontSize: 13 }}
             >
               ➕ Add Step
-            </button>
-            <button
-              type="button"
-              className="f2-btn f2-btn-primary"
+            </JXButton>
+            <JXButton
+              variant="contained"
+              color="primary"
               disabled={isRunning || !steps.length}
               onClick={handleExecuteWorkflow}
-              style={{ fontSize: 14, padding: "8px 20px" }}
+              loading={isRunning}
             >
-              {isRunning ? "🔄 Executing Autonomous Plan..." : "🚀 Run Plan on Device"}
-            </button>
+              🚀 Run Plan on Device
+            </JXButton>
           </div>
         </div>
 
@@ -445,14 +439,14 @@ export const WorkflowPlanner: React.FC<WorkflowPlannerProps> = ({ devices, onNot
                 <span style={{ fontWeight: 600, fontSize: 14 }}>{activeWorkflow.name}</span>
               </div>
               {activeWorkflow.status === "running" && (
-                <button
-                  type="button"
-                  className="f2-btn f2-btn-sm"
+                <JXButton
+                  size="sm"
+                  variant="soft"
+                  color="error"
                   onClick={handleCancelActive}
-                  style={{ color: "var(--colorPaletteRedForeground1)", fontSize: 12 }}
                 >
                   Cancel Plan
-                </button>
+                </JXButton>
               )}
             </div>
 
@@ -597,14 +591,13 @@ export const WorkflowPlanner: React.FC<WorkflowPlannerProps> = ({ devices, onNot
                       {new Date(wf.created_at * 1000).toLocaleTimeString()}
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="f2-btn f2-btn-sm"
-                        style={{ fontSize: 11, padding: "2px 8px" }}
+                      <JXButton
+                        size="sm"
+                        variant="soft"
                         onClick={() => setActiveWorkflow(wf)}
                       >
                         Inspect
-                      </button>
+                      </JXButton>
                     </td>
                   </tr>
                 ))}

@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState } from "react";
+import { GlassModal, JXButton } from "@jacxishippingorg/jx-ui-react";
 
 export interface ConfirmRequest {
   title: string;
@@ -12,28 +13,13 @@ export interface ConfirmRequest {
 }
 
 /**
- * Shared in-app confirmation dialog, replacing the browser's built-in prompt.
- * Renders nothing when request is null. Closes on Esc or backdrop click,
- * focuses Cancel first so Enter/Space cannot accidentally confirm a
- * destructive action, and disables both buttons while confirming.
+ * Shared confirmation dialog powered by JXUI GlassModal and JXButton.
  */
 export const ConfirmDialog: React.FC<{
   request: ConfirmRequest | null;
   onClose: () => void;
 }> = ({ request, onClose }) => {
   const [busy, setBusy] = useState(false);
-  const cancelRef = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    if (!request) return;
-    setBusy(false);
-    cancelRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [request, onClose]);
 
   if (!request) return null;
 
@@ -48,45 +34,33 @@ export const ConfirmDialog: React.FC<{
   };
 
   return (
-    <div
-      className="f2-dialog-overlay"
-      role="presentation"
-      onClick={onClose}
-    >
-      <div
-        className="f2-dialog"
-        style={{ maxWidth: 480 }}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="f2-confirm-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 id="f2-confirm-title" className="f2-section-title" style={{ marginBottom: 8 }}>
-          {request.title}
-        </h3>
-        <p style={{ fontSize: 13, color: "var(--colorNeutralForeground2)", margin: "0 0 20px", lineHeight: 1.5 }}>
-          {request.message}
-        </p>
-        <div className="f2-dialog-actions">
-          <button
-            type="button"
-            ref={cancelRef}
-            className="f2-btn"
-            disabled={busy}
-            onClick={onClose}
-          >
-            {request.cancelLabel || "Cancel"}
-          </button>
-          <button
-            type="button"
-            className={`f2-btn ${request.danger ? "f2-btn-danger" : "f2-btn-primary"}`}
-            disabled={busy}
-            onClick={handleConfirm}
-          >
-            {busy ? "Working…" : request.confirmLabel || "Confirm"}
-          </button>
-        </div>
+    <GlassModal open={true} onClose={onClose} title={request.title}>
+      <p style={{ fontSize: 13, color: "var(--jx-text-secondary, #94a3b8)", margin: "0 0 20px", lineHeight: 1.6 }}>
+        {request.message}
+      </p>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+        <JXButton
+          type="button"
+          variant="outlined"
+          size="sm"
+          disabled={busy}
+          onClick={onClose}
+        >
+          {request.cancelLabel || "Cancel"}
+        </JXButton>
+        <JXButton
+          type="button"
+          variant="contained"
+          size="sm"
+          color={request.danger ? "error" : "primary"}
+          disabled={busy}
+          loading={busy}
+          loadingLabel="Working…"
+          onClick={handleConfirm}
+        >
+          {request.confirmLabel || "Confirm"}
+        </JXButton>
       </div>
-    </div>
+    </GlassModal>
   );
 };

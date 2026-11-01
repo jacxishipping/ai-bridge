@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
 import { api } from "./api";
+import {
+  JXButton,
+  JXSwitch,
+  JXSelect,
+  JXTextField,
+  JXChip,
+} from "@jacxishippingorg/jx-ui-react";
 
 export interface ToolMetadata {
   name: string;
@@ -437,30 +444,20 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
         {/* Global vs Custom Toggle */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--colorNeutralBackground1)", padding: "4px 8px", borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)" }}>
           <span style={{ fontSize: 12, fontWeight: 600 }}>Policy Scope:</span>
-          <button
-            type="button"
-            className="f2-preset-pill"
-            style={{
-              backgroundColor: inheritGlobal ? "var(--colorBrandBackground)" : "transparent",
-              color: inheritGlobal ? "#fff" : "var(--colorNeutralForeground1)",
-              borderColor: inheritGlobal ? "var(--colorBrandBackground)" : "var(--colorNeutralStroke1)",
-            }}
+          <JXButton
+            variant={inheritGlobal ? "contained" : "soft"}
+            size="sm"
             onClick={() => setInheritGlobal(true)}
           >
             🌐 Inherit Global
-          </button>
-          <button
-            type="button"
-            className="f2-preset-pill"
-            style={{
-              backgroundColor: !inheritGlobal ? "var(--colorBrandBackground)" : "transparent",
-              color: !inheritGlobal ? "#fff" : "var(--colorNeutralForeground1)",
-              borderColor: !inheritGlobal ? "var(--colorBrandBackground)" : "var(--colorNeutralStroke1)",
-            }}
+          </JXButton>
+          <JXButton
+            variant={!inheritGlobal ? "contained" : "soft"}
+            size="sm"
             onClick={() => setInheritGlobal(false)}
           >
             🛡️ Custom Device Guardrails
-          </button>
+          </JXButton>
         </div>
       </div>
 
@@ -493,30 +490,54 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
             <span style={{ fontSize: 12, fontWeight: 400, color: "var(--colorNeutralForeground3)" }}>(Click to instantly configure safe role abilities)</span>
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className="f2-preset-pill"
-              style={{ background: "rgba(14, 112, 14, 0.12)", borderColor: "#0e700e", color: "#0e700e", fontWeight: 700 }}
+            <JXButton
+              variant="soft"
+              size="sm"
               onClick={() => applyPreset("linux_server")}
-              title="Linux Server Mode: No execution policy applied. Full unattended autonomy for DevOps, maintenance, deployments, and server tasks."
+              title="Linux Server Mode: No execution policy applied."
             >
               🐧 Linux Server (No Policy)
-            </button>
-            <button type="button" className="f2-preset-pill" onClick={() => applyPreset("strict_prod")} title="Read-only diagnostics only. Shell, package install, writes, and desktop disabled.">
+            </JXButton>
+            <JXButton
+              variant="soft"
+              size="sm"
+              onClick={() => applyPreset("strict_prod")}
+              title="Read-only diagnostics only."
+            >
               🛡️ Production Server (Strict)
-            </button>
-            <button type="button" className="f2-preset-pill" onClick={() => applyPreset("dev_agent")} title="Allows code editing, project tests, linters, package installs. Blocks deletion.">
+            </JXButton>
+            <JXButton
+              variant="soft"
+              size="sm"
+              onClick={() => applyPreset("dev_agent")}
+              title="Allows code editing, project tests, linters, package installs."
+            >
               🛠️ Dev & Build Agent
-            </button>
-            <button type="button" className="f2-preset-pill" onClick={() => applyPreset("workstation")} title="Permits full desktop control: mouse clicks/drag/scroll, keyboard typing/shortcuts, vision screenshots, and app launches.">
-              🖥️ Windows Workstation (Full Mouse & Keyboard)
-            </button>
-            <button type="button" className="f2-preset-pill" onClick={() => applyPreset("unattended")} title="High-trust autonomous execution. Permits tier-3 without approval.">
+            </JXButton>
+            <JXButton
+              variant="soft"
+              size="sm"
+              onClick={() => applyPreset("workstation")}
+              title="Permits full desktop control."
+            >
+              🖥️ Windows Workstation
+            </JXButton>
+            <JXButton
+              variant="soft"
+              size="sm"
+              onClick={() => applyPreset("unattended")}
+              title="High-trust autonomous execution."
+            >
               ⚡ Full Unattended
-            </button>
-            <button type="button" className="f2-preset-pill" onClick={() => applyPreset("lockdown")} title="Deny all execution, file modification, shell, and package tools.">
+            </JXButton>
+            <JXButton
+              variant="soft"
+              size="sm"
+              onClick={() => applyPreset("lockdown")}
+              title="Deny all execution."
+            >
               🔒 Total Lockdown
-            </button>
+            </JXButton>
           </div>
         </div>
       </div>
@@ -536,151 +557,97 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
       {/* High-Level Guardrail Switches */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10 }}>
         {/* Workspace writes */}
-        <div style={{ padding: 10, borderRadius: 6, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
-          <label className="f2-switch-label">
-            <input
-              type="checkbox"
-              checked={allowWrites}
-              onChange={e => {
-                setInheritGlobal(false);
-                setAllowWrites(e.target.checked);
-              }}
-              style={{ display: "none" }}
-            />
-            <span className="f2-switch" data-checked={String(allowWrites)} />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>Workspace File Edits</div>
-              <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
-                Allow creating, editing, and moving workspace files
-              </div>
-            </div>
-          </label>
+        <div style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
+          <JXSwitch
+            checked={allowWrites}
+            onChange={(val: any) => {
+              setInheritGlobal(false);
+              setAllowWrites(val);
+            }}
+            label="Workspace File Edits"
+            helperText="Allow creating, editing, and moving workspace files"
+          />
         </div>
 
         {/* Tier-3 Unattended */}
-        <div style={{ padding: 10, borderRadius: 6, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
-          <label className="f2-switch-label">
-            <input
-              type="checkbox"
-              checked={allowTier3}
-              onChange={e => {
-                setInheritGlobal(false);
-                setAllowTier3(e.target.checked);
-              }}
-              style={{ display: "none" }}
-            />
-            <span className="f2-switch" data-checked={String(allowTier3)} />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>Allow Tier-3 Unattended</div>
-              <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
-                Execute Tier-3 tools without waiting for human approval
-              </div>
-            </div>
-          </label>
+        <div style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
+          <JXSwitch
+            checked={allowTier3}
+            onChange={(val: any) => {
+              setInheritGlobal(false);
+              setAllowTier3(val);
+            }}
+            label="Allow Tier-3 Unattended"
+            helperText="Execute Tier-3 tools without human approval"
+          />
         </div>
 
         {/* Desktop Automation */}
-        <div style={{ padding: 10, borderRadius: 6, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
-          <label className="f2-switch-label">
-            <input
-              type="checkbox"
-              checked={desktopEnabled}
-              onChange={e => {
-                setInheritGlobal(false);
-                setDesktopEnabled(e.target.checked);
-                if (!e.target.checked) {
-                  setDeniedTools(prev => {
-                    const n = new Set(prev);
-                    DESKTOP_TOOL_NAMES.forEach(t => n.add(t));
-                    return n;
-                  });
-                } else {
-                  setDeniedTools(prev => {
-                    const n = new Set(prev);
-                    DESKTOP_TOOL_NAMES.forEach(t => n.delete(t));
-                    return n;
-                  });
-                }
-              }}
-              style={{ display: "none" }}
-            />
-            <span className="f2-switch" data-checked={String(desktopEnabled)} />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>Desktop Vision & UI Automation</div>
-              <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
-                Screenshots, window controls, and app launch
-              </div>
-            </div>
-          </label>
+        <div style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
+          <JXSwitch
+            checked={desktopEnabled}
+            onChange={(val: any) => {
+              setInheritGlobal(false);
+              setDesktopEnabled(val);
+              if (!val) {
+                setDeniedTools(prev => {
+                  const n = new Set(prev);
+                  DESKTOP_TOOL_NAMES.forEach(t => n.add(t));
+                  return n;
+                });
+              } else {
+                setDeniedTools(prev => {
+                  const n = new Set(prev);
+                  DESKTOP_TOOL_NAMES.forEach(t => n.delete(t));
+                  return n;
+                });
+              }
+            }}
+            label="Desktop Vision & UI Automation"
+            helperText="Screenshots, window controls, and app launch"
+          />
         </div>
 
         {/* Shell Execution */}
-        <div style={{ padding: 10, borderRadius: 6, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
-          <label className="f2-switch-label">
-            <input
-              type="checkbox"
-              checked={allowShell}
-              onChange={e => {
-                setInheritGlobal(false);
-                setAllowShell(e.target.checked);
-                toggleAbility("run_shell", e.target.checked);
-              }}
-              style={{ display: "none" }}
-            />
-            <span className="f2-switch" data-checked={String(allowShell)} />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>Terminal Shell Execution</div>
-              <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
-                Allow arbitrary shell execution (`run_shell`)
-              </div>
-            </div>
-          </label>
+        <div style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
+          <JXSwitch
+            checked={allowShell}
+            onChange={(val: any) => {
+              setInheritGlobal(false);
+              setAllowShell(val);
+              toggleAbility("run_shell", val);
+            }}
+            label="Terminal Shell Execution"
+            helperText="Allow arbitrary shell execution (run_shell)"
+          />
         </div>
 
         {/* Package Installation */}
-        <div style={{ padding: 10, borderRadius: 6, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
-          <label className="f2-switch-label">
-            <input
-              type="checkbox"
-              checked={allowPackageInstall}
-              onChange={e => {
-                setInheritGlobal(false);
-                setAllowPackageInstall(e.target.checked);
-                toggleAbility("install_package", e.target.checked);
-              }}
-              style={{ display: "none" }}
-            />
-            <span className="f2-switch" data-checked={String(allowPackageInstall)} />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>Package Installation</div>
-              <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
-                Allow installing packages via apt, winget, npm
-              </div>
-            </div>
-          </label>
+        <div style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
+          <JXSwitch
+            checked={allowPackageInstall}
+            onChange={(val: any) => {
+              setInheritGlobal(false);
+              setAllowPackageInstall(val);
+              toggleAbility("install_package", val);
+            }}
+            label="Package Installation"
+            helperText="Allow installing packages via apt, winget, npm"
+          />
         </div>
 
         {/* File Deletion Safeguard */}
-        <div style={{ padding: 10, borderRadius: 6, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
-          <label className="f2-switch-label">
-            <input
-              type="checkbox"
-              checked={allowFileDeletion}
-              onChange={e => {
-                setInheritGlobal(false);
-                setAllowFileDeletion(e.target.checked);
-                toggleAbility("delete_workspace_file", e.target.checked);
-              }}
-              style={{ display: "none" }}
-            />
-            <span className="f2-switch" data-checked={String(allowFileDeletion)} />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>File Deletion Safeguard</div>
-              <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
-                Permit permanent file deletions (`delete_workspace_file`)
-              </div>
-            </div>
-          </label>
+        <div style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
+          <JXSwitch
+            checked={allowFileDeletion}
+            onChange={(val: any) => {
+              setInheritGlobal(false);
+              setAllowFileDeletion(val);
+              toggleAbility("delete_workspace_file", val);
+            }}
+            label="File Deletion Safeguard"
+            helperText="Permit permanent file deletions (delete_workspace_file)"
+          />
         </div>
       </div>
 
@@ -695,23 +662,24 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
               Tools above this tier are paused in the Approval Queue and require administrator confirmation before executing.
             </div>
           </div>
-          <select
-            className="f2-select"
-            value={maxTierUnattended}
-            onChange={e => {
-              setInheritGlobal(false);
-              const val = Number(e.target.value);
-              setMaxTierUnattended(val);
-              if (val >= 3) setAllowTier3(true);
-              if (val >= 4) setAllowFileDeletion(true);
-            }}
-            style={{ fontWeight: 600, minWidth: 280 }}
-          >
-            <option value={1}>Tier 1: Read-Only Only (Tier 2–4 require approval)</option>
-            <option value={2}>Tier 2: Safe Workspace &amp; Tests (Tier 3–4 require approval)</option>
-            <option value={3}>Tier 3: Sensitive Tools Unattended (Tier 4 requires approval)</option>
-            <option value={4}>Tier 4: 🚀 Full Unrestricted Access (No tools require approval)</option>
-          </select>
+          <div style={{ minWidth: 280 }}>
+            <JXSelect
+              options={[
+                { id: "1", label: "Tier 1: Read-Only Only (Tier 2–4 require approval)" },
+                { id: "2", label: "Tier 2: Safe Workspace & Tests (Tier 3–4 require approval)" },
+                { id: "3", label: "Tier 3: Sensitive Tools Unattended (Tier 4 requires approval)" },
+                { id: "4", label: "Tier 4: 🚀 Full Unrestricted Access (No tools require approval)" },
+              ]}
+              value={String(maxTierUnattended)}
+              onChange={(val: any) => {
+                setInheritGlobal(false);
+                const v = Number(val);
+                setMaxTierUnattended(v);
+                if (v >= 3) setAllowTier3(true);
+                if (v >= 4) setAllowFileDeletion(true);
+              }}
+            />
+          </div>
         </div>
         {maxTierUnattended >= 4 ? (
           <div className="f2-messagebar" data-intent="success" style={{ margin: 0, padding: "8px 12px", fontSize: 12 }}>
@@ -738,56 +706,53 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
 
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {/* Category Bulk Actions */}
-            <button
-              type="button"
-              className="f2-btn f2-btn-sm"
+            <JXButton
+              variant="outlined"
+              size="sm"
               onClick={() => setCategoryAbilities(activeCategory, true)}
               title="Allow all abilities in this category"
             >
               ✓ Allow All in {activeCategory === "all" ? "Fleet" : CATEGORY_LABELS[activeCategory]?.label}
-            </button>
-            <button
-              type="button"
-              className="f2-btn f2-btn-danger f2-btn-sm"
+            </JXButton>
+            <JXButton
+              variant="soft"
+              color="error"
+              size="sm"
               onClick={() => setCategoryAbilities(activeCategory, false)}
               title="Disallow all abilities in this category"
             >
               ✕ Block All in {activeCategory === "all" ? "Fleet" : CATEGORY_LABELS[activeCategory]?.label}
-            </button>
+            </JXButton>
           </div>
         </div>
 
         {/* Search & Category Filter Tabs */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {Object.entries(CATEGORY_LABELS).map(([catKey, catInfo]) => {
               const count = catKey === "all"
                 ? FLEET_TOOLS.length
                 : FLEET_TOOLS.filter(t => t.category === catKey).length;
               return (
-                <button
+                <JXButton
                   key={catKey}
-                  type="button"
-                  className="f2-chip"
-                  data-active={String(activeCategory === catKey)}
+                  variant={activeCategory === catKey ? "contained" : "soft"}
+                  size="sm"
                   onClick={() => setActiveCategory(catKey)}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px" }}
                 >
-                  <span>{catInfo.icon}</span>
-                  <span>{catInfo.label}</span>
-                  <span style={{ fontSize: 11, opacity: 0.8 }}>({count})</span>
-                </button>
+                  {catInfo.icon} {catInfo.label} ({count})
+                </JXButton>
               );
             })}
           </div>
 
-          <input
-            className="f2-input"
-            value={filterText}
-            onChange={e => setFilterText(e.target.value)}
-            placeholder="Search abilities or tools..."
-            style={{ width: 220, height: 30, fontSize: 13 }}
-          />
+          <div style={{ width: 220 }}>
+            <JXTextField
+              value={filterText}
+              onChange={(val: any) => setFilterText(val)}
+              placeholder="Search abilities or tools..."
+            />
+          </div>
         </div>
 
         {/* Ability Cards Grid */}
@@ -830,15 +795,11 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
                     )}
                   </span>
 
-                  <label className="f2-switch-label" style={{ margin: 0 }}>
-                    <input
-                      type="checkbox"
-                      checked={isAllowed}
-                      onChange={e => toggleAbility(tool.name, e.target.checked)}
-                      style={{ display: "none" }}
-                    />
-                    <span className="f2-switch" data-checked={String(isAllowed)} />
-                  </label>
+                  <JXSwitch
+                    checked={isAllowed}
+                    onChange={(val: any) => toggleAbility(tool.name, val)}
+                    size="sm"
+                  />
                 </div>
               </div>
             );
@@ -849,75 +810,69 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
       {/* Allowed Apps & Services Allowlist */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
         <div>
-          <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4, color: "var(--colorNeutralForeground2)" }}>
-            Allowed GUI Applications (comma-separated executables)
-          </label>
-          <input
-            className="f2-input"
+          <JXTextField
+            label="Allowed GUI Applications (comma-separated executables)"
             value={allowedApps}
-            onChange={e => {
+            onChange={(val: any) => {
               setInheritGlobal(false);
-              setAllowedApps(e.target.value);
+              setAllowedApps(val);
             }}
             placeholder="chrome, code, notepad, msedge, terminal"
-            style={{ width: "100%" }}
           />
         </div>
 
         <div>
-          <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4, color: "var(--colorNeutralForeground2)" }}>
-            Allowed System Services (comma-separated unit names)
-          </label>
-          <input
-            className="f2-input"
+          <JXTextField
+            label="Allowed System Services (comma-separated unit names)"
             value={allowedServices}
-            onChange={e => {
+            onChange={(val: any) => {
               setInheritGlobal(false);
-              setAllowedServices(e.target.value);
+              setAllowedServices(val);
             }}
             placeholder="nginx, docker, postgresql, ssh"
-            style={{ width: "100%" }}
           />
         </div>
       </div>
 
       {/* Rationale & Actions */}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", paddingTop: 8, borderTop: "1px solid var(--colorNeutralStroke2)" }}>
-        <input
-          className="f2-input"
-          value={note}
-          onChange={e => setNote(e.target.value)}
-          placeholder="Audit rationale for this policy modification (optional)"
-          style={{ flex: 1, minWidth: 260 }}
-        />
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", paddingTop: 10, borderTop: "1px solid var(--colorNeutralStroke2)" }}>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <JXTextField
+            value={note}
+            onChange={(val: any) => setNote(val)}
+            placeholder="Audit rationale for this policy modification (optional)"
+          />
+        </div>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {deviceData?.has_custom_policy && (
-            <button
-              type="button"
-              className="f2-btn f2-btn-danger"
+            <JXButton
+              variant="soft"
+              color="error"
+              size="md"
               disabled={resetting || saving}
               onClick={handleReset}
               title="Remove device overrides and inherit the global server policy"
             >
               {resetting ? "Resetting…" : "Reset to Global"}
-            </button>
+            </JXButton>
           )}
 
           {isModal && onClose && (
-            <button type="button" className="f2-btn" onClick={onClose} disabled={saving}>
+            <JXButton variant="outlined" size="md" onClick={onClose} disabled={saving}>
               Close
-            </button>
+            </JXButton>
           )}
 
-          <button
-            type="button"
-            className="f2-btn f2-btn-primary"
-            disabled={saving}
+          <JXButton
+            variant="contained"
+            color="primary"
+            size="md"
+            loading={saving}
             onClick={handleSave}
           >
-            {saving ? "Saving Guardrails…" : "Save Device Policy"}
-          </button>
+            Save Device Policy
+          </JXButton>
         </div>
       </div>
     </div>

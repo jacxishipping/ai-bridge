@@ -1,6 +1,15 @@
 import React, { useEffect, useState, useRef } from "react";
 import { api, token, sessionToken } from "./api";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
+import {
+  JXCard,
+  JXButton,
+  JXTabs,
+  JXChip,
+  JXTextField,
+  JXSelect,
+  AIThinkingIndicator,
+} from "@jacxishippingorg/jx-ui-react";
 
 interface AiApiHubProps {
   devices: any[];
@@ -68,7 +77,7 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
   const [execDuration, setExecDuration] = useState<number | null>(null);
 
   // Docs State
-  const [codeLang, setCodeLang] = useState<"python" | "openai" | "claude" | "curl" | "typescript">("python");
+  const [codeLang, setCodeLang] = useState<"python" | "openai" | "curl">("python");
   const [copied, setCopied] = useState(false);
 
   const activeToken = sessionToken() || token() || "YOUR_AI_BRIDGE_TOKEN";
@@ -199,7 +208,6 @@ export const AiApiHub: React.FC<AiApiHubProps> = ({ devices }) => {
     setIsSendingChat(true);
 
     try {
-      // Send conversation to backend
       const historyPayload = chatMessages
         .filter(m => m.id !== "welcome")
         .concat(userMsg)
@@ -352,31 +360,74 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
   const isConnected = aiSettings?.is_connected || false;
   const activeMaskedKey = aiSettings?.masked_keys?.[activeProvider] || "";
 
+  const mainTabs = [
+    { id: "chat", label: "💬 Fleet Copilot Chat" },
+    { id: "settings", label: "🔑 Connect AI API Key" },
+    { id: "invoker", label: "⚡ Live Tool Tester" },
+    { id: "docs", label: "💻 SDK & REST Snippets" },
+  ];
+
+  const providerOptions = [
+    { id: "openai", label: "OpenAI (GPT-4o, GPT-4o-mini, o1)" },
+    { id: "anthropic", label: "Anthropic Claude (Claude 3.5 Sonnet)" },
+    { id: "gemini", label: "Google Gemini (Gemini 1.5 Flash / Pro)" },
+    { id: "groq", label: "Groq (Ultra-Fast Llama 3.3 70B)" },
+    { id: "deepseek", label: "DeepSeek (DeepSeek V3 / R1)" },
+    { id: "ollama", label: "Local Ollama (Offline / Self-Hosted)" },
+    { id: "custom", label: "⚡ Custom AI Endpoint (OpenRouter, Together, LocalAI, vLLM)" },
+  ];
+
+  const deviceOptions = [
+    { id: "auto", label: "⚡ Auto (Auto-route based on tool type)" },
+    { id: "local", label: "🖥️ local (Droplet / MCP Host)" },
+    ...devices.map(d => ({
+      id: d.name || d.id,
+      label: `${d.os && d.os.toLowerCase().includes("win") ? "🪟" : "🐧"} ${d.name} (${d.os || "Unknown OS"}, ${d.status})`,
+    })),
+  ];
+
+  const toolOptions = [
+    { id: "run_shell", label: "run_shell (Execute Bash / PowerShell)" },
+    { id: "take_screenshot", label: "take_screenshot (Desktop Screen Capture)" },
+    { id: "mouse_click", label: "mouse_click (Click coordinates)" },
+    { id: "keyboard_type", label: "keyboard_type (Type keystrokes)" },
+    { id: "list_desktop_windows", label: "list_desktop_windows (Open windows)" },
+    { id: "read_file", label: "read_file (Read file)" },
+    { id: "get_system_info", label: "get_system_info (Hardware specs)" },
+  ];
+
+  const docTabs = [
+    { id: "python", label: "Python SDK" },
+    { id: "openai", label: "OpenAI Client (/v1)" },
+    { id: "curl", label: "cURL / Bash" },
+  ];
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <ConfirmDialog request={confirmReq} onClose={() => setConfirmReq(null)} />
+
       {/* ================= TOP CONNECTION BANNER ================= */}
-      <div
-        className="f2-card"
-        style={{
-          background: isConnected
-            ? "linear-gradient(135deg, rgba(16,124,65,0.08) 0%, rgba(0,120,212,0.08) 100%)"
-            : "linear-gradient(135deg, rgba(255,185,0,0.1) 0%, rgba(0,120,212,0.08) 100%)",
-          border: isConnected ? "1px solid rgba(16,124,65,0.4)" : "1px solid rgba(255,185,0,0.5)",
-          padding: "16px 20px",
-          borderRadius: 8,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 12,
-        }}
-      >
+      <JXCard spotlight hoverLift className="f2-card">
+        <div
+          style={{
+            background: isConnected
+              ? "linear-gradient(135deg, rgba(16,124,65,0.08) 0%, rgba(0,120,212,0.08) 100%)"
+              : "linear-gradient(135deg, rgba(255,185,0,0.1) 0%, rgba(0,120,212,0.08) 100%)",
+            border: isConnected ? "1px solid rgba(16,124,65,0.4)" : "1px solid rgba(255,185,0,0.5)",
+            padding: "16px 20px",
+            borderRadius: 8,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 12,
+          }}
+        >
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div
             style={{
-              width: 38,
-              height: 38,
+              width: 40,
+              height: 40,
               borderRadius: "50%",
               background: isConnected ? "rgba(16,124,65,0.15)" : "rgba(255,185,0,0.2)",
               display: "flex",
@@ -396,19 +447,12 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                     : `AI Connected: ${activeProvider.toUpperCase()} (${aiSettings?.model || inputModel})`
                   : "No AI API Key Connected"}
               </span>
-              <span
-                className="f2-badge"
-                style={{
-                  background: isConnected ? "rgba(16,124,65,0.15)" : "rgba(255,185,0,0.2)",
-                  color: isConnected ? "var(--colorStatusSuccessForeground1)" : "var(--colorStatusWarningForeground1)",
-                  fontSize: 11,
-                  fontWeight: 600,
-                }}
-              >
-                {isConnected ? "Active & Ready" : "Smart Intent Mode"}
-              </span>
+              <JXChip
+                label={isConnected ? "Active & Ready" : "Smart Intent Mode"}
+                tone={isConnected ? "emerald" : "amber"}
+              />
             </div>
-            <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 13, marginTop: 2 }}>
+            <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 13, marginTop: 4 }}>
               {isConnected
                 ? activeProvider === "custom"
                   ? `Key: ${activeMaskedKey || "Configured"} • Base URL: ${aiSettings?.custom_base_url || inputBaseUrl} • Full multi-step reasoning enabled across your ${devices.length} fleet device(s).`
@@ -418,53 +462,25 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button
-            type="button"
-            className="f2-btn f2-btn-sm"
+        <div>
+          <JXButton
+            variant="outlined"
+            size="sm"
             onClick={() => setActiveTab("settings")}
-            style={{ fontWeight: 600 }}
           >
             🔑 {isConnected ? "Change / Manage Keys" : "Connect AI API Key"}
-          </button>
+          </JXButton>
         </div>
-      </div>
+        </div>
+      </JXCard>
 
       {/* ================= NAVIGATION TABS ================= */}
-      <div className="f2-tabs" style={{ borderBottom: "1px solid var(--colorNeutralStroke2)" }}>
-        <button
-          type="button"
-          className="f2-tab-btn"
-          data-active={String(activeTab === "chat")}
-          onClick={() => setActiveTab("chat")}
-        >
-          💬 Fleet Copilot Chat
-        </button>
-        <button
-          type="button"
-          className="f2-tab-btn"
-          data-active={String(activeTab === "settings")}
-          onClick={() => setActiveTab("settings")}
-        >
-          🔑 Connect AI API Key
-        </button>
-        <button
-          type="button"
-          className="f2-tab-btn"
-          data-active={String(activeTab === "invoker")}
-          onClick={() => setActiveTab("invoker")}
-        >
-          ⚡ Live Tool Tester
-        </button>
-        <button
-          type="button"
-          className="f2-tab-btn"
-          data-active={String(activeTab === "docs")}
-          onClick={() => setActiveTab("docs")}
-        >
-          💻 SDK & REST Snippets
-        </button>
-      </div>
+      <JXTabs
+        tabs={mainTabs}
+        value={activeTab}
+        onChange={(val) => setActiveTab(val as any)}
+        indicatorVariant="pill"
+      />
 
       {/* ================= TAB 1: COPILOT CHAT ================= */}
       {activeTab === "chat" && (
@@ -477,41 +493,29 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
             {devices.map(d => {
               const isWin = d.os && d.os.toLowerCase().includes("win");
               return (
-                <span
+                <JXChip
                   key={d.id}
-                  className="f2-badge"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 5,
-                    padding: "4px 10px",
-                    background: "var(--colorNeutralBackground3)",
-                  }}
-                >
-                  <span>{isWin ? "🪟" : "🐧"}</span>
-                  <strong>{d.name}</strong>
-                  <span style={{ fontSize: 11, color: d.status === "online" ? "green" : "gray" }}>
-                    ● {d.status}
-                  </span>
-                </span>
+                  label={`${isWin ? "🪟" : "🐧"} ${d.name} ● ${d.status}`}
+                  tone={d.status === "online" ? "emerald" : "neutral"}
+                />
               );
             })}
           </div>
 
           {/* Chat Messages Card */}
-          <div
-            className="f2-card"
-            style={{
-              padding: 16,
-              minHeight: 460,
-              maxHeight: 620,
-              overflowY: "auto",
-              display: "flex",
-              flexDirection: "column",
-              gap: 16,
-              background: "var(--colorNeutralBackground1)",
-            }}
-          >
+          <JXCard spotlight className="f2-card">
+            <div
+              style={{
+                padding: 18,
+                minHeight: 460,
+                maxHeight: 620,
+                overflowY: "auto",
+                display: "flex",
+                flexDirection: "column",
+                gap: 16,
+                background: "var(--colorNeutralBackground1)",
+              }}
+            >
             {chatMessages.map(msg => (
               <div
                 key={msg.id}
@@ -540,7 +544,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                   style={{
                     maxWidth: "85%",
                     padding: "12px 16px",
-                    borderRadius: 8,
+                    borderRadius: 12,
                     background:
                       msg.role === "user"
                         ? "var(--colorBrandBackground)"
@@ -550,7 +554,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                     lineHeight: 1.55,
                     whiteSpace: "pre-wrap",
                     wordBreak: "break-word",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.08)",
                   }}
                 >
                   {msg.content}
@@ -567,7 +571,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                         style={{
                           maxWidth: "100%",
                           maxHeight: 340,
-                          borderRadius: 6,
+                          borderRadius: 8,
                           border: "1px solid rgba(0,0,0,0.2)",
                           cursor: "pointer",
                         }}
@@ -581,22 +585,14 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
 
                   {/* Tool Invocations Trace */}
                   {msg.steps && msg.steps.length > 0 && (
-                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.1)", fontSize: 11 }}>
-                      <span style={{ fontWeight: 600 }}>Tools invoked: </span>
+                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.1)", display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                      <span style={{ fontWeight: 600, fontSize: 11 }}>Tools invoked:</span>
                       {msg.steps.map((s, i) => (
-                        <span
+                        <JXChip
                           key={i}
-                          style={{
-                            display: "inline-block",
-                            background: "rgba(0,0,0,0.08)",
-                            padding: "2px 6px",
-                            borderRadius: 4,
-                            marginRight: 4,
-                            fontFamily: "monospace",
-                          }}
-                        >
-                          {s.tool} ({s.device})
-                        </span>
+                          label={`${s.tool} (${s.device})`}
+                          tone="sky"
+                        />
                       ))}
                     </div>
                   )}
@@ -605,14 +601,15 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
             ))}
 
             {isSendingChat && (
-              <div style={{ display: "flex", gap: 8, alignItems: "center", color: "var(--colorNeutralForeground3)", fontSize: 13 }}>
-                <span style={{ animation: "spin 1s linear infinite" }}>⚙️</span>
-                <span>AI Copilot is reasoning and coordinating with devices...</span>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", color: "var(--colorNeutralForeground3)", padding: 8 }}>
+                <AIThinkingIndicator />
+                <span style={{ fontSize: 13 }}>AI Copilot is reasoning and coordinating with devices...</span>
               </div>
             )}
 
             <div ref={chatBottomRef} />
-          </div>
+            </div>
+          </JXCard>
 
           {/* Quick Action Suggestion Chips */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -625,44 +622,40 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
               { label: "🪟 Windows Apps", prompt: "List open application windows on windows-pc" },
               { label: "🩺 Full Fleet Health", prompt: "Provide a complete health and telemetry status summary for all devices in our fleet" },
             ].map((chip, idx) => (
-              <button
+              <JXChip
                 key={idx}
-                type="button"
-                className="f2-btn f2-btn-sm"
-                style={{ fontSize: 12, padding: "4px 10px", borderRadius: 16 }}
+                label={chip.label}
+                tone="indigo"
                 onClick={() => handleSendChat(chip.prompt)}
-              >
-                {chip.label}
-              </button>
+              />
             ))}
           </div>
 
           {/* Chat Input Bar */}
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              type="text"
-              className="f2-input"
-              style={{ flex: 1, padding: "10px 14px", fontSize: 14 }}
-              placeholder="Ask AI to run commands, check servers, or automate Windows GUI..."
-              value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendChat();
-                }
-              }}
-              disabled={isSendingChat}
-            />
-            <button
-              type="button"
-              className="f2-btn f2-btn-primary"
-              style={{ padding: "0 22px", fontWeight: 600 }}
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={{ flex: 1 }}>
+              <JXTextField
+                placeholder="Ask AI to run commands, check servers, or automate Windows GUI..."
+                value={chatInput}
+                onChange={(val) => setChatInput(val)}
+                disabled={isSendingChat}
+                onKeyDown={(e: any) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendChat();
+                  }
+                }}
+              />
+            </div>
+            <JXButton
+              variant="contained"
+              color="primary"
+              size="md"
               onClick={() => handleSendChat()}
               disabled={isSendingChat || !chatInput.trim()}
             >
               Send ➔
-            </button>
+            </JXButton>
           </div>
         </div>
       )}
@@ -671,50 +664,37 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
       {activeTab === "settings" && (
         <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 16, alignItems: "start" }}>
           {/* Key Input Form */}
-          <div className="f2-card" style={{ padding: 20 }}>
+          <JXCard spotlight className="f2-card">
+            <div style={{ padding: 22 }}>
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>
               Connect Your AI API Key
             </div>
-            <div style={{ fontSize: 13, color: "var(--colorNeutralForeground3)", marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: "var(--colorNeutralForeground3)", marginBottom: 18 }}>
               Store your OpenAI, Anthropic Claude, Gemini, or Groq API key securely in AI Bridge.
               Once saved, the Dashboard Chat and all AI agent tasks use this key automatically.
             </div>
 
-            <form onSubmit={handleSaveKey} style={{ display: "grid", gap: 14 }}>
+            <form onSubmit={handleSaveKey} style={{ display: "grid", gap: 16 }}>
               {/* Provider Selection */}
               <div>
-                <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>AI Provider</label>
-                <select
-                  className="f2-input"
-                  style={{ width: "100%" }}
+                <JXSelect
+                  label="AI Provider"
+                  options={providerOptions}
                   value={inputProvider}
-                  onChange={e => handleProviderChange(e.target.value)}
-                >
-                  <option value="openai">OpenAI (GPT-4o, GPT-4o-mini, o1)</option>
-                  <option value="anthropic">Anthropic Claude (Claude 3.5 Sonnet)</option>
-                  <option value="gemini">Google Gemini (Gemini 1.5 Flash / Pro)</option>
-                  <option value="groq">Groq (Ultra-Fast Llama 3.3 70B)</option>
-                  <option value="deepseek">DeepSeek (DeepSeek V3 / R1)</option>
-                  <option value="ollama">Local Ollama (Offline / Self-Hosted)</option>
-                  <option value="custom">⚡ Custom AI Endpoint (OpenRouter, Together, LocalAI, vLLM, LM Studio)</option>
-                </select>
+                  onChange={(val) => handleProviderChange(val)}
+                />
               </div>
 
               {/* Custom Base URL Input if Custom AI selected */}
               {inputProvider === "custom" && (
                 <div>
-                  <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>
-                    Custom Base URL (OpenAI-compatible)
-                  </label>
-                  <input
-                    type="text"
-                    className="f2-input"
-                    style={{ width: "100%", fontFamily: "monospace", fontSize: 13 }}
+                  <JXTextField
+                    label="Custom Base URL (OpenAI-compatible)"
                     placeholder="https://openrouter.ai/api/v1 or http://localhost:8000/v1"
                     value={inputBaseUrl}
-                    onChange={e => setInputBaseUrl(e.target.value)}
+                    onChange={(val) => setInputBaseUrl(val)}
                   />
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
                     <span style={{ fontSize: 11, color: "var(--colorNeutralForeground3)", alignSelf: "center" }}>Presets:</span>
                     {[
                       { name: "OpenRouter", url: "https://openrouter.ai/api/v1", model: "mistralai/mixtral-8x7b-instruct" },
@@ -723,18 +703,17 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                       { name: "LM Studio", url: "http://localhost:1234/v1", model: "local-model" },
                       { name: "LocalAI / vLLM", url: "http://localhost:8000/v1", model: "default" },
                     ].map(p => (
-                      <button
+                      <JXButton
                         key={p.name}
-                        type="button"
-                        className="f2-btn f2-btn-sm"
-                        style={{ fontSize: 11, padding: "2px 8px" }}
+                        variant="soft"
+                        size="sm"
                         onClick={() => {
                           setInputBaseUrl(p.url);
                           setInputModel(p.model);
                         }}
                       >
                         {p.name}
-                      </button>
+                      </JXButton>
                     ))}
                   </div>
                 </div>
@@ -742,55 +721,50 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
 
               {/* Model Input */}
               <div>
-                <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>Model Name</label>
-                <input
-                  type="text"
-                  className="f2-input"
-                  style={{ width: "100%" }}
+                <JXTextField
+                  label="Model Name"
                   placeholder={inputProvider === "custom" ? "e.g. mistralai/mixtral-8x7b-instruct, gpt-4o, etc." : "Model name"}
                   value={inputModel}
-                  onChange={e => setInputModel(e.target.value)}
+                  onChange={(val) => setInputModel(val)}
                 />
               </div>
 
               {/* API Key Input */}
               {inputProvider !== "ollama" ? (
                 <div>
-                  <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>
-                    API Key for {inputProvider === "custom" ? "Custom AI Endpoint" : inputProvider.toUpperCase()}
-                  </label>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <input
-                      type={showApiKey ? "text" : "password"}
-                      className="f2-input"
-                      style={{ flex: 1, fontFamily: "monospace" }}
-                      placeholder={
-                        inputProvider === "openai" ? "sk-proj-..."
-                        : inputProvider === "anthropic" ? "sk-ant-..."
-                        : inputProvider === "gemini" ? "AIzaSy..."
-                        : inputProvider === "custom" ? "Custom API key or Bearer token (optional for local/no-auth)"
-                        : "Your API Key"
-                      }
-                      value={inputApiKey}
-                      onChange={e => setInputApiKey(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className="f2-btn"
+                  <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                    <div style={{ flex: 1 }}>
+                      <JXTextField
+                        label={`API Key for ${inputProvider === "custom" ? "Custom AI Endpoint" : inputProvider.toUpperCase()}`}
+                        type={showApiKey ? "text" : "password"}
+                        placeholder={
+                          inputProvider === "openai" ? "sk-proj-..."
+                          : inputProvider === "anthropic" ? "sk-ant-..."
+                          : inputProvider === "gemini" ? "AIzaSy..."
+                          : inputProvider === "custom" ? "Custom API key or Bearer token (optional for local/no-auth)"
+                          : "Your API Key"
+                        }
+                        value={inputApiKey}
+                        onChange={(val) => setInputApiKey(val)}
+                      />
+                    </div>
+                    <JXButton
+                      variant="outlined"
+                      size="md"
                       onClick={() => setShowApiKey(!showApiKey)}
                       title="Show/Hide Key"
                     >
                       {showApiKey ? "🙈" : "👁️"}
-                    </button>
+                    </JXButton>
                   </div>
-                  <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)", marginTop: 4 }}>
+                  <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)", marginTop: 6 }}>
                     {inputProvider === "custom"
                       ? "Custom keys are sent via Authorization: Bearer <key> to your Base URL."
                       : "Keys travel over HTTPS only and are never exposed in client logs."}
                   </div>
                 </div>
               ) : (
-                <div style={{ background: "var(--colorNeutralBackground3)", padding: 10, borderRadius: 6, fontSize: 12 }}>
+                <div style={{ background: "var(--colorNeutralBackground3)", padding: 12, borderRadius: 8, fontSize: 12 }}>
                   Ollama runs locally at <code>http://localhost:11434</code> without external API keys.
                 </div>
               )}
@@ -799,7 +773,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                 <div
                   style={{
                     padding: 10,
-                    borderRadius: 6,
+                    borderRadius: 8,
                     fontSize: 13,
                     background: saveMessage.error ? "rgba(197,34,31,0.1)" : "rgba(16,124,65,0.1)",
                     color: saveMessage.error ? "var(--colorStatusDangerForeground1)" : "var(--colorStatusSuccessForeground1)",
@@ -810,20 +784,24 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                 </div>
               )}
 
-              <button
+              <JXButton
+                variant="contained"
+                color="primary"
+                size="md"
                 type="submit"
-                className="f2-btn f2-btn-primary"
-                style={{ padding: "10px 0", fontWeight: 700 }}
-                disabled={isSavingKey}
+                loading={isSavingKey}
+                fullWidth
               >
-                {isSavingKey ? "Verifying with Provider..." : "🔒 Test & Save AI Connection"}
-              </button>
+                🔒 Test & Save AI Connection
+              </JXButton>
             </form>
           </div>
+          </JXCard>
 
           {/* Configured Keys Card */}
-          <div className="f2-card" style={{ padding: 20 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
+          <JXCard spotlight className="f2-card">
+            <div style={{ padding: 22 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>
               Configured AI Providers
             </div>
 
@@ -844,16 +822,17 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                     key={prov.id}
                     style={{
                       background: "var(--colorNeutralBackground3)",
-                      padding: "10px 14px",
-                      borderRadius: 6,
+                      padding: "12px 14px",
+                      borderRadius: 8,
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
+                      gap: 8,
                     }}
                   >
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 13 }}>{prov.name}</div>
-                      <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
+                      <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)", marginTop: 2 }}>
                         {isConf
                           ? prov.id === "custom"
                             ? `Connected (${masked || "No Key"}) • ${aiSettings?.custom_base_url}`
@@ -864,25 +843,24 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
 
                     <div>
                       {isConf ? (
-                        <button
-                          type="button"
-                          className="f2-btn f2-btn-sm"
-                          style={{ color: "var(--colorStatusDangerForeground1)", fontSize: 11 }}
+                        <JXButton
+                          variant="soft"
+                          size="sm"
+                          color="error"
                           onClick={() => handleClearKey(prov.id)}
                         >
                           Disconnect
-                        </button>
+                        </JXButton>
                       ) : (
-                        <button
-                          type="button"
-                          className="f2-btn f2-btn-sm"
-                          style={{ fontSize: 11 }}
+                        <JXButton
+                          variant="outlined"
+                          size="sm"
                           onClick={() => {
                             handleProviderChange(prov.id);
                           }}
                         >
                           Configure
-                        </button>
+                        </JXButton>
                       )}
                     </div>
                   </div>
@@ -890,89 +868,77 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
               })}
             </div>
           </div>
+          </JXCard>
         </div>
       )}
 
       {/* ================= TAB 3: LIVE TOOL RUNNER ================= */}
       {activeTab === "invoker" && (
         <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.8fr", gap: 16, alignItems: "start" }}>
-          <div className="f2-card" style={{ padding: 16 }}>
-            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>
+          <JXCard spotlight className="f2-card">
+            <div style={{ padding: 20 }}>
+            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 14 }}>
               Execute Tool Synchronously (POST /api/ai/execute)
             </div>
             {toolsError && (
-              <div className="f2-messagebar" data-intent="error">
+              <div className="f2-messagebar" data-intent="error" style={{ marginBottom: 12 }}>
                 <span>{toolsError}</span>
-                <button type="button" className="f2-btn f2-btn-sm" onClick={() => { setToolsError(null); loadTools(); }}>Retry</button>
+                <JXButton variant="soft" size="sm" onClick={() => { setToolsError(null); loadTools(); }}>Retry</JXButton>
               </div>
             )}
 
-            <div style={{ display: "grid", gap: 12 }}>
+            <div style={{ display: "grid", gap: 14 }}>
               <div>
-                <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>Target Device</label>
-                <select
-                  className="f2-input"
-                  style={{ width: "100%" }}
+                <JXSelect
+                  label="Target Device"
+                  options={deviceOptions}
                   value={selectedDevice}
-                  onChange={e => setSelectedDevice(e.target.value)}
-                >
-                  <option value="auto">⚡ Auto (Auto-route based on tool type)</option>
-                  <option value="local">🖥️ local (Droplet / MCP Host)</option>
-                  {devices.map(d => (
-                    <option key={d.id} value={d.name || d.id}>
-                      {d.os && d.os.toLowerCase().includes("win") ? "🪟" : "🐧"} {d.name} ({d.os || "Unknown OS"}, {d.status})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setSelectedDevice(val)}
+                />
               </div>
 
               <div>
-                <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>Select Tool</label>
-                <select
-                  className="f2-input"
-                  style={{ width: "100%" }}
+                <JXSelect
+                  label="Select Tool"
+                  options={toolOptions}
                   value={selectedTool}
-                  onChange={e => handleToolChange(e.target.value)}
-                >
-                  <option value="run_shell">run_shell (Execute Bash / PowerShell)</option>
-                  <option value="take_screenshot">take_screenshot (Desktop Screen Capture)</option>
-                  <option value="mouse_click">mouse_click (Click coordinates)</option>
-                  <option value="keyboard_type">keyboard_type (Type keystrokes)</option>
-                  <option value="list_desktop_windows">list_desktop_windows (Open windows)</option>
-                  <option value="read_file">read_file (Read file)</option>
-                  <option value="get_system_info">get_system_info (Hardware specs)</option>
-                </select>
+                  onChange={(val) => handleToolChange(val)}
+                />
               </div>
 
               <div>
-                <label className="f2-label" style={{ display: "block", marginBottom: 4 }}>Arguments (JSON)</label>
+                <label className="f2-label" style={{ display: "block", marginBottom: 6 }}>Arguments (JSON)</label>
                 <textarea
                   className="f2-input"
-                  style={{ width: "100%", height: 110, fontFamily: "monospace", fontSize: 12 }}
+                  style={{ width: "100%", height: 110, fontFamily: "monospace", fontSize: 12, borderRadius: 8 }}
                   value={toolArgsStr}
                   onChange={e => setToolArgsStr(e.target.value)}
                 />
               </div>
 
-              <button
-                type="button"
-                className="f2-btn f2-btn-primary"
-                style={{ width: "100%", padding: "8px 0" }}
-                disabled={isExecuting}
+              <JXButton
+                variant="contained"
+                color="primary"
+                size="md"
+                loading={isExecuting}
                 onClick={handleExecuteTool}
+                fullWidth
               >
-                {isExecuting ? "Executing on Device..." : "▶ Execute Tool"}
-              </button>
+                ▶ Execute Tool
+              </JXButton>
             </div>
           </div>
+          </JXCard>
 
-          <div className="f2-card" style={{ padding: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <JXCard spotlight className="f2-card">
+            <div style={{ padding: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <span style={{ fontWeight: 600, fontSize: 14 }}>Real-Time Result</span>
               {execDuration !== null && (
-                <span className="f2-badge" style={{ background: "rgba(16,124,65,0.15)", color: "var(--colorStatusSuccessForeground1)" }}>
-                  {execDuration} ms
-                </span>
+                <JXChip
+                  label={`${execDuration} ms`}
+                  tone="emerald"
+                />
               )}
             </div>
 
@@ -983,7 +949,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                     <img
                       src={`data:image/jpeg;base64,${executionResult.result.screenshot}`}
                       alt="Captured Display"
-                      style={{ maxWidth: "100%", maxHeight: 300, borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)" }}
+                      style={{ maxWidth: "100%", maxHeight: 300, borderRadius: 8, border: "1px solid var(--colorNeutralStroke1)" }}
                     />
                   </div>
                 )}
@@ -991,7 +957,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                   style={{
                     background: "var(--colorNeutralBackground3)",
                     padding: 12,
-                    borderRadius: 6,
+                    borderRadius: 8,
                     maxHeight: 340,
                     overflow: "auto",
                     fontFamily: "monospace",
@@ -1007,13 +973,15 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
               </div>
             )}
           </div>
+          </JXCard>
         </div>
       )}
 
       {/* ================= TAB 4: CODE GENERATOR ================= */}
       {activeTab === "docs" && (
-        <div className="f2-card" style={{ padding: 18 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <JXCard spotlight className="f2-card">
+            <div style={{ padding: 22 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <div>
               <div style={{ fontWeight: 600, fontSize: 15 }}>SDK & REST API Code Generator</div>
               <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", marginTop: 2 }}>
@@ -1021,47 +989,33 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
               </div>
             </div>
 
-            <button
-              type="button"
-              className="f2-btn"
+            <JXButton
+              variant="outlined"
+              size="sm"
               onClick={() => {
                 navigator.clipboard?.writeText(renderCodeSnippet());
                 setCopied(true);
                 setTimeout(() => setCopied(false), 2000);
               }}
-              style={{ padding: "6px 14px", fontWeight: 600 }}
             >
               {copied ? "✓ Copied!" : "📋 Copy Code"}
-            </button>
+            </JXButton>
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            {[
-              { id: "python", label: "Python SDK" },
-              { id: "openai", label: "OpenAI Client (/v1)" },
-              { id: "curl", label: "cURL / Bash" },
-            ].map(item => (
-              <button
-                key={item.id}
-                type="button"
-                className="f2-btn f2-btn-sm"
-                data-active={String(codeLang === item.id)}
-                onClick={() => setCodeLang(item.id as any)}
-                style={{
-                  background: codeLang === item.id ? "var(--colorBrandBackground)" : undefined,
-                  color: codeLang === item.id ? "#fff" : undefined,
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
+          <div style={{ marginBottom: 14 }}>
+            <JXTabs
+              tabs={docTabs}
+              value={codeLang}
+              onChange={(val) => setCodeLang(val as any)}
+              indicatorVariant="pill"
+            />
           </div>
 
           <pre
             style={{
               background: "var(--colorNeutralBackground3)",
               padding: 16,
-              borderRadius: 6,
+              borderRadius: 8,
               fontFamily: "monospace",
               fontSize: 13,
               lineHeight: 1.5,
@@ -1071,6 +1025,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
             {renderCodeSnippet()}
           </pre>
         </div>
+          </JXCard>
       )}
     </div>
   );

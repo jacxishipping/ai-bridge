@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { api } from "./api";
+import {
+  JXTabs,
+  JXButton,
+  JXSelect,
+  JXTextField,
+  JXSwitch,
+  JXChip,
+} from "@jacxishippingorg/jx-ui-react";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
 import { Pager } from "./Pager";
 
@@ -287,9 +295,9 @@ export const FleetOperations: React.FC = () => {
           by the App shell, so this view no longer repeats them in a
           different size/weight. */}
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <button type="button" className="f2-btn" onClick={loadData}>
+        <JXButton variant="outlined" size="sm" onClick={loadData}>
           🔄 Refresh Fleet
-        </button>
+        </JXButton>
       </div>
 
       {notice && (
@@ -338,52 +346,31 @@ export const FleetOperations: React.FC = () => {
       </div>
 
       {/* Tab Navigation */}
-      <div className="f2-tabs">
-        <button
-          type="button"
-          className="f2-tab-btn"
-          data-active={String(activeTab === "telemetry")}
-          onClick={() => setActiveTab("telemetry")}
-        >
-          📊 Fleet Telemetry & Nodes
-        </button>
-        <button
-          type="button"
-          className="f2-tab-btn"
-          data-active={String(activeTab === "broadcast")}
-          onClick={() => setActiveTab("broadcast")}
-        >
-          ⚡ Multi-Node Broadcast Bus
-        </button>
-        <button
-          type="button"
-          className="f2-tab-btn"
-          data-active={String(activeTab === "triggers")}
-          onClick={() => setActiveTab("triggers")}
-        >
-          🛡️ Self-Healing Triggers ({triggersList.length})
-        </button>
-        <button
-          type="button"
-          className="f2-tab-btn"
-          data-active={String(activeTab === "schedules")}
-          onClick={() => setActiveTab("schedules")}
-        >
-          ⏰ Fleet Scheduler ({schedulesList.length})
-        </button>
+      <div style={{ marginBottom: 12 }}>
+        <JXTabs
+          tabs={[
+            { id: "telemetry", label: "📊 Fleet Telemetry & Nodes" },
+            { id: "broadcast", label: "⚡ Multi-Node Broadcast Bus" },
+            { id: "triggers", label: `🛡️ Self-Healing Triggers (${triggersList.length})` },
+            { id: "schedules", label: `⏰ Fleet Scheduler (${schedulesList.length})` },
+          ]}
+          value={activeTab}
+          onChange={(val: any) => setActiveTab(val)}
+          indicatorVariant="pill"
+        />
       </div>
 
       {/* Tab 1: Telemetry & Nodes */}
       {activeTab === "telemetry" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <input
-              className="f2-input"
-              value={nodeQuery}
-              onChange={e => { setNodeQuery(e.target.value); setNodePage(0); }}
-              placeholder="Search nodes by name, OS, or ID…"
-              style={{ flex: 1, minWidth: 240 }}
-            />
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ flex: 1, minWidth: 240 }}>
+              <JXTextField
+                value={nodeQuery}
+                onChange={(val: any) => { setNodeQuery(val); setNodePage(0); }}
+                placeholder="Search nodes by name, OS, or ID…"
+              />
+            </div>
             <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", alignSelf: "center" }}>
               {(fleetData?.devices || []).filter(d => !nodeQuery || `${d.name || ""} ${d.os || ""} ${d.id || ""}`.toLowerCase().includes(nodeQuery.toLowerCase())).length} of {fleetData?.devices?.length || 0} nodes
             </span>
@@ -479,21 +466,14 @@ export const FleetOperations: React.FC = () => {
                   </div>
                 </div>
 
-                <button
+                <JXButton
+                  variant="soft"
+                  size="sm"
                   onClick={() => viewDeviceTelemetry(dev)}
-                  style={{
-                    marginTop: 6,
-                    padding: "6px 10px",
-                    background: "var(--colorNeutralBackground2)",
-                    border: "1px solid var(--colorNeutralStroke2)",
-                    borderRadius: 6,
-                    fontSize: 12,
-                    cursor: "pointer",
-                    textAlign: "center",
-                  }}
+                  fullWidth
                 >
                   📈 View Metric History
-                </button>
+                </JXButton>
               </div>
             ))}
           </div>
@@ -516,12 +496,13 @@ export const FleetOperations: React.FC = () => {
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <h4 style={{ margin: 0, fontSize: 16 }}>📊 Telemetry History: {selectedDeviceTel.name}</h4>
-                <button
+                <JXButton
+                  variant="soft"
+                  size="sm"
                   onClick={() => setSelectedDeviceTel(null)}
-                  style={{ background: "transparent", border: "none", fontSize: 18, cursor: "pointer" }}
                 >
                   ✕
-                </button>
+                </JXButton>
               </div>
               <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8 }}>
                 {selectedDeviceTel.history.map((pt, idx) => (
@@ -555,63 +536,71 @@ export const FleetOperations: React.FC = () => {
           <div className="f2-panel">
             <h3 style={{ margin: "0 0 12px", fontSize: 16 }}>⚡ One-Click Fleet Broadcast</h3>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-              <button
+              <JXButton
+                variant="soft"
+                size="md"
                 onClick={() => handleBroadcast("get_system_info", {})}
                 disabled={broadcasting}
-                style={{ padding: "8px 14px", background: "rgba(0,120,212,0.12)", color: "var(--colorActionBlue)", border: "1px solid var(--colorActionBlue)", borderRadius: 6, fontWeight: 600, cursor: "pointer" }}
               >
                 🩺 Fleet Health & Telemetry
-              </button>
-              <button
+              </JXButton>
+              <JXButton
+                variant="soft"
+                size="md"
                 onClick={() => handleBroadcast("run_shell", { command: "uptime" }, "linux")}
                 disabled={broadcasting}
-                style={{ padding: "8px 14px", background: "rgba(16,124,65,0.12)", color: "var(--colorActionGreen)", border: "1px solid var(--colorActionGreen)", borderRadius: 6, fontWeight: 600, cursor: "pointer" }}
               >
                 ⏱️ Check Linux Fleet Uptime
-              </button>
-              <button
+              </JXButton>
+              <JXButton
+                variant="soft"
+                size="md"
                 onClick={() => handleBroadcast("get_disk_usage", {})}
                 disabled={broadcasting}
-                style={{ padding: "8px 14px", background: "rgba(135,100,184,0.12)", color: "var(--colorActionPurple)", border: "1px solid var(--colorActionPurple)", borderRadius: 6, fontWeight: 600, cursor: "pointer" }}
               >
                 💾 Inspect Fleet Storage
-              </button>
-              <button
+              </JXButton>
+              <JXButton
+                variant="soft"
+                size="md"
                 onClick={() => handleBroadcast("run_shell", { command: "sync && echo 3 > /proc/sys/vm/drop_caches || true" }, "linux")}
                 disabled={broadcasting}
-                style={{ padding: "8px 14px", background: "rgba(232,17,35,0.12)", color: "var(--colorActionRed)", border: "1px solid var(--colorActionRed)", borderRadius: 6, fontWeight: 600, cursor: "pointer" }}
               >
                 🧹 Purge Linux RAM Cache
-              </button>
+              </JXButton>
             </div>
 
             <div style={{ borderTop: "1px solid var(--colorNeutralStroke2)", paddingTop: 14 }}>
               <h4 style={{ margin: "0 0 10px", fontSize: 14 }}>Custom Fleet Command</h4>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-                <select
-                  value={targetFilter}
-                  onChange={(e) => setTargetFilter(e.target.value as any)}
-                  style={{ padding: "8px 12px", borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)", background: "transparent", color: "inherit" }}
-                >
-                  <option value="all">Target: All Fleet Devices</option>
-                  <option value="linux">Target: Linux Nodes Only</option>
-                  <option value="windows">Target: Windows Nodes Only</option>
-                </select>
-                <input
-                  type="text"
-                  placeholder="Tool (e.g. run_shell, get_system_info)"
-                  value={customTool}
-                  onChange={(e) => setCustomTool(e.target.value)}
-                  style={{ padding: "8px 12px", borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)", background: "transparent", color: "inherit", minWidth: 180 }}
-                />
-                <input
-                  type="text"
-                  placeholder='Args JSON (e.g. {"command": "hostname"})'
-                  value={customArgs}
-                  onChange={(e) => setCustomArgs(e.target.value)}
-                  style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)", background: "transparent", color: "inherit", minWidth: 220 }}
-                />
-                <button
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
+                <div style={{ minWidth: 200 }}>
+                  <JXSelect
+                    options={[
+                      { id: "all", label: "Target: All Fleet Devices" },
+                      { id: "linux", label: "Target: Linux Nodes Only" },
+                      { id: "windows", label: "Target: Windows Nodes Only" },
+                    ]}
+                    value={targetFilter}
+                    onChange={(val: any) => setTargetFilter(val)}
+                  />
+                </div>
+                <div style={{ minWidth: 200 }}>
+                  <JXTextField
+                    placeholder="Tool (e.g. run_shell, get_system_info)"
+                    value={customTool}
+                    onChange={(val: any) => setCustomTool(val)}
+                  />
+                </div>
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <JXTextField
+                    placeholder='Args JSON (e.g. {"command": "hostname"})'
+                    value={customArgs}
+                    onChange={(val: any) => setCustomArgs(val)}
+                  />
+                </div>
+                <JXButton
+                  variant="contained"
+                  color="primary"
                   onClick={() => {
                     try {
                       const parsed = JSON.parse(customArgs);
@@ -620,11 +609,10 @@ export const FleetOperations: React.FC = () => {
                       setError("Invalid JSON in Args: " + e.message);
                     }
                   }}
-                  disabled={broadcasting}
-                  style={{ padding: "8px 16px", background: "var(--colorActionBlue)", color: "#fff", border: "none", borderRadius: 6, fontWeight: 600, cursor: "pointer" }}
+                  loading={broadcasting}
                 >
-                  {broadcasting ? "Broadcasting..." : "🚀 Broadcast to Fleet"}
-                </button>
+                  🚀 Broadcast to Fleet
+                </JXButton>
               </div>
             </div>
           </div>
@@ -697,77 +685,80 @@ export const FleetOperations: React.FC = () => {
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ margin: 0, fontSize: 16 }}>🛡️ Event-Driven Reactive Rules</h3>
-            <button
+            <JXButton
+              variant="contained"
+              color="primary"
+              size="sm"
               onClick={() => setShowAddTrigger(!showAddTrigger)}
-              style={{ padding: "6px 14px", background: "var(--colorActionBlue)", color: "#fff", border: "none", borderRadius: 6, fontWeight: 600, cursor: "pointer" }}
             >
               {showAddTrigger ? "Cancel" : "+ Add Self-Healing Rule"}
-            </button>
+            </JXButton>
           </div>
 
           {showAddTrigger && (
             <div style={{ background: "var(--colorNeutralBackground2)", border: "1px solid var(--colorNeutralStroke1)", borderRadius: 10, padding: 16 }}>
               <h4 style={{ margin: "0 0 12px" }}>Create Event Trigger</h4>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, alignItems: "flex-end" }}>
                 <div>
-                  <label style={{ display: "block", fontSize: 11, color: "var(--colorNeutralForeground3)", marginBottom: 4 }}>Rule Name</label>
-                  <input
-                    type="text"
+                  <JXTextField
+                    label="Rule Name"
                     placeholder="e.g. Auto-Purge Cache on High RAM"
                     value={newTrigName}
-                    onChange={(e) => setNewTrigName(e.target.value)}
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)", background: "transparent", color: "inherit" }}
+                    onChange={(val: any) => setNewTrigName(val)}
                   />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: 11, color: "var(--colorNeutralForeground3)", marginBottom: 4 }}>Monitored Metric</label>
-                  <select
+                  <JXSelect
+                    label="Monitored Metric"
+                    options={[
+                      { id: "memory_percent", label: "RAM Usage (memory_percent)" },
+                      { id: "cpu_percent", label: "CPU Load (cpu_percent)" },
+                      { id: "disk_percent", label: "Storage Usage (disk_percent)" },
+                    ]}
                     value={newTrigMetric}
-                    onChange={(e) => setNewTrigMetric(e.target.value)}
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)", background: "transparent", color: "inherit" }}
-                  >
-                    <option value="memory_percent">RAM Usage (memory_percent)</option>
-                    <option value="cpu_percent">CPU Load (cpu_percent)</option>
-                    <option value="disk_percent">Storage Usage (disk_percent)</option>
-                  </select>
+                    onChange={(val: any) => setNewTrigMetric(val)}
+                  />
                 </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 11, color: "var(--colorNeutralForeground3)", marginBottom: 4 }}>Condition</label>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <select
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                  <div style={{ width: 80 }}>
+                    <JXSelect
+                      label="Operator"
+                      options={[
+                        { id: ">", label: ">" },
+                        { id: ">=", label: ">=" },
+                        { id: "<", label: "<" },
+                      ]}
                       value={newTrigOp}
-                      onChange={(e) => setNewTrigOp(e.target.value)}
-                      style={{ padding: "7px 10px", borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)", background: "transparent", color: "inherit" }}
-                    >
-                      <option value=">">&gt;</option>
-                      <option value=">=">&gt;=</option>
-                      <option value="<">&lt;</option>
-                    </select>
-                    <input
+                      onChange={(val: any) => setNewTrigOp(val)}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <JXTextField
+                      label="Threshold (%)"
                       type="number"
-                      value={newTrigThreshold}
-                      onChange={(e) => setNewTrigThreshold(Number(e.target.value))}
-                      style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)", background: "transparent", color: "inherit" }}
+                      value={String(newTrigThreshold)}
+                      onChange={(val: any) => setNewTrigThreshold(Number(val))}
                     />
                   </div>
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: 11, color: "var(--colorNeutralForeground3)", marginBottom: 4 }}>Action Target (Tool / Webhook)</label>
-                  <input
-                    type="text"
+                  <JXTextField
+                    label="Action Target"
                     placeholder="get_system_info or run_shell"
                     value={newTrigActionTarget}
-                    onChange={(e) => setNewTrigActionTarget(e.target.value)}
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)", background: "transparent", color: "inherit" }}
+                    onChange={(val: any) => setNewTrigActionTarget(val)}
                   />
                 </div>
               </div>
-              <button
-                onClick={handleCreateTrigger}
-                style={{ marginTop: 12, padding: "8px 16px", background: "var(--colorActionGreen)", color: "#fff", border: "none", borderRadius: 6, fontWeight: 600, cursor: "pointer" }}
-              >
-                Save Trigger
-              </button>
+              <div style={{ marginTop: 14 }}>
+                <JXButton
+                  variant="contained"
+                  color="success"
+                  onClick={handleCreateTrigger}
+                >
+                  Save Trigger
+                </JXButton>
+              </div>
             </div>
           )}
 
@@ -800,33 +791,27 @@ export const FleetOperations: React.FC = () => {
                 </div>
 
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <button
-                    onClick={() => handleToggleTrigger(trig.id)}
-                    style={{
-                      padding: "4px 10px",
-                      borderRadius: 12,
-                      border: "none",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      background: trig.enabled ? "rgba(16,124,65,0.15)" : "var(--colorNeutralStroke2)",
-                      color: trig.enabled ? "var(--colorActionGreen)" : "var(--colorNeutralForeground3)",
-                    }}
-                  >
-                    {trig.enabled ? "Enabled" : "Disabled"}
-                  </button>
-                  <button
+                  <JXSwitch
+                    checked={Boolean(trig.enabled)}
+                    onChange={() => handleToggleTrigger(trig.id)}
+                    size="sm"
+                    label={trig.enabled ? "Enabled" : "Disabled"}
+                  />
+                  <JXButton
+                    variant="soft"
+                    size="sm"
                     onClick={() => handleTestTrigger(trig.id)}
-                    style={{ padding: "5px 10px", background: "rgba(0,120,212,0.1)", color: "var(--colorActionBlue)", border: "1px solid var(--colorActionBlue)", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer" }}
                   >
                     🧪 Test
-                  </button>
-                  <button
+                  </JXButton>
+                  <JXButton
+                    variant="soft"
+                    color="error"
+                    size="sm"
                     onClick={() => handleDeleteTrigger(trig.id)}
-                    style={{ padding: "5px 10px", background: "transparent", color: "var(--colorActionRed)", border: "1px solid var(--colorActionRed)", borderRadius: 6, fontSize: 11, cursor: "pointer" }}
                   >
                     Delete
-                  </button>
+                  </JXButton>
                 </div>
               </div>
             ))}
@@ -839,54 +824,54 @@ export const FleetOperations: React.FC = () => {
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ margin: 0, fontSize: 16 }}>⏰ Fleet Cron & Periodic Automations</h3>
-            <button
+            <JXButton
+              variant="contained"
+              color="primary"
+              size="sm"
               onClick={() => setShowAddSched(!showAddSched)}
-              style={{ padding: "6px 14px", background: "var(--colorActionBlue)", color: "#fff", border: "none", borderRadius: 6, fontWeight: 600, cursor: "pointer" }}
             >
               {showAddSched ? "Cancel" : "+ Add Scheduled Task"}
-            </button>
+            </JXButton>
           </div>
 
           {showAddSched && (
             <div style={{ background: "var(--colorNeutralBackground2)", border: "1px solid var(--colorNeutralStroke1)", borderRadius: 10, padding: 16 }}>
               <h4 style={{ margin: "0 0 12px" }}>New Scheduled Automation</h4>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
                 <div>
-                  <label style={{ display: "block", fontSize: 11, color: "var(--colorNeutralForeground3)", marginBottom: 4 }}>Job Name</label>
-                  <input
-                    type="text"
+                  <JXTextField
+                    label="Job Name"
                     placeholder="e.g. Periodic Fleet Health Audit"
                     value={newSchedName}
-                    onChange={(e) => setNewSchedName(e.target.value)}
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)", background: "transparent", color: "inherit" }}
+                    onChange={(val: any) => setNewSchedName(val)}
                   />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: 11, color: "var(--colorNeutralForeground3)", marginBottom: 4 }}>Interval (seconds)</label>
-                  <input
+                  <JXTextField
+                    label="Interval (seconds)"
                     type="number"
-                    value={newSchedInterval}
-                    onChange={(e) => setNewSchedInterval(Number(e.target.value))}
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)", background: "transparent", color: "inherit" }}
+                    value={String(newSchedInterval)}
+                    onChange={(val: any) => setNewSchedInterval(Number(val))}
                   />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: 11, color: "var(--colorNeutralForeground3)", marginBottom: 4 }}>Action Tool</label>
-                  <input
-                    type="text"
+                  <JXTextField
+                    label="Action Tool"
                     placeholder="get_system_info or run_shell"
                     value={newSchedTool}
-                    onChange={(e) => setNewSchedTool(e.target.value)}
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid var(--colorNeutralStroke1)", background: "transparent", color: "inherit" }}
+                    onChange={(val: any) => setNewSchedTool(val)}
                   />
                 </div>
               </div>
-              <button
-                onClick={handleCreateSchedule}
-                style={{ marginTop: 12, padding: "8px 16px", background: "var(--colorActionGreen)", color: "#fff", border: "none", borderRadius: 6, fontWeight: 600, cursor: "pointer" }}
-              >
-                Save Schedule
-              </button>
+              <div style={{ marginTop: 14 }}>
+                <JXButton
+                  variant="contained"
+                  color="success"
+                  onClick={handleCreateSchedule}
+                >
+                  Save Schedule
+                </JXButton>
+              </div>
             </div>
           )}
 
@@ -917,18 +902,21 @@ export const FleetOperations: React.FC = () => {
                 </div>
 
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <button
+                  <JXButton
+                    variant="soft"
+                    size="sm"
                     onClick={() => handleRunScheduleNow(sched.id)}
-                    style={{ padding: "5px 10px", background: "rgba(16,124,65,0.1)", color: "var(--colorActionGreen)", border: "1px solid var(--colorActionGreen)", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer" }}
                   >
                     ▶️ Run Now
-                  </button>
-                  <button
+                  </JXButton>
+                  <JXButton
+                    variant="soft"
+                    color="error"
+                    size="sm"
                     onClick={() => handleDeleteSchedule(sched.id)}
-                    style={{ padding: "5px 10px", background: "transparent", color: "var(--colorActionRed)", border: "1px solid var(--colorActionRed)", borderRadius: 6, fontSize: 11, cursor: "pointer" }}
                   >
                     Delete
-                  </button>
+                  </JXButton>
                 </div>
               </div>
             ))}

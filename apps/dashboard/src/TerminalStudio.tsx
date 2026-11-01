@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { api } from "./api";
+import {
+  JXButton,
+  JXSelect,
+  JXTextField,
+  JXChip,
+} from "@jacxishippingorg/jx-ui-react";
 
 interface TerminalStudioProps {
   devices: any[];
@@ -237,29 +243,25 @@ export const TerminalStudio: React.FC<TerminalStudioProps> = ({ devices, onNotic
 
         {/* Target Device Selector & New Session */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <select
-            className="f2-select"
-            value={selectedDevice}
-            onChange={(e) => setSelectedDevice(e.target.value)}
-            style={{ fontWeight: 600, minWidth: 180 }}
-          >
-            {devices.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name} ({d.os || "Linux"})
-              </option>
-            ))}
-          </select>
+          <div style={{ minWidth: 200 }}>
+            <JXSelect
+              options={devices.map((d) => ({
+                id: d.id,
+                label: `${d.name} (${d.os || "Linux"})`
+              }))}
+              value={selectedDevice}
+              onChange={(val: any) => setSelectedDevice(val)}
+            />
+          </div>
 
-          <button
-            type="button"
-            className="f2-btn f2-btn-primary"
+          <JXButton
+            variant="contained"
+            color="primary"
             onClick={startNewSession}
-            disabled={isLoading}
-            style={{ display: "flex", alignItems: "center", gap: 6 }}
+            loading={isLoading}
           >
-            <span>➕</span>
-            <span>New Shell Session</span>
-          </button>
+            ➕ New Shell Session
+          </JXButton>
         </div>
       </div>
 
@@ -288,33 +290,14 @@ export const TerminalStudio: React.FC<TerminalStudioProps> = ({ devices, onNotic
           <div style={{ display: "flex", alignItems: "center", gap: 6, overflowX: "auto" }}>
             {sessions.length > 0 ? (
               sessions.map((s) => (
-                <button
+                <JXButton
                   key={s.session_id}
+                  variant={activeSession === s.session_id ? "contained" : "soft"}
+                  size="sm"
                   onClick={() => connectToSession(s.session_id)}
-                  style={{
-                    padding: "4px 10px",
-                    borderRadius: 4,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    border: "none",
-                    cursor: "pointer",
-                    background: activeSession === s.session_id ? "#272a2e" : "transparent",
-                    color: activeSession === s.session_id ? "#38bdf8" : "#94a3b8",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                  }}
                 >
-                  <span
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: "50%",
-                      background: s.is_alive ? "var(--colorActionGreen)" : "#ef4444",
-                    }}
-                  />
-                  <span>Session {s.session_id.slice(0, 6)}</span>
-                </button>
+                  Session {s.session_id.slice(0, 6)}
+                </JXButton>
               ))
             ) : (
               <span style={{ fontSize: 11, color: "#94a3b8" }}>No active sessions</span>
@@ -344,33 +327,35 @@ export const TerminalStudio: React.FC<TerminalStudioProps> = ({ devices, onNotic
               {isConnected ? "LIVE STREAMING" : "CONNECTING..."}
             </span>
 
-            <button
-              className="f2-btn f2-btn-sm"
+            <JXButton
+              variant="soft"
+              size="sm"
               onClick={() => setOutput("")}
               title="Clear terminal buffer"
-              style={{ fontSize: 10, padding: "2px 8px" }}
             >
               Clear
-            </button>
+            </JXButton>
 
-            <button
-              className="f2-btn f2-btn-sm"
+            <JXButton
+              variant="soft"
+              color="error"
+              size="sm"
               onClick={() => handleSendInput("\x03")}
               title="Send Ctrl+C"
-              style={{ fontSize: 10, padding: "2px 8px", color: "#f87171" }}
             >
               Ctrl+C
-            </button>
+            </JXButton>
 
             {activeSession && (
-              <button
-                className="f2-btn f2-btn-sm"
+              <JXButton
+                variant="soft"
+                color="error"
+                size="sm"
                 onClick={terminateCurrentSession}
                 title="Terminate Session"
-                style={{ fontSize: 10, padding: "2px 8px", background: "rgba(239, 68, 68, 0.2)", color: "#fca5a5" }}
               >
                 Close
-              </button>
+              </JXButton>
             )}
           </div>
         </div>
@@ -425,32 +410,25 @@ export const TerminalStudio: React.FC<TerminalStudioProps> = ({ devices, onNotic
             {isWindows ? "PS >" : "user@ai-bridge:~#"}
           </span>
 
-          <input
-            ref={inputRef}
-            type="text"
-            className="f2-input"
-            value={inputCmd}
-            onChange={(e) => setInputCmd(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={activeSession ? "Type command, press Enter to execute, Up/Down for history..." : "Start a session first"}
-            disabled={!activeSession}
-            style={{
-              flex: 1,
-              fontFamily: "Consolas, monospace",
-              background: "#181a1d",
-              color: "#f8fafc",
-              border: "1px solid #334155",
-            }}
-          />
+          <div style={{ flex: 1 }}>
+            <JXTextField
+              value={inputCmd}
+              onChange={(val: any) => setInputCmd(val)}
+              onKeyDown={handleKeyDown}
+              placeholder={activeSession ? "Type command, press Enter to execute, Up/Down for history..." : "Start a session first"}
+              disabled={!activeSession}
+            />
+          </div>
 
-          <button
+          <JXButton
             type="submit"
-            className="f2-btn f2-btn-primary f2-btn-sm"
+            variant="contained"
+            color="primary"
+            size="sm"
             disabled={!activeSession}
-            style={{ padding: "6px 14px" }}
           >
             Execute
-          </button>
+          </JXButton>
         </form>
 
         {/* Preset Command Shortcuts Ribbon */}
@@ -471,24 +449,15 @@ export const TerminalStudio: React.FC<TerminalStudioProps> = ({ devices, onNotic
             ? ["dir", "Get-Process | select -first 10", "whoami", "ipconfig", "git status", "Clear-Host"]
             : ["ls -la", "ps aux | head -n 15", "whoami", "df -h", "docker ps", "uname -a", "clear"]
           ).map((c) => (
-            <button
+            <JXButton
               key={c}
-              type="button"
+              size="sm"
+              variant="soft"
               onClick={() => handleSendInput(c + "\r\n")}
               disabled={!activeSession}
-              style={{
-                background: "#1e2226",
-                color: "#94a3b8",
-                border: "1px solid #334155",
-                borderRadius: 4,
-                padding: "2px 8px",
-                fontSize: 10,
-                cursor: "pointer",
-                fontFamily: "Consolas, monospace",
-              }}
             >
               {c}
-            </button>
+            </JXButton>
           ))}
         </div>
       </div>
