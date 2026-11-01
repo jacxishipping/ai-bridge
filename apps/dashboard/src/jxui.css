@@ -229,6 +229,44 @@ code, kbd, samp, pre {
   cursor: pointer;
 }
 
+.f2-brand-text {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  line-height: 1.15 !important;
+}
+
+.f2-brand-title {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  color: var(--jx-text-primary) !important;
+  letter-spacing: -0.02em !important;
+}
+
+.f2-brand-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 1px 7px !important;
+  border-radius: 6px !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.05em !important;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(168, 85, 247, 0.2)) !important;
+  border: 1px solid rgba(99, 102, 241, 0.4) !important;
+  color: var(--jx-primary) !important;
+  text-transform: uppercase !important;
+}
+
+.f2-brand-subtitle {
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  color: var(--jx-text-tertiary) !important;
+  letter-spacing: -0.01em !important;
+}
+
 .f2-brand-logo {
   width: 36px !important;
   height: 36px !important;
@@ -251,7 +289,20 @@ code, kbd, samp, pre {
 .f2-topbar-actions {
   display: flex !important;
   align-items: center !important;
-  gap: 12px !important;
+  gap: 10px !important;
+  flex-wrap: nowrap !important;
+}
+
+.f2-persona {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 4px 10px !important;
+  border-radius: 12px !important;
+  background: var(--jx-surface-sunken) !important;
+  border: 1px solid var(--jx-border-subtle) !important;
+  font-size: 12px !important;
+  white-space: nowrap !important;
 }
 
 /* Spotlight Command Trigger (⌘K Pill) */
@@ -663,8 +714,9 @@ button.f2-btn-danger,
 .f2-select,
 textarea.f2-input,
 input.f2-input {
-  width: 100% !important;
-  padding: 10px 14px !important;
+  box-sizing: border-box !important;
+  max-width: 100% !important;
+  padding: 8px 14px !important;
   border-radius: 12px !important;
   background: var(--jx-surface-sunken) !important;
   border: 1px solid var(--jx-border-subtle) !important;
@@ -674,6 +726,11 @@ input.f2-input {
   transition: all 180ms cubic-bezier(0.22, 1, 0.36, 1) !important;
   outline: none !important;
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+}
+
+select.f2-select {
+  cursor: pointer !important;
+  width: auto;
 }
 
 .f2-input:focus,
@@ -912,9 +969,11 @@ input.f2-input {
   background: transparent !important;
 }
 
-.f2-cmd-item:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.10)) !important;
+.f2-cmd-item:hover,
+.f2-cmd-item[data-selected="true"] {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(168, 85, 247, 0.14)) !important;
   color: var(--jx-primary) !important;
+  outline: none !important;
 }
 
 /* ==============================================================================
@@ -955,4 +1014,79 @@ input.f2-input {
   font-size: 13.5px !important;
   color: #f1f5f9 !important;
   background: #080c14 !important;
+}
+
+/* ==============================================================================
+   12. Responsive Drawer, Mobile Topbar & Polish
+   ============================================================================== */
+.f2-breadcrumb-link {
+  color: var(--jx-text-tertiary) !important;
+  cursor: pointer !important;
+  background: none !important;
+  border: none !important;
+  padding: 0 !important;
+  font: inherit !important;
+  transition: color 140ms ease !important;
+}
+
+.f2-breadcrumb-link:hover {
+  color: var(--jx-primary) !important;
+  text-decoration: underline !important;
+}
+
+.f2-hamburger-btn {
+  display: none !important;
+  background: transparent !important;
+  border: 1px solid var(--jx-border-subtle) !important;
+  border-radius: 10px !important;
+  padding: 6px 10px !important;
+  color: var(--jx-text-primary) !important;
+  cursor: pointer !important;
+}
+
+@media (max-width: 960px) {
+  .f2-hamburger-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  .f2-topbar {
+    padding: 0 14px !important;
+  }
+  .f2-brand-subtitle {
+    display: none !important;
+  }
+  .f2-search-trigger {
+    min-width: auto !important;
+    padding: 7px 10px !important;
+  }
+  .f2-search-trigger span:first-child span {
+    display: none !important;
+  }
+  .f2-nav {
+    position: fixed !important;
+    top: 64px !important;
+    left: -280px !important;
+    bottom: 0 !important;
+    z-index: 100 !important;
+    width: 268px !important;
+    transition: left 240ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+    box-shadow: var(--jx-shadow-3) !important;
+  }
+  .f2-nav.f2-nav-open {
+    left: 0 !important;
+  }
+  .f2-nav-backdrop {
+    position: fixed !important;
+    top: 64px !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    background: rgba(0, 0, 0, 0.6) !important;
+    backdrop-filter: blur(4px) !important;
+    z-index: 99 !important;
+  }
+  .f2-canvas {
+    padding: 20px 14px !important;
+  }
 }

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState, useRef, type MouseEvent as ReactMouseEvent } from "react";
+import { JXCard, JXButton, JXSwitch, useJXTheme } from "@jacxishippingorg/jx-ui-react";
 import { api, token, sessionToken } from "./api";
 import { DevicePolicyEditor } from "./DevicePolicyEditor";
 import { DeviceDetailDashboard } from "./DeviceDetailDashboard";
@@ -334,22 +335,14 @@ function Badge({ value, tone }: { value: string; tone?: string }) {
 }
 
 function Card({ title, action, children }: { title: string; action?: any; children: any }) {
-  const cardRef = useRef<HTMLElement>(null);
-  const handleMouseMove = (e: ReactMouseEvent<HTMLElement>) => {
-    if (!cardRef.current) return;
-    const rect = cardRef.current.getBoundingClientRect();
-    cardRef.current.style.setProperty("--mouse-x", `${e.clientX - rect.left}px`);
-    cardRef.current.style.setProperty("--mouse-y", `${e.clientY - rect.top}px`);
-  };
-
   return (
-    <section ref={cardRef} onMouseMove={handleMouseMove} className="f2-card">
+    <JXCard spotlight hoverLift className="f2-card">
       <div className="f2-card-header">
         <h3 className="f2-card-title">{title}</h3>
         {action}
       </div>
       {children}
-    </section>
+    </JXCard>
   );
 }
 
@@ -397,6 +390,7 @@ function parseTaskResult(raw: string): { parsed: any; imageBase64: string | null
 }
 
 export default function App() {
+  const { pushToast } = useJXTheme();
   const [view, setView] = useState<View>(() => {
     const v = new URLSearchParams(window.location.search).get("view");
     const valid: View[] = ["overview", "devices", "device_detail", "tasks", "approvals", "audit", "policies", "connections", "ai_api", "workflows", "fleet_ops", "live_studio", "logs"];
@@ -415,7 +409,20 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [emergencyArmed, setEmergencyArmed] = useState(false);
   const emergencyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [notice, setNotice] = useState<{ intent: "success" | "info" | "warning" | "error"; text: string } | null>(null);
+  const [notice, _setNotice] = useState<{ intent: "success" | "info" | "warning" | "error"; text: string } | null>(null);
+  const setNotice = (n: any) => {
+    _setNotice(n);
+    if (n && n.text) {
+      try {
+        pushToast({
+          title: n.text,
+          variant: n.intent === "error" ? "error" : n.intent === "warning" ? "warning" : "success"
+        });
+      } catch {
+        // Fallback
+      }
+    }
+  };
   const [tok, setTok] = useState(token());
   const [oidcEnabled, setOidcEnabled] = useState(false);
   const [me, setMe] = useState<any>(null);
@@ -452,6 +459,8 @@ export default function App() {
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
+  const [cmdSelectedIndex, setCmdSelectedIndex] = useState(0);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [devicePolicyModalId, setDevicePolicyModalId] = useState<string | null>(null);
   const [selectedDeviceIdForDashboard, setSelectedDeviceIdForDashboard] = useState<string | null>(() => {
     return new URLSearchParams(window.location.search).get("device");
@@ -839,7 +848,16 @@ export default function App() {
     <div className="f2-shell">
       {/* Fluent 2 Acrylic Top App Bar */}
       <header className="f2-topbar">
-        <div className="f2-brand" onClick={() => setView("overview")}>
+        <button
+          type="button"
+          className="f2-hamburger-btn"
+          onClick={() => setMobileNavOpen(prev => !prev)}
+          aria-label="Toggle navigation menu"
+          title="Toggle navigation"
+        >
+          <FluentIcon name={mobileNavOpen ? "cancel" : "more"} />
+        </button>
+        <div className="f2-brand" onClick={() => { setView("overview"); setMobileNavOpen(false); }}>
           <span className="f2-brand-logo" title="AI Bridge JXUI Control Plane">
             <FluentIcon name="approvals" />
           </span>
@@ -894,33 +912,39 @@ export default function App() {
             <span className="f2-kbd">⌘K</span>
           </button>
 
-          <label className="f2-switch-label" title="Poll control plane every 15 seconds">
-            <input
-              type="checkbox"
+          <div style={{ display: "inline-flex", alignItems: "center" }}>
+            <JXSwitch
               checked={autoRefresh}
-              onChange={e => setAutoRefresh(e.target.checked)}
-              style={{ display: "none" }}
+              onChange={setAutoRefresh}
+              label="Auto-refresh"
+              size="sm"
             />
-            <span className="f2-switch" data-checked={String(autoRefresh)} />
-            <span>Auto-refresh</span>
-          </label>
+          </div>
 
           <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", whiteSpace: "nowrap" }} title={autoRefresh ? "Auto-refresh is on (every 15s)" : "Auto-refresh is off — press Refresh for the latest data"}>
             {lastUpdated ? `Updated ${new Date(lastUpdated).toLocaleTimeString()}` : "Not updated yet"}{autoRefresh ? "" : " · auto-refresh off"}
           </span>
-          <button type="button" className="f2-btn f2-btn-sm" onClick={() => load()} disabled={loading} aria-busy={loading}>
-            {loading ? "Refreshing…" : "Refresh"}
-          </button>
+          <JXButton
+            size="sm"
+            variant="outlined"
+            onClick={() => load()}
+            disabled={loading}
+            loading={loading}
+            loadingLabel="Refreshing…"
+          >
+            Refresh
+          </JXButton>
 
-          <button
-            type="button"
-            className="f2-btn f2-btn-sm f2-btn-subtle"
+          <JXButton
+            size="sm"
+            variant="soft"
+            color="secondary"
             onClick={() => setTheme(theme === "light" ? "dark" : "light")}
             title="Switch between JXUI Light and Dark Obsidian modes"
-            style={{ borderRadius: 12 }}
+            startIcon={<FluentIcon name="theme" />}
           >
-            <FluentIcon name="theme" /> {theme === "light" ? "Dark Mode" : "Light Mode"}
-          </button>
+            {theme === "light" ? "Dark Mode" : "Light Mode"}
+          </JXButton>
 
           {health?.emergency_stop ? (
             <button
@@ -986,8 +1010,15 @@ export default function App() {
       </header>
 
       <div className="f2-body">
+        {mobileNavOpen && (
+          <div
+            className="f2-nav-backdrop"
+            onClick={() => setMobileNavOpen(false)}
+            role="presentation"
+          />
+        )}
         {/* Fluent 2 Navigation Drawer */}
-        <nav className="f2-nav" aria-label="Main Navigation">
+        <nav className={`f2-nav${mobileNavOpen ? " f2-nav-open" : ""}`} aria-label="Main Navigation">
           <div className="f2-nav-section-label">Operations</div>
           {(["overview", "devices"] as View[]).map(v => (
             <button
@@ -1104,6 +1135,20 @@ export default function App() {
             <span className="f2-nav-counter" style={{ background: "var(--colorPaletteRedBackground3, #e81123)", color: "#fff", fontSize: 9 }}>LIVE</span>
           </button>
 
+          <button
+            type="button"
+            className="f2-nav-item"
+            data-active={String(view === "terminal")}
+            onClick={() => { setView("terminal"); setMobileNavOpen(false); }}
+            title="Real-time interactive pseudo-terminal shell with ANSI colors"
+          >
+            <span className="f2-nav-item-icon">
+              <FluentIcon name="terminal" />
+            </span>
+            <span>Live Terminal</span>
+            <span className="f2-nav-counter" style={{ background: "var(--colorBrandBackground)", color: "#fff", fontSize: 9 }}>SHELL</span>
+          </button>
+
           <div className="f2-nav-section-label" style={{ marginTop: 8 }}>Governance & Telemetry</div>
           {(["policies", "audit", "connections", "logs"] as View[]).map(v => (
             <button
@@ -1125,10 +1170,10 @@ export default function App() {
         <main className="f2-canvas" aria-busy={loading}>
           <div className="f2-page-header">
             <div>
-              <div className="f2-breadcrumb">
-                <span>AI Bridge</span>
+              <div className="f2-breadcrumb" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <button type="button" className="f2-breadcrumb-link" onClick={() => setView("overview")}>AI Bridge</button>
                 <span className="f2-breadcrumb-sep">/</span>
-                <span>{meta.group === "ops" ? "Operations" : "Governance & Telemetry"}</span>
+                <span style={{ color: "var(--jx-text-tertiary)" }}>{meta.group === "ops" ? "Operations" : "Governance & Telemetry"}</span>
                 <span className="f2-breadcrumb-sep">/</span>
                 <span className="f2-breadcrumb-current">{meta.title}</span>
               </div>
@@ -1136,9 +1181,9 @@ export default function App() {
               <p className="f2-page-subtitle">{meta.subtitle}</p>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button
-                type="button"
-                className="f2-btn f2-btn-sm"
+              <JXButton
+                size="sm"
+                variant="outlined"
                 title="Copy a link to this exact view"
                 onClick={async () => {
                   try {
@@ -1150,24 +1195,27 @@ export default function App() {
                 }}
               >
                 🔗 Copy link
-              </button>
+              </JXButton>
               {view !== "tasks" && (
-                <button
-                  type="button"
-                  className="f2-btn f2-btn-primary f2-btn-sm"
+                <JXButton
+                  size="sm"
+                  variant="contained"
+                  color="primary"
                   onClick={() => setView("tasks")}
+                  startIcon={<FluentIcon name="tasks" />}
                 >
-                  <FluentIcon name="tasks" /> Dispatch Task
-                </button>
+                  Dispatch Task
+                </JXButton>
               )}
               {view !== "devices" && (
-                <button
-                  type="button"
-                  className="f2-btn f2-btn-sm"
+                <JXButton
+                  size="sm"
+                  variant="outlined"
                   onClick={() => setView("devices")}
+                  startIcon={<FluentIcon name="devices" />}
                 >
-                  <FluentIcon name="devices" /> Enroll Device
-                </button>
+                  Enroll Device
+                </JXButton>
               )}
             </div>
           </div>
@@ -1451,7 +1499,7 @@ export default function App() {
               )}
 
               <Card title={`Fleet Inventory (${searchedDevices.length} of ${devices.length})`}>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
                   <input
                     className="f2-input"
                     value={deviceQuery}
@@ -1459,7 +1507,12 @@ export default function App() {
                     placeholder="Search by name, hostname, OS, or ID…"
                     style={{ flex: 1, minWidth: 240 }}
                   />
-                  <select className="f2-select" value={deviceSort} onChange={e => { setDeviceSort(e.target.value as any); setDevicePage(0); }}>
+                  <select
+                    className="f2-select"
+                    value={deviceSort}
+                    onChange={e => { setDeviceSort(e.target.value as any); setDevicePage(0); }}
+                    style={{ width: "auto", minWidth: 160 }}
+                  >
                     <option value="name">Sort: Name A–Z</option>
                     <option value="status">Sort: Status (online first)</option>
                   </select>
@@ -1692,13 +1745,39 @@ export default function App() {
               />
             ) : (
               <Card title="Device 360 System Dashboard">
-                <div style={{ padding: 32, textAlign: "center" }}>
-                  <p style={{ color: "var(--colorNeutralForeground3)", marginBottom: 16 }}>
-                    No device selected to inspect. Choose a machine from the Fleet Inventory.
+                <div style={{ padding: 24, textAlign: "center" }}>
+                  <h4 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 700 }}>Select a Node to Inspect 360 Telemetry</h4>
+                  <p style={{ color: "var(--colorNeutralForeground3)", marginBottom: 20, fontSize: 13 }}>
+                    Choose an enrolled node below to launch its full-fidelity hardware telemetry, network sockets, active processes, and remote tools.
                   </p>
-                  <button type="button" className="f2-btn f2-btn-primary" onClick={() => setView("devices")}>
-                    Go to Fleet Inventory
-                  </button>
+                  {devices.length === 0 ? (
+                    <div>
+                      <p style={{ color: "var(--colorNeutralForeground3)", marginBottom: 12 }}>No enrolled devices found in fleet.</p>
+                      <button type="button" className="f2-btn f2-btn-primary" onClick={() => setView("devices")}>Enroll a Device</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14, textAlign: "left" }}>
+                      {devices.map(d => (
+                        <div
+                          key={d.id}
+                          className="f2-card"
+                          onClick={() => setSelectedDeviceIdForDashboard(d.id)}
+                          style={{ cursor: "pointer", padding: 14, display: "flex", flexDirection: "column", gap: 6 }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontWeight: 700, fontSize: 14 }}>{d.name}</span>
+                            <Badge value={d.status} />
+                          </div>
+                          <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
+                            {d.hostname || "—"} · {d.os || "OS unknown"}
+                          </div>
+                          <button type="button" className="f2-btn f2-btn-sm f2-btn-primary" style={{ marginTop: 6, alignSelf: "flex-start" }}>
+                            Launch 360 →
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </Card>
             )
@@ -2830,82 +2909,149 @@ export default function App() {
         </div>
       )}
 
-      {/* Fluent 2 Command Palette Modal (Ctrl+K) */}
-      {cmdOpen && (
-        <div className="f2-modal-backdrop" onClick={() => setCmdOpen(false)}>
-          <div className="f2-cmd-modal" onClick={e => e.stopPropagation()}>
-            <input
-              autoFocus
-              className="f2-cmd-input"
-              value={cmdQuery}
-              onChange={e => setCmdQuery(e.target.value)}
-              placeholder="Type a view name, tool preset, or action (Esc to close)…"
-              aria-label="Search views, tool presets, and actions"
-            />
-            <div className="f2-cmd-list">
-              <div className="f2-nav-section-label">Navigate Views</div>
-              {(Object.keys(VIEW_META) as View[])
-                .filter(v => !cmdQuery || v.includes(cmdQuery.toLowerCase()) || VIEW_META[v].title.toLowerCase().includes(cmdQuery.toLowerCase()))
-                .map(v => (
-                  <button
-                    key={`nav-${v}`}
-                    type="button"
-                    className="f2-cmd-item"
-                    onClick={() => {
-                      if (v === "device_detail" && !selectedDeviceIdForDashboard && devices.length > 0) {
-                        setSelectedDeviceIdForDashboard(devices[0].id);
-                      }
-                      setView(v);
-                      setCmdOpen(false);
-                    }}
-                  >
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                      <FluentIcon name={v} />
-                      <span><b>{VIEW_META[v].title}</b></span>
-                    </span>
-                    <span className="f2-kbd" style={{ textTransform: "capitalize" }}>{v}</span>
-                  </button>
-                ))}
+      {/* Fluent 2 Command Palette Modal (Ctrl+K / ⌘K) */}
+      {cmdOpen && (() => {
+        const filteredNavViews = (Object.keys(VIEW_META) as View[]).filter(v =>
+          !cmdQuery || v.includes(cmdQuery.toLowerCase()) || VIEW_META[v].title.toLowerCase().includes(cmdQuery.toLowerCase())
+        );
+        const filteredPresets = TASK_PRESETS.filter(p =>
+          !cmdQuery || p.label.toLowerCase().includes(cmdQuery.toLowerCase()) || p.tool.toLowerCase().includes(cmdQuery.toLowerCase())
+        );
+        const allCmdActions: Array<{ id: string; run: () => void }> = [
+          ...filteredNavViews.map(v => ({
+            id: `nav-${v}`,
+            run: () => {
+              if (v === "device_detail" && !selectedDeviceIdForDashboard && devices.length > 0) {
+                setSelectedDeviceIdForDashboard(devices[0].id);
+              }
+              setView(v);
+              setCmdOpen(false);
+            }
+          })),
+          ...filteredPresets.map(p => ({
+            id: `preset-${p.label}`,
+            run: () => {
+              setTaskTool(p.tool);
+              setTaskArgs(p.args);
+              setView("tasks");
+              setCmdOpen(false);
+            }
+          })),
+          {
+            id: "pref-theme",
+            run: () => {
+              setTheme(theme === "light" ? "dark" : "light");
+              setCmdOpen(false);
+            }
+          }
+        ];
 
-              <div className="f2-nav-section-label" style={{ marginTop: 6 }}>Quick Task Presets</div>
-              {TASK_PRESETS
-                .filter(p => !cmdQuery || p.label.toLowerCase().includes(cmdQuery.toLowerCase()) || p.tool.toLowerCase().includes(cmdQuery.toLowerCase()))
-                .map(p => (
-                  <button
-                    key={`preset-${p.label}`}
-                    type="button"
-                    className="f2-cmd-item"
-                    onClick={() => {
-                      setTaskTool(p.tool);
-                      setTaskArgs(p.args);
-                      setView("tasks");
-                      setCmdOpen(false);
-                    }}
-                  >
-                    <span><b>{p.label}</b> — <code>{p.tool}</code></span>
-                    <span className="f2-kbd">Preset</span>
-                  </button>
-                ))}
+        let itemCursor = 0;
 
-              <div className="f2-nav-section-label" style={{ marginTop: 6 }}>Preferences</div>
-              <button
-                type="button"
-                className="f2-cmd-item"
-                onClick={() => {
-                  setTheme(theme === "light" ? "dark" : "light");
-                  setCmdOpen(false);
+        return (
+          <div className="f2-modal-backdrop" onClick={() => setCmdOpen(false)}>
+            <div className="f2-cmd-modal" onClick={e => e.stopPropagation()}>
+              <input
+                autoFocus
+                className="f2-cmd-input"
+                value={cmdQuery}
+                onChange={e => {
+                  setCmdQuery(e.target.value);
+                  setCmdSelectedIndex(0);
                 }}
-              >
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                  <FluentIcon name="theme" />
-                  <span>Toggle Fluent 2 {theme === "light" ? "Dark" : "Light"} Theme</span>
-                </span>
-                <span className="f2-kbd">Theme</span>
-              </button>
+                onKeyDown={e => {
+                  if (allCmdActions.length === 0) return;
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setCmdSelectedIndex(i => (i + 1) % allCmdActions.length);
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setCmdSelectedIndex(i => (i - 1 + allCmdActions.length) % allCmdActions.length);
+                  } else if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (allCmdActions[cmdSelectedIndex]) {
+                      allCmdActions[cmdSelectedIndex].run();
+                    }
+                  }
+                }}
+                placeholder="Type a view name, tool preset, or action (Esc to close, ↑↓ to navigate, Enter to select)…"
+                aria-label="Search views, tool presets, and actions"
+              />
+              <div className="f2-cmd-list">
+                <div className="f2-nav-section-label">Navigate Views</div>
+                {filteredNavViews.map(v => {
+                  const idx = itemCursor++;
+                  return (
+                    <button
+                      key={`nav-${v}`}
+                      type="button"
+                      className="f2-cmd-item"
+                      data-selected={String(cmdSelectedIndex === idx)}
+                      onClick={() => {
+                        if (v === "device_detail" && !selectedDeviceIdForDashboard && devices.length > 0) {
+                          setSelectedDeviceIdForDashboard(devices[0].id);
+                        }
+                        setView(v);
+                        setCmdOpen(false);
+                      }}
+                    >
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                        <FluentIcon name={v} />
+                        <span><b>{VIEW_META[v].title}</b></span>
+                      </span>
+                      <span className="f2-kbd" style={{ textTransform: "capitalize" }}>{v}</span>
+                    </button>
+                  );
+                })}
+
+                <div className="f2-nav-section-label" style={{ marginTop: 6 }}>Quick Task Presets</div>
+                {filteredPresets.map(p => {
+                  const idx = itemCursor++;
+                  return (
+                    <button
+                      key={`preset-${p.label}`}
+                      type="button"
+                      className="f2-cmd-item"
+                      data-selected={String(cmdSelectedIndex === idx)}
+                      onClick={() => {
+                        setTaskTool(p.tool);
+                        setTaskArgs(p.args);
+                        setView("tasks");
+                        setCmdOpen(false);
+                      }}
+                    >
+                      <span><b>{p.label}</b> — <code>{p.tool}</code></span>
+                      <span className="f2-kbd">Preset</span>
+                    </button>
+                  );
+                })}
+
+                <div className="f2-nav-section-label" style={{ marginTop: 6 }}>Preferences</div>
+                {(() => {
+                  const idx = itemCursor++;
+                  return (
+                    <button
+                      type="button"
+                      className="f2-cmd-item"
+                      data-selected={String(cmdSelectedIndex === idx)}
+                      onClick={() => {
+                        setTheme(theme === "light" ? "dark" : "light");
+                        setCmdOpen(false);
+                      }}
+                    >
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                        <FluentIcon name="theme" />
+                        <span>Toggle Fluent 2 {theme === "light" ? "Dark" : "Light"} Theme</span>
+                      </span>
+                      <span className="f2-kbd">Theme</span>
+                    </button>
+                  );
+                })()}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Fluent 2 Edit Record Modal */}
       {editModal && (
