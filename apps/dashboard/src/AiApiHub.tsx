@@ -8,7 +8,13 @@ import {
   JXChip,
   JXTextField,
   JXSelect,
+  AIMessage,
+  AIToolCall,
   AIThinkingIndicator,
+  MagneticButton,
+  LiquidButton,
+  PulseIndicator,
+  StatusIndicator,
 } from "@jacxishippingorg/jx-ui-react";
 
 interface AiApiHubProps {
@@ -423,11 +429,12 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
             gap: 12,
           }}
         >
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div
             style={{
-              width: 40,
-              height: 40,
+              position: "relative",
+              width: 44,
+              height: 44,
               borderRadius: "50%",
               background: isConnected ? "rgba(16,124,65,0.15)" : "rgba(255,185,0,0.2)",
               display: "flex",
@@ -436,7 +443,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
               fontSize: 20,
             }}
           >
-            {isConnected ? "🟢" : "🟡"}
+            {isConnected ? <PulseIndicator /> : "🟡"}
           </div>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -451,6 +458,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                 label={isConnected ? "Active & Ready" : "Smart Intent Mode"}
                 tone={isConnected ? "emerald" : "amber"}
               />
+              <StatusIndicator />
             </div>
             <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 13, marginTop: 4 }}>
               {isConnected
@@ -463,13 +471,15 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
         </div>
 
         <div>
-          <JXButton
-            variant="outlined"
-            size="sm"
+          <MagneticButton
+            variant="outline"
+            tone="primary"
+            strength={12}
             onClick={() => setActiveTab("settings")}
+            style={{ padding: "8px 16px", borderRadius: 8, fontSize: 13 }}
           >
             🔑 {isConnected ? "Change / Manage Keys" : "Connect AI API Key"}
-          </JXButton>
+          </MagneticButton>
         </div>
         </div>
       </JXCard>
@@ -585,15 +595,13 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
 
                   {/* Tool Invocations Trace */}
                   {msg.steps && msg.steps.length > 0 && (
-                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.1)", display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                      <span style={{ fontWeight: 600, fontSize: 11 }}>Tools invoked:</span>
-                      {msg.steps.map((s, i) => (
-                        <JXChip
-                          key={i}
-                          label={`${s.tool} (${s.device})`}
-                          tone="sky"
-                        />
-                      ))}
+                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.1)", display: "flex", flexDirection: "column", gap: 6 }}>
+                      <span style={{ fontWeight: 600, fontSize: 11, opacity: 0.85 }}>⚡ Multi-Step Autonomous Tool Invocations:</span>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {msg.steps.map((s, i) => (
+                          <AIToolCall key={i} toolName={`${s.tool} (${s.device || 'fleet'})`} />
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -647,15 +655,16 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                 }}
               />
             </div>
-            <JXButton
-              variant="contained"
-              color="primary"
-              size="md"
+            <MagneticButton
+              variant="solid"
+              tone="primary"
+              strength={15}
               onClick={() => handleSendChat()}
               disabled={isSendingChat || !chatInput.trim()}
+              style={{ padding: "10px 22px", borderRadius: 8, fontWeight: 700, fontSize: 13 }}
             >
               Send ➔
-            </JXButton>
+            </MagneticButton>
           </div>
         </div>
       )}
@@ -784,16 +793,15 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                 </div>
               )}
 
-              <JXButton
-                variant="contained"
-                color="primary"
-                size="md"
+              <LiquidButton
+                variant="solid"
+                tone="primary"
                 type="submit"
-                loading={isSavingKey}
-                fullWidth
+                disabled={isSavingKey}
+                style={{ width: "100%", padding: "12px", borderRadius: 8, fontWeight: 700, fontSize: 14 }}
               >
-                🔒 Test & Save AI Connection
-              </JXButton>
+                {isSavingKey ? "Connecting to AI Provider..." : "🔒 Test & Save AI Connection"}
+              </LiquidButton>
             </form>
           </div>
           </JXCard>
@@ -916,16 +924,16 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
                 />
               </div>
 
-              <JXButton
-                variant="contained"
-                color="primary"
-                size="md"
-                loading={isExecuting}
+              <MagneticButton
+                variant="solid"
+                tone="primary"
+                strength={15}
+                disabled={isExecuting}
                 onClick={handleExecuteTool}
-                fullWidth
+                style={{ width: "100%", padding: "12px", borderRadius: 8, fontWeight: 700, fontSize: 14 }}
               >
-                ▶ Execute Tool
-              </JXButton>
+                {isExecuting ? "⚡ Executing Tool..." : "▶ Execute Tool"}
+              </MagneticButton>
             </div>
           </div>
           </JXCard>

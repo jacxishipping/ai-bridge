@@ -8,6 +8,12 @@ import {
   JXChip,
   JXSwitch,
   GlassModal,
+  JXCard,
+  MagneticButton,
+  LiquidButton,
+  HoldToConfirmButton,
+  StatusIndicator,
+  PulseIndicator,
 } from "@jacxishippingorg/jx-ui-react";
 
 interface DeviceDetailDashboardProps {
@@ -530,14 +536,16 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
               📋 Export Report
             </JXButton>
 
-            <JXButton
+            <MagneticButton
               variant="soft"
-              size="sm"
+              tone="primary"
+              strength={15}
               onClick={handleRunFullDiagnostics}
               title="Run complete diagnostic suite"
+              style={{ padding: "6px 14px", fontSize: 12.5 }}
             >
               ⚡ Full Diagnostic Suite
-            </JXButton>
+            </MagneticButton>
 
             <div style={{ minWidth: 200 }}>
               <JXSelect
@@ -558,9 +566,18 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
             {isRevoked ? (
               <JXChip label="✕ REVOKED" tone="rose" />
             ) : isOnline ? (
-              <JXChip label="ONLINE (Live Telemetry)" tone="emerald" />
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <JXChip label="ONLINE (Live Telemetry)" tone="emerald" />
+                <StatusIndicator />
+                <div style={{ width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <PulseIndicator />
+                </div>
+              </div>
             ) : (
-              <JXChip label="○ OFFLINE (Awaiting Poll)" tone="neutral" />
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <JXChip label="○ OFFLINE (Awaiting Poll)" tone="neutral" />
+                <StatusIndicator />
+              </div>
             )}
 
             <div style={{ fontSize: 13, color: "var(--colorNeutralForeground2)" }}>
@@ -581,15 +598,17 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <JXButton
-              variant="outlined"
-              size="sm"
+            <MagneticButton
+              variant="outline"
+              tone="primary"
+              strength={12}
               onClick={() => handleTriggerTelemetry()}
-              loading={refreshing}
+              disabled={refreshing}
               title="Queue telemetry refresh"
+              style={{ padding: "6px 12px", fontSize: 12 }}
             >
               ↻ {refreshing ? "Polling..." : "Refresh"}
-            </JXButton>
+            </MagneticButton>
 
             {onOpenPolicyModal && (
               <JXButton
@@ -603,15 +622,15 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
             )}
 
             {onDispatchTask && !isRevoked && (
-              <JXButton
-                variant="contained"
-                color="primary"
-                size="sm"
+              <LiquidButton
+                variant="solid"
+                tone="primary"
                 onClick={() => onDispatchTask(deviceId)}
                 title="Open task composer to run any tool on this device"
+                style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700 }}
               >
                 🚀 Dispatch Task
-              </JXButton>
+              </LiquidButton>
             )}
           </div>
         </div>
@@ -644,126 +663,134 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
       {/* Row 1: 4 System Health KPI Gauges with Live Sparklines */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 14 }}>
         {/* CPU Load Gauge with Sparkline */}
-        <div className="f2-card" style={{ padding: "16px 18px", position: "relative" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-            <div>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--colorNeutralForeground2)" }}>CPU UTILIZATION</span>
-              <div style={{ fontSize: 26, fontWeight: 700, color: "var(--colorNeutralForeground1)", marginTop: 2 }}>
-                {cpuVal !== null ? `${cpuVal}%` : "—"}
+        <JXCard spotlight hoverLift className="f2-card">
+          <div style={{ padding: "16px 18px", position: "relative" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--colorNeutralForeground2)" }}>CPU UTILIZATION</span>
+                <div style={{ fontSize: 26, fontWeight: 700, color: "var(--colorNeutralForeground1)", marginTop: 2 }}>
+                  {cpuVal !== null ? `${cpuVal}%` : "—"}
+                </div>
               </div>
+              <Sparkline data={cpuHistory} color={cpuTone === "danger" ? "#d13438" : cpuTone === "warning" ? "#ffaa44" : "#0078d4"} />
             </div>
-            <Sparkline data={cpuHistory} color={cpuTone === "danger" ? "#d13438" : cpuTone === "warning" ? "#ffaa44" : "#0078d4"} />
-          </div>
 
-          <div className="f2-bar-track" style={{ height: 6, marginBottom: 8 }}>
-            <div
-              className="f2-bar-fill"
-              style={{
-                width: `${Math.min(100, Math.max(0, cpuVal || 0))}%`,
-                background:
-                  cpuTone === "danger"
-                    ? "var(--colorStatusDangerForeground1)"
-                    : cpuTone === "warning"
-                    ? "var(--colorStatusWarningForeground1)"
-                    : "var(--colorBrandBackground)",
-              }}
-            />
+            <div className="f2-bar-track" style={{ height: 6, marginBottom: 8 }}>
+              <div
+                className="f2-bar-fill"
+                style={{
+                  width: `${Math.min(100, Math.max(0, cpuVal || 0))}%`,
+                  background:
+                    cpuTone === "danger"
+                      ? "var(--colorStatusDangerForeground1)"
+                      : cpuTone === "warning"
+                      ? "var(--colorStatusWarningForeground1)"
+                      : "var(--colorBrandBackground)",
+                }}
+              />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
+              <span>Arch: <b>{sys.machine || "x86_64"}</b></span>
+              <span>Peak: <b>{Math.max(...cpuHistory)}%</b></span>
+            </div>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
-            <span>Arch: <b>{sys.machine || "x86_64"}</b></span>
-            <span>Peak: <b>{Math.max(...cpuHistory)}%</b></span>
-          </div>
-        </div>
+        </JXCard>
 
         {/* RAM Memory Gauge with Sparkline */}
-        <div className="f2-card" style={{ padding: "16px 18px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-            <div>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--colorNeutralForeground2)" }}>MEMORY (RAM)</span>
-              <div style={{ fontSize: 22, fontWeight: 700, color: "var(--colorNeutralForeground1)", marginTop: 2 }}>
-                {res.memory_total_bytes
-                  ? `${formatBytes(res.memory_total_bytes - (res.memory_available_bytes || 0))} / ${formatBytes(res.memory_total_bytes)}`
-                  : (memVal !== null ? `${memVal}%` : "—")}
+        <JXCard spotlight hoverLift className="f2-card">
+          <div style={{ padding: "16px 18px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--colorNeutralForeground2)" }}>MEMORY (RAM)</span>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "var(--colorNeutralForeground1)", marginTop: 2 }}>
+                  {res.memory_total_bytes
+                    ? `${formatBytes(res.memory_total_bytes - (res.memory_available_bytes || 0))} / ${formatBytes(res.memory_total_bytes)}`
+                    : (memVal !== null ? `${memVal}%` : "—")}
+                </div>
               </div>
+              <Sparkline data={memHistory} color={memTone === "danger" ? "#d13438" : memTone === "warning" ? "#ffaa44" : "#2886de"} />
             </div>
-            <Sparkline data={memHistory} color={memTone === "danger" ? "#d13438" : memTone === "warning" ? "#ffaa44" : "#2886de"} />
-          </div>
 
-          <div className="f2-bar-track" style={{ height: 6, marginBottom: 8 }}>
-            <div
-              className="f2-bar-fill"
-              style={{
-                width: `${Math.min(100, Math.max(0, memVal || 0))}%`,
-                background:
-                  memTone === "danger"
-                    ? "var(--colorStatusDangerForeground1)"
-                    : memTone === "warning"
-                    ? "var(--colorStatusWarningForeground1)"
-                    : "linear-gradient(90deg, #0078d4 0%, #2886de 100%)",
-              }}
-            />
+            <div className="f2-bar-track" style={{ height: 6, marginBottom: 8 }}>
+              <div
+                className="f2-bar-fill"
+                style={{
+                  width: `${Math.min(100, Math.max(0, memVal || 0))}%`,
+                  background:
+                    memTone === "danger"
+                      ? "var(--colorStatusDangerForeground1)"
+                      : memTone === "warning"
+                      ? "var(--colorStatusWarningForeground1)"
+                      : "linear-gradient(90deg, #0078d4 0%, #2886de 100%)",
+                }}
+              />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
+              <span>Available: <b>{res.memory_available_bytes ? formatBytes(res.memory_available_bytes) : "—"}</b></span>
+              <span>Load: <b>{memVal !== null ? `${memVal}%` : "—"}</b></span>
+            </div>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
-            <span>Available: <b>{res.memory_available_bytes ? formatBytes(res.memory_available_bytes) : "—"}</b></span>
-            <span>Load: <b>{memVal !== null ? `${memVal}%` : "—"}</b></span>
-          </div>
-        </div>
+        </JXCard>
 
         {/* Storage Capacity Segmented Bar */}
-        <div className="f2-card" style={{ padding: "16px 18px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-            <div>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--colorNeutralForeground2)" }}>STORAGE DISK</span>
-              <div style={{ fontSize: 22, fontWeight: 700, color: "var(--colorNeutralForeground1)", marginTop: 2 }}>
-                {res.disk_total_bytes
-                  ? `${formatBytes(res.disk_total_bytes - (res.disk_free_bytes || 0))} / ${formatBytes(res.disk_total_bytes)}`
-                  : "—"}
+        <JXCard spotlight hoverLift className="f2-card">
+          <div style={{ padding: "16px 18px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+              <div>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--colorNeutralForeground2)" }}>STORAGE DISK</span>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "var(--colorNeutralForeground1)", marginTop: 2 }}>
+                  {res.disk_total_bytes
+                    ? `${formatBytes(res.disk_total_bytes - (res.disk_free_bytes || 0))} / ${formatBytes(res.disk_total_bytes)}`
+                    : "—"}
+                </div>
               </div>
+              <span className="f2-badge" data-tone={diskTone === "danger" ? "red" : diskTone === "warning" ? "amber" : "green"}>
+                {diskUsedPercent !== null ? `${diskUsedPercent}% Used` : "Disk OK"}
+              </span>
             </div>
-            <span className="f2-badge" data-tone={diskTone === "danger" ? "red" : diskTone === "warning" ? "amber" : "green"}>
-              {diskUsedPercent !== null ? `${diskUsedPercent}% Used` : "Disk OK"}
-            </span>
-          </div>
 
-          <div className="f2-segmented-bar" style={{ height: 6, marginBottom: 8 }}>
-            <div className="f2-segment-used" style={{ width: `${Math.min(100, Math.max(0, diskUsedPercent || 0))}%` }} />
-            <div className="f2-segment-free" style={{ flex: 1 }} />
+            <div className="f2-segmented-bar" style={{ height: 6, marginBottom: 8 }}>
+              <div className="f2-segment-used" style={{ width: `${Math.min(100, Math.max(0, diskUsedPercent || 0))}%` }} />
+              <div className="f2-segment-free" style={{ flex: 1 }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
+              <span>Free Space: <b>{res.disk_free_bytes ? formatBytes(res.disk_free_bytes) : "—"}</b></span>
+              <span>Root (/) Partition</span>
+            </div>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--colorNeutralForeground3)" }}>
-            <span>Free Space: <b>{res.disk_free_bytes ? formatBytes(res.disk_free_bytes) : "—"}</b></span>
-            <span>Root (/) Partition</span>
-          </div>
-        </div>
+        </JXCard>
 
         {/* Running Services & Sockets Summary */}
-        <div className="f2-card" style={{ padding: "16px 18px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--colorNeutralForeground2)" }}>SERVERS & SOCKETS</span>
-            <span className="f2-badge" data-tone="blue">
-              {listeningSockets.length} Ports Listening
-            </span>
+        <JXCard spotlight hoverLift className="f2-card">
+          <div style={{ padding: "16px 18px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--colorNeutralForeground2)" }}>SERVERS & SOCKETS</span>
+              <span className="f2-badge" data-tone="blue">
+                {listeningSockets.length} Ports Listening
+              </span>
+            </div>
+            <div style={{ display: "grid", gap: 5, marginTop: 4 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ color: "var(--colorNeutralForeground3)" }}>Docker Containers:</span>
+                <b>{docker.available ? `${docker.containers?.length || 0} active` : "Daemon inactive"}</b>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ color: "var(--colorNeutralForeground3)" }}>Top CPU Consumer:</span>
+                <b style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {maxCpuProc ? `${maxCpuProc.name} (${maxCpuProc.cpu_percent}%)` : "—"}
+                </b>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ color: "var(--colorNeutralForeground3)" }}>Network Adapters:</span>
+                <b>{network.interfaces?.length || 0} interfaces</b>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ color: "var(--colorNeutralForeground3)" }}>Unattended Ceiling:</span>
+                <b>Tier {dev.effective_policy?.max_tier_unattended || 2}</b>
+              </div>
+            </div>
           </div>
-          <div style={{ display: "grid", gap: 5, marginTop: 4 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: "var(--colorNeutralForeground3)" }}>Docker Containers:</span>
-              <b>{docker.available ? `${docker.containers?.length || 0} active` : "Daemon inactive"}</b>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: "var(--colorNeutralForeground3)" }}>Top CPU Consumer:</span>
-              <b style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {maxCpuProc ? `${maxCpuProc.name} (${maxCpuProc.cpu_percent}%)` : "—"}
-              </b>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: "var(--colorNeutralForeground3)" }}>Network Adapters:</span>
-              <b>{network.interfaces?.length || 0} interfaces</b>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: "var(--colorNeutralForeground3)" }}>Unattended Ceiling:</span>
-              <b>Tier {dev.effective_policy?.max_tier_unattended || 2}</b>
-            </div>
-          </div>
-        </div>
+        </JXCard>
       </div>
 
       {/* Pending Approvals Alert on this Device */}
@@ -1391,15 +1418,16 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
                   disabled={terminalRunning}
                 />
               </div>
-              <JXButton
+              <MagneticButton
                 type="submit"
-                variant="contained"
-                color="primary"
-                size="sm"
+                variant="solid"
+                tone="primary"
+                strength={12}
                 disabled={terminalRunning || !terminalInput.trim()}
+                style={{ padding: "8px 18px", borderRadius: 8, fontWeight: 700, fontSize: 13 }}
               >
-                Run
-              </JXButton>
+                {terminalRunning ? "Running..." : "Run ➔"}
+              </MagneticButton>
             </form>
           </div>
         </div>

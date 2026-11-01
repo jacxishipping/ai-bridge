@@ -6,6 +6,11 @@ import {
   JXTextField,
   JXSwitch,
   JXChip,
+  JXCard,
+  MagneticButton,
+  LiquidButton,
+  PulseIndicator,
+  StatusIndicator,
 } from "@jacxishippingorg/jx-ui-react";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
 
@@ -298,32 +303,37 @@ const WindowsLiveCard: React.FC<WindowsLiveCardProps> = ({
         }}
       >
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <JXButton
-            variant="contained"
-            color="primary"
-            size="sm"
+          <MagneticButton
+            variant="solid"
+            tone="primary"
+            strength={12}
             onClick={() => onTakeControl(device.id)}
+            style={{ padding: "6px 12px", fontSize: 12, fontWeight: 700, borderRadius: 6 }}
           >
             🎮 Take Control
-          </JXButton>
-          <JXButton
+          </MagneticButton>
+          <MagneticButton
             variant="soft"
-            size="sm"
+            tone="primary"
+            strength={8}
             onClick={(e: any) => handleQuickHotkey("win+r", e)}
             disabled={isActionPending}
             title="Dispatch Win+R Run shortcut"
+            style={{ padding: "6px 10px", fontSize: 12, borderRadius: 6 }}
           >
             ⌨️ Win+R
-          </JXButton>
-          <JXButton
+          </MagneticButton>
+          <MagneticButton
             variant="soft"
-            size="sm"
+            tone="primary"
+            strength={8}
             onClick={handleQuickSnapshot}
             disabled={!frame}
             title="Open high-res snapshot in new tab"
+            style={{ padding: "6px 10px", fontSize: 12, borderRadius: 6 }}
           >
             📸 Shot
-          </JXButton>
+          </MagneticButton>
         </div>
 
         <JXButton

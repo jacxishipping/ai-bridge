@@ -7,6 +7,10 @@ import {
   JXTextField,
   JXSwitch,
   JXChip,
+  JXCard,
+  HoldToConfirmButton,
+  MagneticButton,
+  LiquidButton,
 } from "@jacxishippingorg/jx-ui-react";
 import { ConfirmDialog, type ConfirmRequest } from "./ConfirmDialog";
 import { Pager } from "./Pager";
@@ -313,36 +317,46 @@ export const FleetOperations: React.FC = () => {
 
       {/* Metrics Ribbon */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
-        <div className="f2-card" style={{ padding: "14px 16px" }}>
-          <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 11, fontWeight: 600, textTransform: "uppercase" }}>Nodes Online</div>
-          <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4, color: "var(--colorActionGreen)" }}>
-            {fleetData ? `${fleetData.online_devices} / ${fleetData.total_devices}` : "-"}
+        <JXCard spotlight hoverLift className="f2-card">
+          <div style={{ padding: "14px 16px" }}>
+            <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 11, fontWeight: 600, textTransform: "uppercase" }}>Nodes Online</div>
+            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4, color: "var(--colorActionGreen)" }}>
+              {fleetData ? `${fleetData.online_devices} / ${fleetData.total_devices}` : "-"}
+            </div>
           </div>
-        </div>
-        <div className="f2-card" style={{ padding: "14px 16px" }}>
-          <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 11, fontWeight: 600, textTransform: "uppercase" }}>Fleet Avg CPU</div>
-          <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>
-            {fleetData?.avg_cpu_percent !== null && fleetData?.avg_cpu_percent !== undefined ? `${fleetData.avg_cpu_percent}%` : "Idle"}
+        </JXCard>
+        <JXCard spotlight hoverLift className="f2-card">
+          <div style={{ padding: "14px 16px" }}>
+            <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 11, fontWeight: 600, textTransform: "uppercase" }}>Fleet Avg CPU</div>
+            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>
+              {fleetData?.avg_cpu_percent !== null && fleetData?.avg_cpu_percent !== undefined ? `${fleetData.avg_cpu_percent}%` : "Idle"}
+            </div>
           </div>
-        </div>
-        <div className="f2-card" style={{ padding: "14px 16px" }}>
-          <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 11, fontWeight: 600, textTransform: "uppercase" }}>Fleet Avg RAM</div>
-          <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>
-            {fleetData?.avg_memory_percent !== null && fleetData?.avg_memory_percent !== undefined ? `${fleetData.avg_memory_percent}%` : "Idle"}
+        </JXCard>
+        <JXCard spotlight hoverLift className="f2-card">
+          <div style={{ padding: "14px 16px" }}>
+            <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 11, fontWeight: 600, textTransform: "uppercase" }}>Fleet Avg RAM</div>
+            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>
+              {fleetData?.avg_memory_percent !== null && fleetData?.avg_memory_percent !== undefined ? `${fleetData.avg_memory_percent}%` : "Idle"}
+            </div>
           </div>
-        </div>
-        <div className="f2-card" style={{ padding: "14px 16px" }}>
-          <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 11, fontWeight: 600, textTransform: "uppercase" }}>Active Triggers</div>
-          <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4, color: "var(--colorActionBlue)" }}>
-            {fleetData ? fleetData.active_triggers : 0}
+        </JXCard>
+        <JXCard spotlight hoverLift className="f2-card">
+          <div style={{ padding: "14px 16px" }}>
+            <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 11, fontWeight: 600, textTransform: "uppercase" }}>Active Triggers</div>
+            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4, color: "var(--colorActionBlue)" }}>
+              {fleetData ? fleetData.active_triggers : 0}
+            </div>
           </div>
-        </div>
-        <div className="f2-card" style={{ padding: "14px 16px" }}>
-          <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 11, fontWeight: 600, textTransform: "uppercase" }}>Active Schedules</div>
-          <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4, color: "var(--colorActionPurple)" }}>
-            {fleetData ? fleetData.active_schedules : 0}
+        </JXCard>
+        <JXCard spotlight hoverLift className="f2-card">
+          <div style={{ padding: "14px 16px" }}>
+            <div style={{ color: "var(--colorNeutralForeground3)", fontSize: 11, fontWeight: 600, textTransform: "uppercase" }}>Active Schedules</div>
+            <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4, color: "var(--colorActionPurple)" }}>
+              {fleetData ? fleetData.active_schedules : 0}
+            </div>
           </div>
-        </div>
+        </JXCard>
       </div>
 
       {/* Tab Navigation */}
@@ -536,38 +550,46 @@ export const FleetOperations: React.FC = () => {
           <div className="f2-panel">
             <h3 style={{ margin: "0 0 12px", fontSize: 16 }}>⚡ One-Click Fleet Broadcast</h3>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-              <JXButton
+              <MagneticButton
                 variant="soft"
-                size="md"
+                tone="primary"
+                strength={10}
                 onClick={() => handleBroadcast("get_system_info", {})}
                 disabled={broadcasting}
+                style={{ padding: "8px 14px", fontSize: 13 }}
               >
                 🩺 Fleet Health & Telemetry
-              </JXButton>
-              <JXButton
+              </MagneticButton>
+              <MagneticButton
                 variant="soft"
-                size="md"
+                tone="primary"
+                strength={10}
                 onClick={() => handleBroadcast("run_shell", { command: "uptime" }, "linux")}
                 disabled={broadcasting}
+                style={{ padding: "8px 14px", fontSize: 13 }}
               >
                 ⏱️ Check Linux Fleet Uptime
-              </JXButton>
-              <JXButton
+              </MagneticButton>
+              <MagneticButton
                 variant="soft"
-                size="md"
+                tone="primary"
+                strength={10}
                 onClick={() => handleBroadcast("get_disk_usage", {})}
                 disabled={broadcasting}
+                style={{ padding: "8px 14px", fontSize: 13 }}
               >
                 💾 Inspect Fleet Storage
-              </JXButton>
-              <JXButton
+              </MagneticButton>
+              <MagneticButton
                 variant="soft"
-                size="md"
+                tone="primary"
+                strength={10}
                 onClick={() => handleBroadcast("run_shell", { command: "sync && echo 3 > /proc/sys/vm/drop_caches || true" }, "linux")}
                 disabled={broadcasting}
+                style={{ padding: "8px 14px", fontSize: 13 }}
               >
                 🧹 Purge Linux RAM Cache
-              </JXButton>
+              </MagneticButton>
             </div>
 
             <div style={{ borderTop: "1px solid var(--colorNeutralStroke2)", paddingTop: 14 }}>
@@ -598,10 +620,12 @@ export const FleetOperations: React.FC = () => {
                     onChange={(val: any) => setCustomArgs(val)}
                   />
                 </div>
-                <JXButton
-                  variant="contained"
-                  color="primary"
-                  onClick={() => {
+                <HoldToConfirmButton
+                  label="Hold to Broadcast to Fleet"
+                  tone="danger"
+                  variant="solid"
+                  holdDurationMs={1200}
+                  onConfirm={() => {
                     try {
                       const parsed = JSON.parse(customArgs);
                       handleBroadcast(customTool, parsed, targetFilter);
@@ -609,10 +633,7 @@ export const FleetOperations: React.FC = () => {
                       setError("Invalid JSON in Args: " + e.message);
                     }
                   }}
-                  loading={broadcasting}
-                >
-                  🚀 Broadcast to Fleet
-                </JXButton>
+                />
               </div>
             </div>
           </div>

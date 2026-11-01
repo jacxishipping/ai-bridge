@@ -1,5 +1,25 @@
 import { Fragment, useEffect, useState, useRef, type MouseEvent as ReactMouseEvent } from "react";
-import { JXCard, JXButton, JXSwitch, JXChip, InteractiveCard, GlassModal, JXTextField, JXSelect, useJXTheme } from "@jacxishippingorg/jx-ui-react";
+import {
+  JXCard,
+  JXButton,
+  JXSwitch,
+  JXChip,
+  InteractiveCard,
+  GlassModal,
+  JXTextField,
+  JXSelect,
+  useJXTheme,
+  TiltCard,
+  SpotlightCard,
+  MetricCard,
+  PulseIndicator,
+  StatusIndicator,
+  MagneticButton,
+  LiquidButton,
+  HoldToConfirmButton,
+  KineticBarChart,
+  BentoGrid,
+} from "@jacxishippingorg/jx-ui-react";
 import { api, token, sessionToken } from "./api";
 import { DevicePolicyEditor } from "./DevicePolicyEditor";
 import { DeviceDetailDashboard } from "./DeviceDetailDashboard";
@@ -983,44 +1003,30 @@ export default function App() {
           </div>
 
           {health?.emergency_stop ? (
-            <JXButton
-              size="sm"
-              variant="contained"
-              color="primary"
+            <LiquidButton
+              variant="solid"
+              tone="primary"
               onClick={async () => {
                 await api.emergencyClear();
                 setNotice({ intent: "success", text: "Emergency stop cleared. Task queue resumed." });
                 load();
               }}
+              style={{ padding: "6px 14px", fontSize: 12.5 }}
             >
               Resume Queue
-            </JXButton>
+            </LiquidButton>
           ) : (
-            <JXButton
-              size="sm"
-              variant="contained"
-              color="error"
-              aria-pressed={emergencyArmed}
-              title={emergencyArmed ? "Click again to confirm the emergency stop" : "Arm the emergency stop (click again to confirm)"}
-              onClick={async () => {
-                if (!emergencyArmed) {
-                  // Two-step confirmation: a single stray click in the
-                  // topbar must not halt the whole task queue.
-                  setEmergencyArmed(true);
-                  if (emergencyTimer.current) clearTimeout(emergencyTimer.current);
-                  emergencyTimer.current = setTimeout(() => setEmergencyArmed(false), 6000);
-                  return;
-                }
-                if (emergencyTimer.current) clearTimeout(emergencyTimer.current);
-                setEmergencyArmed(false);
+            <HoldToConfirmButton
+              label="Hold to Stop Fleet"
+              tone="danger"
+              variant="solid"
+              holdDurationMs={1200}
+              onConfirm={async () => {
                 await api.emergencyStop();
-                setNotice({ intent: "warning", text: "Emergency stop activated. New tasks are blocked." });
+                setNotice({ intent: "error", text: "Emergency stop activated. New tasks are blocked." });
                 load();
               }}
-              startIcon={<FluentIcon name="emergency" />}
-            >
-              {emergencyArmed ? "Confirm Emergency Stop?" : "Emergency Stop"}
-            </JXButton>
+            />
           )}
 
           {me && (
@@ -1386,24 +1392,28 @@ export default function App() {
                 🔗 Copy link
               </button>
               {view !== "tasks" && (
-                <button
-                  type="button"
-                  className="f2-btn f2-btn-primary"
+                <MagneticButton
+                  strength={20}
+                  tone="primary"
+                  variant="solid"
                   onClick={() => setView("tasks")}
+                  className="f2-btn f2-btn-primary"
                 >
                   <FluentIcon name="tasks" />
                   <span>Dispatch Task</span>
-                </button>
+                </MagneticButton>
               )}
               {view !== "devices" && (
-                <button
-                  type="button"
-                  className="f2-btn f2-btn-subtle"
+                <MagneticButton
+                  strength={15}
+                  tone="primary"
+                  variant="soft"
                   onClick={() => setView("devices")}
+                  className="f2-btn f2-btn-subtle"
                 >
                   <FluentIcon name="devices" />
                   <span>Enroll Device</span>
-                </button>
+                </MagneticButton>
               )}
             </div>
           </div>
@@ -1436,57 +1446,70 @@ export default function App() {
           {view === "overview" && (
             <div style={{ display: "grid", gap: 16 }}>
               <div className="f2-kpi-grid">
-                <div className="f2-kpi-card" onClick={() => setView("devices")}>
-                  <div className="f2-kpi-top">
-                    <span>ONLINE DEVICES</span>
-                    <span className="f2-kpi-icon"><FluentIcon name="devices" /></span>
-                  </div>
-                  <div className="f2-kpi-value">{online.length} <span style={{ fontSize: 16, color: "var(--colorNeutralForeground3)", fontWeight: 400 }}>/ {devices.length}</span></div>
-                  <div className="f2-kpi-meta">Active outbound-polling agents</div>
+                <div onClick={() => setView("devices")} className="cursor-pointer" style={{ outline: "none" }}>
+                  <JXCard spotlight hoverLift className="f2-kpi-card">
+                    <div className="f2-kpi-top">
+                      <span>ONLINE DEVICES</span>
+                      <span className="f2-kpi-icon"><FluentIcon name="devices" /></span>
+                    </div>
+                    <div className="f2-kpi-value">{online.length} <span style={{ fontSize: 16, color: "var(--jx-text-tertiary)", fontWeight: 400 }}>/ {devices.length}</span></div>
+                    <div className="f2-kpi-meta" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 8px #10b981" }} />
+                      <span>Active outbound-polling agents</span>
+                    </div>
+                  </JXCard>
                 </div>
 
-                <div className="f2-kpi-card" onClick={() => setView("tasks")}>
-                  <div className="f2-kpi-top">
-                    <span>TOTAL TASKS</span>
-                    <span className="f2-kpi-icon"><FluentIcon name="tasks" /></span>
-                  </div>
-                  <div className="f2-kpi-value">{tasks.length}</div>
-                  <div className="f2-kpi-meta">
-                    {taskByStatus["completed"] || 0} completed · {taskByStatus["queued"] || 0} queued · {taskByStatus["failed"] || 0} failed
-                  </div>
+                <div onClick={() => setView("tasks")} className="cursor-pointer" style={{ outline: "none" }}>
+                  <JXCard spotlight hoverLift className="f2-kpi-card">
+                    <div className="f2-kpi-top">
+                      <span>TOTAL TASKS</span>
+                      <span className="f2-kpi-icon"><FluentIcon name="tasks" /></span>
+                    </div>
+                    <div className="f2-kpi-value">{tasks.length}</div>
+                    <div className="f2-kpi-meta">
+                      {taskByStatus["completed"] || 0} completed · {taskByStatus["queued"] || 0} queued · {taskByStatus["failed"] || 0} failed
+                    </div>
+                  </JXCard>
                 </div>
 
-                <div className="f2-kpi-card" onClick={() => setView("approvals")}>
-                  <div className="f2-kpi-top">
-                    <span>PENDING APPROVALS</span>
-                    <span className="f2-kpi-icon"><FluentIcon name="approvals" /></span>
-                  </div>
-                  <div className="f2-kpi-value" style={{ color: pending.length > 0 ? "var(--colorStatusWarningForeground1)" : undefined }}>
-                    {pending.length}
-                  </div>
-                  <div className="f2-kpi-meta">Awaiting administrator decision</div>
+                <div onClick={() => setView("approvals")} className="cursor-pointer" style={{ outline: "none" }}>
+                  <JXCard spotlight hoverLift className="f2-kpi-card">
+                    <div className="f2-kpi-top">
+                      <span>PENDING APPROVALS</span>
+                      <span className="f2-kpi-icon"><FluentIcon name="approvals" /></span>
+                    </div>
+                    <div className="f2-kpi-value" style={{ color: pending.length > 0 ? "var(--jx-rose)" : undefined }}>
+                      {pending.length}
+                    </div>
+                    <div className="f2-kpi-meta">Awaiting administrator decision</div>
+                  </JXCard>
                 </div>
 
-                <div className="f2-kpi-card" onClick={() => setView("audit")}>
-                  <div className="f2-kpi-top">
-                    <span>AUDIT EVENTS (24H)</span>
-                    <span className="f2-kpi-icon"><FluentIcon name="audit" /></span>
-                  </div>
-                  <div className="f2-kpi-value">{audit24h}</div>
-                  <div className="f2-kpi-meta">Recorded security & tool actions</div>
+                <div onClick={() => setView("audit")} className="cursor-pointer" style={{ outline: "none" }}>
+                  <JXCard spotlight hoverLift className="f2-kpi-card">
+                    <div className="f2-kpi-top">
+                      <span>AUDIT EVENTS (24H)</span>
+                      <span className="f2-kpi-icon"><FluentIcon name="audit" /></span>
+                    </div>
+                    <div className="f2-kpi-value">{audit24h}</div>
+                    <div className="f2-kpi-meta">Recorded security & tool actions</div>
+                  </JXCard>
                 </div>
 
-                <div className="f2-kpi-card" onClick={() => setView("connections")}>
-                  <div className="f2-kpi-top">
-                    <span>MCP & OAUTH GATEWAY</span>
-                    <span className="f2-kpi-icon"><FluentIcon name="connections" /></span>
-                  </div>
-                  <div className="f2-kpi-value" style={{ fontSize: 20 }}>
-                    {connections ? (connections.mcp.up ? "Connected" : "MCP Offline") : "Loading…"}
-                  </div>
-                  <div className="f2-kpi-meta">
-                    {connections ? `${connections.chatgpt.clients.length} OAuth client(s) · ${connections.chatgpt.active_access_tokens} active token(s)` : "Checking ports…"}
-                  </div>
+                <div onClick={() => setView("connections")} className="cursor-pointer" style={{ outline: "none" }}>
+                  <JXCard spotlight hoverLift className="f2-kpi-card">
+                    <div className="f2-kpi-top">
+                      <span>MCP & OAUTH GATEWAY</span>
+                      <span className="f2-kpi-icon"><FluentIcon name="connections" /></span>
+                    </div>
+                    <div className="f2-kpi-value" style={{ fontSize: 20 }}>
+                      {connections ? (connections.mcp.up ? "Connected" : "MCP Offline") : "Loading…"}
+                    </div>
+                    <div className="f2-kpi-meta">
+                      {connections ? `${connections.chatgpt.clients.length} OAuth client(s) · ${connections.chatgpt.active_access_tokens} active token(s)` : "Checking ports…"}
+                    </div>
+                  </JXCard>
                 </div>
               </div>
 
@@ -1508,64 +1531,11 @@ export default function App() {
                 <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--jx-text-tertiary)" }}>
                   ⚡ Quick Dispatch:
                 </span>
-                <button
-                  type="button"
-                  className="f2-btn f2-btn-subtle"
-                  style={{ padding: "6px 12px", fontSize: 12 }}
-                  onClick={() => {
-                    setView("tasks");
-                    setTaskTool("run_shell");
-                    setTaskArgs('{"command": "uptime && free -h"}');
-                  }}
-                  title="Dispatch shell diagnostics task"
-                >
-                  <FluentIcon name="terminal" />
-                  <span>Fleet Uptime & RAM</span>
-                </button>
-                <button
-                  type="button"
-                  className="f2-btn f2-btn-subtle"
-                  style={{ padding: "6px 12px", fontSize: 12 }}
-                  onClick={() => {
-                    setView("tasks");
-                    setTaskTool("capture_desktop_screenshot");
-                    setTaskArgs('{}');
-                  }}
-                  title="Capture live screenshot"
-                >
-                  <FluentIcon name="live_studio" />
-                  <span>Desktop Vision Inspector</span>
-                </button>
-                <button
-                  type="button"
-                  className="f2-btn f2-btn-subtle"
-                  style={{ padding: "6px 12px", fontSize: 12 }}
-                  onClick={() => setView("ai_api")}
-                  title="Jump to AI API hub"
-                >
-                  <FluentIcon name="ai_api" />
-                  <span>AI Copilot & Hub</span>
-                </button>
-                <button
-                  type="button"
-                  className="f2-btn f2-btn-subtle"
-                  style={{ padding: "6px 12px", fontSize: 12 }}
-                  onClick={() => setView("fleet_ops")}
-                  title="Jump to Fleet Operations"
-                >
-                  <FluentIcon name="fleet_ops" />
-                  <span>Self-Healing Triggers</span>
-                </button>
-                <button
-                  type="button"
-                  className="f2-btn f2-btn-subtle"
-                  style={{ padding: "6px 12px", fontSize: 12 }}
-                  onClick={() => setView("live_studio")}
-                  title="Jump to Live Desktop Studio"
-                >
-                  <FluentIcon name="live_studio" />
-                  <span>Live Studio Stream</span>
-                </button>
+                <MagneticButton strength={12} variant="soft" tone="primary" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => { setView("tasks"); setTaskTool("run_shell"); setTaskArgs('{"command": "uptime && free -h"}'); }} title="Dispatch shell diagnostics task"><FluentIcon name="terminal" /><span>Fleet Uptime & RAM</span></MagneticButton>
+                <MagneticButton strength={12} variant="soft" tone="primary" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => { setView("tasks"); setTaskTool("capture_desktop_screenshot"); setTaskArgs("{}"); }} title="Capture live screenshot"><FluentIcon name="live_studio" /><span>Desktop Vision Inspector</span></MagneticButton>
+                <MagneticButton strength={12} variant="soft" tone="primary" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setView("ai_api")} title="Jump to AI API hub"><FluentIcon name="ai_api" /><span>AI Copilot & Hub</span></MagneticButton>
+                <MagneticButton strength={12} variant="soft" tone="primary" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setView("fleet_ops")} title="Jump to Fleet Operations"><FluentIcon name="fleet_ops" /><span>Self-Healing Triggers</span></MagneticButton>
+                <MagneticButton strength={12} variant="soft" tone="primary" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setView("live_studio")} title="Jump to Live Desktop Studio"><FluentIcon name="live_studio" /><span>Live Studio Stream</span></MagneticButton>
               </div>
 
               {pending.length > 0 && (
