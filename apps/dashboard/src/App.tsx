@@ -522,6 +522,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+    document.documentElement.classList.toggle("dark", theme === "dark");
     localStorage.setItem("ai_bridge_theme", theme);
   }, [theme]);
 

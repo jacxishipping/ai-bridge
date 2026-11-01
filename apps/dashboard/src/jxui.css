@@ -1243,3 +1243,30 @@ select.f2-select {
     display: none !important;
   }
 }
+
+
+/* JXUI Authentic Tab & Surface Polish */
+div[role="tablist"] {
+  background: var(--jx-surface-2) !important;
+  border: 1px solid var(--jx-border-subtle) !important;
+  border-radius: 14px !important;
+  padding: 4px !important;
+}
+div[role="tablist"] button[role="tab"] {
+  color: var(--jx-text-secondary) !important;
+  font-weight: 600 !important;
+  border-radius: 10px !important;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+div[role="tablist"] button[role="tab"]:hover {
+  color: var(--jx-text-primary) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+div[role="tablist"] button[role="tab"][aria-selected="true"] {
+  background: var(--jx-primary) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px var(--jx-primary-halo) !important;
+}
+div[role="tabpanel"].rounded-xl {
+  display: none !important;
+}
