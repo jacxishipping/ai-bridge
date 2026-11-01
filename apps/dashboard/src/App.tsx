@@ -426,7 +426,23 @@ export default function App() {
       }
     }
   };
-  const [tok, setTok] = useState(token());
+  const [tok, setTok] = useState(() => {
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search);
+      const hp = window.location.hash ? new URLSearchParams(window.location.hash.replace(/^#/, "")) : null;
+      const at = p.get("token") || p.get("admin_token") || hp?.get("token") || hp?.get("admin_token");
+      if (at) {
+        localStorage.setItem("ai_bridge_admin_token", at);
+        return at;
+      }
+      const st = p.get("session_token") || hp?.get("session_token");
+      if (st) {
+        localStorage.setItem("ai_bridge_session_token", st);
+        return "session";
+      }
+    }
+    return token();
+  });
   const [oidcEnabled, setOidcEnabled] = useState(false);
   const [me, setMe] = useState<any>(null);
   const [health, setHealth] = useState<any>(null);
@@ -1013,155 +1029,304 @@ export default function App() {
             role="presentation"
           />
         )}
-        {/* Fluent 2 Navigation Drawer */}
-        <nav className={`f2-nav${mobileNavOpen ? " f2-nav-open" : ""}`} aria-label="Main Navigation">
-          <div className="f2-nav-section-label">Operations</div>
-          {(["overview", "devices"] as View[]).map(v => (
-            <button
-              key={v}
-              type="button"
-              className="f2-nav-item"
-              data-active={String(view === v)}
-              onClick={() => { setView(v); setMobileNavOpen(false); }}
-            >
-              <span className="f2-nav-item-icon">
-                <FluentIcon name={v} />
-              </span>
-              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
-              {v === "devices" && online.length > 0 && (
-                <span className="f2-nav-counter">{online.length}</span>
-              )}
-            </button>
-          ))}
-
-          <button
-            type="button"
-            className="f2-nav-item"
-            data-active={String(view === "device_detail")}
-            onClick={() => {
-              if (!selectedDeviceIdForDashboard && devices.length > 0) {
-                setSelectedDeviceIdForDashboard(devices[0].id);
-              }
-              setView("device_detail");
-              setMobileNavOpen(false);
-            }}
-            title="Inspect full system specs, running servers, apps, and health for any machine"
-          >
-            <span className="f2-nav-item-icon">
-              <FluentIcon name="dashboard" />
-            </span>
-            <span style={{ flex: 1, textAlign: "left" }}>Device 360</span>
-            {selectedDeviceIdForDashboard && (
-              <span className="f2-nav-counter" style={{ fontSize: 10 }}>
-                {deviceNameOf(selectedDeviceIdForDashboard).slice(0, 8)}
-              </span>
-            )}
-          </button>
-
-          {(["tasks", "approvals"] as View[]).map(v => (
-            <button
-              key={v}
-              type="button"
-              className="f2-nav-item"
-              data-active={String(view === v)}
-              onClick={() => { setView(v); setMobileNavOpen(false); }}
-            >
-              <span className="f2-nav-item-icon">
-                <FluentIcon name={v} />
-              </span>
-              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
-              {v === "approvals" && pending.length > 0 && (
-                <span className="f2-nav-counter" data-warn="true">{pending.length}</span>
-              )}
-            </button>
-          ))}
-
-          <button
-            type="button"
-            className="f2-nav-item"
-            data-active={String(view === "ai_api")}
-            onClick={() => { setView("ai_api"); setMobileNavOpen(false); }}
-            title="Connect your custom AI, OpenAI, Claude, or local LLMs to control fleet devices"
-          >
-            <span className="f2-nav-item-icon">
-              <FluentIcon name="ai_api" />
-            </span>
-            <span style={{ flex: 1, textAlign: "left" }}>AI API & Agents</span>
-            <span className="f2-nav-counter" style={{ background: "var(--jx-primary)", color: "#fff", fontSize: 9 }}>NEW</span>
-          </button>
-
-          <button
-            type="button"
-            className="f2-nav-item"
-            data-active={String(view === "workflows")}
-            onClick={() => { setView("workflows"); setMobileNavOpen(false); }}
-            title="Compose and execute autonomous multi-turn plans across fleet devices with OCR verification"
-          >
-            <span className="f2-nav-item-icon">
-              <FluentIcon name="workflows" />
-            </span>
-            <span style={{ flex: 1, textAlign: "left" }}>Workflows & Plans</span>
-            <span className="f2-nav-counter" style={{ fontSize: 9 }}>AGENT</span>
-          </button>
-
-          <button
-            type="button"
-            className="f2-nav-item"
-            data-active={String(view === "fleet_ops")}
-            onClick={() => { setView("fleet_ops"); setMobileNavOpen(false); }}
-            title="Cross-device telemetry graphs, multi-node command bus, and self-healing triggers"
-          >
-            <span className="f2-nav-item-icon">
-              <FluentIcon name="fleet_ops" />
-            </span>
-            <span style={{ flex: 1, textAlign: "left" }}>Fleet Operations</span>
-            <span className="f2-nav-counter" style={{ fontSize: 9 }}>FLEET</span>
-          </button>
-
-          <button
-            type="button"
-            className="f2-nav-item"
-            data-active={String(view === "live_studio")}
-            onClick={() => { setView("live_studio"); setMobileNavOpen(false); }}
-            title="Real-time visual desktop stream, dual-control human takeover, and fleet auto-updater"
-          >
-            <span className="f2-nav-item-icon">
-              <FluentIcon name="live_studio" />
-            </span>
-            <span style={{ flex: 1, textAlign: "left" }}>Live Desktop Studio</span>
-            <span className="f2-nav-counter" style={{ background: "var(--jx-rose)", color: "#fff", fontSize: 9 }}>LIVE</span>
-          </button>
-
-          <button
-            type="button"
-            className="f2-nav-item"
-            data-active={String(view === "terminal")}
-            onClick={() => { setView("terminal"); setMobileNavOpen(false); }}
-            title="Real-time interactive pseudo-terminal shell with ANSI colors"
-          >
-            <span className="f2-nav-item-icon">
-              <FluentIcon name="terminal" />
-            </span>
-            <span style={{ flex: 1, textAlign: "left" }}>Live Terminal</span>
-            <span className="f2-nav-counter" style={{ background: "var(--jx-primary)", color: "#fff", fontSize: 9 }}>SHELL</span>
-          </button>
-
-          <div className="f2-nav-section-label" style={{ marginTop: 8 }}>Governance & Telemetry</div>
-          {(["policies", "audit", "connections", "logs"] as View[]).map(v => (
-            <button
-              key={v}
-              type="button"
-              className="f2-nav-item"
-              data-active={String(view === v)}
-              onClick={() => { setView(v); setMobileNavOpen(false); }}
-            >
-              <span className="f2-nav-item-icon">
-                <FluentIcon name={v} />
-              </span>
-              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
-            </button>
-          ))}
-        </nav>
+        {/* Fluent 2 Navigation Drawer */}
+
+        <nav className={`f2-nav${mobileNavOpen ? " f2-nav-open" : ""}`} aria-label="Main Navigation">
+
+          <div className="f2-nav-section-label">Operations</div>
+
+          {(["overview", "devices"] as View[]).map(v => (
+
+            <button
+
+              key={v}
+
+              type="button"
+
+              className="f2-nav-item"
+
+              data-active={String(view === v)}
+
+              onClick={() => { setView(v); setMobileNavOpen(false); }}
+
+            >
+
+              <span className="f2-nav-item-icon">
+
+                <FluentIcon name={v} />
+
+              </span>
+
+              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
+
+              {v === "devices" && online.length > 0 && (
+
+                <span className="f2-nav-counter">{online.length}</span>
+
+              )}
+
+            </button>
+
+          ))}
+
+
+
+          <button
+
+            type="button"
+
+            className="f2-nav-item"
+
+            data-active={String(view === "device_detail")}
+
+            onClick={() => {
+
+              if (!selectedDeviceIdForDashboard && devices.length > 0) {
+
+                setSelectedDeviceIdForDashboard(devices[0].id);
+
+              }
+
+              setView("device_detail");
+
+              setMobileNavOpen(false);
+
+            }}
+
+            title="Inspect full system specs, running servers, apps, and health for any machine"
+
+          >
+
+            <span className="f2-nav-item-icon">
+
+              <FluentIcon name="dashboard" />
+
+            </span>
+
+            <span style={{ flex: 1, textAlign: "left" }}>Device 360</span>
+
+            {selectedDeviceIdForDashboard && (
+
+              <span className="f2-nav-counter" style={{ fontSize: 10 }}>
+
+                {deviceNameOf(selectedDeviceIdForDashboard).slice(0, 8)}
+
+              </span>
+
+            )}
+
+          </button>
+
+
+
+          {(["tasks", "approvals"] as View[]).map(v => (
+
+            <button
+
+              key={v}
+
+              type="button"
+
+              className="f2-nav-item"
+
+              data-active={String(view === v)}
+
+              onClick={() => { setView(v); setMobileNavOpen(false); }}
+
+            >
+
+              <span className="f2-nav-item-icon">
+
+                <FluentIcon name={v} />
+
+              </span>
+
+              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
+
+              {v === "approvals" && pending.length > 0 && (
+
+                <span className="f2-nav-counter" data-warn="true">{pending.length}</span>
+
+              )}
+
+            </button>
+
+          ))}
+
+
+
+          <button
+
+            type="button"
+
+            className="f2-nav-item"
+
+            data-active={String(view === "ai_api")}
+
+            onClick={() => { setView("ai_api"); setMobileNavOpen(false); }}
+
+            title="Connect your custom AI, OpenAI, Claude, or local LLMs to control fleet devices"
+
+          >
+
+            <span className="f2-nav-item-icon">
+
+              <FluentIcon name="ai_api" />
+
+            </span>
+
+            <span style={{ flex: 1, textAlign: "left" }}>AI API & Agents</span>
+
+            <span className="f2-nav-counter" style={{ background: "var(--jx-primary)", color: "#fff", fontSize: 9 }}>NEW</span>
+
+          </button>
+
+
+
+          <button
+
+            type="button"
+
+            className="f2-nav-item"
+
+            data-active={String(view === "workflows")}
+
+            onClick={() => { setView("workflows"); setMobileNavOpen(false); }}
+
+            title="Compose and execute autonomous multi-turn plans across fleet devices with OCR verification"
+
+          >
+
+            <span className="f2-nav-item-icon">
+
+              <FluentIcon name="workflows" />
+
+            </span>
+
+            <span style={{ flex: 1, textAlign: "left" }}>Workflows & Plans</span>
+
+            <span className="f2-nav-counter" style={{ fontSize: 9 }}>AGENT</span>
+
+          </button>
+
+
+
+          <button
+
+            type="button"
+
+            className="f2-nav-item"
+
+            data-active={String(view === "fleet_ops")}
+
+            onClick={() => { setView("fleet_ops"); setMobileNavOpen(false); }}
+
+            title="Cross-device telemetry graphs, multi-node command bus, and self-healing triggers"
+
+          >
+
+            <span className="f2-nav-item-icon">
+
+              <FluentIcon name="fleet_ops" />
+
+            </span>
+
+            <span style={{ flex: 1, textAlign: "left" }}>Fleet Operations</span>
+
+            <span className="f2-nav-counter" style={{ fontSize: 9 }}>FLEET</span>
+
+          </button>
+
+
+
+          <button
+
+            type="button"
+
+            className="f2-nav-item"
+
+            data-active={String(view === "live_studio")}
+
+            onClick={() => { setView("live_studio"); setMobileNavOpen(false); }}
+
+            title="Real-time visual desktop stream, dual-control human takeover, and fleet auto-updater"
+
+          >
+
+            <span className="f2-nav-item-icon">
+
+              <FluentIcon name="live_studio" />
+
+            </span>
+
+            <span style={{ flex: 1, textAlign: "left" }}>Live Desktop Studio</span>
+
+            <span className="f2-nav-counter" style={{ background: "var(--jx-rose)", color: "#fff", fontSize: 9 }}>LIVE</span>
+
+          </button>
+
+
+
+          <button
+
+            type="button"
+
+            className="f2-nav-item"
+
+            data-active={String(view === "terminal")}
+
+            onClick={() => { setView("terminal"); setMobileNavOpen(false); }}
+
+            title="Real-time interactive pseudo-terminal shell with ANSI colors"
+
+          >
+
+            <span className="f2-nav-item-icon">
+
+              <FluentIcon name="terminal" />
+
+            </span>
+
+            <span style={{ flex: 1, textAlign: "left" }}>Live Terminal</span>
+
+            <span className="f2-nav-counter" style={{ background: "var(--jx-primary)", color: "#fff", fontSize: 9 }}>SHELL</span>
+
+          </button>
+
+
+
+          <div className="f2-nav-section-label" style={{ marginTop: 8 }}>Governance & Telemetry</div>
+
+          {(["policies", "audit", "connections", "logs"] as View[]).map(v => (
+
+            <button
+
+              key={v}
+
+              type="button"
+
+              className="f2-nav-item"
+
+              data-active={String(view === v)}
+
+              onClick={() => { setView(v); setMobileNavOpen(false); }}
+
+            >
+
+              <span className="f2-nav-item-icon">
+
+                <FluentIcon name={v} />
+
+              </span>
+
+              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
+
+            </button>
+
+          ))}
+
+        </nav>
+
 
         {/* Fluent 2 Workspace Canvas */}
         <main className="f2-canvas" aria-busy={loading}>

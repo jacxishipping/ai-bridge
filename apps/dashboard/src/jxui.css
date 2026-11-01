@@ -156,11 +156,13 @@ button {
   color: inherit;
 }
 
+button.f2-mobile-toggle,
 .f2-mobile-toggle {
   display: none !important;
 }
 
 @media (max-width: 900px) {
+  button.f2-mobile-toggle,
   .f2-mobile-toggle {
     display: inline-flex !important;
   }
