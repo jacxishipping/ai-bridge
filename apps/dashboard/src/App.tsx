@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, useRef, type MouseEvent as ReactMouseEvent } from "react";
-import { JXCard, JXButton, JXSwitch, useJXTheme } from "@jacxishippingorg/jx-ui-react";
+import { JXCard, JXButton, JXSwitch, JXChip, InteractiveCard, GlassModal, JXTextField, JXSelect, useJXTheme } from "@jacxishippingorg/jx-ui-react";
 import { api, token, sessionToken } from "./api";
 import { DevicePolicyEditor } from "./DevicePolicyEditor";
 import { DeviceDetailDashboard } from "./DeviceDetailDashboard";
@@ -192,9 +192,9 @@ function FluentIcon({ name }: { name: string }) {
 function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <button
-      type="button"
-      className="f2-copy-pill"
+    <JXButton
+      size="sm"
+      variant="soft"
       onClick={e => {
         e.stopPropagation();
         navigator.clipboard?.writeText(text);
@@ -204,7 +204,7 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
       title="Copy to clipboard"
     >
       {copied ? "✓ Copied" : label}
-    </button>
+    </JXButton>
   );
 }
 
@@ -256,10 +256,11 @@ function TableRowActions({ actions }: { actions: (RowAction | null | undefined |
         else if (act.tone === "success") cls += " f2-icon-btn-success";
 
         return (
-          <button
+          <JXButton
             key={act.id}
-            type="button"
-            className={cls}
+            size="sm"
+            variant="soft"
+            color={(act.tone === "danger" || act.danger) ? "error" : act.tone === "success" ? "success" : act.tone === "primary" ? "primary" : "neutral"}
             onClick={e => {
               e.stopPropagation();
               act.onClick();
@@ -268,15 +269,15 @@ function TableRowActions({ actions }: { actions: (RowAction | null | undefined |
             aria-label={act.title || act.label}
           >
             <FluentIcon name={act.icon} />
-          </button>
+          </JXButton>
         );
       })}
 
       {hasOverflow && (
         <div style={{ position: "relative", display: "inline-flex" }}>
-          <button
-            type="button"
-            className={`f2-icon-btn ${menuOpen ? "f2-icon-btn-primary" : ""}`}
+          <JXButton
+            size="sm"
+            variant={menuOpen ? "contained" : "soft"}
             onClick={e => {
               e.stopPropagation();
               setMenuOpen(!menuOpen);
@@ -286,16 +287,17 @@ function TableRowActions({ actions }: { actions: (RowAction | null | undefined |
             aria-expanded={menuOpen}
           >
             <FluentIcon name="more" />
-          </button>
+          </JXButton>
 
           {menuOpen && (
             <div className="f2-overflow-menu" role="menu">
               {overflow.map(act => (
-                <button
+                <JXButton
                   key={act.id}
-                  type="button"
-                  className="f2-overflow-item"
-                  data-danger={String(!!act.danger || act.tone === "danger")}
+                  size="sm"
+                  variant="text"
+                  fullWidth
+                  color={(act.danger || act.tone === "danger") ? "error" : "neutral"}
                   onClick={e => {
                     e.stopPropagation();
                     setMenuOpen(false);
@@ -303,10 +305,11 @@ function TableRowActions({ actions }: { actions: (RowAction | null | undefined |
                   }}
                   title={act.title || act.label}
                   role="menuitem"
+                  startIcon={<FluentIcon name={act.icon} />}
+                  style={{ justifyContent: "flex-start" }}
                 >
-                  <FluentIcon name={act.icon} />
-                  <span>{act.label}</span>
-                </button>
+                  {act.label}
+                </JXButton>
               ))}
             </div>
           )}
@@ -677,14 +680,15 @@ export default function App() {
               </span>
               <span>AI Bridge Control Plane</span>
             </div>
-            <button
-              type="button"
-              className="f2-btn f2-btn-subtle f2-btn-sm"
+            <JXButton
+              size="sm"
+              variant="soft"
               onClick={() => setTheme(theme === "light" ? "dark" : "light")}
               title="Toggle Light / Dark theme"
+              startIcon={<FluentIcon name="theme" />}
             >
-              <FluentIcon name="theme" /> {theme === "light" ? "Dark" : "Light"}
-            </button>
+              {theme === "light" ? "Dark" : "Light"}
+            </JXButton>
           </div>
 
           <h1 style={{ margin: "0 0 6px", fontSize: 22, fontWeight: 600 }}>Sign in to your fleet</h1>
@@ -694,14 +698,14 @@ export default function App() {
 
           {oidcEnabled && (
             <div style={{ marginBottom: 18 }}>
-              <button
-                type="button"
-                className="f2-btn f2-btn-primary"
-                style={{ width: "100%", height: 38 }}
+              <JXButton
+                fullWidth
+                variant="contained"
                 onClick={() => api.oidcLogin()}
+                startIcon={<FluentIcon name="connections" />}
               >
-                <FluentIcon name="connections" /> Continue with Google Single Sign-On
-              </button>
+                Continue with Google Single Sign-On
+              </JXButton>
               <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "16px 0 0", color: "var(--colorNeutralForeground3)", fontSize: 12 }}>
                 <div style={{ flex: 1, height: 1, background: "var(--colorNeutralStroke2)" }} />
                 <span>or use direct credentials</span>
@@ -711,22 +715,20 @@ export default function App() {
           )}
 
           <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-            <button
-              type="button"
-              className="f2-chip"
-              data-active={String(authTab === "token")}
+            <JXButton
+              size="sm"
+              variant={authTab === "token" ? "contained" : "soft"}
               onClick={() => setAuthTab("token")}
             >
               Admin Token
-            </button>
-            <button
-              type="button"
-              className="f2-chip"
-              data-active={String(authTab === "user")}
+            </JXButton>
+            <JXButton
+              size="sm"
+              variant={authTab === "user" ? "contained" : "soft"}
               onClick={() => setAuthTab("user")}
             >
               Username & Password
-            </button>
+            </JXButton>
           </div>
 
           {authTab === "token" ? (
@@ -752,11 +754,11 @@ export default function App() {
                 <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4, color: "var(--colorNeutralForeground2)" }}>
                   Administrator Token (<code>AI_BRIDGE_ADMIN_TOKEN</code>)
                 </label>
-                <input name="t" type="password" className="f2-input" placeholder="Paste your admin token…" style={{ width: "100%" }} required aria-label="Administrator token" autoComplete="current-password" />
+                <JXTextField name="t" type="password" placeholder="Paste your admin token…" required aria-label="Administrator token" autoComplete="current-password" />
               </div>
-              <button type="submit" className="f2-btn f2-btn-primary" style={{ height: 36 }}>
+              <JXButton type="submit" fullWidth variant="contained">
                 Sign in with Admin Token
-              </button>
+              </JXButton>
             </form>
           ) : (
             <form
@@ -773,11 +775,11 @@ export default function App() {
               }}
               style={{ display: "grid", gap: 10 }}
             >
-              <input name="u" className="f2-input" placeholder="Username" style={{ width: "100%" }} required aria-label="Username" autoComplete="username" />
-              <input name="p" type="password" className="f2-input" placeholder="Password" style={{ width: "100%" }} required aria-label="Password" autoComplete="current-password" />
-              <button type="submit" className="f2-btn f2-btn-primary" style={{ height: 36 }}>
+              <JXTextField name="u" placeholder="Username" required aria-label="Username" autoComplete="username" />
+              <JXTextField name="p" type="password" placeholder="Password" required aria-label="Password" autoComplete="current-password" />
+              <JXButton type="submit" fullWidth variant="contained">
                 Sign in as User
-              </button>
+              </JXButton>
             </form>
           )}
 
@@ -848,15 +850,15 @@ export default function App() {
     <div className="f2-shell">
       {/* Fluent 2 Acrylic Top App Bar */}
       <header className="f2-topbar">
-        <button
-          type="button"
-          className="f2-hamburger-btn"
+        <JXButton
+          size="sm"
+          variant="soft"
           onClick={() => setMobileNavOpen(prev => !prev)}
           aria-label="Toggle navigation menu"
           title="Toggle navigation"
         >
           <FluentIcon name={mobileNavOpen ? "cancel" : "more"} />
-        </button>
+        </JXButton>
         <div className="f2-brand" onClick={() => { setView("overview"); setMobileNavOpen(false); }}>
           <span className="f2-brand-logo" title="AI Bridge JXUI Control Plane">
             <FluentIcon name="approvals" />
@@ -877,40 +879,29 @@ export default function App() {
 
         <div className="f2-topbar-actions">
           {pending.length > 0 && (
-            <button
-              type="button"
-              className="f2-btn f2-btn-sm"
-              style={{
-                background: "var(--colorPaletteAmberBackground1)",
-                border: "1px solid var(--colorPaletteAmberBorder1)",
-                color: "var(--colorPaletteAmberForeground1)",
-                fontWeight: 700,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                cursor: "pointer",
-              }}
+            <JXButton
+              size="sm"
+              variant="contained"
+              color="warning"
               onClick={() => setView("approvals")}
               title="Click to view and approve pending operations"
             >
               ⚠️ {pending.length} Action{pending.length > 1 ? "s" : ""} Pending Approval ↗
-            </button>
+            </JXButton>
           )}
-          <button
-            type="button"
-            className="f2-search-trigger"
+          <JXButton
+            size="sm"
+            variant="soft"
             onClick={() => {
               setCmdOpen(true);
               setCmdQuery("");
             }}
             title="Open Spotlight Command Palette (⌘K / Ctrl+K)"
+            startIcon={<FluentIcon name="search" />}
+            endIcon={<span className="f2-kbd">⌘K</span>}
           >
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-              <FluentIcon name="search" />
-              <span>Spotlight Command…</span>
-            </span>
-            <span className="f2-kbd">⌘K</span>
-          </button>
+            Spotlight Command…
+          </JXButton>
 
           <div style={{ display: "inline-flex", alignItems: "center" }}>
             <JXSwitch
@@ -947,9 +938,10 @@ export default function App() {
           </JXButton>
 
           {health?.emergency_stop ? (
-            <button
-              type="button"
-              className="f2-btn f2-btn-primary f2-btn-sm"
+            <JXButton
+              size="sm"
+              variant="contained"
+              color="primary"
               onClick={async () => {
                 await api.emergencyClear();
                 setNotice({ intent: "success", text: "Emergency stop cleared. Task queue resumed." });
@@ -957,11 +949,12 @@ export default function App() {
               }}
             >
               Resume Queue
-            </button>
+            </JXButton>
           ) : (
-            <button
-              type="button"
-              className={`f2-btn f2-btn-danger f2-btn-sm${emergencyArmed ? " f2-btn-armed" : ""}`}
+            <JXButton
+              size="sm"
+              variant="contained"
+              color="error"
               aria-pressed={emergencyArmed}
               title={emergencyArmed ? "Click again to confirm the emergency stop" : "Arm the emergency stop (click again to confirm)"}
               onClick={async () => {
@@ -979,9 +972,10 @@ export default function App() {
                 setNotice({ intent: "warning", text: "Emergency stop activated. New tasks are blocked." });
                 load();
               }}
+              startIcon={<FluentIcon name="emergency" />}
             >
               {emergencyArmed ? "Confirm Emergency Stop?" : "Emergency Stop"}
-            </button>
+            </JXButton>
           )}
 
           {me && (
@@ -993,9 +987,9 @@ export default function App() {
             </span>
           )}
 
-          <button
-            type="button"
-            className="f2-btn f2-btn-subtle f2-btn-sm"
+          <JXButton
+            size="sm"
+            variant="soft"
             onClick={async () => {
               try { if (sessionToken()) await api.logout(); } catch { /* local sign-out still clears an unavailable session */ }
               localStorage.removeItem("ai_bridge_admin_token");
@@ -1005,7 +999,7 @@ export default function App() {
             }}
           >
             Sign out
-          </button>
+          </JXButton>
         </div>
       </header>
 
@@ -1021,27 +1015,24 @@ export default function App() {
         <nav className={`f2-nav${mobileNavOpen ? " f2-nav-open" : ""}`} aria-label="Main Navigation">
           <div className="f2-nav-section-label">Operations</div>
           {(["overview", "devices"] as View[]).map(v => (
-            <button
+            <JXButton
               key={v}
-              type="button"
-              className="f2-nav-item"
-              data-active={String(view === v)}
+              fullWidth
+              variant={view === v ? "contained" : "text"}
               onClick={() => setView(v)}
+              startIcon={<FluentIcon name={v} />}
+              style={{ justifyContent: "flex-start", marginBottom: 3 }}
             >
-              <span className="f2-nav-item-icon">
-                <FluentIcon name={v} />
-              </span>
-              <span style={{ textTransform: "capitalize" }}>{v}</span>
+              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
               {v === "devices" && online.length > 0 && (
                 <span className="f2-nav-counter">{online.length}</span>
               )}
-            </button>
+            </JXButton>
           ))}
 
-          <button
-            type="button"
-            className="f2-nav-item"
-            data-active={String(view === "device_detail")}
+          <JXButton
+            fullWidth
+            variant={view === "device_detail" ? "contained" : "text"}
             onClick={() => {
               if (!selectedDeviceIdForDashboard && devices.length > 0) {
                 setSelectedDeviceIdForDashboard(devices[0].id);
@@ -1049,120 +1040,105 @@ export default function App() {
               setView("device_detail");
             }}
             title="Inspect full system specs, running servers, apps, and health for any machine"
+            startIcon={<FluentIcon name="dashboard" />}
+            style={{ justifyContent: "flex-start", marginBottom: 3 }}
           >
-            <span className="f2-nav-item-icon">
-              <FluentIcon name="dashboard" />
-            </span>
-            <span>Device 360</span>
+            <span style={{ flex: 1, textAlign: "left" }}>Device 360</span>
             {selectedDeviceIdForDashboard && (
               <span className="f2-nav-counter" style={{ fontSize: 10 }}>
                 {deviceNameOf(selectedDeviceIdForDashboard).slice(0, 8)}
               </span>
             )}
-          </button>
+          </JXButton>
 
           {(["tasks", "approvals"] as View[]).map(v => (
-            <button
+            <JXButton
               key={v}
-              type="button"
-              className="f2-nav-item"
-              data-active={String(view === v)}
+              fullWidth
+              variant={view === v ? "contained" : "text"}
               onClick={() => setView(v)}
+              startIcon={<FluentIcon name={v} />}
+              style={{ justifyContent: "flex-start", marginBottom: 3 }}
             >
-              <span className="f2-nav-item-icon">
-                <FluentIcon name={v} />
-              </span>
-              <span style={{ textTransform: "capitalize" }}>{v}</span>
+              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
               {v === "approvals" && pending.length > 0 && (
                 <span className="f2-nav-counter" data-warn="true">{pending.length}</span>
               )}
-            </button>
+            </JXButton>
           ))}
 
-          <button
-            type="button"
-            className="f2-nav-item"
-            data-active={String(view === "ai_api")}
+          <JXButton
+            fullWidth
+            variant={view === "ai_api" ? "contained" : "text"}
             onClick={() => setView("ai_api")}
             title="Connect your custom AI, OpenAI, Claude, or local LLMs to control fleet devices"
+            startIcon={<FluentIcon name="ai_api" />}
+            style={{ justifyContent: "flex-start", marginBottom: 3 }}
           >
-            <span className="f2-nav-item-icon">
-              <FluentIcon name="ai_api" />
-            </span>
-            <span>AI API & Agents</span>
+            <span style={{ flex: 1, textAlign: "left" }}>AI API & Agents</span>
             <span className="f2-nav-counter" style={{ background: "var(--colorBrandBackground)", color: "#fff", fontSize: 9 }}>NEW</span>
-          </button>
+          </JXButton>
 
-          <button
-            type="button"
-            className="f2-nav-item"
-            data-active={String(view === "workflows")}
+          <JXButton
+            fullWidth
+            variant={view === "workflows" ? "contained" : "text"}
             onClick={() => setView("workflows")}
             title="Compose and execute autonomous multi-turn plans across fleet devices with OCR verification"
+            startIcon={<FluentIcon name="workflows" />}
+            style={{ justifyContent: "flex-start", marginBottom: 3 }}
           >
-            <span className="f2-nav-item-icon">
-              <FluentIcon name="workflows" />
-            </span>
-            <span>Workflows & Plans</span>
+            <span style={{ flex: 1, textAlign: "left" }}>Workflows & Plans</span>
             <span className="f2-nav-counter" style={{ background: "var(--colorPaletteGreenBackground3)", color: "#fff", fontSize: 9 }}>AGENT</span>
-          </button>
+          </JXButton>
 
-          <button
-            type="button"
-            className="f2-nav-item"
-            data-active={String(view === "fleet_ops")}
+          <JXButton
+            fullWidth
+            variant={view === "fleet_ops" ? "contained" : "text"}
             onClick={() => setView("fleet_ops")}
             title="Cross-device telemetry graphs, multi-node command bus, and self-healing triggers"
+            startIcon={<FluentIcon name="fleet_ops" />}
+            style={{ justifyContent: "flex-start", marginBottom: 3 }}
           >
-            <span className="f2-nav-item-icon">
-              <FluentIcon name="fleet_ops" />
-            </span>
-            <span>Fleet Operations</span>
+            <span style={{ flex: 1, textAlign: "left" }}>Fleet Operations</span>
             <span className="f2-nav-counter" style={{ background: "var(--colorPaletteBlueBackground2, #0078d4)", color: "#fff", fontSize: 9 }}>FLEET</span>
-          </button>
+          </JXButton>
 
-          <button
-            type="button"
-            className="f2-nav-item"
-            data-active={String(view === "live_studio")}
+          <JXButton
+            fullWidth
+            variant={view === "live_studio" ? "contained" : "text"}
             onClick={() => setView("live_studio")}
             title="Real-time visual desktop stream, dual-control human takeover, and fleet auto-updater"
+            startIcon={<FluentIcon name="live_studio" />}
+            style={{ justifyContent: "flex-start", marginBottom: 3 }}
           >
-            <span className="f2-nav-item-icon">
-              <FluentIcon name="live_studio" />
-            </span>
-            <span>Live Desktop Studio</span>
+            <span style={{ flex: 1, textAlign: "left" }}>Live Desktop Studio</span>
             <span className="f2-nav-counter" style={{ background: "var(--colorPaletteRedBackground3, #e81123)", color: "#fff", fontSize: 9 }}>LIVE</span>
-          </button>
+          </JXButton>
 
-          <button
-            type="button"
-            className="f2-nav-item"
-            data-active={String(view === "terminal")}
+          <JXButton
+            fullWidth
+            variant={view === "terminal" ? "contained" : "text"}
             onClick={() => { setView("terminal"); setMobileNavOpen(false); }}
             title="Real-time interactive pseudo-terminal shell with ANSI colors"
+            startIcon={<FluentIcon name="terminal" />}
+            style={{ justifyContent: "flex-start", marginBottom: 3 }}
           >
-            <span className="f2-nav-item-icon">
-              <FluentIcon name="terminal" />
-            </span>
-            <span>Live Terminal</span>
+            <span style={{ flex: 1, textAlign: "left" }}>Live Terminal</span>
             <span className="f2-nav-counter" style={{ background: "var(--colorBrandBackground)", color: "#fff", fontSize: 9 }}>SHELL</span>
-          </button>
+          </JXButton>
 
           <div className="f2-nav-section-label" style={{ marginTop: 8 }}>Governance & Telemetry</div>
           {(["policies", "audit", "connections", "logs"] as View[]).map(v => (
-            <button
+            <JXButton
               key={v}
-              type="button"
-              className="f2-nav-item"
-              data-active={String(view === v)}
+              fullWidth
+              variant={view === v ? "contained" : "text"}
               onClick={() => setView(v)}
+              startIcon={<FluentIcon name={v} />}
+              style={{ justifyContent: "flex-start", marginBottom: 3 }}
             >
-              <span className="f2-nav-item-icon">
-                <FluentIcon name={v} />
-              </span>
-              <span style={{ textTransform: "capitalize" }}>{v}</span>
-            </button>
+              <span style={{ textTransform: "capitalize", flex: 1, textAlign: "left" }}>{v}</span>
+            </JXButton>
           ))}
         </nav>
 
@@ -1171,7 +1147,7 @@ export default function App() {
           <div className="f2-page-header">
             <div>
               <div className="f2-breadcrumb" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                <button type="button" className="f2-breadcrumb-link" onClick={() => setView("overview")}>AI Bridge</button>
+                <JXButton size="sm" variant="text" onClick={() => setView("overview")}>AI Bridge</JXButton>
                 <span className="f2-breadcrumb-sep">/</span>
                 <span style={{ color: "var(--jx-text-tertiary)" }}>{meta.group === "ops" ? "Operations" : "Governance & Telemetry"}</span>
                 <span className="f2-breadcrumb-sep">/</span>
@@ -1224,8 +1200,8 @@ export default function App() {
             <div className="f2-messagebar" data-intent="error">
               <span><b>Connection issue:</b> {err}</span>
               <span style={{ display: "inline-flex", gap: 6 }}>
-                <button type="button" className="f2-btn f2-btn-sm" onClick={() => load()}>Retry</button>
-                <button type="button" className="f2-btn f2-btn-sm" onClick={() => setErr("")}>Dismiss</button>
+                <JXButton size="sm" variant="soft" onClick={() => load()}>Retry</JXButton>
+                <JXButton size="sm" variant="soft" onClick={() => setErr("")}>Dismiss</JXButton>
               </span>
             </div>
           )}
@@ -1233,7 +1209,7 @@ export default function App() {
           {notice && (
             <div className="f2-messagebar" data-intent={notice.intent}>
               <span>{notice.text}</span>
-              <button type="button" className="f2-btn f2-btn-sm" onClick={() => setNotice(null)}>Dismiss</button>
+              <JXButton size="sm" variant="soft" onClick={() => setNotice(null)}>Dismiss</JXButton>
             </div>
           )}
 
@@ -1306,9 +1282,9 @@ export default function App() {
                 <Card
                   title={`⚠️ Pending Approvals Requiring Action (${pending.length})`}
                   action={
-                    <button type="button" className="f2-btn f2-btn-sm" onClick={() => setView("approvals")}>
+                    <JXButton size="sm" variant="soft" onClick={() => setView("approvals")}>
                       View Approvals Queue ↗
-                    </button>
+                    </JXButton>
                   }
                 >
                   <div style={{ display: "grid", gap: 10 }}>
@@ -1339,10 +1315,10 @@ export default function App() {
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: 8 }}>
-                          <button
-                            type="button"
-                            className="f2-btn f2-btn-primary f2-btn-sm"
-                            style={{ background: "#0e700e", borderColor: "#0e700e", color: "#ffffff", fontWeight: 700 }}
+                          <JXButton
+                            size="sm"
+                            variant="contained"
+                            color="success"
                             onClick={async () => {
                               try {
                                 await api.decide(a.id, "approved");
@@ -1352,12 +1328,14 @@ export default function App() {
                                 setErr(`Approve failed: ${ex.message}`);
                               }
                             }}
+                            startIcon={<FluentIcon name="approve" />}
                           >
-                            <FluentIcon name="approve" /> Approve
-                          </button>
-                          <button
-                            type="button"
-                            className="f2-btn f2-btn-danger f2-btn-sm"
+                            Approve
+                          </JXButton>
+                          <JXButton
+                            size="sm"
+                            variant="soft"
+                            color="error"
                             onClick={async () => {
                               try {
                                 await api.decide(a.id, "denied");
@@ -1367,9 +1345,10 @@ export default function App() {
                                 setErr(`Deny failed: ${ex.message}`);
                               }
                             }}
+                            startIcon={<FluentIcon name="deny" />}
                           >
-                            <FluentIcon name="deny" /> Deny
-                          </button>
+                            Deny
+                          </JXButton>
                         </div>
                       </div>
                     ))}
@@ -1399,7 +1378,7 @@ export default function App() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", gap: 16 }}>
                 <Card
                   title="Enrolled Fleet Status"
-                  action={<button type="button" className="f2-btn f2-btn-subtle f2-btn-sm" onClick={() => setView("devices")}>Manage devices →</button>}
+                  action={<JXButton size="sm" variant="soft" onClick={() => setView("devices")}>Manage devices →</JXButton>}
                 >
                   {devices.filter(d => !d.revoked).map(d => (
                     <div key={d.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--colorNeutralStroke3)", fontSize: 13 }}>
@@ -1418,7 +1397,7 @@ export default function App() {
 
                 <Card
                   title="Recent Audit Stream"
-                  action={<button type="button" className="f2-btn f2-btn-subtle f2-btn-sm" onClick={() => setView("audit")}>Full audit log →</button>}
+                  action={<JXButton size="sm" variant="soft" onClick={() => setView("audit")}>Full audit log →</JXButton>}
                 >
                   {audit.slice(0, 8).map(a => (
                     <div key={a.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--colorNeutralStroke3)", fontSize: 13 }}>
@@ -1457,17 +1436,17 @@ export default function App() {
                     }}
                     style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}
                   >
-                    <input
-                      className="f2-input"
-                      value={deviceName}
-                      onChange={e => setDeviceName(e.target.value)}
-                      placeholder="Device friendly name (e.g. windows-workstation)"
-                      style={{ minWidth: 280, flex: 1 }}
-                      required
-                    />
-                    <button type="submit" className="f2-btn f2-btn-primary">
+                    <div style={{ flex: 1, minWidth: 280 }}>
+                      <JXTextField
+                        value={deviceName}
+                        onChange={(val: any) => setDeviceName(typeof val === "string" ? val : val?.target?.value || "")}
+                        placeholder="Device friendly name (e.g. windows-workstation)"
+                        required
+                      />
+                    </div>
+                    <JXButton type="submit" variant="contained">
                       Enroll Device
-                    </button>
+                    </JXButton>
                   </form>
 
                   {enrolled && (
@@ -1500,22 +1479,23 @@ export default function App() {
 
               <Card title={`Fleet Inventory (${searchedDevices.length} of ${devices.length})`}>
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-                  <input
-                    className="f2-input"
-                    value={deviceQuery}
-                    onChange={e => { setDeviceQuery(e.target.value); setDevicePage(0); }}
-                    placeholder="Search by name, hostname, OS, or ID…"
-                    style={{ flex: 1, minWidth: 240 }}
-                  />
-                  <select
-                    className="f2-select"
-                    value={deviceSort}
-                    onChange={e => { setDeviceSort(e.target.value as any); setDevicePage(0); }}
-                    style={{ width: "auto", minWidth: 160 }}
-                  >
-                    <option value="name">Sort: Name A–Z</option>
-                    <option value="status">Sort: Status (online first)</option>
-                  </select>
+                  <div style={{ flex: 1, minWidth: 240 }}>
+                    <JXTextField
+                      value={deviceQuery}
+                      onChange={(val: any) => { setDeviceQuery(typeof val === "string" ? val : val?.target?.value || ""); setDevicePage(0); }}
+                      placeholder="Search by name, hostname, OS, or ID…"
+                    />
+                  </div>
+                  <div style={{ minWidth: 180 }}>
+                    <JXSelect
+                      value={deviceSort}
+                      onChange={(val: any) => { setDeviceSort((typeof val === "string" ? val : val?.target?.value) as any); setDevicePage(0); }}
+                      options={[
+                        { id: "name", label: "Sort: Name A–Z" },
+                        { id: "status", label: "Sort: Status (online first)" },
+                      ]}
+                    />
+                  </div>
                 </div>
                 <div className="f2-table-wrap">
                   <table className="f2-table">
@@ -1539,30 +1519,18 @@ export default function App() {
                           <tr key={d.id}>
                             <td>
                               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <button
-                                  type="button"
+                                <JXButton
+                                  size="sm"
+                                  variant="text"
                                   onClick={() => {
                                     setSelectedDeviceIdForDashboard(d.id);
                                     setView("device_detail");
                                   }}
                                   title={`Open full system dashboard for ${d.name}`}
-                                  style={{
-                                    background: "none",
-                                    border: "none",
-                                    padding: 0,
-                                    font: "inherit",
-                                    fontWeight: 700,
-                                    color: "var(--colorBrandForeground1)",
-                                    cursor: "pointer",
-                                    textAlign: "left",
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: 6,
-                                  }}
+                                  startIcon={<span>🖥️</span>}
                                 >
-                                  <span>🖥️</span>
-                                  <span style={{ textDecoration: "underline" }}>{d.name}</span>
-                                </button>
+                                  {d.name}
+                                </JXButton>
                               </div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                                 <code style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>{d.id}</code>
@@ -1590,25 +1558,24 @@ export default function App() {
                             <td><Badge value={d.revoked ? "revoked" : d.status} /></td>
                             <td>
                               {d.has_custom_policy ? (
-                                <button
-                                  type="button"
-                                  className="f2-preset-pill"
+                                <JXButton
+                                  size="sm"
+                                  variant="soft"
+                                  color="warning"
                                   onClick={() => setDevicePolicyModalId(d.id)}
                                   title="Custom device abilities configured. Click to view & edit."
-                                  style={{ border: "1px solid var(--colorStatusWarningStroke1)", background: "var(--colorStatusWarningBackground1)", color: "var(--colorStatusWarningForeground1)" }}
                                 >
                                   🛡️ Custom ({d.policy?.denied_tools?.length ? `${d.policy.denied_tools.length} blocked` : "Active"})
-                                </button>
+                                </JXButton>
                               ) : (
-                                <button
-                                  type="button"
-                                  className="f2-preset-pill"
+                                <JXButton
+                                  size="sm"
+                                  variant="soft"
                                   onClick={() => setDevicePolicyModalId(d.id)}
                                   title="Inheriting global server security policy. Click to customize."
-                                  style={{ border: "1px solid var(--colorNeutralStroke2)", background: "transparent" }}
                                 >
                                   🌐 Global Default
-                                </button>
+                                </JXButton>
                               )}
                             </td>
                             <td>
@@ -1753,7 +1720,7 @@ export default function App() {
                   {devices.length === 0 ? (
                     <div>
                       <p style={{ color: "var(--colorNeutralForeground3)", marginBottom: 12 }}>No enrolled devices found in fleet.</p>
-                      <button type="button" className="f2-btn f2-btn-primary" onClick={() => setView("devices")}>Enroll a Device</button>
+                      <JXButton variant="contained" onClick={() => setView("devices")}>Enroll a Device</JXButton>
                     </div>
                   ) : (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14, textAlign: "left" }}>
@@ -1771,9 +1738,9 @@ export default function App() {
                           <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
                             {d.hostname || "—"} · {d.os || "OS unknown"}
                           </div>
-                          <button type="button" className="f2-btn f2-btn-sm f2-btn-primary" style={{ marginTop: 6, alignSelf: "flex-start" }}>
+                          <JXButton size="sm" variant="contained" style={{ marginTop: 6, alignSelf: "flex-start" }}>
                             Launch 360 →
-                          </button>
+                          </JXButton>
                         </div>
                       ))}
                     </div>
@@ -1790,18 +1757,17 @@ export default function App() {
                 <div style={{ marginBottom: 12, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                   <span style={{ fontSize: 12, fontWeight: 600, color: "var(--colorNeutralForeground3)", marginRight: 4 }}>Quick Presets:</span>
                   {TASK_PRESETS.map(p => (
-                    <button
+                    <JXButton
                       key={p.label}
-                      type="button"
-                      className="f2-chip"
-                      data-active={String(taskTool === p.tool && taskArgs === p.args)}
+                      size="sm"
+                      variant={taskTool === p.tool && taskArgs === p.args ? "contained" : "soft"}
                       onClick={() => {
                         setTaskTool(p.tool);
                         setTaskArgs(p.args);
                       }}
                     >
                       {p.label}
-                    </button>
+                    </JXButton>
                   ))}
                 </div>
 
@@ -1831,28 +1797,36 @@ export default function App() {
                   }}
                   style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}
                 >
-                  <select className="f2-select" value={taskDevice} onChange={e => setTaskDevice(e.target.value)} required>
-                    <option value="">Select target device…</option>
-                    {devices.filter(d => !d.revoked).map(d => (
-                      <option key={d.id} value={d.id}>{d.name} ({d.status})</option>
-                    ))}
-                  </select>
+                  <div style={{ minWidth: 200 }}>
+                    <JXSelect
+                      value={taskDevice}
+                      onChange={(val: any) => setTaskDevice(typeof val === "string" ? val : val?.target?.value || "")}
+                      options={[
+                        { id: "", label: "Select target device…" },
+                        ...devices.filter(d => !d.revoked).map(d => ({ id: d.id, label: `${d.name} (${d.status})` }))
+                      ]}
+                    />
+                  </div>
 
-                  <select className="f2-select" value={taskTool} onChange={e => setTaskTool(e.target.value)}>
-                    {TOOLS.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
+                  <div style={{ minWidth: 160 }}>
+                    <JXSelect
+                      value={taskTool}
+                      onChange={(val: any) => setTaskTool(typeof val === "string" ? val : val?.target?.value || "")}
+                      options={TOOLS.map(t => ({ id: t, label: t }))}
+                    />
+                  </div>
 
-                  <input
-                    className="f2-input"
-                    value={taskArgs}
-                    onChange={e => setTaskArgs(e.target.value)}
-                    placeholder='JSON arguments, e.g. {"action": "list_windows"}'
-                    style={{ flex: 1, minWidth: 260, fontFamily: "var(--fontFamilyMonospace)", fontSize: 13 }}
-                  />
+                  <div style={{ flex: 1, minWidth: 260 }}>
+                    <JXTextField
+                      value={taskArgs}
+                      onChange={(val: any) => setTaskArgs(typeof val === "string" ? val : val?.target?.value || "")}
+                      placeholder='JSON arguments, e.g. {"action": "list_windows"}'
+                    />
+                  </div>
 
-                  <button type="submit" className="f2-btn f2-btn-primary">
+                  <JXButton type="submit" variant="contained">
                     Run Task
-                  </button>
+                  </JXButton>
                 </form>
               </Card>
 
@@ -1861,19 +1835,19 @@ export default function App() {
                 action={
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                     {["all", "queued", "running", "needs_approval", "completed", "failed", "cancelled"].map(s => (
-                      <button
+                      <JXButton
                         key={s}
-                        type="button"
-                        className="f2-chip"
-                        data-active={String(taskStatus === s)}
+                        size="sm"
+                        variant={taskStatus === s ? "contained" : "soft"}
                         onClick={() => { setTaskStatus(s); setTaskPage(0); }}
                       >
                         {s}
-                      </button>
+                      </JXButton>
                     ))}
-                    <button
-                      type="button"
-                      className="f2-btn f2-btn-danger f2-btn-sm"
+                    <JXButton
+                      size="sm"
+                      variant="soft"
+                      color="error"
                       onClick={() => {
                         setConfirmReq({
                           title: `Clear ${taskStatus === "all" ? "finished" : taskStatus} tasks?`,
@@ -1895,23 +1869,29 @@ export default function App() {
                       }}
                     >
                       Clear {taskStatus === "all" ? "Finished" : taskStatus}
-                    </button>
+                    </JXButton>
                   </div>
                 }
               >
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-                  <input
-                    className="f2-input"
-                    value={taskQuery}
-                    onChange={e => { setTaskQuery(e.target.value); setTaskPage(0); }}
-                    placeholder="Search by task ID, tool, device, or status…"
-                    style={{ flex: 1, minWidth: 240 }}
-                  />
-                  <select className="f2-select" value={taskSort} onChange={e => { setTaskSort(e.target.value as any); setTaskPage(0); }}>
-                    <option value="newest">Sort: Newest first</option>
-                    <option value="oldest">Sort: Oldest first</option>
-                    <option value="tool">Sort: Tool A–Z</option>
-                  </select>
+                  <div style={{ flex: 1, minWidth: 240 }}>
+                    <JXTextField
+                      value={taskQuery}
+                      onChange={(val: any) => { setTaskQuery(typeof val === "string" ? val : val?.target?.value || ""); setTaskPage(0); }}
+                      placeholder="Search by task ID, tool, device, or status…"
+                    />
+                  </div>
+                  <div style={{ minWidth: 180 }}>
+                    <JXSelect
+                      value={taskSort}
+                      onChange={(val: any) => { setTaskSort((typeof val === "string" ? val : val?.target?.value) as any); setTaskPage(0); }}
+                      options={[
+                        { id: "newest", label: "Sort: Newest first" },
+                        { id: "oldest", label: "Sort: Oldest first" },
+                        { id: "tool", label: "Sort: Tool A–Z" },
+                      ]}
+                    />
+                  </div>
                 </div>
                 <div className="f2-table-wrap">
                   <table className="f2-table">
@@ -2077,10 +2057,10 @@ export default function App() {
                                         </div>
                                       </div>
                                       <div style={{ display: "flex", gap: 8 }}>
-                                        <button
-                                          type="button"
-                                          className="f2-btn f2-btn-primary f2-btn-sm"
-                                          style={{ background: "#0e700e", borderColor: "#0e700e", color: "#ffffff", fontWeight: 700 }}
+                                        <JXButton
+                                          size="sm"
+                                          variant="contained"
+                                          color="success"
                                           onClick={async () => {
                                             const apId = t.approval_id || approvals.find(a => a.task_id === t.id)?.id;
                                             if (!apId) { setErr("Could not find approval record ID for this task. Refresh the task list and try again."); return; }
@@ -2092,12 +2072,14 @@ export default function App() {
                                               setErr(`Approve failed: ${ex.message}`);
                                             }
                                           }}
+                                          startIcon={<FluentIcon name="approve" />}
                                         >
-                                          <FluentIcon name="approve" /> Approve &amp; Release Task
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="f2-btn f2-btn-danger f2-btn-sm"
+                                          Approve &amp; Release Task
+                                        </JXButton>
+                                        <JXButton
+                                          size="sm"
+                                          variant="soft"
+                                          color="error"
                                           onClick={async () => {
                                             const apId = t.approval_id || approvals.find(a => a.task_id === t.id)?.id;
                                             if (!apId) { setErr("Could not find approval record ID for this task. Refresh the task list and try again."); return; }
@@ -2109,9 +2091,10 @@ export default function App() {
                                               setErr(`Deny failed: ${ex.message}`);
                                             }
                                           }}
+                                          startIcon={<FluentIcon name="deny" />}
                                         >
-                                          <FluentIcon name="deny" /> Deny Task
-                                        </button>
+                                          Deny Task
+                                        </JXButton>
                                       </div>
                                     </div>
                                   )}
@@ -2137,16 +2120,16 @@ export default function App() {
                                             Captured Desktop Screenshot {info.parsed?.size ? `(${info.parsed.size.join("×")})` : ""}
                                           </span>
                                           <div style={{ display: "flex", gap: 8 }}>
-                                            <button
-                                              type="button"
-                                              className="f2-btn f2-btn-sm"
+                                            <JXButton
+                                              size="sm"
+                                              variant="soft"
                                               onClick={() => setLightbox({
                                                 src: `data:${info.mimeType};base64,${info.imageBase64}`,
                                                 title: `Task ${t.id} — ${deviceNameOf(t.device_id)} (${fmt(t.updated_at)})`,
                                               })}
                                             >
                                               Expand Fullscreen
-                                            </button>
+                                            </JXButton>
                                             <a
                                               className="f2-btn f2-btn-sm"
                                               href={`data:${info.mimeType};base64,${info.imageBase64}`}
@@ -2301,30 +2284,40 @@ export default function App() {
           {view === "audit" && (
             <Card
               title={`Audit Trail (${filteredAudit.length} events)`}
-              action={<button type="button" className="f2-btn f2-btn-sm" onClick={async () => {
+              action={<JXButton size="sm" variant="soft" onClick={async () => {
                 try { const data = await api.exportAudit(); const blob = new Blob([data.events.map((e: any) => JSON.stringify(e)).join("\n")], { type: "application/x-ndjson" });
                   const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "ai-bridge-audit.jsonl"; link.click(); URL.revokeObjectURL(url);
                 } catch (ex: any) { setErr(`Audit export failed: ${ex.message}`); }
-              }}>Export JSONL</button>}
+              }}>Export JSONL</JXButton>}
             >
               <div style={{ marginBottom: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <input
-                  className="f2-input"
-                  value={auditQuery}
-                  onChange={e => { setAuditQuery(e.target.value); setAuditPage(0); }}
-                  placeholder="Filter by actor, tool, device ID, or decision…"
-                  style={{ flex: 1, minWidth: 240 }}
-                />
-                <select className="f2-select" value={auditTool} onChange={e => { setAuditTool(e.target.value); setAuditPage(0); }}>
-                  <option value="all">All tools</option>
-                  {[...new Set(audit.map(a => a.tool).filter(Boolean))].map(t => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-                <select className="f2-select" value={auditSort} onChange={e => { setAuditSort(e.target.value as any); setAuditPage(0); }}>
-                  <option value="newest">Sort: Newest first</option>
-                  <option value="oldest">Sort: Oldest first</option>
-                </select>
+                <div style={{ flex: 1, minWidth: 240 }}>
+                  <JXTextField
+                    value={auditQuery}
+                    onChange={(val: any) => { setAuditQuery(typeof val === "string" ? val : val?.target?.value || ""); setAuditPage(0); }}
+                    placeholder="Filter by actor, tool, device ID, or decision…"
+                  />
+                </div>
+                <div style={{ minWidth: 160 }}>
+                  <JXSelect
+                    value={auditTool}
+                    onChange={(val: any) => { setAuditTool(typeof val === "string" ? val : val?.target?.value || ""); setAuditPage(0); }}
+                    options={[
+                      { id: "all", label: "All tools" },
+                      ...[...new Set(audit.map(a => a.tool).filter(Boolean))].map(t => ({ id: t, label: t }))
+                    ]}
+                  />
+                </div>
+                <div style={{ minWidth: 160 }}>
+                  <JXSelect
+                    value={auditSort}
+                    onChange={(val: any) => { setAuditSort((typeof val === "string" ? val : val?.target?.value) as any); setAuditPage(0); }}
+                    options={[
+                      { id: "newest", label: "Sort: Newest first" },
+                      { id: "oldest", label: "Sort: Oldest first" },
+                    ]}
+                  />
+                </div>
               </div>
 
               <div className="f2-table-wrap">
@@ -2361,29 +2354,25 @@ export default function App() {
               {/* Policy Scope Tabs: Global vs Per-Device */}
               <div style={{ display: "flex", gap: 8, borderBottom: "1px solid var(--colorNeutralStroke2)", paddingBottom: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button
-                    type="button"
-                    className="f2-chip"
-                    data-active={String(policySubTab === "global")}
+                  <JXButton
+                    size="sm"
+                    variant={policySubTab === "global" ? "contained" : "soft"}
                     onClick={() => setPolicySubTab("global")}
-                    style={{ fontSize: 13, padding: "6px 14px" }}
                   >
                     🌐 Global Fleet Policy Baseline
-                  </button>
-                  <button
-                    type="button"
-                    className="f2-chip"
-                    data-active={String(policySubTab === "devices")}
+                  </JXButton>
+                  <JXButton
+                    size="sm"
+                    variant={policySubTab === "devices" ? "contained" : "soft"}
                     onClick={() => {
                       setPolicySubTab("devices");
                       if (!selectedPolicyDeviceId && devices.length > 0) {
                         setSelectedPolicyDeviceId(devices[0].id);
                       }
                     }}
-                    style={{ fontSize: 13, padding: "6px 14px" }}
                   >
                     🛡️ Per-Device & Server Guardrails ({devices.length})
-                  </button>
+                  </JXButton>
                 </div>
               </div>
 
@@ -2395,18 +2384,16 @@ export default function App() {
                     <div style={{ display: "grid", gap: 16 }}>
                       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", padding: 10, borderRadius: 6, background: "var(--colorNeutralBackground2)", border: "1px solid var(--colorNeutralStroke2)" }}>
                         <label style={{ fontSize: 13, fontWeight: 600 }}>Select Target Device / Server:</label>
-                        <select
-                          className="f2-select"
-                          value={selectedPolicyDeviceId || devices[0]?.id}
-                          onChange={e => setSelectedPolicyDeviceId(e.target.value)}
-                          style={{ minWidth: 260, flex: 1 }}
-                        >
-                          {devices.map(d => (
-                            <option key={d.id} value={d.id}>
-                              {d.name} ({d.os || "linux"} - {d.hostname || d.id}) {d.has_custom_policy ? "[Custom Guardrails Active]" : "[Global Baseline]"}
-                            </option>
-                          ))}
-                        </select>
+                        <div style={{ flex: 1, minWidth: 260 }}>
+                          <JXSelect
+                            value={selectedPolicyDeviceId || devices[0]?.id || ""}
+                            onChange={(val: any) => setSelectedPolicyDeviceId(typeof val === "string" ? val : val?.target?.value || "")}
+                            options={devices.map(d => ({
+                              id: d.id,
+                              label: `${d.name} (${d.os || "linux"} - ${d.hostname || d.id}) ${d.has_custom_policy ? "[Custom Guardrails Active]" : "[Global Baseline]"}`
+                            }))}
+                          />
+                        </div>
                       </div>
 
                       <DevicePolicyEditor
@@ -2444,71 +2431,55 @@ export default function App() {
                   >
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
                       <div style={{ padding: 12, borderRadius: 6, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
-                        <label className="f2-switch-label">
-                          <input type="checkbox" checked={polTier3} onChange={e => setPolTier3(e.target.checked)} style={{ display: "none" }} />
-                          <span className="f2-switch" data-checked={String(polTier3)} />
-                          <div>
-                            <div style={{ fontWeight: 600 }}>Allow Tier-3 Operations Unattended</div>
-                            <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
-                              Execute Tier-3 tools without queuing for manual approval
-                            </div>
-                          </div>
-                        </label>
+                        <JXSwitch
+                          label="Allow Tier-3 Operations Unattended"
+                          helperText="Execute Tier-3 tools without queuing for manual approval"
+                          checked={polTier3}
+                          onChange={(c: any) => setPolTier3(Boolean(typeof c === "boolean" ? c : c?.target?.checked))}
+                        />
                       </div>
 
                       <div style={{ padding: 12, borderRadius: 6, border: "1px solid var(--colorNeutralStroke2)", background: "var(--colorNeutralBackground2)" }}>
-                        <label className="f2-switch-label">
-                          <input type="checkbox" checked={polDesktop} onChange={e => setPolDesktop(e.target.checked)} style={{ display: "none" }} />
-                          <span className="f2-switch" data-checked={String(polDesktop)} />
-                          <div>
-                            <div style={{ fontWeight: 600 }}>Enable Desktop Automation & Vision</div>
-                            <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>
-                              Permit screenshots, approved app launches, and UI actions
-                            </div>
-                          </div>
-                        </label>
+                        <JXSwitch
+                          label="Enable Desktop Automation & Vision"
+                          helperText="Permit screenshots, approved app launches, and UI actions"
+                          checked={polDesktop}
+                          onChange={(c: any) => setPolDesktop(Boolean(typeof c === "boolean" ? c : c?.target?.checked))}
+                        />
                       </div>
                     </div>
 
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
                       <div>
-                        <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4, color: "var(--colorNeutralForeground2)" }}>
-                          Allowed Desktop Applications (comma-separated)
-                        </label>
-                        <input
-                          className="f2-input"
+                        <JXTextField
+                          label="Allowed Desktop Applications (comma-separated)"
                           value={polApps}
-                          onChange={e => setPolApps(e.target.value)}
+                          onChange={(val: any) => setPolApps(typeof val === "string" ? val : val?.target?.value || "")}
                           placeholder="chrome, code, notepad, msedge, firefox, terminal"
-                          style={{ width: "100%" }}
                         />
                       </div>
 
                       <div>
-                        <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4, color: "var(--colorNeutralForeground2)" }}>
-                          Allowed System Services (comma-separated)
-                        </label>
-                        <input
-                          className="f2-input"
+                        <JXTextField
+                          label="Allowed System Services (comma-separated)"
                           value={polServices}
-                          onChange={e => setPolServices(e.target.value)}
+                          onChange={(val: any) => setPolServices(typeof val === "string" ? val : val?.target?.value || "")}
                           placeholder="nginx, docker, ssh, postgresql, redis"
-                          style={{ width: "100%" }}
                         />
                       </div>
                     </div>
 
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                      <input
-                        className="f2-input"
-                        value={polNote}
-                        onChange={e => setPolNote(e.target.value)}
-                        placeholder="Change note for audit history (optional)"
-                        style={{ flex: 1, minWidth: 240 }}
-                      />
-                      <button type="submit" className="f2-btn f2-btn-primary">
+                      <div style={{ flex: 1, minWidth: 240 }}>
+                        <JXTextField
+                          value={polNote}
+                          onChange={(val: any) => setPolNote(typeof val === "string" ? val : val?.target?.value || "")}
+                          placeholder="Change note for audit history (optional)"
+                        />
+                      </div>
+                      <JXButton type="submit" variant="contained">
                         Save New Policy Version
-                      </button>
+                      </JXButton>
                     </div>
                   </form>
                 ) : (
@@ -2521,42 +2492,38 @@ export default function App() {
                   Receive real-time push alerts whenever a task enters <code>needs_approval</code>. Supports <b>Telegram Bots</b> (with native inline action buttons), <b>Discord</b> (rich embeds), <b>Slack</b> (interactive block kit), or any generic webhook.
                 </p>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                  <button
-                    type="button"
-                    className="f2-btn f2-btn-sm"
-                    style={{ fontSize: 11, padding: "3px 8px" }}
+                  <JXButton
+                    size="sm"
+                    variant="soft"
                     onClick={() => setWebhookUrl("https://api.telegram.org/bot<BOT_TOKEN>/sendMessage?chat_id=<CHAT_ID>")}
                   >
                     📱 Telegram Template
-                  </button>
-                  <button
-                    type="button"
-                    className="f2-btn f2-btn-sm"
-                    style={{ fontSize: 11, padding: "3px 8px" }}
+                  </JXButton>
+                  <JXButton
+                    size="sm"
+                    variant="soft"
                     onClick={() => setWebhookUrl("https://discord.com/api/webhooks/<WEBHOOK_ID>/<WEBHOOK_TOKEN>")}
                   >
                     💬 Discord Template
-                  </button>
-                  <button
-                    type="button"
-                    className="f2-btn f2-btn-sm"
-                    style={{ fontSize: 11, padding: "3px 8px" }}
+                  </JXButton>
+                  <JXButton
+                    size="sm"
+                    variant="soft"
                     onClick={() => setWebhookUrl("https://hooks.slack.com/services/<T>/<B>/<X>")}
                   >
                     💼 Slack Template
-                  </button>
+                  </JXButton>
                 </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <input
-                    className="f2-input"
-                    value={webhookUrl}
-                    onChange={e => setWebhookUrl(e.target.value)}
-                    placeholder="https://api.telegram.org/... or https://discord.com/api/webhooks/... or https://hooks.slack.com/..."
-                    style={{ flex: 1, minWidth: 280 }}
-                  />
-                  <button
-                    type="button"
-                    className="f2-btn f2-btn-primary"
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <div style={{ flex: 1, minWidth: 280 }}>
+                    <JXTextField
+                      value={webhookUrl}
+                      onChange={(val: any) => setWebhookUrl(typeof val === "string" ? val : val?.target?.value || "")}
+                      placeholder="https://api.telegram.org/... or https://discord.com/api/webhooks/... or https://hooks.slack.com/..."
+                    />
+                  </div>
+                  <JXButton
+                    variant="contained"
                     onClick={async () => {
                       try {
                         const r = await api.setWebhook(webhookUrl);
@@ -2567,10 +2534,9 @@ export default function App() {
                     }}
                   >
                     Save Webhook
-                  </button>
-                  <button
-                    type="button"
-                    className="f2-btn"
+                  </JXButton>
+                  <JXButton
+                    variant="soft"
                     disabled={!webhookUrl.trim()}
                     onClick={async () => {
                       try {
@@ -2585,7 +2551,7 @@ export default function App() {
                     }}
                   >
                     Send Test Alert
-                  </button>
+                  </JXButton>
                 </div>
                 <div style={{ marginTop: 12, padding: "8px 12px", background: "rgba(0, 120, 212, 0.08)", border: "1px solid rgba(0, 120, 212, 0.2)", borderRadius: 6, fontSize: 12, color: "var(--colorNeutralForeground2)", display: "flex", alignItems: "center", gap: 8 }}>
                   <span>🛡️</span>
@@ -2821,22 +2787,34 @@ export default function App() {
           {view === "logs" && (
             <Card title="Systemd & Proxy Telemetry">
               <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <select className="f2-select" value={logService} onChange={e => setLogService(e.target.value)}>
-                  <option value="control">Control Plane (ai-bridge-control)</option>
-                  <option value="mcp">MCP Server (ai-bridge-mcp)</option>
-                  <option value="oauth">OAuth Gateway (ai-bridge-oauth)</option>
-                  <option value="nginx">Nginx Reverse Proxy (/mcp & /api)</option>
-                </select>
+                <div style={{ minWidth: 240 }}>
+                  <JXSelect
+                    value={logService}
+                    onChange={(val: any) => setLogService(typeof val === "string" ? val : val?.target?.value || "")}
+                    options={[
+                      { id: "control", label: "Control Plane (ai-bridge-control)" },
+                      { id: "mcp", label: "MCP Server (ai-bridge-mcp)" },
+                      { id: "oauth", label: "OAuth Gateway (ai-bridge-oauth)" },
+                      { id: "nginx", label: "Nginx Reverse Proxy (/mcp & /api)" },
+                    ]}
+                  />
+                </div>
 
-                <select className="f2-select" value={logCount} onChange={e => setLogCount(Number(e.target.value))}>
-                  <option value={50}>50 lines</option>
-                  <option value={100}>100 lines</option>
-                  <option value={200}>200 lines</option>
-                </select>
+                <div style={{ minWidth: 140 }}>
+                  <JXSelect
+                    value={String(logCount)}
+                    onChange={(val: any) => setLogCount(Number(typeof val === "string" ? val : val?.target?.value) || 50)}
+                    options={[
+                      { id: "50", label: "50 lines" },
+                      { id: "100", label: "100 lines" },
+                      { id: "200", label: "200 lines" },
+                    ]}
+                  />
+                </div>
 
-                <button type="button" className="f2-btn" onClick={() => load()}>
+                <JXButton variant="soft" onClick={() => load()}>
                   Refresh Logs
-                </button>
+                </JXButton>
               </div>
 
               <pre style={{
@@ -2899,9 +2877,9 @@ export default function App() {
                 <a className="f2-btn f2-btn-primary f2-btn-sm" href={lightbox.src} download="screenshot.jpg" style={{ textDecoration: "none" }}>
                   Download JPEG
                 </a>
-                <button type="button" className="f2-btn f2-btn-sm" onClick={() => setLightbox(null)}>
+                <JXButton size="sm" variant="soft" onClick={() => setLightbox(null)}>
                   Close
-                </button>
+                </JXButton>
               </div>
             </div>
             <img src={lightbox.src} alt="Fullscreen Desktop Screenshot" style={{ maxWidth: "86vw", maxHeight: "78vh", borderRadius: 6, display: "block" }} />
@@ -2951,15 +2929,14 @@ export default function App() {
         return (
           <div className="f2-modal-backdrop" onClick={() => setCmdOpen(false)}>
             <div className="f2-cmd-modal" onClick={e => e.stopPropagation()}>
-              <input
+              <JXTextField
                 autoFocus
-                className="f2-cmd-input"
                 value={cmdQuery}
-                onChange={e => {
-                  setCmdQuery(e.target.value);
+                onChange={(val: any) => {
+                  setCmdQuery(typeof val === "string" ? val : val?.target?.value || "");
                   setCmdSelectedIndex(0);
                 }}
-                onKeyDown={e => {
+                onKeyDown={(e: any) => {
                   if (allCmdActions.length === 0) return;
                   if (e.key === "ArrowDown") {
                     e.preventDefault();
@@ -2982,11 +2959,10 @@ export default function App() {
                 {filteredNavViews.map(v => {
                   const idx = itemCursor++;
                   return (
-                    <button
+                    <JXButton
                       key={`nav-${v}`}
-                      type="button"
-                      className="f2-cmd-item"
-                      data-selected={String(cmdSelectedIndex === idx)}
+                      fullWidth
+                      variant={cmdSelectedIndex === idx ? "contained" : "text"}
                       onClick={() => {
                         if (v === "device_detail" && !selectedDeviceIdForDashboard && devices.length > 0) {
                           setSelectedDeviceIdForDashboard(devices[0].id);
@@ -2994,13 +2970,12 @@ export default function App() {
                         setView(v);
                         setCmdOpen(false);
                       }}
+                      startIcon={<FluentIcon name={v} />}
+                      endIcon={<span className="f2-kbd" style={{ textTransform: "capitalize" }}>{v}</span>}
+                      style={{ justifyContent: "space-between", marginBottom: 3 }}
                     >
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                        <FluentIcon name={v} />
-                        <span><b>{VIEW_META[v].title}</b></span>
-                      </span>
-                      <span className="f2-kbd" style={{ textTransform: "capitalize" }}>{v}</span>
-                    </button>
+                      <span style={{ fontWeight: 600 }}>{VIEW_META[v].title}</span>
+                    </JXButton>
                   );
                 })}
 
@@ -3008,21 +2983,21 @@ export default function App() {
                 {filteredPresets.map(p => {
                   const idx = itemCursor++;
                   return (
-                    <button
+                    <JXButton
                       key={`preset-${p.label}`}
-                      type="button"
-                      className="f2-cmd-item"
-                      data-selected={String(cmdSelectedIndex === idx)}
+                      fullWidth
+                      variant={cmdSelectedIndex === idx ? "contained" : "text"}
                       onClick={() => {
                         setTaskTool(p.tool);
                         setTaskArgs(p.args);
                         setView("tasks");
                         setCmdOpen(false);
                       }}
+                      endIcon={<span className="f2-kbd">Preset</span>}
+                      style={{ justifyContent: "space-between", marginBottom: 3 }}
                     >
                       <span><b>{p.label}</b> — <code>{p.tool}</code></span>
-                      <span className="f2-kbd">Preset</span>
-                    </button>
+                    </JXButton>
                   );
                 })}
 
@@ -3030,21 +3005,19 @@ export default function App() {
                 {(() => {
                   const idx = itemCursor++;
                   return (
-                    <button
-                      type="button"
-                      className="f2-cmd-item"
-                      data-selected={String(cmdSelectedIndex === idx)}
+                    <JXButton
+                      fullWidth
+                      variant={cmdSelectedIndex === idx ? "contained" : "text"}
                       onClick={() => {
                         setTheme(theme === "light" ? "dark" : "light");
                         setCmdOpen(false);
                       }}
+                      startIcon={<FluentIcon name="theme" />}
+                      endIcon={<span className="f2-kbd">Theme</span>}
+                      style={{ justifyContent: "space-between", marginBottom: 3 }}
                     >
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                        <FluentIcon name="theme" />
-                        <span>Toggle Fluent 2 {theme === "light" ? "Dark" : "Light"} Theme</span>
-                      </span>
-                      <span className="f2-kbd">Theme</span>
-                    </button>
+                      <span>Toggle Theme ({theme === "light" ? "Dark" : "Light"})</span>
+                    </JXButton>
                   );
                 })()}
               </div>
@@ -3061,9 +3034,9 @@ export default function App() {
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>
                 Edit {editModal.kind === "oauth_client" ? "OAuth Client" : editModal.kind.charAt(0).toUpperCase() + editModal.kind.slice(1)} Record
               </h3>
-              <button type="button" className="f2-btn f2-btn-sm" onClick={() => setEditModal(null)}>
+              <JXButton size="sm" variant="soft" onClick={() => setEditModal(null)}>
                 Close
-              </button>
+              </JXButton>
             </div>
 
             <form
@@ -3121,42 +3094,31 @@ export default function App() {
                 <>
                   <div>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Device Name</label>
-                    <input
-                      className="f2-input"
-                      style={{ width: "100%" }}
+                    <JXTextField
                       value={editModal.data.name}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, name: e.target.value } })}
+                      onChange={(val: any) => setEditModal({ ...editModal, data: { ...editModal.data, name: typeof val === "string" ? val : val?.target?.value || "" } })}
                       required
                     />
                   </div>
                   <div>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Hostname</label>
-                    <input
-                      className="f2-input"
-                      style={{ width: "100%" }}
+                    <JXTextField
                       value={editModal.data.hostname}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, hostname: e.target.value } })}
+                      onChange={(val: any) => setEditModal({ ...editModal, data: { ...editModal.data, hostname: typeof val === "string" ? val : val?.target?.value || "" } })}
                     />
                   </div>
                   <div>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Operating System</label>
-                    <input
-                      className="f2-input"
-                      style={{ width: "100%" }}
+                    <JXTextField
                       value={editModal.data.os}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, os: e.target.value } })}
+                      onChange={(val: any) => setEditModal({ ...editModal, data: { ...editModal.data, os: typeof val === "string" ? val : val?.target?.value || "" } })}
                     />
                   </div>
-                  <label className="f2-switch-label" style={{ marginTop: 4 }}>
-                    <input
-                      type="checkbox"
-                      checked={!!editModal.data.revoked}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, revoked: e.target.checked } })}
-                      style={{ display: "none" }}
-                    />
-                    <span className="f2-switch" data-checked={String(!!editModal.data.revoked)} />
-                    <span>Revoked (uncheck to restore device access)</span>
-                  </label>
+                  <JXSwitch
+                    label="Revoked (uncheck to restore device access)"
+                    checked={!!editModal.data.revoked}
+                    onChange={(c: any) => setEditModal({ ...editModal, data: { ...editModal.data, revoked: Boolean(typeof c === "boolean" ? c : c?.target?.checked) } })}
+                  />
                 </>
               )}
 
@@ -3164,86 +3126,60 @@ export default function App() {
                 <>
                   <div>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Tool</label>
-                    <select
-                      className="f2-select"
-                      style={{ width: "100%" }}
+                    <JXSelect
                       value={editModal.data.tool}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, tool: e.target.value } })}
-                    >
-                      {TOOLS.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
+                      onChange={(val: any) => setEditModal({ ...editModal, data: { ...editModal.data, tool: typeof val === "string" ? val : val?.target?.value || "" } })}
+                      options={TOOLS.map(t => ({ id: t, label: t }))}
+                    />
                   </div>
                   <div>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Arguments (JSON)</label>
-                    <input
-                      className="f2-input"
-                      style={{ width: "100%", fontFamily: "var(--fontFamilyMonospace)" }}
+                    <JXTextField
                       value={editModal.data.args_json}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, args_json: e.target.value } })}
+                      onChange={(val: any) => setEditModal({ ...editModal, data: { ...editModal.data, args_json: typeof val === "string" ? val : val?.target?.value || "" } })}
                     />
                   </div>
                   <div>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Status (set to "queued" to re-run)</label>
-                    <select
-                      className="f2-select"
-                      style={{ width: "100%" }}
+                    <JXSelect
                       value={editModal.data.status}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, status: e.target.value } })}
-                    >
-                      {["queued", "running", "needs_approval", "completed", "failed", "cancelled"].map(s => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
+                      onChange={(val: any) => setEditModal({ ...editModal, data: { ...editModal.data, status: typeof val === "string" ? val : val?.target?.value || "" } })}
+                      options={["queued", "running", "needs_approval", "completed", "failed", "cancelled"].map(s => ({ id: s, label: s }))}
+                    />
                   </div>
                 </>
               )}
               {editModal.kind === "policy" && (
                 <>
-                  <label className="f2-switch-label">
-                    <input
-                      type="checkbox"
-                      checked={!!editModal.data.allow_tier3}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, allow_tier3: e.target.checked } })}
-                      style={{ display: "none" }}
-                    />
-                    <span className="f2-switch" data-checked={String(!!editModal.data.allow_tier3)} />
-                    <span>Allow Tier-3 Operations Unattended</span>
-                  </label>
-                  <label className="f2-switch-label">
-                    <input
-                      type="checkbox"
-                      checked={!!editModal.data.desktop_enabled}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, desktop_enabled: e.target.checked } })}
-                      style={{ display: "none" }}
-                    />
-                    <span className="f2-switch" data-checked={String(!!editModal.data.desktop_enabled)} />
-                    <span>Enable Desktop Automation &amp; Vision</span>
-                  </label>
+                  <JXSwitch
+                    label="Allow Tier-3 Operations Unattended"
+                    checked={!!editModal.data.allow_tier3}
+                    onChange={(c: any) => setEditModal({ ...editModal, data: { ...editModal.data, allow_tier3: Boolean(typeof c === "boolean" ? c : c?.target?.checked) } })}
+                  />
+                  <JXSwitch
+                    label="Enable Desktop Automation & Vision"
+                    checked={!!editModal.data.desktop_enabled}
+                    onChange={(c: any) => setEditModal({ ...editModal, data: { ...editModal.data, desktop_enabled: Boolean(typeof c === "boolean" ? c : c?.target?.checked) } })}
+                  />
                   <div>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Allowed Apps (comma-separated)</label>
-                    <input
-                      className="f2-input"
-                      style={{ width: "100%" }}
+                    <JXTextField
                       value={editModal.data.allowed_apps}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, allowed_apps: e.target.value } })}
+                      onChange={(val: any) => setEditModal({ ...editModal, data: { ...editModal.data, allowed_apps: typeof val === "string" ? val : val?.target?.value || "" } })}
                     />
                   </div>
                   <div>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Allowed Services (comma-separated)</label>
-                    <input
-                      className="f2-input"
-                      style={{ width: "100%" }}
+                    <JXTextField
                       value={editModal.data.allowed_services}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, allowed_services: e.target.value } })}
+                      onChange={(val: any) => setEditModal({ ...editModal, data: { ...editModal.data, allowed_services: typeof val === "string" ? val : val?.target?.value || "" } })}
                     />
                   </div>
                   <div>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Version Note</label>
-                    <input
-                      className="f2-input"
-                      style={{ width: "100%" }}
+                    <JXTextField
                       value={editModal.data.note}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, note: e.target.value } })}
+                      onChange={(val: any) => setEditModal({ ...editModal, data: { ...editModal.data, note: typeof val === "string" ? val : val?.target?.value || "" } })}
                     />
                   </div>
                 </>
@@ -3253,21 +3189,17 @@ export default function App() {
                 <>
                   <div>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Client Name</label>
-                    <input
-                      className="f2-input"
-                      style={{ width: "100%" }}
+                    <JXTextField
                       value={editModal.data.client_name}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, client_name: e.target.value } })}
+                      onChange={(val: any) => setEditModal({ ...editModal, data: { ...editModal.data, client_name: typeof val === "string" ? val : val?.target?.value || "" } })}
                       required
                     />
                   </div>
                   <div>
                     <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Redirect URIs</label>
-                    <input
-                      className="f2-input"
-                      style={{ width: "100%", fontFamily: "var(--fontFamilyMonospace)" }}
+                    <JXTextField
                       value={editModal.data.redirect_uris}
-                      onChange={e => setEditModal({ ...editModal, data: { ...editModal.data, redirect_uris: e.target.value } })}
+                      onChange={(val: any) => setEditModal({ ...editModal, data: { ...editModal.data, redirect_uris: typeof val === "string" ? val : val?.target?.value || "" } })}
                       required
                     />
                   </div>
@@ -3275,12 +3207,12 @@ export default function App() {
               )}
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
-                <button type="button" className="f2-btn" onClick={() => setEditModal(null)}>
+                <JXButton variant="soft" onClick={() => setEditModal(null)}>
                   Cancel
-                </button>
-                <button type="submit" className="f2-btn f2-btn-primary">
+                </JXButton>
+                <JXButton type="submit" variant="contained">
                   Save Changes
-                </button>
+                </JXButton>
               </div>
             </form>
           </div>
@@ -3299,14 +3231,14 @@ export default function App() {
                 <span style={{ fontSize: 20 }}>🛡️</span>
                 <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>Device Abilities & Security Policy</h3>
               </div>
-              <button
-                type="button"
-                className="f2-btn f2-btn-subtle f2-btn-sm"
+              <JXButton
+                size="sm"
+                variant="soft"
                 onClick={() => setDevicePolicyModalId(null)}
                 title="Close modal"
               >
                 ✕
-              </button>
+              </JXButton>
             </div>
             <DevicePolicyEditor
               deviceId={devicePolicyModalId}
