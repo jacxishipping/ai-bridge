@@ -879,3 +879,4 @@ export function DevicePolicyEditor({ deviceId, onClose, onSaved, isModal = false
   );
 }
 
+export default DevicePolicyEditor;

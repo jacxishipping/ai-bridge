@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}.jx-elevation-1{box-shadow:0 2px 6px -1px rgba(0,0,0,0.35),0 1px 2px -1px rgba(0,0,0,0.25),inset 0 1px 0 0 rgba(255,255,255,0.06);}.jx-elevation-2{box-shadow:0 10px 25px -4px rgba(0,0,0,0.50),0 4px 10px -2px rgba(0,0,0,0.35),inset 0 1px 0 0 rgba(255,255,255,0.08);}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={"darkMode":"class","theme":{"extend":{"colors":{"on-primary":"#1d00a5","surface-elevated":"#111827","on-secondary-container":"#c9aeff","on-surface":"#dfe2f1","on-error":"#690005","on-primary-fixed-variant":"#3323cc","primary-container":"#4f46e5","secondary-fixed":"#eaddff","surface-container-low":"#171b26","on-secondary-fixed":"#25005a","surface-shelf":"#1E293B","tertiary-container":"#006e4c","surface":"#0f131d","accent-emerald":"#059669","surface-container":"#1c1f2a","primary":"#c3c0ff","outline":"#918fa1","surface-variant":"#313540","on-surface-variant":"#c7c4d8","on-error-container":"#ffdad6","error":"#ffb4ab","tertiary-fixed":"#85f8c4","background":"#0f131d","outline-variant":"#464555","surface-canvas":"#0B0F19","accent-violet":"#7c3aed","secondary":"#d2bbff","on-secondary":"#3f008e","secondary-container":"#6001d1","on-primary-container":"#dad7ff","tertiary-fixed-dim":"#68dba9","accent-ocean":"#0284c7","primary-fixed-dim":"#c3c0ff","tertiary":"#68dba9","on-background":"#dfe2f1","inverse-primary":"#4d44e3","on-tertiary-fixed":"#002114","accent-indigo":"#4f46e5","surface-container-lowest":"#0a0e18","on-primary-fixed":"#0f0069","on-tertiary-container":"#7df1bd","secondary-fixed-dim":"#d2bbff","inverse-on-surface":"#2c303b","inverse-surface":"#dfe2f1","on-tertiary":"#003825","primary-fixed":"#e2dfff","surface-tint":"#c3c0ff","surface-dim":"#0f131d","error-container":"#93000a","surface-container-high":"#262a35","accent-rose":"#e11d48","on-secondary-fixed-variant":"#5a00c6","surface-bright":"#353944","on-tertiary-fixed-variant":"#005137","surface-container-highest":"#313540"},"borderRadius":{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},"spacing":{"space-xs":"0.25rem","margin-md":"2rem","space-xl":"2rem","gutter":"1rem","margin":"1rem","space-sm":"0.5rem","gutter-md":"1.5rem","space-lg":"1.5rem","gutter-lg":"2rem","margin-lg":"3rem","space-md":"1rem"},"fontFamily":{"display-lg-mobile":["Plus Jakarta Sans"],"body-sm":["Plus Jakarta Sans"],"headline-md":["Plus Jakarta Sans"],"display-lg":["Plus Jakarta Sans"],"mono-label":["JetBrains Mono"],"mono-metric":["JetBrains Mono"],"label-sm":["Plus Jakarta Sans"],"headline-xl":["Plus Jakarta Sans"],"body-lg":["Plus Jakarta Sans"],"headline-xl-mobile":["Plus Jakarta Sans"],"headline-lg":["Plus Jakarta Sans"],"body-md":["Plus Jakarta Sans"],"label-md":["Plus Jakarta Sans"],"mono-code":["JetBrains Mono"]},"fontSize":{"display-lg-mobile":["2.25rem",{"lineHeight":"1.15","letterSpacing":"-0.025em","fontWeight":"800"}],"body-sm":["0.875rem",{"lineHeight":"1.5","letterSpacing":"0","fontWeight":"400"}],"headline-md":["1.25rem",{"lineHeight":"1.4","letterSpacing":"-0.01em","fontWeight":"600"}],"display-lg":["3.5rem",{"lineHeight":"1.1","letterSpacing":"-0.03em","fontWeight":"800"}],"mono-label":["0.6875rem",{"lineHeight":"1","letterSpacing":"0.05em","fontWeight":"500"}],"mono-metric":["1.5rem",{"lineHeight":"1.2","letterSpacing":"-0.02em","fontWeight":"600"}],"label-sm":["0.75rem",{"lineHeight":"1.2","letterSpacing":"0.02em","fontWeight":"600"}],"headline-xl":["2.5rem",{"lineHeight":"1.2","letterSpacing":"-0.02em","fontWeight":"700"}],"body-lg":["1.125rem",{"lineHeight":"1.6","letterSpacing":"-0.005em","fontWeight":"400"}],"headline-xl-mobile":["1.75rem",{"lineHeight":"1.25","letterSpacing":"-0.015em","fontWeight":"700"}],"headline-lg":["1.75rem",{"lineHeight":"1.3","letterSpacing":"-0.015em","fontWeight":"600"}],"body-md":["1rem",{"lineHeight":"1.5","letterSpacing":"0","fontWeight":"400"}],"label-md":["0.875rem",{"lineHeight":"1.2","letterSpacing":"0.01em","fontWeight":"600"}],"mono-code":["0.8125rem",{"lineHeight":"1.6","letterSpacing":"0","fontWeight":"400"}]}}}};</script></head><body class="bg-surface-canvas font-body-md text-on-surface antialiased"><aside class="fixed left-0 top-0 h-full w-72 bg-surface-container-lowest z-50 flex flex-col jx-elevation-2"><div class="h-16 px-space-lg flex items-center justify-between bg-surface-container-lowest"><div class="flex items-center gap-space-sm"><img alt="AI Bridge System Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1VZT8V8CmvGstJbPLWSCfWlH13nzI7woWDb39YGicGhN_-MNCGzCnmdniO07xCyxhyQYeos-yRqYeX22YoxNn6sT9_RH2nJjK91_qTleTnL42TdfcnagPgulB8c2kCsQVn7QyO4D_NvoVrmujtFn-b39ciKsx3F36nnPi41bhmRbL0JECKuntl50uWrPCWa_E7_d1vIpTcAyxFHdu_8cXvPeYaAY8u-9R9B3g0juCcX"/><div class="flex flex-col"><span class="font-headline-md text-headline-md tracking-tight text-on-surface">AI Bridge</span><span class="font-mono-label text-mono-label text-on-surface-variant uppercase tracking-wider">Control Plane</span></div></div><span class="font-mono-label text-mono-label px-space-xs py-0.5 rounded bg-surface-container text-tertiary">v2.1.0</span></div><div class="flex-1 overflow-y-auto px-space-md py-space-sm space-y-space-md"><div class="space-y-space-xs"><div class="px-space-sm py-1 font-mono-label text-mono-label text-outline uppercase tracking-wider">Operations Domain</div><nav class="space-y-1" data-active-classes="bg-primary-container text-on-primary-container font-semibold rounded-lg shadow-sm"><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="overview" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">grid_view</span><span class="font-label-md text-label-md">Command Overview</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="devices" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">dns</span><span class="font-label-md text-label-md">Enrolled Devices</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="device-360-system" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">memory</span><span class="font-label-md text-label-md">Device 360 System</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="task-queue-and-vision" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">checklist</span><span class="font-label-md text-label-md">Task Queue &amp; Vision</span></div><span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-container-high text-primary font-medium">12 active</span></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="live-desktop-studio" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">desktop_windows</span><span class="font-label-md text-label-md">Live Desktop Studio</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="interactive-terminal" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">terminal</span><span class="font-label-md text-label-md">Interactive Terminal</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="autonomous-workflows" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">account_tree</span><span class="font-label-md text-label-md">Autonomous Workflows</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="fleet-operations" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">bolt</span><span class="font-label-md text-label-md">Fleet Operations</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="ai-api-and-agents" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">smart_toy</span><span class="font-label-md text-label-md">AI API &amp; Agents</span></div></a></nav></div><div class="space-y-space-xs"><div class="px-space-sm py-1 font-mono-label text-mono-label text-outline uppercase tracking-wider">Governance Domain</div><nav class="space-y-1" data-active-classes="bg-primary-container text-on-primary-container font-semibold rounded-lg shadow-sm"><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="human-approvals" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">verified_user</span><span class="font-label-md text-label-md">Human Approvals</span></div><span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-error-container text-error font-medium">3 urgent</span></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="security-policies" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">lock</span><span class="font-label-md text-label-md">Security Policies</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="audit-trail" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">description</span><span class="font-label-md text-label-md">Audit Trail</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="mcp-and-oauth" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">hub</span><span class="font-label-md text-label-md">MCP &amp; OAuth</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="diagnostics-and-logs" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">monitoring</span><span class="font-label-md text-label-md">Diagnostics &amp; Logs</span></div></a></nav></div></div><div class="p-space-md bg-surface-container-low"><div class="flex items-center justify-between p-space-sm rounded-xl bg-surface-shelf jx-elevation-1"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-tertiary text-lg">verified</span><div class="flex flex-col"><span class="font-mono-label text-mono-label text-on-surface">mTLS v1.3</span><span class="font-mono-label text-mono-label text-on-surface-variant">Zero-Trust Active</span></div></div><span class="w-2 h-2 rounded-full bg-tertiary"></span></div></div></aside><div class="pl-72"><header class="fixed top-0 left-72 right-0 h-16 bg-surface-elevated/90 backdrop-blur-xl z-40 jx-elevation-1 px-space-lg flex items-center justify-between"><div class="flex items-center gap-space-lg"><div class="flex items-center gap-2 px-space-sm py-1.5 rounded-lg bg-surface-shelf jx-elevation-1"><span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-tertiary"></span></span><span class="font-mono-code text-mono-code text-on-surface">Gateway: Online</span><span class="font-mono-label text-mono-label text-tertiary">(14ms latency)</span></div><button class="flex items-center gap-space-md px-space-md py-1.5 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1 min-h-[44px]" type="button"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-base">search</span><span class="font-body-sm text-body-sm">Quick Jump</span></div><kbd class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface">⌘K</kbd></button></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-xl bg-surface-shelf jx-elevation-1 min-h-[44px]"><span class="font-mono-code text-mono-code text-on-surface-variant">Auto-poll: 15s</span><button aria-label="Toggle auto-refresh" class="w-8 h-4 rounded-full bg-primary-container relative flex items-center transition-colors" type="button"><span class="w-3 h-3 rounded-full bg-on-primary-container absolute right-0.5"></span></button></div><button class="flex items-center gap-space-xs px-space-md py-1.5 rounded-xl bg-error-container text-error hover:bg-error hover:text-on-error transition-all font-label-md text-label-md jx-elevation-1 min-h-[44px] active:scale-95" type="button"><span class="material-symbols-outlined text-base">gpp_maybe</span><span>Emergency All-Stop</span></button><button class="flex items-center justify-center w-11 h-11 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Export System Telemetry" type="button"><span class="material-symbols-outlined text-lg">file_download</span></button><button class="flex items-center justify-center w-11 h-11 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Keyboard Shortcuts" type="button"><span class="material-symbols-outlined text-lg">help</span></button><div class="flex items-center gap-space-sm pl-space-sm bg-surface-shelf rounded-xl p-1 jx-elevation-1 min-h-[44px]"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAuFWrYo9_X5_2lv5Pz14HFQL3bk32LdE5PfsEJT4GqAyOaLRFY-pXJqeB9K0uleQ-08IWjdw1EHZuc3RfzxuIPagiTL2Hty9KpyMaOfobzz5vIxe4Xaf1nHkWoB8u7A_2VdK05mgWdmdXJl457_1CKk7BbiD3YJzFLxUoaxIXwuljMzr6UCY7FJYeVSqBNYzWPMPu4R19s7rZj77q0LXMTYCQIIL3ZzpwOEWltIa8"/><div class="flex flex-col text-left"><span class="font-label-md text-label-md text-on-surface">Sarah J.</span><div class="flex items-center gap-1"><span class="font-mono-label text-mono-label text-on-surface-variant">Lead SecOps</span><span class="w-1.5 h-1.5 rounded-full bg-accent-indigo"></span></div></div><span class="material-symbols-outlined text-outline-variant text-base pr-1">expand_more</span></div></div></header><main class="relative pt-16 w-full px-8 bg-surface-canvas min-h-screen"><div class="flex flex-col w-full space-y-space-lg pb-space-xl">
+<!-- BREADCRUMB & METADATA BAR -->
+<div class="flex flex-wrap items-center justify-between gap-space-sm pt-space-xs">
+<div class="flex items-center gap-2">
+<span class="font-mono-label text-mono-label text-outline uppercase tracking-wider">Operations Domain</span>
+<span class="text-outline-variant font-mono-code text-body-sm">/</span>
+<span class="font-mono-label text-mono-label text-on-surface-variant uppercase tracking-wider">Device 360 System</span>
+<span class="text-outline-variant font-mono-code text-body-sm">/</span>
+<span class="font-mono-code text-mono-code px-2 py-0.5 rounded-lg bg-surface-shelf text-primary font-semibold jx-elevation-1">srv-us-east-412</span>
+</div>
+<div class="flex items-center gap-space-md">
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-container-high font-mono-label text-mono-label text-on-surface-variant">
+<span class="w-1.5 h-1.5 rounded-full bg-accent-emerald animate-pulse"></span>
+<span>SYS_EPOCH: <span class="font-mono-code text-on-surface">1716982402</span></span>
+</div>
+<div class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-container-high font-mono-label text-mono-label text-tertiary">
+<span class="material-symbols-outlined text-xs">sync</span>
+<span>AGENT SYNC: REALTIME</span>
+</div>
+</div>
+</div>
+<!-- DEVICE HEADER & QUICK HARDWARE CONTROLS -->
+<div class="p-space-lg rounded-xl bg-surface-elevated jx-elevation-2 flex flex-col xl:flex-row xl:items-center justify-between gap-space-lg relative overflow-hidden">
+<!-- Ambient Refraction Glow -->
+<div class="absolute -right-16 -top-16 w-80 h-80 bg-accent-indigo/10 rounded-full blur-3xl pointer-events-none"></div>
+<div class="flex flex-col md:flex-row md:items-center gap-space-lg z-10">
+<!-- Target Node Dropdown Trigger -->
+<div class="relative group">
+<button class="flex items-center justify-between gap-space-md px-space-md py-2.5 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-left jx-elevation-1 transition-all min-h-[44px] min-w-[320px]" type="button">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary text-xl">dns</span>
+<div class="flex flex-col">
+<span class="font-headline-md text-headline-md text-on-surface leading-tight">srv-us-east-412</span>
+<span class="font-mono-code text-mono-code text-on-surface-variant">Ubuntu 24.04 LTS • 10.240.12.84</span>
+</div>
+</div>
+<span class="material-symbols-outlined text-outline group-hover:text-on-surface transition-colors">unfold_more</span>
+</button>
+</div>
+<!-- Verified Trust & Telemetry Badges -->
+<div class="flex flex-wrap items-center gap-2">
+<div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-tertiary-container/30 text-tertiary-fixed font-mono-label text-mono-label jx-elevation-1">
+<span class="w-2 h-2 rounded-full bg-accent-emerald"></span>
+<span>Online • mTLS v1.3 Verified</span>
+</div>
+<div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-shelf text-on-surface-variant font-mono-code text-mono-code jx-elevation-1">
+<span class="material-symbols-outlined text-sm text-outline">timelapse</span>
+<span>Uptime: <strong class="text-on-surface">42d 18h 12m</strong></span>
+</div>
+<div class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-shelf text-primary-fixed-dim font-mono-label text-mono-label jx-elevation-1">
+<span class="material-symbols-outlined text-sm">security</span>
+<span>TPM 2.0 PCR-7 Key-Bound</span>
+</div>
+</div>
+</div>
+<!-- Fast Action Command Ribbon -->
+<div class="flex flex-wrap items-center gap-space-sm z-10">
+<button class="flex items-center gap-1.5 px-space-md py-2 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface font-label-md text-label-md jx-elevation-1 transition-all min-h-[44px] active:scale-95" title="Take immediate frame grab" type="button">
+<span class="material-symbols-outlined text-base text-primary">screenshot_monitor</span>
+<span>Capture Screen</span>
+</button>
+<button class="flex items-center gap-1.5 px-space-md py-2 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface font-label-md text-label-md jx-elevation-1 transition-all min-h-[44px] active:scale-95" type="button">
+<span class="material-symbols-outlined text-base text-tertiary">cleaning_services</span>
+<span>Flush DNS</span>
+</button>
+<button class="flex items-center gap-1.5 px-space-md py-2 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface font-label-md text-label-md jx-elevation-1 transition-all min-h-[44px] active:scale-95" type="button">
+<span class="material-symbols-outlined text-base text-secondary">cloud_upload</span>
+<span>Create Backup</span>
+</button>
+<!-- Reboot Node Hold-To-Confirm Button -->
+<button class="relative group overflow-hidden flex items-center gap-1.5 px-space-md py-2 rounded-xl bg-error-container/40 text-error hover:bg-error-container font-label-md text-label-md jx-elevation-1 transition-all min-h-[44px] select-none active:scale-95" id="rebootBtn" title="Hold 2s to reboot node" type="button">
+<span class="material-symbols-outlined text-base">restart_alt</span>
+<span id="rebootLabel">Reboot Node</span>
+<div class="absolute bottom-0 left-0 h-1 bg-error w-0 transition-all duration-75" id="rebootProgress"></div>
+</button>
+</div>
+</div>
+<!-- 4 HARDWARE TELEMETRY GAUGES / METRIC CARDS -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-space-md">
+<!-- Card 1: CPU Utilization -->
+<div class="p-space-lg rounded-xl bg-surface-elevated jx-elevation-2 flex flex-col justify-between space-y-space-md relative overflow-hidden">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="p-2 rounded-lg bg-accent-indigo/20 text-primary material-symbols-outlined text-xl">memory</span>
+<div>
+<span class="font-mono-label text-mono-label text-outline uppercase tracking-wider block">Processor Compute</span>
+<span class="font-label-md text-label-md text-on-surface font-semibold">CPU Utilization</span>
+</div>
+</div>
+<span class="font-mono-label text-mono-label text-tertiary bg-tertiary-container/20 px-2 py-0.5 rounded">NORMAL</span>
+</div>
+<div class="flex items-baseline justify-between">
+<span class="font-mono-metric text-headline-xl text-on-surface tabular-nums font-bold tracking-tight">38.4<span class="text-headline-md text-outline font-normal">%</span></span>
+<div class="text-right">
+<span class="font-mono-label text-mono-label text-outline block">LOAD AVG (1/5/15)</span>
+<span class="font-mono-code text-mono-code text-on-surface font-medium tabular-nums">0.45, 0.52, 0.48</span>
+</div>
+</div>
+<!-- Mini Core Breakdown -->
+<div class="space-y-1.5 bg-surface-shelf p-space-sm rounded-lg jx-elevation-1">
+<div class="flex items-center justify-between font-mono-label text-mono-label text-outline-variant">
+<span>CORES (4vCPU Xeon 8370C @ 2.80GHz)</span>
+<span class="text-primary font-mono-code">3.1 GHz MAX</span>
+</div>
+<div class="grid grid-cols-4 gap-1.5 pt-0.5">
+<div class="space-y-1 text-center">
+<div class="w-full bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-accent-indigo h-full" style="width: 42%"></div>
+</div>
+<span class="font-mono-label text-mono-label text-on-surface-variant block tabular-nums">C0: 42%</span>
+</div>
+<div class="space-y-1 text-center">
+<div class="w-full bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-accent-indigo h-full" style="width: 35%"></div>
+</div>
+<span class="font-mono-label text-mono-label text-on-surface-variant block tabular-nums">C1: 35%</span>
+</div>
+<div class="space-y-1 text-center">
+<div class="w-full bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-accent-violet h-full" style="width: 51%"></div>
+</div>
+<span class="font-mono-label text-mono-label text-on-surface-variant block tabular-nums">C2: 51%</span>
+</div>
+<div class="space-y-1 text-center">
+<div class="w-full bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-accent-indigo h-full" style="width: 25%"></div>
+</div>
+<span class="font-mono-label text-mono-label text-on-surface-variant block tabular-nums">C3: 25%</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 2: Memory (RAM) -->
+<div class="p-space-lg rounded-xl bg-surface-elevated jx-elevation-2 flex flex-col justify-between space-y-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="p-2 rounded-lg bg-accent-violet/20 text-secondary material-symbols-outlined text-xl">developer_board</span>
+<div>
+<span class="font-mono-label text-mono-label text-outline uppercase tracking-wider block">Physical Allocation</span>
+<span class="font-label-md text-label-md text-on-surface font-semibold">Memory (RAM)</span>
+</div>
+</div>
+<span class="font-mono-label text-mono-label text-secondary bg-secondary-container/30 px-2 py-0.5 rounded tabular-nums">44.3%</span>
+</div>
+<div class="flex items-baseline justify-between">
+<span class="font-mono-metric text-headline-xl text-on-surface tabular-nums font-bold tracking-tight">14.2 <span class="text-headline-md text-outline font-normal">/ 32.0 GB</span></span>
+<div class="text-right">
+<span class="font-mono-label text-mono-label text-outline block">SWAP USAGE</span>
+<span class="font-mono-code text-mono-code text-on-surface font-medium tabular-nums">0.2 / 8.0 GB</span>
+</div>
+</div>
+<!-- Segmented Memory Breakdown Bar -->
+<div class="space-y-1.5 bg-surface-shelf p-space-sm rounded-lg jx-elevation-1">
+<div class="w-full h-2 rounded-full bg-surface-container-highest flex overflow-hidden">
+<div class="bg-accent-violet h-full" style="width: 32.5%" title="Active: 10.4 GB"></div>
+<div class="bg-primary h-full" style="width: 11.8%" title="Buffers/Cache: 3.8 GB"></div>
+<div class="bg-surface-variant h-full" style="width: 55.7%" title="Free: 17.8 GB"></div>
+</div>
+<div class="flex justify-between items-center font-mono-label text-mono-label text-on-surface-variant pt-1 tabular-nums">
+<div class="flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-accent-violet"></span>
+<span>Act: 10.4G</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+<span>Buf: 3.8G</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>
+<span>Free: 17.8G</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 3: Storage Volumes -->
+<div class="p-space-lg rounded-xl bg-surface-elevated jx-elevation-2 flex flex-col justify-between space-y-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="p-2 rounded-lg bg-tertiary-container/30 text-tertiary material-symbols-outlined text-xl">hard_drive</span>
+<div>
+<span class="font-mono-label text-mono-label text-outline uppercase tracking-wider block">NVMe Solid State</span>
+<span class="font-label-md text-label-md text-on-surface font-semibold">Storage Volumes</span>
+</div>
+</div>
+<span class="font-mono-label text-mono-label text-tertiary bg-tertiary-container/20 px-2 py-0.5 rounded tabular-nums">SMART OK</span>
+</div>
+<div class="flex items-baseline justify-between">
+<span class="font-mono-metric text-headline-xl text-on-surface tabular-nums font-bold tracking-tight">184.2 <span class="text-headline-md text-outline font-normal">/ 512 GB</span></span>
+<div class="text-right">
+<span class="font-mono-label text-mono-label text-outline block">ROOT (/)</span>
+<span class="font-mono-code text-mono-code text-on-surface font-medium tabular-nums">36.0% Used</span>
+</div>
+</div>
+<!-- Multi-partition Status -->
+<div class="space-y-2 bg-surface-shelf p-space-sm rounded-lg jx-elevation-1">
+<div class="space-y-1">
+<div class="flex justify-between font-mono-label text-mono-label text-outline-variant">
+<span>/ (nvme0n1p1)</span>
+<span class="text-on-surface font-mono-code tabular-nums">327.8 GB free</span>
+</div>
+<div class="w-full bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-tertiary h-full" style="width: 36%"></div>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between font-mono-label text-mono-label text-outline-variant">
+<span>/data (nvme1n1)</span>
+<span class="text-on-surface font-mono-code tabular-nums">1.2 TB / 2.0 TB (60%)</span>
+</div>
+<div class="w-full bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-accent-ocean h-full" style="width: 60%"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 4: Network Throughput -->
+<div class="p-space-lg rounded-xl bg-surface-elevated jx-elevation-2 flex flex-col justify-between space-y-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="p-2 rounded-lg bg-accent-ocean/20 text-accent-ocean material-symbols-outlined text-xl">swap_vert</span>
+<div>
+<span class="font-mono-label text-mono-label text-outline uppercase tracking-wider block">Interface eth0</span>
+<span class="font-label-md text-label-md text-on-surface font-semibold">Network I/O</span>
+</div>
+</div>
+<span class="font-mono-label text-mono-label text-primary bg-primary-container/30 px-2 py-0.5 rounded font-mono-code tabular-nums">142 ESTAB</span>
+</div>
+<div class="flex items-baseline justify-between">
+<div class="flex items-baseline gap-1">
+<span class="font-mono-label text-mono-label text-tertiary">RX</span>
+<span class="font-mono-metric text-headline-lg text-on-surface tabular-nums font-bold">4.8</span>
+<span class="font-mono-code text-mono-code text-outline">MB/s</span>
+</div>
+<div class="flex items-baseline gap-1 text-right">
+<span class="font-mono-label text-mono-label text-primary">TX</span>
+<span class="font-mono-metric text-headline-lg text-on-surface tabular-nums font-bold">1.2</span>
+<span class="font-mono-code text-mono-code text-outline">MB/s</span>
+</div>
+</div>
+<!-- IP & Sockets Micro-Telemetry -->
+<div class="space-y-1 bg-surface-shelf p-space-sm rounded-lg jx-elevation-1">
+<div class="flex justify-between items-center font-mono-code text-mono-code">
+<span class="text-outline-variant font-mono-label text-mono-label uppercase">PUB</span>
+<span class="text-on-surface tabular-nums">34.201.88.19</span>
+</div>
+<div class="flex justify-between items-center font-mono-code text-mono-code">
+<span class="text-outline-variant font-mono-label text-mono-label uppercase">PRV</span>
+<span class="text-on-surface tabular-nums">10.240.12.84</span>
+</div>
+</div>
+</div>
+</div>
+<!-- DIAGNOSTIC SUB-VIEWS & RUNNING PROCESSES DATA TABLE -->
+<div class="flex flex-col space-y-space-md">
+<!-- JXTabs: Diagnostic Navigation -->
+<div class="flex flex-wrap items-center justify-between gap-space-sm bg-surface-elevated p-1.5 rounded-xl jx-elevation-1">
+<nav class="flex items-center gap-1.5 overflow-x-auto">
+<button class="flex items-center gap-2 px-space-md py-2 rounded-lg bg-primary-container text-on-primary font-label-md text-label-md shadow-sm min-h-[44px]" type="button">
+<span class="material-symbols-outlined text-base">format_list_bulleted</span>
+<span>Running Processes</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded-full bg-on-primary/20 text-on-primary">142</span>
+</button>
+<button class="flex items-center gap-2 px-space-md py-2 rounded-lg text-on-surface-variant hover:bg-surface-shelf hover:text-on-surface font-label-md text-label-md transition-all min-h-[44px]" type="button">
+<span class="material-symbols-outlined text-base">apps</span>
+<span>Installed Applications</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded-full bg-surface-container-highest text-outline">28</span>
+</button>
+<button class="flex items-center gap-2 px-space-md py-2 rounded-lg text-on-surface-variant hover:bg-surface-shelf hover:text-on-surface font-label-md text-label-md transition-all min-h-[44px]" type="button">
+<span class="material-symbols-outlined text-base">hub</span>
+<span>Network Sockets &amp; Ports</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded-full bg-surface-container-highest text-outline">18</span>
+</button>
+<button class="flex items-center gap-2 px-space-md py-2 rounded-lg text-on-surface-variant hover:bg-surface-shelf hover:text-on-surface font-label-md text-label-md transition-all min-h-[44px]" type="button">
+<span class="material-symbols-outlined text-base">mobile_arrow_right</span>
+<span>System Services</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded-full bg-surface-container-highest text-outline">54</span>
+</button>
+</nav>
+<!-- Quick View Options -->
+<div class="flex items-center gap-2 px-space-sm">
+<span class="font-mono-label text-mono-label text-outline uppercase">KERNEL</span>
+<span class="font-mono-code text-mono-code text-on-surface bg-surface-shelf px-2 py-0.5 rounded">6.8.0-31-generic</span>
+</div>
+</div>
+<!-- Active Tab Container: SmartDataTable + Service Inspector Split Grid -->
+<div class="grid grid-cols-1 xl:grid-cols-4 gap-space-lg items-start">
+<!-- Main Process Table Area (3 Cols) -->
+<div class="xl:col-span-3 rounded-xl bg-surface-elevated jx-elevation-2 flex flex-col overflow-hidden">
+<!-- Interactive Toolbar -->
+<div class="p-space-md bg-surface-container-low flex flex-wrap items-center justify-between gap-space-md">
+<div class="flex items-center gap-space-sm flex-1 min-w-[240px] max-w-md">
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline-variant text-base">search</span>
+<input class="w-full bg-surface-shelf text-on-surface placeholder:text-outline-variant font-mono-code text-mono-code pl-9 pr-3 py-2 rounded-xl focus:outline-none focus:bg-surface-container-high transition-colors min-h-[44px] jx-elevation-1" id="processSearch" placeholder="Filter by PID, executable, user or arguments..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-space-sm">
+<!-- Sort Toggle Button -->
+<button class="flex items-center gap-1.5 px-space-sm py-2 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface font-label-md text-label-md jx-elevation-1 transition-all min-h-[44px]" type="button">
+<span class="material-symbols-outlined text-base text-primary">sort</span>
+<span>Sort: <strong class="text-on-surface font-mono-code">CPU% (DESC)</strong></span>
+</button>
+<!-- Auto Refresh 2s indicator -->
+<div class="flex items-center gap-1.5 px-space-sm py-2 rounded-xl bg-surface-shelf jx-elevation-1 min-h-[44px]">
+<span class="w-2 h-2 rounded-full bg-tertiary animate-ping"></span>
+<span class="font-mono-code text-mono-code text-on-surface-variant">Poll: 2s</span>
+</div>
+<!-- Danger Kill Action -->
+<button class="flex items-center gap-1.5 px-space-md py-2 rounded-xl bg-error-container text-error hover:bg-error hover:text-on-error font-label-md text-label-md jx-elevation-1 transition-all min-h-[44px] active:scale-95" title="Signal terminate selected process" type="button">
+<span class="material-symbols-outlined text-base">cancel</span>
+<span>Kill Selected</span>
+</button>
+</div>
+</div>
+<!-- Table View -->
+<div class="overflow-x-auto w-full">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-highest/40 font-mono-label text-mono-label text-outline uppercase tracking-wider">
+<th class="py-3 px-4">PID</th>
+<th class="py-3 px-4">Process &amp; Context</th>
+<th class="py-3 px-4">CPU %</th>
+<th class="py-3 px-4">Memory RSS</th>
+<th class="py-3 px-4">Threads / Pri</th>
+<th class="py-3 px-4">State</th>
+<th class="py-3 px-4 text-right">Directives</th>
+</tr>
+</thead>
+<tbody class="font-body-sm text-body-sm divide-y-0" id="processTableBody">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-high/60 transition-colors group">
+<td class="py-3.5 px-4 font-mono-code text-mono-code font-bold text-primary tabular-nums">1042</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="font-mono-code text-mono-code text-on-surface font-semibold group-hover:text-primary transition-colors">ai-bridge-agent</span>
+<span class="font-mono-label text-mono-label text-outline-variant">User: <strong class="text-tertiary font-mono-code">root</strong> • /usr/local/bin/ai-bridge-agent --daemon</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="font-mono-code text-mono-code text-on-surface font-medium tabular-nums w-12">18.2%</span>
+<div class="w-16 bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-accent-indigo h-full" style="width: 48%"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="font-mono-code text-mono-code text-on-surface font-medium tabular-nums w-16">1.40 GB</span>
+<div class="w-12 bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-accent-violet h-full" style="width: 32%"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4 font-mono-code text-mono-code text-on-surface-variant tabular-nums">24 / NI 0</td>
+<td class="py-3.5 px-4">
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-tertiary-container/30 text-tertiary font-bold">R (Run)</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="p-2 rounded-lg bg-surface-shelf hover:bg-surface-variant text-on-surface-variant hover:text-on-surface jx-elevation-1 transition-all" title="Inspect Trace" type="button">
+<span class="material-symbols-outlined text-base">troubleshoot</span>
+</button>
+<button class="p-2 rounded-lg bg-surface-shelf hover:bg-surface-variant text-on-surface-variant hover:text-on-surface jx-elevation-1 transition-all" title="Inspect Logs" type="button">
+<span class="material-symbols-outlined text-base">article</span>
+</button>
+<button class="p-2 rounded-lg bg-error-container/20 hover:bg-error-container text-error jx-elevation-1 transition-all" title="Kill SIGTERM" type="button">
+<span class="material-symbols-outlined text-base">close</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-high/60 transition-colors group">
+<td class="py-3.5 px-4 font-mono-code text-mono-code font-bold text-primary tabular-nums">8912</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="font-mono-code text-mono-code text-on-surface font-semibold group-hover:text-primary transition-colors">python3 agent_worker.py</span>
+<span class="font-mono-label text-mono-label text-outline-variant">User: <strong class="text-secondary font-mono-code">secops</strong> • --worker-threads=8 --pipeline=nlp-vision</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="font-mono-code text-mono-code text-on-surface font-medium tabular-nums w-12">8.4%</span>
+<div class="w-16 bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-accent-indigo h-full" style="width: 24%"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="font-mono-code text-mono-code text-on-surface font-medium tabular-nums w-16">640 MB</span>
+<div class="w-12 bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-accent-violet h-full" style="width: 18%"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4 font-mono-code text-mono-code text-on-surface-variant tabular-nums">12 / NI 0</td>
+<td class="py-3.5 px-4">
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-tertiary-container/30 text-tertiary font-bold">R (Run)</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="p-2 rounded-lg bg-surface-shelf hover:bg-surface-variant text-on-surface-variant hover:text-on-surface jx-elevation-1 transition-all" title="Inspect Trace" type="button">
+<span class="material-symbols-outlined text-base">troubleshoot</span>
+</button>
+<button class="p-2 rounded-lg bg-surface-shelf hover:bg-surface-variant text-on-surface-variant hover:text-on-surface jx-elevation-1 transition-all" title="Inspect Logs" type="button">
+<span class="material-symbols-outlined text-base">article</span>
+</button>
+<button class="p-2 rounded-lg bg-error-container/20 hover:bg-error-container text-error jx-elevation-1 transition-all" title="Kill SIGTERM" type="button">
+<span class="material-symbols-outlined text-base">close</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-high/60 transition-colors group">
+<td class="py-3.5 px-4 font-mono-code text-mono-code font-bold text-primary tabular-nums">14201</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="font-mono-code text-mono-code text-on-surface font-semibold group-hover:text-primary transition-colors">docker-containerd</span>
+<span class="font-mono-label text-mono-label text-outline-variant">User: <strong class="text-tertiary font-mono-code">root</strong> • unix:///run/containerd/containerd.sock</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="font-mono-code text-mono-code text-on-surface font-medium tabular-nums w-12">4.1%</span>
+<div class="w-16 bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-accent-indigo h-full" style="width: 12%"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="font-mono-code text-mono-code text-on-surface font-medium tabular-nums w-16">412 MB</span>
+<div class="w-12 bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-accent-violet h-full" style="width: 12%"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4 font-mono-code text-mono-code text-on-surface-variant tabular-nums">38 / NI -2</td>
+<td class="py-3.5 px-4">
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-bold">S (Sleep)</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="p-2 rounded-lg bg-surface-shelf hover:bg-surface-variant text-on-surface-variant hover:text-on-surface jx-elevation-1 transition-all" title="Inspect Trace" type="button">
+<span class="material-symbols-outlined text-base">troubleshoot</span>
+</button>
+<button class="p-2 rounded-lg bg-surface-shelf hover:bg-surface-variant text-on-surface-variant hover:text-on-surface jx-elevation-1 transition-all" title="Inspect Logs" type="button">
+<span class="material-symbols-outlined text-base">article</span>
+</button>
+<button class="p-2 rounded-lg bg-error-container/20 hover:bg-error-container text-error jx-elevation-1 transition-all" title="Kill SIGTERM" type="button">
+<span class="material-symbols-outlined text-base">close</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-surface-container-high/60 transition-colors group">
+<td class="py-3.5 px-4 font-mono-code text-mono-code font-bold text-primary tabular-nums">19458</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="font-mono-code text-mono-code text-on-surface font-semibold group-hover:text-primary transition-colors">node server.js</span>
+<span class="font-mono-label text-mono-label text-outline-variant">User: <strong class="text-primary font-mono-code">deploy</strong> • /var/www/internal-dashboard/dist/bundle.js</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="font-mono-code text-mono-code text-on-surface font-medium tabular-nums w-12">2.8%</span>
+<div class="w-16 bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-accent-indigo h-full" style="width: 8%"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="font-mono-code text-mono-code text-on-surface font-medium tabular-nums w-16">288 MB</span>
+<div class="w-12 bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-accent-violet h-full" style="width: 8%"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4 font-mono-code text-mono-code text-on-surface-variant tabular-nums">11 / NI 0</td>
+<td class="py-3.5 px-4">
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-surface-container-highest text-on-surface-variant font-bold">S (Sleep)</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="p-2 rounded-lg bg-surface-shelf hover:bg-surface-variant text-on-surface-variant hover:text-on-surface jx-elevation-1 transition-all" title="Inspect Trace" type="button">
+<span class="material-symbols-outlined text-base">troubleshoot</span>
+</button>
+<button class="p-2 rounded-lg bg-surface-shelf hover:bg-surface-variant text-on-surface-variant hover:text-on-surface jx-elevation-1 transition-all" title="Inspect Logs" type="button">
+<span class="material-symbols-outlined text-base">article</span>
+</button>
+<button class="p-2 rounded-lg bg-error-container/20 hover:bg-error-container text-error jx-elevation-1 transition-all" title="Kill SIGTERM" type="button">
+<span class="material-symbols-outlined text-base">close</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination & Realtime Status Footer -->
+<div class="p-space-sm bg-surface-container-low flex flex-wrap items-center justify-between text-on-surface-variant font-mono-label text-mono-label">
+<div class="flex items-center gap-2">
+<span>Showing <strong class="text-on-surface">4</strong> of <strong class="text-on-surface">142</strong> processes</span>
+<span class="text-outline">•</span>
+<span>Total Thread Descriptors: <strong class="text-on-surface font-mono-code">418</strong></span>
+</div>
+<div class="flex items-center gap-1">
+<button class="px-2 py-1 rounded bg-surface-shelf hover:bg-surface-container-high text-on-surface jx-elevation-1 transition-all" type="button">&lt; Prev</button>
+<span class="px-2 py-1 font-mono-code text-on-surface">Page 1 / 36</span>
+<button class="px-2 py-1 rounded bg-surface-shelf hover:bg-surface-container-high text-on-surface jx-elevation-1 transition-all" type="button">Next &gt;</button>
+</div>
+</div>
+</div>
+<!-- System Services & Node Status Drawer (1 Col) -->
+<div class="space-y-space-md">
+<!-- Service Daemon Status Card -->
+<div class="p-space-lg rounded-xl bg-surface-elevated jx-elevation-2 space-y-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-xl">settings_suggest</span>
+<span class="font-label-md text-label-md text-on-surface font-semibold">Active System Daemons</span>
+</div>
+<span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-tertiary-container/30 text-tertiary">3 / 3 HEALTHY</span>
+</div>
+<div class="space-y-2">
+<!-- Service 1 -->
+<div class="p-3 rounded-lg bg-surface-shelf jx-elevation-1 space-y-1">
+<div class="flex items-center justify-between">
+<span class="font-mono-code text-mono-code text-on-surface font-bold">ai-bridge-daemon</span>
+<span class="w-2 h-2 rounded-full bg-accent-emerald animate-pulse" title="running"></span>
+</div>
+<p class="font-mono-label text-mono-label text-tertiary">active (running) • PID 820</p>
+<div class="flex items-center justify-between font-mono-label text-mono-label text-outline pt-1">
+<span>Memory: 182 MB</span>
+<span>Restarts: 0</span>
+</div>
+</div>
+<!-- Service 2 -->
+<div class="p-3 rounded-lg bg-surface-shelf jx-elevation-1 space-y-1">
+<div class="flex items-center justify-between">
+<span class="font-mono-code text-mono-code text-on-surface font-bold">sshd.service</span>
+<span class="w-2 h-2 rounded-full bg-accent-emerald" title="running"></span>
+</div>
+<p class="font-mono-label text-mono-label text-tertiary">active (running) • Port 22</p>
+<div class="flex items-center justify-between font-mono-label text-mono-label text-outline pt-1">
+<span>Active mTLS filter</span>
+<span>4 Conns</span>
+</div>
+</div>
+<!-- Service 3 -->
+<div class="p-3 rounded-lg bg-surface-shelf jx-elevation-1 space-y-1">
+<div class="flex items-center justify-between">
+<span class="font-mono-code text-mono-code text-on-surface font-bold">vector-agent</span>
+<span class="w-2 h-2 rounded-full bg-accent-emerald" title="running"></span>
+</div>
+<p class="font-mono-label text-mono-label text-tertiary">active (running) • Log Forwarder</p>
+<div class="flex items-center justify-between font-mono-label text-mono-label text-outline pt-1">
+<span>Sink: ClickHouse</span>
+<span>6.2k msg/s</span>
+</div>
+</div>
+</div>
+<button class="w-full flex items-center justify-center gap-1.5 py-2 px-space-md rounded-xl bg-surface-shelf hover:bg-surface-container-high text-primary font-label-md text-label-md jx-elevation-1 transition-all min-h-[44px]" type="button">
+<span>Inspect All 54 Services</span>
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</button>
+</div>
+<!-- Node Security Telemetry Card -->
+<div class="p-space-lg rounded-xl bg-surface-elevated jx-elevation-2 space-y-space-sm relative overflow-hidden">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface font-semibold">Security Fingerprint</span>
+<span class="material-symbols-outlined text-primary text-base">verified_user</span>
+</div>
+<div class="space-y-2 pt-1 font-mono-label text-mono-label">
+<div class="flex justify-between items-center bg-surface-shelf p-2 rounded">
+<span class="text-outline">AGENT_CERT_EXP</span>
+<span class="text-on-surface font-mono-code">2026-12-31</span>
+</div>
+<div class="flex justify-between items-center bg-surface-shelf p-2 rounded">
+<span class="text-outline">CIPHER_SUITE</span>
+<span class="text-tertiary font-mono-code">TLS_AES_256_GCM</span>
+</div>
+<div class="flex justify-between items-center bg-surface-shelf p-2 rounded">
+<span class="text-outline">SELINUX/APPARMOR</span>
+<span class="text-on-surface font-mono-code">Enforcing</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<script>
+  // Ensure Navigation Sidebar active state highlights 'Device 360 System'
+  (function initActiveNavigation() {
+    const sidebarLinks = document.querySelectorAll('aside nav a');
+    sidebarLinks.forEach(link => {
+      if (link.getAttribute('data-path') === 'device-360-system') {
+        link.classList.remove('text-on-surface-variant', 'hover:bg-surface-container-high');
+        link.classList.add('bg-primary-container', 'text-on-primary-container', 'font-semibold', 'rounded-lg', 'shadow-sm');
+        const icon = link.querySelector('.material-symbols-outlined');
+        if (icon) {
+          icon.classList.remove('text-outline-variant');
+          icon.classList.add('text-on-primary-container');
+        }
+      }
+    });
+  })();
+
+  // Hold-To-Confirm Button for Reboot Node
+  (function initHoldToConfirm() {
+    const rebootBtn = document.getElementById('rebootBtn');
+    const progressBar = document.getElementById('rebootProgress');
+    const label = document.getElementById('rebootLabel');
+    if (!rebootBtn || !progressBar || !label) return;
+
+    let holdTimeout;
+    let startTime;
+    const duration = 1800; // ms
+
+    function startHold(e) {
+      e.preventDefault();
+      startTime = Date.now();
+      progressBar.style.transition = `width ${duration}ms linear`;
+      progressBar.style.width = '100%';
+      label.textContent = 'Hold to Reboot...';
+
+      holdTimeout = setTimeout(() => {
+        label.textContent = 'REBOOTING...';
+        progressBar.style.backgroundColor = '#68dba9';
+        if (window.navigator && window.navigator.vibrate) {
+          window.navigator.vibrate([40, 60, 40]);
+        }
+        setTimeout(() => {
+          label.textContent = 'Node Restart Issued';
+          rebootBtn.disabled = true;
+          rebootBtn.classList.add('opacity-50');
+        }, 600);
+      }, duration);
+    }
+
+    function cancelHold() {
+      clearTimeout(holdTimeout);
+      progressBar.style.transition = 'width 150ms ease-out';
+      progressBar.style.width = '0%';
+      if (label.textContent !== 'Node Restart Issued') {
+        label.textContent = 'Reboot Node';
+      }
+    }
+
+    rebootBtn.addEventListener('mousedown', startHold);
+    rebootBtn.addEventListener('mouseup', cancelHold);
+    rebootBtn.addEventListener('mouseleave', cancelHold);
+    rebootBtn.addEventListener('touchstart', startHold);
+    rebootBtn.addEventListener('touchend', cancelHold);
+  })();
+
+  // Quick live search filter on process list
+  (function initProcessSearch() {
+    const searchInput = document.getElementById('processSearch');
+    const tableBody = document.getElementById('processTableBody');
+    if (!searchInput || !tableBody) return;
+
+    searchInput.addEventListener('input', function(e) {
+      const query = e.target.value.toLowerCase().trim();
+      const rows = tableBody.querySelectorAll('tr');
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(query) ? '' : 'none';
+      });
+    });
+  })();
+</script></main></div></body></html>

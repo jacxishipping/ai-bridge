@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}.jx-elevation-1{box-shadow:0 2px 6px -1px rgba(0,0,0,0.35),0 1px 2px -1px rgba(0,0,0,0.25),inset 0 1px 0 0 rgba(255,255,255,0.06);}.jx-elevation-2{box-shadow:0 10px 25px -4px rgba(0,0,0,0.50),0 4px 10px -2px rgba(0,0,0,0.35),inset 0 1px 0 0 rgba(255,255,255,0.08);}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={"darkMode":"class","theme":{"extend":{"colors":{"on-primary":"#1d00a5","surface-elevated":"#111827","on-secondary-container":"#c9aeff","on-surface":"#dfe2f1","on-error":"#690005","on-primary-fixed-variant":"#3323cc","primary-container":"#4f46e5","secondary-fixed":"#eaddff","surface-container-low":"#171b26","on-secondary-fixed":"#25005a","surface-shelf":"#1E293B","tertiary-container":"#006e4c","surface":"#0f131d","accent-emerald":"#059669","surface-container":"#1c1f2a","primary":"#c3c0ff","outline":"#918fa1","surface-variant":"#313540","on-surface-variant":"#c7c4d8","on-error-container":"#ffdad6","error":"#ffb4ab","tertiary-fixed":"#85f8c4","background":"#0f131d","outline-variant":"#464555","surface-canvas":"#0B0F19","accent-violet":"#7c3aed","secondary":"#d2bbff","on-secondary":"#3f008e","secondary-container":"#6001d1","on-primary-container":"#dad7ff","tertiary-fixed-dim":"#68dba9","accent-ocean":"#0284c7","primary-fixed-dim":"#c3c0ff","tertiary":"#68dba9","on-background":"#dfe2f1","inverse-primary":"#4d44e3","on-tertiary-fixed":"#002114","accent-indigo":"#4f46e5","surface-container-lowest":"#0a0e18","on-primary-fixed":"#0f0069","on-tertiary-container":"#7df1bd","secondary-fixed-dim":"#d2bbff","inverse-on-surface":"#2c303b","inverse-surface":"#dfe2f1","on-tertiary":"#003825","primary-fixed":"#e2dfff","surface-tint":"#c3c0ff","surface-dim":"#0f131d","error-container":"#93000a","surface-container-high":"#262a35","accent-rose":"#e11d48","on-secondary-fixed-variant":"#5a00c6","surface-bright":"#353944","on-tertiary-fixed-variant":"#005137","surface-container-highest":"#313540"},"borderRadius":{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},"spacing":{"space-xs":"0.25rem","margin-md":"2rem","space-xl":"2rem","gutter":"1rem","margin":"1rem","space-sm":"0.5rem","gutter-md":"1.5rem","space-lg":"1.5rem","gutter-lg":"2rem","margin-lg":"3rem","space-md":"1rem"},"fontFamily":{"display-lg-mobile":["Plus Jakarta Sans"],"body-sm":["Plus Jakarta Sans"],"headline-md":["Plus Jakarta Sans"],"display-lg":["Plus Jakarta Sans"],"mono-label":["JetBrains Mono"],"mono-metric":["JetBrains Mono"],"label-sm":["Plus Jakarta Sans"],"headline-xl":["Plus Jakarta Sans"],"body-lg":["Plus Jakarta Sans"],"headline-xl-mobile":["Plus Jakarta Sans"],"headline-lg":["Plus Jakarta Sans"],"body-md":["Plus Jakarta Sans"],"label-md":["Plus Jakarta Sans"],"mono-code":["JetBrains Mono"]},"fontSize":{"display-lg-mobile":["2.25rem",{"lineHeight":"1.15","letterSpacing":"-0.025em","fontWeight":"800"}],"body-sm":["0.875rem",{"lineHeight":"1.5","letterSpacing":"0","fontWeight":"400"}],"headline-md":["1.25rem",{"lineHeight":"1.4","letterSpacing":"-0.01em","fontWeight":"600"}],"display-lg":["3.5rem",{"lineHeight":"1.1","letterSpacing":"-0.03em","fontWeight":"800"}],"mono-label":["0.6875rem",{"lineHeight":"1","letterSpacing":"0.05em","fontWeight":"500"}],"mono-metric":["1.5rem",{"lineHeight":"1.2","letterSpacing":"-0.02em","fontWeight":"600"}],"label-sm":["0.75rem",{"lineHeight":"1.2","letterSpacing":"0.02em","fontWeight":"600"}],"headline-xl":["2.5rem",{"lineHeight":"1.2","letterSpacing":"-0.02em","fontWeight":"700"}],"body-lg":["1.125rem",{"lineHeight":"1.6","letterSpacing":"-0.005em","fontWeight":"400"}],"headline-xl-mobile":["1.75rem",{"lineHeight":"1.25","letterSpacing":"-0.015em","fontWeight":"700"}],"headline-lg":["1.75rem",{"lineHeight":"1.3","letterSpacing":"-0.015em","fontWeight":"600"}],"body-md":["1rem",{"lineHeight":"1.5","letterSpacing":"0","fontWeight":"400"}],"label-md":["0.875rem",{"lineHeight":"1.2","letterSpacing":"0.01em","fontWeight":"600"}],"mono-code":["0.8125rem",{"lineHeight":"1.6","letterSpacing":"0","fontWeight":"400"}]}}}};</script></head><body class="bg-surface-canvas font-body-md text-on-surface antialiased"><aside class="fixed left-0 top-0 h-full w-72 bg-surface-container-lowest z-50 flex flex-col jx-elevation-2"><div class="h-16 px-space-lg flex items-center justify-between bg-surface-container-lowest"><div class="flex items-center gap-space-sm"><img alt="AI Bridge System Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1VZT8V8CmvGstJbPLWSCfWlH13nzI7woWDb39YGicGhN_-MNCGzCnmdniO07xCyxhyQYeos-yRqYeX22YoxNn6sT9_RH2nJjK91_qTleTnL42TdfcnagPgulB8c2kCsQVn7QyO4D_NvoVrmujtFn-b39ciKsx3F36nnPi41bhmRbL0JECKuntl50uWrPCWa_E7_d1vIpTcAyxFHdu_8cXvPeYaAY8u-9R9B3g0juCcX"/><div class="flex flex-col"><span class="font-headline-md text-headline-md tracking-tight text-on-surface">AI Bridge</span><span class="font-mono-label text-mono-label text-on-surface-variant uppercase tracking-wider">Control Plane</span></div></div><span class="font-mono-label text-mono-label px-space-xs py-0.5 rounded bg-surface-container text-tertiary">v2.1.0</span></div><div class="flex-1 overflow-y-auto px-space-md py-space-sm space-y-space-md"><div class="space-y-space-xs"><div class="px-space-sm py-1 font-mono-label text-mono-label text-outline uppercase tracking-wider">Operations Domain</div><nav class="space-y-1" data-active-classes="bg-primary-container text-on-primary-container font-semibold rounded-lg shadow-sm"><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="overview" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">grid_view</span><span class="font-label-md text-label-md">Command Overview</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="devices" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">dns</span><span class="font-label-md text-label-md">Enrolled Devices</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="device-360-system" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">memory</span><span class="font-label-md text-label-md">Device 360 System</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="task-queue-and-vision" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">checklist</span><span class="font-label-md text-label-md">Task Queue &amp; Vision</span></div><span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-container-high text-primary font-medium">12 active</span></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="live-desktop-studio" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">desktop_windows</span><span class="font-label-md text-label-md">Live Desktop Studio</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="interactive-terminal" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">terminal</span><span class="font-label-md text-label-md">Interactive Terminal</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="autonomous-workflows" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">account_tree</span><span class="font-label-md text-label-md">Autonomous Workflows</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="fleet-operations" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">bolt</span><span class="font-label-md text-label-md">Fleet Operations</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="ai-api-and-agents" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">smart_toy</span><span class="font-label-md text-label-md">AI API &amp; Agents</span></div></a></nav></div><div class="space-y-space-xs"><div class="px-space-sm py-1 font-mono-label text-mono-label text-outline uppercase tracking-wider">Governance Domain</div><nav class="space-y-1" data-active-classes="bg-primary-container text-on-primary-container font-semibold rounded-lg shadow-sm"><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="human-approvals" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">verified_user</span><span class="font-label-md text-label-md">Human Approvals</span></div><span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-error-container text-error font-medium">3 urgent</span></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="security-policies" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">lock</span><span class="font-label-md text-label-md">Security Policies</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="audit-trail" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">description</span><span class="font-label-md text-label-md">Audit Trail</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="mcp-and-oauth" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">hub</span><span class="font-label-md text-label-md">MCP &amp; OAuth</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="diagnostics-and-logs" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">monitoring</span><span class="font-label-md text-label-md">Diagnostics &amp; Logs</span></div></a></nav></div></div><div class="p-space-md bg-surface-container-low"><div class="flex items-center justify-between p-space-sm rounded-xl bg-surface-shelf jx-elevation-1"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-tertiary text-lg">verified</span><div class="flex flex-col"><span class="font-mono-label text-mono-label text-on-surface">mTLS v1.3</span><span class="font-mono-label text-mono-label text-on-surface-variant">Zero-Trust Active</span></div></div><span class="w-2 h-2 rounded-full bg-tertiary"></span></div></div></aside><div class="pl-72"><header class="fixed top-0 left-72 right-0 h-16 bg-surface-elevated/90 backdrop-blur-xl z-40 jx-elevation-1 px-space-lg flex items-center justify-between"><div class="flex items-center gap-space-lg"><div class="flex items-center gap-2 px-space-sm py-1.5 rounded-lg bg-surface-shelf jx-elevation-1"><span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-tertiary"></span></span><span class="font-mono-code text-mono-code text-on-surface">Gateway: Online</span><span class="font-mono-label text-mono-label text-tertiary">(14ms latency)</span></div><button class="flex items-center gap-space-md px-space-md py-1.5 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1 min-h-[44px]" type="button"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-base">search</span><span class="font-body-sm text-body-sm">Quick Jump</span></div><kbd class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface">⌘K</kbd></button></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-xl bg-surface-shelf jx-elevation-1 min-h-[44px]"><span class="font-mono-code text-mono-code text-on-surface-variant">Auto-poll: 15s</span><button aria-label="Toggle auto-refresh" class="w-8 h-4 rounded-full bg-primary-container relative flex items-center transition-colors" type="button"><span class="w-3 h-3 rounded-full bg-on-primary-container absolute right-0.5"></span></button></div><button class="flex items-center gap-space-xs px-space-md py-1.5 rounded-xl bg-error-container text-error hover:bg-error hover:text-on-error transition-all font-label-md text-label-md jx-elevation-1 min-h-[44px] active:scale-95" type="button"><span class="material-symbols-outlined text-base">gpp_maybe</span><span>Emergency All-Stop</span></button><button class="flex items-center justify-center w-11 h-11 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Export System Telemetry" type="button"><span class="material-symbols-outlined text-lg">file_download</span></button><button class="flex items-center justify-center w-11 h-11 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Keyboard Shortcuts" type="button"><span class="material-symbols-outlined text-lg">help</span></button><div class="flex items-center gap-space-sm pl-space-sm bg-surface-shelf rounded-xl p-1 jx-elevation-1 min-h-[44px]"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAuFWrYo9_X5_2lv5Pz14HFQL3bk32LdE5PfsEJT4GqAyOaLRFY-pXJqeB9K0uleQ-08IWjdw1EHZuc3RfzxuIPagiTL2Hty9KpyMaOfobzz5vIxe4Xaf1nHkWoB8u7A_2VdK05mgWdmdXJl457_1CKk7BbiD3YJzFLxUoaxIXwuljMzr6UCY7FJYeVSqBNYzWPMPu4R19s7rZj77q0LXMTYCQIIL3ZzpwOEWltIa8"/><div class="flex flex-col text-left"><span class="font-label-md text-label-md text-on-surface">Sarah J.</span><div class="flex items-center gap-1"><span class="font-mono-label text-mono-label text-on-surface-variant">Lead SecOps</span><span class="w-1.5 h-1.5 rounded-full bg-accent-indigo"></span></div></div><span class="material-symbols-outlined text-outline-variant text-base pr-1">expand_more</span></div></div></header><main class="relative pt-16 w-full px-8 bg-surface-canvas min-h-screen"><div class="flex flex-col w-full space-y-space-md py-space-md">
+<!-- Header Breadcrumb & Status Ribbon -->
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-space-md bg-surface-container-low p-space-md rounded-xl jx-elevation-1">
+<div class="flex flex-col space-y-1">
+<div class="flex items-center gap-space-xs font-mono-label text-mono-label text-outline uppercase tracking-wider">
+<span>Governance Domain</span>
+<span class="text-outline-variant">/</span>
+<span class="text-tertiary">Diagnostics &amp; Audit Logs</span>
+</div>
+<div class="flex items-center gap-space-md">
+<h1 class="font-headline-lg text-headline-lg text-on-surface tracking-tight">Service Diagnostics &amp; Live Event Logs</h1>
+<div class="hidden md:flex items-center gap-2 px-2.5 py-1 rounded bg-surface-shelf jx-elevation-1">
+<span class="inline-block w-2 h-2 rounded-full bg-tertiary animate-pulse"></span>
+<span class="font-mono-code text-mono-code text-tertiary">INGEST: 1,840 eps</span>
+</div>
+</div>
+</div>
+<!-- Quick Meta & Buffer Status -->
+<div class="flex flex-wrap items-center gap-space-md">
+<div class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg bg-surface-shelf">
+<span class="material-symbols-outlined text-outline text-base">memory</span>
+<div class="flex flex-col">
+<span class="font-mono-label text-mono-label text-outline-variant uppercase">Ring Buffer Allocator</span>
+<span class="font-mono-code text-mono-code text-on-surface">30.72 MB / 64.00 MB (48%)</span>
+</div>
+</div>
+<div class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg bg-surface-shelf">
+<span class="material-symbols-outlined text-outline text-base">timer</span>
+<div class="flex flex-col">
+<span class="font-mono-label text-mono-label text-outline-variant uppercase">Capture Window</span>
+<span class="font-mono-code text-mono-code text-on-surface">Live Rolling 15m</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Primary Operational Action Bar -->
+<div class="flex flex-wrap items-center justify-between gap-space-sm bg-surface-container p-space-sm rounded-xl jx-elevation-1">
+<div class="flex flex-wrap items-center gap-space-xs">
+<button class="flex items-center gap-space-xs px-space-md py-2 rounded-lg bg-primary-container text-on-primary-container font-label-md text-label-md jx-elevation-1 active:scale-95 transition-all min-h-[44px]" id="stream-toggle-btn">
+<span class="material-symbols-outlined text-base" id="stream-icon">pause</span>
+<span id="stream-text">Pause Stream</span>
+<kbd class="font-mono-label text-mono-label px-1 py-0.5 rounded bg-surface-canvas/40 text-on-primary-container">Space</kbd>
+</button>
+<button class="flex items-center gap-space-xs px-space-md py-2 rounded-lg bg-surface-shelf hover:bg-surface-bright text-on-surface font-label-md text-label-md jx-elevation-1 active:scale-95 transition-all min-h-[44px]">
+<span class="material-symbols-outlined text-base">content_copy</span>
+<span>Copy Filtered Buffer</span>
+</button>
+<button class="flex items-center gap-space-xs px-space-md py-2 rounded-lg bg-surface-shelf hover:bg-surface-bright text-on-surface font-label-md text-label-md jx-elevation-1 active:scale-95 transition-all min-h-[44px]">
+<span class="material-symbols-outlined text-base">download</span>
+<span>Download Raw Log (.gz)</span>
+</button>
+<button class="flex items-center gap-space-xs px-space-md py-2 rounded-lg bg-surface-shelf hover:bg-error-container hover:text-error text-on-surface-variant font-label-md text-label-md jx-elevation-1 active:scale-95 transition-all min-h-[44px]">
+<span class="material-symbols-outlined text-base">delete_sweep</span>
+<span>Flush Buffer</span>
+</button>
+</div>
+<!-- Live Tail Status Indicator -->
+<div class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg bg-surface-container-low">
+<span class="font-mono-label text-mono-label text-outline uppercase tracking-wider">Sync State:</span>
+<div class="flex items-center gap-1.5 font-mono-code text-mono-code text-tertiary">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+<span>Zero-Drop Locked</span>
+</div>
+</div>
+</div>
+<!-- Filter Ribbon & Stream Controls -->
+<div class="flex flex-col gap-space-sm bg-surface-elevated p-space-md rounded-xl jx-elevation-2">
+<!-- Top Filter Controls Bar -->
+<div class="flex flex-wrap items-center gap-space-md justify-between">
+<!-- Target Service Dropdown -->
+<div class="flex items-center gap-space-sm flex-1 min-w-[280px]">
+<label class="font-label-md text-label-md text-on-surface-variant whitespace-nowrap" for="daemon-select">Service Target:</label>
+<div class="relative w-full max-w-xs">
+<select class="w-full bg-surface-shelf text-on-surface font-mono-code text-mono-code px-3 py-2 rounded-lg appearance-none outline-none focus:ring-1 focus:ring-primary cursor-pointer min-h-[44px]" id="daemon-select">
+<option selected="" value="ai-bridge-core">ai-bridge-core.service</option>
+<option value="ai-bridge-mcp">ai-bridge-mcp-gateway</option>
+<option value="ai-bridge-edge">ai-bridge-edge-daemon</option>
+<option value="systemd-journald">systemd-journald</option>
+<option value="nginx-tls">nginx-tls-proxy</option>
+</select>
+<span class="material-symbols-outlined absolute right-2.5 top-3 pointer-events-none text-outline-variant text-sm">expand_more</span>
+</div>
+</div>
+<!-- Buffer Lines Selector & Auto-Scroll Lock -->
+<div class="flex items-center gap-space-md">
+<div class="flex items-center gap-space-xs bg-surface-shelf p-1 rounded-lg">
+<span class="font-mono-label text-mono-label px-2 text-outline-variant uppercase">Buffer Size:</span>
+<button class="px-2.5 py-1 rounded font-mono-label text-mono-label bg-surface-container-high text-primary font-semibold">250</button>
+<button class="px-2.5 py-1 rounded font-mono-label text-mono-label text-on-surface-variant hover:text-on-surface">500</button>
+<button class="px-2.5 py-1 rounded font-mono-label text-mono-label text-on-surface-variant hover:text-on-surface">1000</button>
+</div>
+<!-- Auto Scroll Switch -->
+<label class="flex items-center gap-space-sm cursor-pointer select-none bg-surface-shelf px-3 py-2 rounded-lg min-h-[44px]">
+<input checked="" class="sr-only peer" id="autoscroll-toggle" type="checkbox"/>
+<div class="w-8 h-4 bg-surface-container rounded-full peer peer-checked:bg-primary-container relative transition-colors">
+<span class="absolute left-0.5 top-0.5 w-3 h-3 bg-on-surface rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-on-primary-container"></span>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface flex items-center gap-1.5">
+            Auto-Scroll
+            <span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-ping"></span>
+</span>
+</label>
+</div>
+</div>
+<!-- Second Filter Controls Bar: Log Levels & Search -->
+<div class="flex flex-wrap items-center justify-between gap-space-md pt-space-xs">
+<!-- Pill Level Filters -->
+<div class="flex flex-wrap items-center gap-space-xs">
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-container text-on-primary-container font-label-sm text-label-sm min-h-[36px]">
+<span>ALL</span>
+<span class="font-mono-label text-mono-label px-1 rounded bg-black/20">1,840</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-shelf hover:bg-surface-bright text-on-surface-variant font-label-sm text-label-sm min-h-[36px]">
+<span class="w-2 h-2 rounded-full bg-outline"></span>
+<span>DEBUG</span>
+<span class="font-mono-label text-mono-label px-1 rounded bg-surface-container">842</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-shelf hover:bg-surface-bright text-on-surface-variant font-label-sm text-label-sm min-h-[36px]">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+<span>INFO</span>
+<span class="font-mono-label text-mono-label px-1 rounded bg-surface-container">948</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-shelf hover:bg-surface-bright text-on-surface-variant font-label-sm text-label-sm min-h-[36px]">
+<span class="w-2 h-2 rounded-full bg-amber-400"></span>
+<span>WARN</span>
+<span class="font-mono-label text-mono-label px-1 rounded bg-surface-container">48</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-shelf hover:bg-surface-bright text-on-surface-variant font-label-sm text-label-sm min-h-[36px]">
+<span class="w-2 h-2 rounded-full bg-accent-rose"></span>
+<span>ERROR</span>
+<span class="font-mono-label text-mono-label px-1 rounded bg-surface-container">2</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-shelf hover:bg-surface-bright text-on-surface-variant font-label-sm text-label-sm min-h-[36px]">
+<span class="w-2 h-2 rounded-full bg-error"></span>
+<span>FATAL</span>
+<span class="font-mono-label text-mono-label px-1 rounded bg-surface-container">0</span>
+</button>
+</div>
+<!-- Regex Query Search -->
+<div class="flex-1 min-w-[320px] relative">
+<span class="material-symbols-outlined absolute left-3 top-2.5 text-outline text-lg">search</span>
+<input class="w-full bg-surface-shelf text-on-surface font-mono-code text-mono-code pl-10 pr-10 py-2 rounded-lg outline-none placeholder:text-outline-variant focus:ring-1 focus:ring-primary min-h-[44px]" placeholder="Filter stream by regex, thread ID, hash, or payload attribute..." type="text"/>
+<span class="font-mono-label text-mono-label absolute right-3 top-3 text-outline-variant bg-surface-container px-1 py-0.5 rounded">.* REGEX</span>
+</div>
+</div>
+</div>
+<!-- Terminal Stream View & Detail Inspection Grid -->
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-space-md items-start">
+<!-- Real-time ANSI Monospace Log Canvas (8 cols desktop) -->
+<div class="xl:col-span-8 flex flex-col bg-surface-container-lowest rounded-xl jx-elevation-2 overflow-hidden">
+<!-- Terminal Bar -->
+<div class="flex items-center justify-between px-space-md py-2.5 bg-surface-container-low">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-accent-rose"></span>
+<span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+<span class="w-2.5 h-2.5 rounded-full bg-tertiary"></span>
+<span class="font-mono-code text-mono-code text-on-surface-variant ml-2">/var/log/ai-bridge/core.stdout.log (tail -f)</span>
+</div>
+<div class="flex items-center gap-space-md font-mono-label text-mono-label text-outline">
+<span>ENC: UTF-8</span>
+<span>PID: 84019</span>
+<span class="text-tertiary">LIVE</span>
+</div>
+</div>
+<!-- Log Terminal Body -->
+<div class="p-space-md font-mono-code text-mono-code text-on-surface space-y-1.5 overflow-x-auto max-h-[560px] overflow-y-auto" id="log-canvas">
+<!-- Entry 1: Handshake (Highlighted Row) -->
+<div class="flex items-start gap- space-x-2 py-1 px-1.5 rounded bg-surface-shelf/70 hover:bg-surface-shelf cursor-pointer transition-colors" onclick="selectLogEntry('tls')">
+<span class="text-outline shrink-0 select-none">2025-02-18T14:28:09.102Z</span>
+<span class="text-primary-fixed-dim shrink-0">[worker-01]</span>
+<span class="text-accent-ocean shrink-0">[core::mTLS]</span>
+<span class="px-1 rounded bg-primary-container text-on-primary-container text-xs shrink-0">INFO</span>
+<span class="text-on-surface flex-1">mTLS handshake completed node=srv-us-east-412 cipher=TLS_AES_256_GCM_SHA384 latency=3.2ms session_id=0xfa49c12b</span>
+</div>
+<!-- Entry 2: AST Tool validation -->
+<div class="flex items-start gap- space-x-2 py-1 px-1.5 rounded hover:bg-surface-shelf cursor-pointer transition-colors" onclick="selectLogEntry('ast')">
+<span class="text-outline shrink-0 select-none">2025-02-18T14:28:09.418Z</span>
+<span class="text-primary-fixed-dim shrink-0">[worker-04]</span>
+<span class="text-accent-violet shrink-0">[policy::ast]</span>
+<span class="px-1 rounded bg-surface-variant text-on-surface-variant text-xs shrink-0">DEBUG</span>
+<span class="text-on-surface flex-1">AST policy syntax tree match validated rule_set=v3.4.1 depth=4 eval_time=180µs policy_id=pol-sec-99</span>
+</div>
+<!-- Entry 3: Heartbeat Verification -->
+<div class="flex items-start gap- space-x-2 py-1 px-1.5 rounded hover:bg-surface-shelf cursor-pointer transition-colors" onclick="selectLogEntry('hbeat')">
+<span class="text-outline shrink-0 select-none">2025-02-18T14:28:10.001Z</span>
+<span class="text-primary-fixed-dim shrink-0">[sentinel-0]</span>
+<span class="text-tertiary shrink-0">[sentinel::hb]</span>
+<span class="px-1 rounded bg-primary-container text-on-primary-container text-xs shrink-0">INFO</span>
+<span class="text-on-surface flex-1">Heartbeat sentinel echo verification success node=edge-fleet-alpha packets=64/64 loss=0% rtt=14.1ms</span>
+</div>
+<!-- Entry 4: Slack Webhook Dispatch -->
+<div class="flex items-start gap- space-x-2 py-1 px-1.5 rounded hover:bg-surface-shelf cursor-pointer transition-colors" onclick="selectLogEntry('slack')">
+<span class="text-outline shrink-0 select-none">2025-02-18T14:28:10.512Z</span>
+<span class="text-primary-fixed-dim shrink-0">[worker-02]</span>
+<span class="text-accent-ocean shrink-0">[dispatch::webhook]</span>
+<span class="px-1 rounded bg-primary-container text-on-primary-container text-xs shrink-0">INFO</span>
+<span class="text-on-surface flex-1">Human approval request dispatched target=slack-secops-ch-urgent req_id=appr-981 status=200 OK duration=44ms</span>
+</div>
+<!-- Entry 5: Transient DNS Warning -->
+<div class="flex items-start gap- space-x-2 py-1 px-1.5 rounded hover:bg-surface-shelf cursor-pointer transition-colors" onclick="selectLogEntry('dns')">
+<span class="text-outline shrink-0 select-none">2025-02-18T14:28:11.233Z</span>
+<span class="text-primary-fixed-dim shrink-0">[net-io-03]</span>
+<span class="text-amber-400 shrink-0">[net::resolver]</span>
+<span class="px-1 rounded bg-amber-400/20 text-amber-300 text-xs shrink-0">WARN</span>
+<span class="text-amber-200 flex-1">Transient DNS resolve timeout on primary 10.0.0.2:53; fallback query nameserver 10.0.0.3 succeeded in 4.1ms</span>
+</div>
+<!-- Entry 6: MCP Session Auth Check -->
+<div class="flex items-start gap- space-x-2 py-1 px-1.5 rounded hover:bg-surface-shelf cursor-pointer transition-colors">
+<span class="text-outline shrink-0 select-none">2025-02-18T14:28:11.892Z</span>
+<span class="text-primary-fixed-dim shrink-0">[worker-01]</span>
+<span class="text-tertiary-fixed shrink-0">[mcp::session]</span>
+<span class="px-1 rounded bg-surface-variant text-on-surface-variant text-xs shrink-0">DEBUG</span>
+<span class="text-on-surface flex-1">OAuth bearer grant verified client_id=mcp-orchestrator-cli scope=[tools:invoke,telemetry:read]</span>
+</div>
+<!-- Entry 7: Autonomous Workflow Tick -->
+<div class="flex items-start gap- space-x-2 py-1 px-1.5 rounded hover:bg-surface-shelf cursor-pointer transition-colors">
+<span class="text-outline shrink-0 select-none">2025-02-18T14:28:12.100Z</span>
+<span class="text-primary-fixed-dim shrink-0">[worker-03]</span>
+<span class="text-secondary shrink-0">[agent::flow]</span>
+<span class="px-1 rounded bg-primary-container text-on-primary-container text-xs shrink-0">INFO</span>
+<span class="text-on-surface flex-1">Workflow step transition agent=agent-k8s-rollback step=3 state=WAIT_HUMAN_CONFIRM timeout=300s</span>
+</div>
+<!-- Entry 8: IPC Memory Clean -->
+<div class="flex items-start gap- space-x-2 py-1 px-1.5 rounded hover:bg-surface-shelf cursor-pointer transition-colors">
+<span class="text-outline shrink-0 select-none">2025-02-18T14:28:12.755Z</span>
+<span class="text-primary-fixed-dim shrink-0">[daemon-gc]</span>
+<span class="text-outline-variant shrink-0">[memory::ring]</span>
+<span class="px-1 rounded bg-surface-variant text-on-surface-variant text-xs shrink-0">DEBUG</span>
+<span class="text-on-surface flex-1">Ring chunk recycled index=108 size=2.048MB write_ptr=0x7ffe420a alloc_latency=40ns</span>
+</div>
+<!-- Entry 9: Minor Tool Warning -->
+<div class="flex items-start gap- space-x-2 py-1 px-1.5 rounded hover:bg-surface-shelf cursor-pointer transition-colors">
+<span class="text-outline shrink-0 select-none">2025-02-18T14:28:13.011Z</span>
+<span class="text-primary-fixed-dim shrink-0">[worker-04]</span>
+<span class="text-amber-400 shrink-0">[tool::eval]</span>
+<span class="px-1 rounded bg-amber-400/20 text-amber-300 text-xs shrink-0">WARN</span>
+<span class="text-amber-200 flex-1">Tool execution payload deprecation warning: schema 'v1.alpha' requested, auto-upgraded to 'v1.beta2'</span>
+</div>
+<!-- Entry 10: Critical SecOps Alert -->
+<div class="flex items-start gap- space-x-2 py-1 px-1.5 rounded hover:bg-surface-shelf cursor-pointer transition-colors">
+<span class="text-outline shrink-0 select-none">2025-02-18T14:28:13.490Z</span>
+<span class="text-primary-fixed-dim shrink-0">[secops-guard]</span>
+<span class="text-accent-rose shrink-0">[acl::firewall]</span>
+<span class="px-1 rounded bg-error-container text-error text-xs shrink-0">ERROR</span>
+<span class="text-error flex-1">Denied unprivileged sandbox breakout attempt from subproc_pid=9182 syscall=ptrace errno=EPERM</span>
+</div>
+</div>
+<!-- Terminal Status Footer -->
+<div class="flex items-center justify-between px-space-md py-2 bg-surface-container-low text-outline font-mono-label text-mono-label">
+<div class="flex items-center gap-4">
+<span>Row 1 of 1,840 displayed</span>
+<span>Filtered: 0 hidden</span>
+</div>
+<div class="flex items-center gap-2">
+<span>Log Pipeline: Zero Memory Leak Invariant Active</span>
+</div>
+</div>
+</div>
+<!-- Structured JSON Log Detail Inspection Drawer (4 cols desktop) -->
+<div class="xl:col-span-4 flex flex-col bg-surface-elevated rounded-xl p-space-md jx-elevation-2 space-y-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-lg">data_object</span>
+<span class="font-headline-md text-headline-md text-on-surface">Structured Payload</span>
+</div>
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-surface-shelf text-primary">mTLS Handshake</span>
+</div>
+<!-- JSON Structured Inspector -->
+<div class="bg-surface-shelf p-space-sm rounded-lg overflow-x-auto font-mono-code text-mono-code text-on-surface space-y-1">
+<div class="text-outline-variant select-none">{</div>
+<div class="pl-4"><span class="text-secondary">"timestamp"</span>: <span class="text-tertiary">"2025-02-18T14:28:09.102Z"</span>,</div>
+<div class="pl-4"><span class="text-secondary">"service"</span>: <span class="text-tertiary">"ai-bridge-core"</span>,</div>
+<div class="pl-4"><span class="text-secondary">"module"</span>: <span class="text-tertiary">"core::mTLS"</span>,</div>
+<div class="pl-4"><span class="text-secondary">"level"</span>: <span class="text-tertiary">"INFO"</span>,</div>
+<div class="pl-4"><span class="text-secondary">"thread"</span>: <span class="text-tertiary">"worker-01"</span>,</div>
+<div class="pl-4"><span class="text-secondary">"pid"</span>: <span class="text-accent-ocean">84019</span>,</div>
+<div class="pl-4"><span class="text-secondary">"attributes"</span>: {</div>
+<div class="pl-8"><span class="text-secondary">"node_id"</span>: <span class="text-tertiary">"srv-us-east-412"</span>,</div>
+<div class="pl-8"><span class="text-secondary">"ip"</span>: <span class="text-tertiary">"10.244.18.99"</span>,</div>
+<div class="pl-8"><span class="text-secondary">"tls_version"</span>: <span class="text-tertiary">"1.3"</span>,</div>
+<div class="pl-8"><span class="text-secondary">"cipher_suite"</span>: <span class="text-tertiary">"TLS_AES_256_GCM_SHA384"</span>,</div>
+<div class="pl-8"><span class="text-secondary">"session_resumed"</span>: <span class="text-amber-400">false</span>,</div>
+<div class="pl-8"><span class="text-secondary">"cert_fingerprint"</span>: <span class="text-tertiary">"sha256:d9a4...6b01"</span>,</div>
+<div class="pl-8"><span class="text-secondary">"handshake_latency_ms"</span>: <span class="text-accent-ocean">3.2</span></div>
+<div class="pl-4">},</div>
+<div class="pl-4"><span class="text-secondary">"audit_trace_id"</span>: <span class="text-tertiary">"trc-890a-11ef-93cc"</span></div>
+<div class="text-outline-variant select-none">}</div>
+</div>
+<!-- Quick Actions for Selected Log -->
+<div class="flex flex-col gap-space-xs pt-space-xs">
+<button class="w-full flex items-center justify-center gap-space-sm px-space-md py-2 rounded-lg bg-surface-shelf hover:bg-surface-bright text-on-surface font-label-md text-label-md jx-elevation-1 min-h-[44px]">
+<span class="material-symbols-outlined text-base">filter_alt</span>
+<span>Filter by Trace ID (`trc-890a`)</span>
+</button>
+<button class="w-full flex items-center justify-center gap-space-sm px-space-md py-2 rounded-lg bg-surface-shelf hover:bg-surface-bright text-on-surface font-label-md text-label-md jx-elevation-1 min-h-[44px]">
+<span class="material-symbols-outlined text-base">pin</span>
+<span>Pin Node to Audit Trail</span>
+</button>
+</div>
+<!-- Node Context Summary -->
+<div class="p-space-sm rounded-lg bg-surface-container space-y-2">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-outline">Target Node Topology</span>
+<span class="font-mono-label text-mono-label text-tertiary">HEALTHY</span>
+</div>
+<div class="flex items-center gap-space-md">
+<div class="flex flex-col">
+<span class="font-mono-label text-mono-label text-outline-variant">Location</span>
+<span class="font-body-sm text-body-sm text-on-surface">AWS us-east-1 (VPC-02)</span>
+</div>
+<div class="flex flex-col">
+<span class="font-mono-label text-mono-label text-outline-variant">mTLS Auth</span>
+<span class="font-body-sm text-body-sm text-tertiary">Zero-Trust Val</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom System Diagnostics Health Panel -->
+<div class="flex flex-col bg-surface-elevated rounded-xl p-space-md jx-elevation-2 space-y-space-md">
+<div class="flex flex-wrap items-center justify-between gap-space-sm">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-tertiary text-xl">analytics</span>
+<h2 class="font-headline-md text-headline-md text-on-surface">Subsystem Health &amp; Ingestion Metrics</h2>
+</div>
+<span class="font-mono-label text-mono-label px-2 py-1 rounded bg-surface-shelf text-on-surface-variant">Systemd Daemon Pool Status</span>
+</div>
+<!-- Health Metrics Grid (4 Bento Units) -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-space-md">
+<!-- Box 1: Core Service -->
+<div class="p-space-md rounded-xl bg-surface-shelf jx-elevation-1 space-y-2">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface">ai-bridge-core</span>
+<span class="px-2 py-0.5 rounded font-mono-label text-mono-label bg-tertiary-container text-on-tertiary-container">ACTIVE</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-mono-metric text-mono-metric text-on-surface">42d 18h</span>
+<span class="font-body-sm text-body-sm text-outline">Uptime</span>
+</div>
+<div class="flex items-center justify-between font-mono-label text-mono-label text-outline-variant pt-1">
+<span>RAM: 182 MB</span>
+<span>CPU: 1.4%</span>
+</div>
+</div>
+<!-- Box 2: MCP Gateway -->
+<div class="p-space-md rounded-xl bg-surface-shelf jx-elevation-1 space-y-2">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface">ai-bridge-mcp-gateway</span>
+<span class="px-2 py-0.5 rounded font-mono-label text-mono-label bg-tertiary-container text-on-tertiary-container">ACTIVE</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-mono-metric text-mono-metric text-on-surface">42d 18h</span>
+<span class="font-body-sm text-body-sm text-outline">Uptime</span>
+</div>
+<div class="flex items-center justify-between font-mono-label text-mono-label text-outline-variant pt-1">
+<span>RAM: 94 MB</span>
+<span>CPU: 0.8%</span>
+</div>
+</div>
+<!-- Box 3: Edge Fleet Daemon -->
+<div class="p-space-md rounded-xl bg-surface-shelf jx-elevation-1 space-y-2">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface">ai-bridge-edge-daemon</span>
+<span class="px-2 py-0.5 rounded font-mono-label text-mono-label bg-tertiary-container text-on-tertiary-container">ACTIVE</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-mono-metric text-mono-metric text-on-surface">19d 04h</span>
+<span class="font-body-sm text-body-sm text-outline">Uptime</span>
+</div>
+<div class="flex items-center justify-between font-mono-label text-mono-label text-outline-variant pt-1">
+<span>RAM: 62 MB</span>
+<span>CPU: 0.3%</span>
+</div>
+</div>
+<!-- Box 4: Zero-Drop Ring Buffer Meter -->
+<div class="p-space-md rounded-xl bg-surface-shelf jx-elevation-1 space-y-2">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface">Ring Buffer Status</span>
+<span class="font-mono-label text-mono-label text-tertiary">ZERO-DROP</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-mono-metric text-mono-metric text-tertiary">48%</span>
+<span class="font-body-sm text-body-sm text-outline">30.7 MB / 64 MB</span>
+</div>
+<!-- Progress Bar Indicator -->
+<div class="w-full bg-surface-container h-2 rounded-full overflow-hidden">
+<div class="bg-tertiary h-full rounded-full" style="width: 48%;"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<script>
+  let isStreamPaused = false;
+  const streamBtn = document.getElementById('stream-toggle-btn');
+  const streamIcon = document.getElementById('stream-icon');
+  const streamText = document.getElementById('stream-text');
+
+  function toggleStream() {
+    isStreamPaused = !isStreamPaused;
+    if (isStreamPaused) {
+      streamIcon.textContent = 'play_arrow';
+      streamText.textContent = 'Resume Stream';
+      streamBtn.classList.replace('bg-primary-container', 'bg-surface-shelf');
+    } else {
+      streamIcon.textContent = 'pause';
+      streamText.textContent = 'Pause Stream';
+      streamBtn.classList.replace('bg-surface-shelf', 'bg-primary-container');
+    }
+  }
+
+  streamBtn.addEventListener('click', toggleStream);
+
+  // Global hotkey: Space bar toggles stream
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
+      e.preventDefault();
+      toggleStream();
+    }
+  });
+
+  function selectLogEntry(type) {
+    // Micro interaction handler for terminal item selection
+  }
+</script></main></div></body></html>

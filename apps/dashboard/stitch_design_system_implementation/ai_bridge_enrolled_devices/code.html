@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}.jx-elevation-1{box-shadow:0 2px 6px -1px rgba(0,0,0,0.35),0 1px 2px -1px rgba(0,0,0,0.25),inset 0 1px 0 0 rgba(255,255,255,0.06);}.jx-elevation-2{box-shadow:0 10px 25px -4px rgba(0,0,0,0.50),0 4px 10px -2px rgba(0,0,0,0.35),inset 0 1px 0 0 rgba(255,255,255,0.08);}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={"darkMode":"class","theme":{"extend":{"colors":{"on-primary":"#1d00a5","surface-elevated":"#111827","on-secondary-container":"#c9aeff","on-surface":"#dfe2f1","on-error":"#690005","on-primary-fixed-variant":"#3323cc","primary-container":"#4f46e5","secondary-fixed":"#eaddff","surface-container-low":"#171b26","on-secondary-fixed":"#25005a","surface-shelf":"#1E293B","tertiary-container":"#006e4c","surface":"#0f131d","accent-emerald":"#059669","surface-container":"#1c1f2a","primary":"#c3c0ff","outline":"#918fa1","surface-variant":"#313540","on-surface-variant":"#c7c4d8","on-error-container":"#ffdad6","error":"#ffb4ab","tertiary-fixed":"#85f8c4","background":"#0f131d","outline-variant":"#464555","surface-canvas":"#0B0F19","accent-violet":"#7c3aed","secondary":"#d2bbff","on-secondary":"#3f008e","secondary-container":"#6001d1","on-primary-container":"#dad7ff","tertiary-fixed-dim":"#68dba9","accent-ocean":"#0284c7","primary-fixed-dim":"#c3c0ff","tertiary":"#68dba9","on-background":"#dfe2f1","inverse-primary":"#4d44e3","on-tertiary-fixed":"#002114","accent-indigo":"#4f46e5","surface-container-lowest":"#0a0e18","on-primary-fixed":"#0f0069","on-tertiary-container":"#7df1bd","secondary-fixed-dim":"#d2bbff","inverse-on-surface":"#2c303b","inverse-surface":"#dfe2f1","on-tertiary":"#003825","primary-fixed":"#e2dfff","surface-tint":"#c3c0ff","surface-dim":"#0f131d","error-container":"#93000a","surface-container-high":"#262a35","accent-rose":"#e11d48","on-secondary-fixed-variant":"#5a00c6","surface-bright":"#353944","on-tertiary-fixed-variant":"#005137","surface-container-highest":"#313540"},"borderRadius":{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},"spacing":{"space-xs":"0.25rem","margin-md":"2rem","space-xl":"2rem","gutter":"1rem","margin":"1rem","space-sm":"0.5rem","gutter-md":"1.5rem","space-lg":"1.5rem","gutter-lg":"2rem","margin-lg":"3rem","space-md":"1rem"},"fontFamily":{"display-lg-mobile":["Plus Jakarta Sans"],"body-sm":["Plus Jakarta Sans"],"headline-md":["Plus Jakarta Sans"],"display-lg":["Plus Jakarta Sans"],"mono-label":["JetBrains Mono"],"mono-metric":["JetBrains Mono"],"label-sm":["Plus Jakarta Sans"],"headline-xl":["Plus Jakarta Sans"],"body-lg":["Plus Jakarta Sans"],"headline-xl-mobile":["Plus Jakarta Sans"],"headline-lg":["Plus Jakarta Sans"],"body-md":["Plus Jakarta Sans"],"label-md":["Plus Jakarta Sans"],"mono-code":["JetBrains Mono"]},"fontSize":{"display-lg-mobile":["2.25rem",{"lineHeight":"1.15","letterSpacing":"-0.025em","fontWeight":"800"}],"body-sm":["0.875rem",{"lineHeight":"1.5","letterSpacing":"0","fontWeight":"400"}],"headline-md":["1.25rem",{"lineHeight":"1.4","letterSpacing":"-0.01em","fontWeight":"600"}],"display-lg":["3.5rem",{"lineHeight":"1.1","letterSpacing":"-0.03em","fontWeight":"800"}],"mono-label":["0.6875rem",{"lineHeight":"1","letterSpacing":"0.05em","fontWeight":"500"}],"mono-metric":["1.5rem",{"lineHeight":"1.2","letterSpacing":"-0.02em","fontWeight":"600"}],"label-sm":["0.75rem",{"lineHeight":"1.2","letterSpacing":"0.02em","fontWeight":"600"}],"headline-xl":["2.5rem",{"lineHeight":"1.2","letterSpacing":"-0.02em","fontWeight":"700"}],"body-lg":["1.125rem",{"lineHeight":"1.6","letterSpacing":"-0.005em","fontWeight":"400"}],"headline-xl-mobile":["1.75rem",{"lineHeight":"1.25","letterSpacing":"-0.015em","fontWeight":"700"}],"headline-lg":["1.75rem",{"lineHeight":"1.3","letterSpacing":"-0.015em","fontWeight":"600"}],"body-md":["1rem",{"lineHeight":"1.5","letterSpacing":"0","fontWeight":"400"}],"label-md":["0.875rem",{"lineHeight":"1.2","letterSpacing":"0.01em","fontWeight":"600"}],"mono-code":["0.8125rem",{"lineHeight":"1.6","letterSpacing":"0","fontWeight":"400"}]}}}};</script></head><body class="bg-surface-canvas font-body-md text-on-surface antialiased"><aside class="fixed left-0 top-0 h-full w-72 bg-surface-container-lowest z-50 flex flex-col jx-elevation-2"><div class="h-16 px-space-lg flex items-center justify-between bg-surface-container-lowest"><div class="flex items-center gap-space-sm"><img alt="AI Bridge System Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1VZT8V8CmvGstJbPLWSCfWlH13nzI7woWDb39YGicGhN_-MNCGzCnmdniO07xCyxhyQYeos-yRqYeX22YoxNn6sT9_RH2nJjK91_qTleTnL42TdfcnagPgulB8c2kCsQVn7QyO4D_NvoVrmujtFn-b39ciKsx3F36nnPi41bhmRbL0JECKuntl50uWrPCWa_E7_d1vIpTcAyxFHdu_8cXvPeYaAY8u-9R9B3g0juCcX"/><div class="flex flex-col"><span class="font-headline-md text-headline-md tracking-tight text-on-surface">AI Bridge</span><span class="font-mono-label text-mono-label text-on-surface-variant uppercase tracking-wider">Control Plane</span></div></div><span class="font-mono-label text-mono-label px-space-xs py-0.5 rounded bg-surface-container text-tertiary">v2.1.0</span></div><div class="flex-1 overflow-y-auto px-space-md py-space-sm space-y-space-md"><div class="space-y-space-xs"><div class="px-space-sm py-1 font-mono-label text-mono-label text-outline uppercase tracking-wider">Operations Domain</div><nav class="space-y-1" data-active-classes="bg-primary-container text-on-primary-container font-semibold rounded-lg shadow-sm"><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="overview" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">grid_view</span><span class="font-label-md text-label-md">Command Overview</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="devices" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">dns</span><span class="font-label-md text-label-md">Enrolled Devices</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="device-360-system" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">memory</span><span class="font-label-md text-label-md">Device 360 System</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="task-queue-and-vision" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">checklist</span><span class="font-label-md text-label-md">Task Queue &amp; Vision</span></div><span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-container-high text-primary font-medium">12 active</span></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="live-desktop-studio" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">desktop_windows</span><span class="font-label-md text-label-md">Live Desktop Studio</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="interactive-terminal" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">terminal</span><span class="font-label-md text-label-md">Interactive Terminal</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="autonomous-workflows" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">account_tree</span><span class="font-label-md text-label-md">Autonomous Workflows</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="fleet-operations" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">bolt</span><span class="font-label-md text-label-md">Fleet Operations</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="ai-api-and-agents" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">smart_toy</span><span class="font-label-md text-label-md">AI API &amp; Agents</span></div></a></nav></div><div class="space-y-space-xs"><div class="px-space-sm py-1 font-mono-label text-mono-label text-outline uppercase tracking-wider">Governance Domain</div><nav class="space-y-1" data-active-classes="bg-primary-container text-on-primary-container font-semibold rounded-lg shadow-sm"><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="human-approvals" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">verified_user</span><span class="font-label-md text-label-md">Human Approvals</span></div><span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-error-container text-error font-medium">3 urgent</span></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="security-policies" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">lock</span><span class="font-label-md text-label-md">Security Policies</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="audit-trail" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">description</span><span class="font-label-md text-label-md">Audit Trail</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="mcp-and-oauth" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">hub</span><span class="font-label-md text-label-md">MCP &amp; OAuth</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="diagnostics-and-logs" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">monitoring</span><span class="font-label-md text-label-md">Diagnostics &amp; Logs</span></div></a></nav></div></div><div class="p-space-md bg-surface-container-low"><div class="flex items-center justify-between p-space-sm rounded-xl bg-surface-shelf jx-elevation-1"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-tertiary text-lg">verified</span><div class="flex flex-col"><span class="font-mono-label text-mono-label text-on-surface">mTLS v1.3</span><span class="font-mono-label text-mono-label text-on-surface-variant">Zero-Trust Active</span></div></div><span class="w-2 h-2 rounded-full bg-tertiary"></span></div></div></aside><div class="pl-72"><header class="fixed top-0 left-72 right-0 h-16 bg-surface-elevated/90 backdrop-blur-xl z-40 jx-elevation-1 px-space-lg flex items-center justify-between"><div class="flex items-center gap-space-lg"><div class="flex items-center gap-2 px-space-sm py-1.5 rounded-lg bg-surface-shelf jx-elevation-1"><span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-tertiary"></span></span><span class="font-mono-code text-mono-code text-on-surface">Gateway: Online</span><span class="font-mono-label text-mono-label text-tertiary">(14ms latency)</span></div><button class="flex items-center gap-space-md px-space-md py-1.5 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1 min-h-[44px]" type="button"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-base">search</span><span class="font-body-sm text-body-sm">Quick Jump</span></div><kbd class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface">⌘K</kbd></button></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-xl bg-surface-shelf jx-elevation-1 min-h-[44px]"><span class="font-mono-code text-mono-code text-on-surface-variant">Auto-poll: 15s</span><button aria-label="Toggle auto-refresh" class="w-8 h-4 rounded-full bg-primary-container relative flex items-center transition-colors" type="button"><span class="w-3 h-3 rounded-full bg-on-primary-container absolute right-0.5"></span></button></div><button class="flex items-center gap-space-xs px-space-md py-1.5 rounded-xl bg-error-container text-error hover:bg-error hover:text-on-error transition-all font-label-md text-label-md jx-elevation-1 min-h-[44px] active:scale-95" type="button"><span class="material-symbols-outlined text-base">gpp_maybe</span><span>Emergency All-Stop</span></button><button class="flex items-center justify-center w-11 h-11 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Export System Telemetry" type="button"><span class="material-symbols-outlined text-lg">file_download</span></button><button class="flex items-center justify-center w-11 h-11 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Keyboard Shortcuts" type="button"><span class="material-symbols-outlined text-lg">help</span></button><div class="flex items-center gap-space-sm pl-space-sm bg-surface-shelf rounded-xl p-1 jx-elevation-1 min-h-[44px]"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAuFWrYo9_X5_2lv5Pz14HFQL3bk32LdE5PfsEJT4GqAyOaLRFY-pXJqeB9K0uleQ-08IWjdw1EHZuc3RfzxuIPagiTL2Hty9KpyMaOfobzz5vIxe4Xaf1nHkWoB8u7A_2VdK05mgWdmdXJl457_1CKk7BbiD3YJzFLxUoaxIXwuljMzr6UCY7FJYeVSqBNYzWPMPu4R19s7rZj77q0LXMTYCQIIL3ZzpwOEWltIa8"/><div class="flex flex-col text-left"><span class="font-label-md text-label-md text-on-surface">Sarah J.</span><div class="flex items-center gap-1"><span class="font-mono-label text-mono-label text-on-surface-variant">Lead SecOps</span><span class="w-1.5 h-1.5 rounded-full bg-accent-indigo"></span></div></div><span class="material-symbols-outlined text-outline-variant text-base pr-1">expand_more</span></div></div></header><main class="relative pt-16 w-full px-8 bg-surface-canvas min-h-screen"><div class="flex flex-col w-full">
+<!-- Dynamic Sync for Shell Active State -->
+<script>
+    (function() {
+      const navLinks = document.querySelectorAll('aside nav a[data-path="devices"]');
+      navLinks.forEach(link => {
+        link.className = "flex items-center justify-between px-space-sm py-2 rounded-lg bg-primary-container text-on-primary-container font-semibold transition-all group min-h-[44px]";
+        const icon = link.querySelector('.material-symbols-outlined');
+        if (icon) icon.className = "material-symbols-outlined text-on-primary-container";
+      });
+    })();
+  </script>
+<!-- Top Context & Header Ribbon -->
+<section class="flex flex-col w-full gap-space-lg mb-space-xl">
+<!-- Breadcrumb & Telemetry Capsule -->
+<div class="flex flex-wrap items-center justify-between gap-space-md">
+<nav aria-label="Breadcrumbs" class="flex items-center gap-space-xs font-mono-label text-mono-label tracking-wider uppercase">
+<span class="text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">Operations Domain</span>
+<span class="text-outline-variant">/</span>
+<span class="text-primary font-semibold">Enrolled Devices</span>
+<span class="ml-space-sm px-2 py-0.5 rounded-full bg-accent-indigo/15 text-primary text-label-sm font-mono-label">FLEET-MESH-V2</span>
+</nav>
+<div class="flex items-center gap-space-md">
+<div class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-surface-shelf jx-elevation-1">
+<span class="w-2 h-2 rounded-full bg-accent-emerald animate-pulse"></span>
+<span class="font-mono-code text-mono-code text-on-surface">Mutual TLS 1.3: Enforced</span>
+<span class="text-outline-variant">|</span>
+<span class="font-mono-label text-mono-label text-on-surface-variant">CA: vault.internal.ai</span>
+</div>
+</div>
+</div>
+<!-- Title and Primary CTA Banner -->
+<div class="flex flex-col lg:flex-row lg:items-end justify-between gap-space-lg">
+<div class="flex flex-col gap-1 max-w-2xl">
+<h1 class="font-headline-xl text-headline-xl text-on-surface tracking-tight">Enrolled Fleet Devices</h1>
+<p class="font-body-md text-body-md text-on-surface-variant">
+          1,428 connected agents across distributed infrastructure with cryptographic mTLS attestation and active zero-trust runtime sandboxes.
+        </p>
+</div>
+<div class="flex items-center gap-space-sm flex-wrap">
+<button class="group flex items-center gap-space-sm px-5 py-2.5 rounded-xl bg-primary-container text-on-primary-container font-label-md text-label-md jx-elevation-1 transition-all active:scale-95 hover:brightness-110 min-h-[44px]" id="enrollModalOpenBtn" type="button">
+<span class="material-symbols-outlined text-lg transition-transform group-hover:rotate-90">add_circle</span>
+<span>Enroll Device</span>
+<kbd class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-black/25 text-on-primary-container/80 ml-1">⌘N</kbd>
+</button>
+<button class="flex items-center gap-space-xs px-4 py-2.5 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface transition-colors jx-elevation-1 min-h-[44px]" title="Batch Key Rotation" type="button">
+<span class="material-symbols-outlined text-base text-tertiary">key</span>
+<span class="font-label-md text-label-md">Rotate Tokens</span>
+</button>
+</div>
+</div>
+<!-- Live Status Metric Tiles -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-space-md">
+<div class="flex flex-col p-space-md rounded-xl bg-surface-elevated jx-elevation-1">
+<div class="flex items-center justify-between text-on-surface-variant mb-1">
+<span class="font-mono-label text-mono-label uppercase tracking-wider">Total Enrolled</span>
+<span class="material-symbols-outlined text-base">dns</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-mono-metric text-mono-metric text-on-surface tabular-nums">1,452</span>
+<span class="font-mono-label text-mono-label text-accent-emerald">+12 this week</span>
+</div>
+</div>
+<div class="flex flex-col p-space-md rounded-xl bg-surface-elevated jx-elevation-1">
+<div class="flex items-center justify-between text-on-surface-variant mb-1">
+<span class="font-mono-label text-mono-label uppercase tracking-wider">Online &amp; Healthy</span>
+<span class="w-2.5 h-2.5 rounded-full bg-accent-emerald"></span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-mono-metric text-mono-metric text-accent-emerald tabular-nums">1,428</span>
+<span class="font-mono-label text-mono-label text-on-surface-variant">98.34% SLA</span>
+</div>
+</div>
+<div class="flex flex-col p-space-md rounded-xl bg-surface-elevated jx-elevation-1">
+<div class="flex items-center justify-between text-on-surface-variant mb-1">
+<span class="font-mono-label text-mono-label uppercase tracking-wider">Offline Agents</span>
+<span class="w-2.5 h-2.5 rounded-full bg-accent-rose"></span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-mono-metric text-mono-metric text-accent-rose tabular-nums">21</span>
+<span class="font-mono-label text-mono-label text-on-surface-variant">Heartbeat &gt; 15m</span>
+</div>
+</div>
+<div class="flex flex-col p-space-md rounded-xl bg-surface-elevated jx-elevation-1">
+<div class="flex items-center justify-between text-on-surface-variant mb-1">
+<span class="font-mono-label text-mono-label uppercase tracking-wider">Pending Attestation</span>
+<span class="w-2.5 h-2.5 rounded-full bg-secondary-fixed-dim"></span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-mono-metric text-mono-metric text-secondary tabular-nums">3</span>
+<span class="font-mono-label text-mono-label text-tertiary">TPM 2.0 Auth Req</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Filter & Query Control Deck -->
+<section class="flex flex-col gap-space-md mb-space-md">
+<!-- Category Tabs -->
+<div class="flex items-center justify-between gap-space-md border-b-0 pb-1 overflow-x-auto">
+<div class="flex items-center gap-2 p-1 rounded-xl bg-surface-container-low jx-elevation-1 min-w-max">
+<button class="tab-pill px-4 py-2 rounded-lg bg-surface-shelf text-on-surface font-label-md text-label-md jx-elevation-1 flex items-center gap-2 transition-all min-h-[44px]" type="button">
+<span>All Devices</span>
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded-full bg-surface-container-highest text-on-surface tabular-nums">1,452</span>
+</button>
+<button class="tab-pill px-4 py-2 rounded-lg text-on-surface-variant hover:text-on-surface font-label-md text-label-md flex items-center gap-2 transition-all min-h-[44px]" type="button">
+<span>Online</span>
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded-full bg-accent-emerald/15 text-accent-emerald tabular-nums">1,428</span>
+</button>
+<button class="tab-pill px-4 py-2 rounded-lg text-on-surface-variant hover:text-on-surface font-label-md text-label-md flex items-center gap-2 transition-all min-h-[44px]" type="button">
+<span>Offline</span>
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded-full bg-accent-rose/15 text-accent-rose tabular-nums">21</span>
+</button>
+<button class="tab-pill px-4 py-2 rounded-lg text-on-surface-variant hover:text-on-surface font-label-md text-label-md flex items-center gap-2 transition-all min-h-[44px]" type="button">
+<span>Pending Attestation</span>
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded-full bg-secondary-container/50 text-secondary tabular-nums">3</span>
+</button>
+</div>
+<div class="flex items-center gap-2">
+<button class="flex items-center gap-2 px-3 py-2 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1 min-h-[44px]" type="button">
+<span class="material-symbols-outlined text-base">tune</span>
+<span class="font-label-md text-label-md">Save View</span>
+</button>
+</div>
+</div>
+<!-- Detailed Search and Dropdown Filter Row -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-space-sm items-center">
+<div class="relative md:col-span-6 lg:col-span-5">
+<div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-on-surface-variant">
+<span class="material-symbols-outlined text-lg">search</span>
+</div>
+<input class="w-full pl-10 pr-12 py-2.5 bg-surface-shelf text-on-surface placeholder:text-outline rounded-xl font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary jx-elevation-1 min-h-[44px]" id="deviceSearchInput" placeholder="Search by Device ID, Hostname, OS version, or Architecture..." type="text"/>
+<div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+<kbd class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant">⌘F</kbd>
+</div>
+</div>
+<div class="md:col-span-3 lg:col-span-2">
+<div class="relative">
+<select class="appearance-none w-full px-3.5 py-2.5 bg-surface-shelf text-on-surface rounded-xl font-label-md text-label-md focus:outline-none focus:ring-1 focus:ring-primary jx-elevation-1 cursor-pointer min-h-[44px]">
+<option value="all">OS: All Systems</option>
+<option value="ubuntu">Ubuntu / Debian</option>
+<option value="windows">Windows Server 2022/11</option>
+<option value="macos">macOS Sonoma / Sequoia</option>
+<option value="rhel">RHEL / Rocky / Arch</option>
+</select>
+<div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-outline-variant">
+<span class="material-symbols-outlined text-base">expand_more</span>
+</div>
+</div>
+</div>
+<div class="md:col-span-3 lg:col-span-2">
+<div class="relative">
+<select class="appearance-none w-full px-3.5 py-2.5 bg-surface-shelf text-on-surface rounded-xl font-label-md text-label-md focus:outline-none focus:ring-1 focus:ring-primary jx-elevation-1 cursor-pointer min-h-[44px]">
+<option value="all">Arch: All (x86_64, aarch64)</option>
+<option value="x86_64">x86_64 (Intel / AMD)</option>
+<option value="aarch64">aarch64 (Apple Silicon / Graviton)</option>
+</select>
+<div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-outline-variant">
+<span class="material-symbols-outlined text-base">expand_more</span>
+</div>
+</div>
+</div>
+<div class="md:col-span-12 lg:col-span-3 flex items-center justify-end gap-space-xs">
+<button class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface font-label-md text-label-md transition-colors jx-elevation-1 min-h-[44px]" type="button">
+<span class="material-symbols-outlined text-base">filter_list</span>
+<span>Tags (Prod, GPU)</span>
+</button>
+<button class="p-2.5 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1 min-h-[44px] min-w-[44px] flex items-center justify-center" id="refreshTableBtn" title="Force Fleet Re-poll" type="button">
+<span class="material-symbols-outlined text-lg">refresh</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Inventory Table Container (SmartDataTable) -->
+<section class="flex flex-col w-full rounded-2xl bg-surface-elevated jx-elevation-2 mb-space-xl overflow-hidden">
+<!-- Subheader Table Controls -->
+<div class="flex items-center justify-between px-space-lg py-space-sm bg-surface-container-low">
+<div class="flex items-center gap-space-sm">
+<span class="font-mono-code text-mono-code text-on-surface-variant">Displaying <span class="text-on-surface font-semibold">1-8</span> of <span class="text-on-surface font-semibold">1,452</span> nodes</span>
+<span class="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>
+<span class="font-mono-label text-mono-label text-tertiary">Real-time Stream: Active</span>
+</div>
+<div class="flex items-center gap-2">
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm transition-colors jx-elevation-1 min-h-[36px]" type="button">
+<span class="material-symbols-outlined text-sm">view_column</span>
+<span>Columns (7)</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm transition-colors jx-elevation-1 min-h-[36px]" type="button">
+<span class="material-symbols-outlined text-sm">download</span>
+<span>Export CSV</span>
+</button>
+</div>
+</div>
+<!-- Responsive Table Body -->
+<div class="w-full overflow-x-auto">
+<table class="w-full text-left border-collapse min-w-[1100px]">
+<thead>
+<tr class="bg-surface-container-low text-on-surface-variant font-mono-label text-mono-label uppercase tracking-wider">
+<th class="py-3 px-space-md w-12 text-center">
+<input aria-label="Select all nodes" class="rounded bg-surface-shelf border-0 text-accent-indigo focus:ring-0 w-4 h-4 cursor-pointer" type="checkbox"/>
+</th>
+<th class="py-3 px-space-md">Status</th>
+<th class="py-3 px-space-md">Device Identity &amp; UUID</th>
+<th class="py-3 px-space-md">Operating System</th>
+<th class="py-3 px-space-md">Cadence / Latency</th>
+<th class="py-3 px-space-md">Workspace Path</th>
+<th class="py-3 px-space-md">Assigned Models &amp; Actors</th>
+<th class="py-3 px-space-md sticky right-0 bg-surface-container-low text-right pr-space-lg">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-white/[0.04] text-body-sm text-body-sm">
+<!-- Node Row 1: High Perf Linux Worker -->
+<tr class="hover:bg-surface-container/60 transition-colors group">
+<td class="py-4 px-space-md text-center">
+<input aria-label="Select srv-us-east-412" class="rounded bg-surface-shelf border-0 text-accent-indigo focus:ring-0 w-4 h-4 cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="relative flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-emerald opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-emerald"></span>
+</span>
+<span class="px-2 py-0.5 rounded-full bg-accent-emerald/10 text-accent-emerald font-mono-label text-mono-label font-medium whitespace-nowrap">Online (mTLS)</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-label-md text-label-md text-on-surface font-semibold group-hover:text-primary transition-colors">srv-us-east-412</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-shelf text-on-surface-variant uppercase">x86_64</span>
+</div>
+<span class="font-mono-code text-mono-code text-outline-variant tabular-nums">f47ac10b-58cc-4372-a567-0e02b2c3d479</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-lg">terminal</span>
+<div class="flex flex-col">
+<span class="text-on-surface font-medium">Ubuntu 24.04 LTS</span>
+<span class="font-mono-label text-mono-label text-on-surface-variant">Linux 6.8.0-31-generic</span>
+</div>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-mono-code text-mono-code text-tertiary tabular-nums">2s ago</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.2 rounded bg-surface-shelf text-on-surface-variant">10s poll</span>
+</div>
+<span class="font-mono-label text-mono-label text-accent-emerald tabular-nums">14ms ping</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<code class="font-mono-code text-mono-code px-2 py-1 rounded bg-surface-shelf text-on-surface-variant break-all select-all">/opt/ai-bridge/workspace</code>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-primary-container/20 text-primary">Claude 3.5 Sonnet</span>
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-surface-shelf text-on-surface-variant">Daemon v2</span>
+</div>
+</td>
+<td class="py-4 px-space-md sticky right-0 bg-surface-elevated group-hover:bg-surface-container/60 transition-colors text-right pr-space-lg">
+<div class="flex items-center justify-end gap-1.5">
+<a class="px-2.5 py-1.5 rounded-lg bg-surface-shelf hover:bg-primary-container hover:text-on-primary-container text-on-surface font-label-sm text-label-sm transition-all jx-elevation-1 inline-flex items-center gap-1" href="#/device-360-system">
+<span>Inspect 360</span>
+<span class="material-symbols-outlined text-xs">arrow_forward</span>
+</a>
+<button class="p-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Action Menu" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Node Row 2: Apple Silicon Workstation -->
+<tr class="hover:bg-surface-container/60 transition-colors group">
+<td class="py-4 px-space-md text-center">
+<input aria-label="Select mac-studio-cluster-02" class="rounded bg-surface-shelf border-0 text-accent-indigo focus:ring-0 w-4 h-4 cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="relative flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-emerald opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-emerald"></span>
+</span>
+<span class="px-2 py-0.5 rounded-full bg-accent-emerald/10 text-accent-emerald font-mono-label text-mono-label font-medium whitespace-nowrap">Online (mTLS)</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-label-md text-label-md text-on-surface font-semibold group-hover:text-primary transition-colors">mac-studio-cluster-02</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-accent-violet/20 text-secondary uppercase">aarch64</span>
+</div>
+<span class="font-mono-code text-mono-code text-outline-variant tabular-nums">98b82aa1-40ea-42f8-bf71-6c19fba85f02</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-lg">laptop_mac</span>
+<div class="flex flex-col">
+<span class="text-on-surface font-medium">macOS 14.6 Sonoma</span>
+<span class="font-mono-label text-mono-label text-on-surface-variant">Apple M2 Ultra (192GB)</span>
+</div>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-mono-code text-mono-code text-tertiary tabular-nums">5s ago</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.2 rounded bg-surface-shelf text-on-surface-variant">15s poll</span>
+</div>
+<span class="font-mono-label text-mono-label text-accent-emerald tabular-nums">8ms ping</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<code class="font-mono-code text-mono-code px-2 py-1 rounded bg-surface-shelf text-on-surface-variant break-all select-all">/Users/agent/runtime</code>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-accent-ocean/20 text-accent-ocean">GPT-4o Omnimodal</span>
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-surface-shelf text-on-surface-variant">Vision OCR</span>
+</div>
+</td>
+<td class="py-4 px-space-md sticky right-0 bg-surface-elevated group-hover:bg-surface-container/60 transition-colors text-right pr-space-lg">
+<div class="flex items-center justify-end gap-1.5">
+<a class="px-2.5 py-1.5 rounded-lg bg-surface-shelf hover:bg-primary-container hover:text-on-primary-container text-on-surface font-label-sm text-label-sm transition-all jx-elevation-1 inline-flex items-center gap-1" href="#/device-360-system">
+<span>Inspect 360</span>
+<span class="material-symbols-outlined text-xs">arrow_forward</span>
+</a>
+<button class="p-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Action Menu" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Node Row 3: Windows Enterprise Host -->
+<tr class="hover:bg-surface-container/60 transition-colors group">
+<td class="py-4 px-space-md text-center">
+<input aria-label="Select win-workstation-88" class="rounded bg-surface-shelf border-0 text-accent-indigo focus:ring-0 w-4 h-4 cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="relative flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-emerald opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-emerald"></span>
+</span>
+<span class="px-2 py-0.5 rounded-full bg-accent-emerald/10 text-accent-emerald font-mono-label text-mono-label font-medium whitespace-nowrap">Online (mTLS)</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-label-md text-label-md text-on-surface font-semibold group-hover:text-primary transition-colors">win-workstation-88</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-shelf text-on-surface-variant uppercase">x86_64</span>
+</div>
+<span class="font-mono-code text-mono-code text-outline-variant tabular-nums">7c9e6679-7425-40de-944b-e07fc1f90ae7</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-lg">window</span>
+<div class="flex flex-col">
+<span class="text-on-surface font-medium">Windows 11 Pro 23H2</span>
+<span class="font-mono-label text-mono-label text-on-surface-variant">Build 22631.3880</span>
+</div>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-mono-code text-mono-code text-tertiary tabular-nums">8s ago</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.2 rounded bg-surface-shelf text-on-surface-variant">15s poll</span>
+</div>
+<span class="font-mono-label text-mono-label text-accent-emerald tabular-nums">22ms ping</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<code class="font-mono-code text-mono-code px-2 py-1 rounded bg-surface-shelf text-on-surface-variant break-all select-all">C:\AgentWorkspaces\SecOps</code>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-secondary-container/30 text-secondary">Cursor Daemon</span>
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-surface-shelf text-on-surface-variant">PowerShell V7</span>
+</div>
+</td>
+<td class="py-4 px-space-md sticky right-0 bg-surface-elevated group-hover:bg-surface-container/60 transition-colors text-right pr-space-lg">
+<div class="flex items-center justify-end gap-1.5">
+<a class="px-2.5 py-1.5 rounded-lg bg-surface-shelf hover:bg-primary-container hover:text-on-primary-container text-on-surface font-label-sm text-label-sm transition-all jx-elevation-1 inline-flex items-center gap-1" href="#/device-360-system">
+<span>Inspect 360</span>
+<span class="material-symbols-outlined text-xs">arrow_forward</span>
+</a>
+<button class="p-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Action Menu" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Node Row 4: Pending TPM Attestation -->
+<tr class="hover:bg-surface-container/60 transition-colors group bg-secondary-container/5">
+<td class="py-4 px-space-md text-center">
+<input aria-label="Select edge-gateway-tx-09" class="rounded bg-surface-shelf border-0 text-accent-indigo focus:ring-0 w-4 h-4 cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-secondary-fixed-dim animate-pulse"></span>
+<span class="px-2 py-0.5 rounded-full bg-secondary-container/40 text-secondary font-mono-label text-mono-label font-medium whitespace-nowrap">Pending Key</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-label-md text-label-md text-on-surface font-semibold group-hover:text-primary transition-colors">edge-gateway-tx-09</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-shelf text-on-surface-variant uppercase">aarch64</span>
+</div>
+<span class="font-mono-code text-mono-code text-outline-variant tabular-nums">2a910bf2-9844-4cb3-bbef-68eef0413f19</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-lg">developer_board</span>
+<div class="flex flex-col">
+<span class="text-on-surface font-medium">Debian 12 Bookworm</span>
+<span class="font-mono-label text-mono-label text-on-surface-variant">Edge Gateway / TPM 2.0</span>
+</div>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-mono-code text-mono-code text-secondary tabular-nums">41s ago</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.2 rounded bg-surface-shelf text-on-surface-variant">Handshake</span>
+</div>
+<span class="font-mono-label text-mono-label text-on-surface-variant tabular-nums">68ms ping</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<code class="font-mono-code text-mono-code px-2 py-1 rounded bg-surface-shelf text-on-surface-variant break-all select-all">/var/run/bridge/chroot</code>
+</td>
+<td class="py-4 px-space-md">
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-surface-container-high text-on-surface-variant italic">Awaiting Operator Sig</span>
+</td>
+<td class="py-4 px-space-md sticky right-0 bg-surface-elevated group-hover:bg-surface-container/60 transition-colors text-right pr-space-lg">
+<div class="flex items-center justify-end gap-1.5">
+<button class="px-2.5 py-1.5 rounded-lg bg-secondary-container text-on-secondary-container hover:brightness-110 font-label-sm text-label-sm transition-all jx-elevation-1" type="button">
+                  Approve Key
+                </button>
+<button class="p-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Action Menu" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Node Row 5: Offline Server Node -->
+<tr class="hover:bg-surface-container/60 transition-colors group bg-error-container/5">
+<td class="py-4 px-space-md text-center">
+<input aria-label="Select srv-eu-central-09" class="rounded bg-surface-shelf border-0 text-accent-indigo focus:ring-0 w-4 h-4 cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-accent-rose"></span>
+<span class="px-2 py-0.5 rounded-full bg-error-container/30 text-error font-mono-label text-mono-label font-medium whitespace-nowrap">Offline</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-label-md text-label-md text-on-surface font-semibold group-hover:text-primary transition-colors">srv-eu-central-09</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-shelf text-on-surface-variant uppercase">x86_64</span>
+</div>
+<span class="font-mono-code text-mono-code text-outline-variant tabular-nums">3d14e05b-8711-4fa2-9b22-bb172fa82c40</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-error text-lg">dns</span>
+<div class="flex flex-col">
+<span class="text-on-surface font-medium">RHEL 9.4 (Plow)</span>
+<span class="font-mono-label text-mono-label text-on-surface-variant">Kernel Panic Signal</span>
+</div>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-mono-code text-mono-code text-accent-rose tabular-nums">14m ago</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.2 rounded bg-surface-shelf text-on-surface-variant">Timeout</span>
+</div>
+<span class="font-mono-label text-mono-label text-outline-variant tabular-nums">unreachable</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<code class="font-mono-code text-mono-code px-2 py-1 rounded bg-surface-shelf text-on-surface-variant break-all select-all">/data/bridge/daemon</code>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-surface-shelf text-outline-variant">Llama-3-70B-Local</span>
+</div>
+</td>
+<td class="py-4 px-space-md sticky right-0 bg-surface-elevated group-hover:bg-surface-container/60 transition-colors text-right pr-space-lg">
+<div class="flex items-center justify-end gap-1.5">
+<button class="px-2.5 py-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface font-label-sm text-label-sm transition-all jx-elevation-1" type="button">
+                  Re-ping Node
+                </button>
+<button class="p-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Action Menu" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Node Row 6: Windows Server Dedicated Sandbox -->
+<tr class="hover:bg-surface-container/60 transition-colors group">
+<td class="py-4 px-space-md text-center">
+<input aria-label="Select win-srv-fintech-03" class="rounded bg-surface-shelf border-0 text-accent-indigo focus:ring-0 w-4 h-4 cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="relative flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-emerald opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-emerald"></span>
+</span>
+<span class="px-2 py-0.5 rounded-full bg-accent-emerald/10 text-accent-emerald font-mono-label text-mono-label font-medium whitespace-nowrap">Online (mTLS)</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-label-md text-label-md text-on-surface font-semibold group-hover:text-primary transition-colors">win-srv-fintech-03</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-shelf text-on-surface-variant uppercase">x86_64</span>
+</div>
+<span class="font-mono-code text-mono-code text-outline-variant tabular-nums">b64d119c-0922-48df-98a2-198cfb120ea4</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-lg">domain</span>
+<div class="flex flex-col">
+<span class="text-on-surface font-medium">Windows Server 2022</span>
+<span class="font-mono-label text-mono-label text-on-surface-variant">Azure Confidential IaaS</span>
+</div>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-mono-code text-mono-code text-tertiary tabular-nums">4s ago</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.2 rounded bg-surface-shelf text-on-surface-variant">10s poll</span>
+</div>
+<span class="font-mono-label text-mono-label text-accent-emerald tabular-nums">18ms ping</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<code class="font-mono-code text-mono-code px-2 py-1 rounded bg-surface-shelf text-on-surface-variant break-all select-all">D:\FintechSandbox\Isolation</code>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-primary-container/20 text-primary">Claude 3.5 Sonnet</span>
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-surface-shelf text-on-surface-variant">Audit-Bot</span>
+</div>
+</td>
+<td class="py-4 px-space-md sticky right-0 bg-surface-elevated group-hover:bg-surface-container/60 transition-colors text-right pr-space-lg">
+<div class="flex items-center justify-end gap-1.5">
+<a class="px-2.5 py-1.5 rounded-lg bg-surface-shelf hover:bg-primary-container hover:text-on-primary-container text-on-surface font-label-sm text-label-sm transition-all jx-elevation-1 inline-flex items-center gap-1" href="#/device-360-system">
+<span>Inspect 360</span>
+<span class="material-symbols-outlined text-xs">arrow_forward</span>
+</a>
+<button class="p-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Action Menu" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Node Row 7: Mac Mini CI Daemon -->
+<tr class="hover:bg-surface-container/60 transition-colors group">
+<td class="py-4 px-space-md text-center">
+<input aria-label="Select mac-mini-builder-14" class="rounded bg-surface-shelf border-0 text-accent-indigo focus:ring-0 w-4 h-4 cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="relative flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-emerald opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-emerald"></span>
+</span>
+<span class="px-2 py-0.5 rounded-full bg-accent-emerald/10 text-accent-emerald font-mono-label text-mono-label font-medium whitespace-nowrap">Online (mTLS)</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-label-md text-label-md text-on-surface font-semibold group-hover:text-primary transition-colors">mac-mini-builder-14</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-accent-violet/20 text-secondary uppercase">aarch64</span>
+</div>
+<span class="font-mono-code text-mono-code text-outline-variant tabular-nums">4809f44b-48aa-419b-a459-ec77ef142078</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-lg">laptop_mac</span>
+<div class="flex flex-col">
+<span class="text-on-surface font-medium">macOS 15.0 Sequoia</span>
+<span class="font-mono-label text-mono-label text-on-surface-variant">Apple M4 Pro (36GB)</span>
+</div>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-mono-code text-mono-code text-tertiary tabular-nums">1s ago</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.2 rounded bg-surface-shelf text-on-surface-variant">5s poll</span>
+</div>
+<span class="font-mono-label text-mono-label text-accent-emerald tabular-nums">11ms ping</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<code class="font-mono-code text-mono-code px-2 py-1 rounded bg-surface-shelf text-on-surface-variant break-all select-all">/Users/ci-bot/pipeline-runtime</code>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-accent-ocean/20 text-accent-ocean">GPT-4o mini</span>
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-surface-shelf text-on-surface-variant">Build Attestor</span>
+</div>
+</td>
+<td class="py-4 px-space-md sticky right-0 bg-surface-elevated group-hover:bg-surface-container/60 transition-colors text-right pr-space-lg">
+<div class="flex items-center justify-end gap-1.5">
+<a class="px-2.5 py-1.5 rounded-lg bg-surface-shelf hover:bg-primary-container hover:text-on-primary-container text-on-surface font-label-sm text-label-sm transition-all jx-elevation-1 inline-flex items-center gap-1" href="#/device-360-system">
+<span>Inspect 360</span>
+<span class="material-symbols-outlined text-xs">arrow_forward</span>
+</a>
+<button class="p-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Action Menu" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Node Row 8: Arch Linux Workstation -->
+<tr class="hover:bg-surface-container/60 transition-colors group">
+<td class="py-4 px-space-md text-center">
+<input aria-label="Select arch-lab-ai-30" class="rounded bg-surface-shelf border-0 text-accent-indigo focus:ring-0 w-4 h-4 cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="relative flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-emerald opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-emerald"></span>
+</span>
+<span class="px-2 py-0.5 rounded-full bg-accent-emerald/10 text-accent-emerald font-mono-label text-mono-label font-medium whitespace-nowrap">Online (mTLS)</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-label-md text-label-md text-on-surface font-semibold group-hover:text-primary transition-colors">arch-lab-ai-30</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-shelf text-on-surface-variant uppercase">x86_64</span>
+</div>
+<span class="font-mono-code text-mono-code text-outline-variant tabular-nums">001fa39c-77dd-4b31-89ab-da5508be3301</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-lg">terminal</span>
+<div class="flex flex-col">
+<span class="text-on-surface font-medium">Arch Linux Rolling</span>
+<span class="font-mono-label text-mono-label text-on-surface-variant">Linux 6.10.4-arch1-1</span>
+</div>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-mono-code text-mono-code text-tertiary tabular-nums">3s ago</span>
+<span class="font-mono-label text-mono-label px-1.5 py-0.2 rounded bg-surface-shelf text-on-surface-variant">10s poll</span>
+</div>
+<span class="font-mono-label text-mono-label text-accent-emerald tabular-nums">16ms ping</span>
+</div>
+</td>
+<td class="py-4 px-space-md">
+<code class="font-mono-code text-mono-code px-2 py-1 rounded bg-surface-shelf text-on-surface-variant break-all select-all">/home/sandbox/agent-executor</code>
+</td>
+<td class="py-4 px-space-md">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-primary-container/20 text-primary">Claude 3.5 Sonnet</span>
+<span class="font-mono-label text-mono-label px-2 py-0.5 rounded bg-secondary-container/30 text-secondary">Cursor Sync</span>
+</div>
+</td>
+<td class="py-4 px-space-md sticky right-0 bg-surface-elevated group-hover:bg-surface-container/60 transition-colors text-right pr-space-lg">
+<div class="flex items-center justify-end gap-1.5">
+<a class="px-2.5 py-1.5 rounded-lg bg-surface-shelf hover:bg-primary-container hover:text-on-primary-container text-on-surface font-label-sm text-label-sm transition-all jx-elevation-1 inline-flex items-center gap-1" href="#/device-360-system">
+<span>Inspect 360</span>
+<span class="material-symbols-outlined text-xs">arrow_forward</span>
+</a>
+<button class="p-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Action Menu" type="button">
+<span class="material-symbols-outlined text-base">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Table Pagination Footer (JXPagination) -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-space-md px-space-lg py-space-md bg-surface-container-low border-t border-white/[0.04]">
+<div class="font-mono-code text-mono-code text-on-surface-variant">
+        Showing <span class="text-on-surface font-medium tabular-nums">1</span> to <span class="text-on-surface font-medium tabular-nums">8</span> of <span class="text-on-surface font-medium tabular-nums">1,452</span> entries
+      </div>
+<div class="flex items-center gap-1">
+<button class="px-3 py-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors font-label-sm text-label-sm jx-elevation-1 disabled:opacity-40 min-h-[36px]" disabled="" type="button">
+          Previous
+        </button>
+<button class="px-3 py-1.5 rounded-lg bg-primary-container text-on-primary-container font-mono-code text-mono-code jx-elevation-1 min-h-[36px]" type="button">
+          1
+        </button>
+<button class="px-3 py-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface font-mono-code text-mono-code transition-colors jx-elevation-1 min-h-[36px]" type="button">
+          2
+        </button>
+<button class="px-3 py-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface font-mono-code text-mono-code transition-colors jx-elevation-1 min-h-[36px]" type="button">
+          3
+        </button>
+<span class="px-2 text-outline-variant font-mono-label text-mono-label">...</span>
+<button class="px-3 py-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface font-mono-code text-mono-code transition-colors jx-elevation-1 min-h-[36px]" type="button">
+          182
+        </button>
+<button class="px-3 py-1.5 rounded-lg bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors font-label-sm text-label-sm jx-elevation-1 min-h-[36px]" type="button">
+          Next
+        </button>
+</div>
+</div>
+</section>
+<!-- Bottom Fast Enrollment Script Drawer / Card -->
+<section class="flex flex-col w-full rounded-2xl bg-surface-elevated jx-elevation-2 p-space-lg mb-space-xl">
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-space-md mb-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-10 h-10 rounded-xl bg-primary-container/20 text-primary flex items-center justify-center jx-elevation-1">
+<span class="material-symbols-outlined text-xl">bolt</span>
+</div>
+<div class="flex flex-col">
+<h2 class="font-headline-md text-headline-md text-on-surface">Quick Node Enrollment Script</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Deploy this one-line payload on headless targets to establish mutual TLS attestation and register to this control plane.</p>
+</div>
+</div>
+<div class="flex items-center gap-1.5 p-1 rounded-xl bg-surface-shelf jx-elevation-1">
+<button class="px-3 py-1.5 rounded-lg bg-surface-container-high text-on-surface font-label-sm text-label-sm transition-all min-h-[36px]" id="tabScriptLinux" type="button">
+          Linux / macOS (Bash)
+        </button>
+<button class="px-3 py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm transition-all min-h-[36px]" id="tabScriptWin" type="button">
+          Windows (PowerShell)
+        </button>
+</div>
+</div>
+<!-- Script Block & Quick Action -->
+<div class="relative flex items-center bg-surface-canvas rounded-xl p-space-md jx-elevation-1 group">
+<pre class="font-mono-code text-mono-code text-tertiary overflow-x-auto whitespace-pre-wrap select-all flex-1 pr-24" id="enrollScriptCode">curl -sSL https://bridge.internal.ai/install.sh | bash -s -- --token=brg_enroll_99a8b172f3e84ac91b4 --gateway=gateway.internal.ai:8443 --env=production</pre>
+<div class="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+<button class="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface font-label-sm text-label-sm transition-all jx-elevation-1 active:scale-95 min-h-[40px]" id="copyScriptBtn" type="button">
+<span class="material-symbols-outlined text-sm text-primary" id="copyIcon">content_copy</span>
+<span id="copyLabel">Copy Command</span>
+</button>
+</div>
+</div>
+<div class="flex flex-wrap items-center justify-between gap-space-sm mt-space-md pt-space-sm border-t border-white/[0.04]">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-outline text-base">verified_user</span>
+<span class="font-mono-label text-mono-label text-on-surface-variant">Signature: SHA-256 (6a9f4c330e7...)</span>
+</div>
+<div class="flex items-center gap-4">
+<a class="font-mono-label text-mono-label text-primary hover:underline flex items-center gap-1" href="#/security-policies">
+<span>Configure Attestation Policies</span>
+<span class="material-symbols-outlined text-xs">open_in_new</span>
+</a>
+</div>
+</div>
+</section>
+<!-- Interactive Modal Flyout: Manual Device Enrollment -->
+<div class="fixed inset-0 z-50 bg-black/70 backdrop-blur-md hidden items-center justify-center p-space-md" id="enrollModalOverlay">
+<div class="w-full max-w-xl rounded-2xl bg-surface-elevated jx-elevation-3 p-space-lg flex flex-col gap-space-lg animate-in fade-in zoom-in duration-200">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-10 h-10 rounded-xl bg-primary-container text-on-primary-container flex items-center justify-center">
+<span class="material-symbols-outlined text-xl">devices</span>
+</div>
+<div class="flex flex-col">
+<h3 class="font-headline-md text-headline-md text-on-surface">Enroll New Compute Node</h3>
+<span class="font-mono-label text-mono-label text-on-surface-variant">Generate Cryptographic Provisioning Token</span>
+</div>
+</div>
+<button class="p-2 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center" id="enrollModalCloseBtn" type="button">
+<span class="material-symbols-outlined text-base">close</span>
+</button>
+</div>
+<form class="flex flex-col gap-space-md" onsubmit="event.preventDefault();">
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface">Target Architecture &amp; Role</label>
+<select class="px-3.5 py-2.5 bg-surface-shelf text-on-surface rounded-xl font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary jx-elevation-1 min-h-[44px]">
+<option>Standard Worker (Linux x86_64 / arm64)</option>
+<option>Desktop Automation Host (Windows / macOS)</option>
+<option>Confidential Compute Isolated Enclave (Intel SGX / AMD SEV)</option>
+</select>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface">Sandbox Home Directory</label>
+<input class="px-3.5 py-2.5 bg-surface-shelf text-on-surface rounded-xl font-mono-code text-mono-code focus:outline-none focus:ring-1 focus:ring-primary jx-elevation-1 min-h-[44px]" type="text" value="/opt/ai-bridge/workspace"/>
+<span class="font-mono-label text-mono-label text-outline-variant">Path where remote LLM tasks will execute isolation chroot.</span>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface">Token Expiration Window</label>
+<div class="grid grid-cols-3 gap-2">
+<label class="flex items-center gap-2 p-2.5 rounded-xl bg-surface-shelf cursor-pointer">
+<input checked="" class="text-primary focus:ring-0" name="tokenExp" type="radio"/>
+<span class="font-body-sm text-body-sm text-on-surface">1 Hour</span>
+</label>
+<label class="flex items-center gap-2 p-2.5 rounded-xl bg-surface-shelf cursor-pointer">
+<input class="text-primary focus:ring-0" name="tokenExp" type="radio"/>
+<span class="font-body-sm text-body-sm text-on-surface">24 Hours</span>
+</label>
+<label class="flex items-center gap-2 p-2.5 rounded-xl bg-surface-shelf cursor-pointer">
+<input class="text-primary focus:ring-0" name="tokenExp" type="radio"/>
+<span class="font-body-sm text-body-sm text-on-surface">7 Days</span>
+</label>
+</div>
+</div>
+<div class="flex items-center justify-end gap-2 pt-space-sm border-t border-white/[0.04]">
+<button class="px-4 py-2.5 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface font-label-md text-label-md transition-colors min-h-[44px]" id="enrollModalCancelBtn" type="button">
+            Cancel
+          </button>
+<button class="px-5 py-2.5 rounded-xl bg-primary-container text-on-primary-container font-label-md text-label-md jx-elevation-1 hover:brightness-110 active:scale-95 transition-all min-h-[44px]" id="generateTokenBtn" type="button">
+            Generate Node Key
+          </button>
+</div>
+</form>
+</div>
+</div>
+<!-- Micro-interactions Script -->
+<script>
+    (function initEnrolledDevicesUI() {
+      // 1. Script Platform Switcher
+      const tabLinux = document.getElementById('tabScriptLinux');
+      const tabWin = document.getElementById('tabScriptWin');
+      const scriptCode = document.getElementById('enrollScriptCode');
+
+      const linuxCommand = 'curl -sSL https://bridge.internal.ai/install.sh | bash -s -- --token=brg_enroll_99a8b172f3e84ac91b4 --gateway=gateway.internal.ai:8443 --env=production';
+      const winCommand = 'irm https://bridge.internal.ai/install.ps1 | iex -ArgumentList "-Token brg_enroll_99a8b172f3e84ac91b4 -Gateway gateway.internal.ai:8443 -Env production"';
+
+      if (tabLinux && tabWin && scriptCode) {
+        tabLinux.addEventListener('click', () => {
+          tabLinux.className = 'px-3 py-1.5 rounded-lg bg-surface-container-high text-on-surface font-label-sm text-label-sm transition-all min-h-[36px]';
+          tabWin.className = 'px-3 py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm transition-all min-h-[36px]';
+          scriptCode.textContent = linuxCommand;
+        });
+
+        tabWin.addEventListener('click', () => {
+          tabWin.className = 'px-3 py-1.5 rounded-lg bg-surface-container-high text-on-surface font-label-sm text-label-sm transition-all min-h-[36px]';
+          tabLinux.className = 'px-3 py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm transition-all min-h-[36px]';
+          scriptCode.textContent = winCommand;
+        });
+      }
+
+      // 2. Clipboard Copy with UI State Feedback
+      const copyBtn = document.getElementById('copyScriptBtn');
+      const copyLabel = document.getElementById('copyLabel');
+      const copyIcon = document.getElementById('copyIcon');
+
+      if (copyBtn && copyLabel && copyIcon && scriptCode) {
+        copyBtn.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(scriptCode.textContent);
+            copyLabel.textContent = 'Copied!';
+            copyIcon.textContent = 'check';
+            copyIcon.classList.remove('text-primary');
+            copyIcon.classList.add('text-accent-emerald');
+
+            setTimeout(() => {
+              copyLabel.textContent = 'Copy Command';
+              copyIcon.textContent = 'content_copy';
+              copyIcon.classList.remove('text-accent-emerald');
+              copyIcon.classList.add('text-primary');
+            }, 2000);
+          } catch (e) {
+            copyLabel.textContent = 'Copied!';
+            setTimeout(() => { copyLabel.textContent = 'Copy Command'; }, 2000);
+          }
+        });
+      }
+
+      // 3. Modal Controls
+      const modal = document.getElementById('enrollModalOverlay');
+      const openBtn = document.getElementById('enrollModalOpenBtn');
+      const closeBtn = document.getElementById('enrollModalCloseBtn');
+      const cancelBtn = document.getElementById('enrollModalCancelBtn');
+      const genBtn = document.getElementById('generateTokenBtn');
+
+      function showModal() {
+        if (modal) {
+          modal.classList.remove('hidden');
+          modal.classList.add('flex');
+        }
+      }
+
+      function hideModal() {
+        if (modal) {
+          modal.classList.add('hidden');
+          modal.classList.remove('flex');
+        }
+      }
+
+      if (openBtn) openBtn.addEventListener('click', showModal);
+      if (closeBtn) closeBtn.addEventListener('click', hideModal);
+      if (cancelBtn) cancelBtn.addEventListener('click', hideModal);
+      if (genBtn) genBtn.addEventListener('click', () => {
+        genBtn.textContent = 'Token Provisioned!';
+        setTimeout(() => {
+          genBtn.textContent = 'Generate Node Key';
+          hideModal();
+        }, 800);
+      });
+
+      // Quick key shortcut (⌘N or Ctrl+N for enroll)
+      window.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+          e.preventDefault();
+          showModal();
+        }
+        if (e.key === 'Escape' && modal && !modal.classList.contains('hidden')) {
+          hideModal();
+        }
+      });
+
+      // 4. Client Search Filter Simulation
+      const searchInput = document.getElementById('deviceSearchInput');
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          const val = e.target.value.toLowerCase();
+          const rows = document.querySelectorAll('tbody tr');
+          rows.forEach(row => {
+            const text = row.innerText.toLowerCase();
+            row.style.display = text.includes(val) ? '' : 'none';
+          });
+        });
+      }
+
+      // 5. Refresh Table Icon Rotation
+      const refreshBtn = document.getElementById('refreshTableBtn');
+      if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+          const icon = refreshBtn.querySelector('.material-symbols-outlined');
+          if (icon) {
+            icon.classList.add('animate-spin');
+            setTimeout(() => icon.classList.remove('animate-spin'), 650);
+          }
+        });
+      }
+    })();
+  </script>
+</div></main></div></body></html>

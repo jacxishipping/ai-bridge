@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}.jx-elevation-1{box-shadow:0 2px 6px -1px rgba(0,0,0,0.35),0 1px 2px -1px rgba(0,0,0,0.25),inset 0 1px 0 0 rgba(255,255,255,0.06);}.jx-elevation-2{box-shadow:0 10px 25px -4px rgba(0,0,0,0.50),0 4px 10px -2px rgba(0,0,0,0.35),inset 0 1px 0 0 rgba(255,255,255,0.08);}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={"darkMode":"class","theme":{"extend":{"colors":{"on-primary":"#1d00a5","surface-elevated":"#111827","on-secondary-container":"#c9aeff","on-surface":"#dfe2f1","on-error":"#690005","on-primary-fixed-variant":"#3323cc","primary-container":"#4f46e5","secondary-fixed":"#eaddff","surface-container-low":"#171b26","on-secondary-fixed":"#25005a","surface-shelf":"#1E293B","tertiary-container":"#006e4c","surface":"#0f131d","accent-emerald":"#059669","surface-container":"#1c1f2a","primary":"#c3c0ff","outline":"#918fa1","surface-variant":"#313540","on-surface-variant":"#c7c4d8","on-error-container":"#ffdad6","error":"#ffb4ab","tertiary-fixed":"#85f8c4","background":"#0f131d","outline-variant":"#464555","surface-canvas":"#0B0F19","accent-violet":"#7c3aed","secondary":"#d2bbff","on-secondary":"#3f008e","secondary-container":"#6001d1","on-primary-container":"#dad7ff","tertiary-fixed-dim":"#68dba9","accent-ocean":"#0284c7","primary-fixed-dim":"#c3c0ff","tertiary":"#68dba9","on-background":"#dfe2f1","inverse-primary":"#4d44e3","on-tertiary-fixed":"#002114","accent-indigo":"#4f46e5","surface-container-lowest":"#0a0e18","on-primary-fixed":"#0f0069","on-tertiary-container":"#7df1bd","secondary-fixed-dim":"#d2bbff","inverse-on-surface":"#2c303b","inverse-surface":"#dfe2f1","on-tertiary":"#003825","primary-fixed":"#e2dfff","surface-tint":"#c3c0ff","surface-dim":"#0f131d","error-container":"#93000a","surface-container-high":"#262a35","accent-rose":"#e11d48","on-secondary-fixed-variant":"#5a00c6","surface-bright":"#353944","on-tertiary-fixed-variant":"#005137","surface-container-highest":"#313540"},"borderRadius":{"DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"},"spacing":{"space-xs":"0.25rem","margin-md":"2rem","space-xl":"2rem","gutter":"1rem","margin":"1rem","space-sm":"0.5rem","gutter-md":"1.5rem","space-lg":"1.5rem","gutter-lg":"2rem","margin-lg":"3rem","space-md":"1rem"},"fontFamily":{"display-lg-mobile":["Plus Jakarta Sans"],"body-sm":["Plus Jakarta Sans"],"headline-md":["Plus Jakarta Sans"],"display-lg":["Plus Jakarta Sans"],"mono-label":["JetBrains Mono"],"mono-metric":["JetBrains Mono"],"label-sm":["Plus Jakarta Sans"],"headline-xl":["Plus Jakarta Sans"],"body-lg":["Plus Jakarta Sans"],"headline-xl-mobile":["Plus Jakarta Sans"],"headline-lg":["Plus Jakarta Sans"],"body-md":["Plus Jakarta Sans"],"label-md":["Plus Jakarta Sans"],"mono-code":["JetBrains Mono"]},"fontSize":{"display-lg-mobile":["2.25rem",{"lineHeight":"1.15","letterSpacing":"-0.025em","fontWeight":"800"}],"body-sm":["0.875rem",{"lineHeight":"1.5","letterSpacing":"0","fontWeight":"400"}],"headline-md":["1.25rem",{"lineHeight":"1.4","letterSpacing":"-0.01em","fontWeight":"600"}],"display-lg":["3.5rem",{"lineHeight":"1.1","letterSpacing":"-0.03em","fontWeight":"800"}],"mono-label":["0.6875rem",{"lineHeight":"1","letterSpacing":"0.05em","fontWeight":"500"}],"mono-metric":["1.5rem",{"lineHeight":"1.2","letterSpacing":"-0.02em","fontWeight":"600"}],"label-sm":["0.75rem",{"lineHeight":"1.2","letterSpacing":"0.02em","fontWeight":"600"}],"headline-xl":["2.5rem",{"lineHeight":"1.2","letterSpacing":"-0.02em","fontWeight":"700"}],"body-lg":["1.125rem",{"lineHeight":"1.6","letterSpacing":"-0.005em","fontWeight":"400"}],"headline-xl-mobile":["1.75rem",{"lineHeight":"1.25","letterSpacing":"-0.015em","fontWeight":"700"}],"headline-lg":["1.75rem",{"lineHeight":"1.3","letterSpacing":"-0.015em","fontWeight":"600"}],"body-md":["1rem",{"lineHeight":"1.5","letterSpacing":"0","fontWeight":"400"}],"label-md":["0.875rem",{"lineHeight":"1.2","letterSpacing":"0.01em","fontWeight":"600"}],"mono-code":["0.8125rem",{"lineHeight":"1.6","letterSpacing":"0","fontWeight":"400"}]}}}};</script></head><body class="bg-surface-canvas font-body-md text-on-surface antialiased"><aside class="fixed left-0 top-0 h-full w-72 bg-surface-container-lowest z-50 flex flex-col jx-elevation-2"><div class="h-16 px-space-lg flex items-center justify-between bg-surface-container-lowest"><div class="flex items-center gap-space-sm"><img alt="AI Bridge System Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1VZT8V8CmvGstJbPLWSCfWlH13nzI7woWDb39YGicGhN_-MNCGzCnmdniO07xCyxhyQYeos-yRqYeX22YoxNn6sT9_RH2nJjK91_qTleTnL42TdfcnagPgulB8c2kCsQVn7QyO4D_NvoVrmujtFn-b39ciKsx3F36nnPi41bhmRbL0JECKuntl50uWrPCWa_E7_d1vIpTcAyxFHdu_8cXvPeYaAY8u-9R9B3g0juCcX"/><div class="flex flex-col"><span class="font-headline-md text-headline-md tracking-tight text-on-surface">AI Bridge</span><span class="font-mono-label text-mono-label text-on-surface-variant uppercase tracking-wider">Control Plane</span></div></div><span class="font-mono-label text-mono-label px-space-xs py-0.5 rounded bg-surface-container text-tertiary">v2.1.0</span></div><div class="flex-1 overflow-y-auto px-space-md py-space-sm space-y-space-md"><div class="space-y-space-xs"><div class="px-space-sm py-1 font-mono-label text-mono-label text-outline uppercase tracking-wider">Operations Domain</div><nav class="space-y-1" data-active-classes="bg-primary-container text-on-primary-container font-semibold rounded-lg shadow-sm"><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="overview" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">grid_view</span><span class="font-label-md text-label-md">Command Overview</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="devices" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">dns</span><span class="font-label-md text-label-md">Enrolled Devices</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="device-360-system" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">memory</span><span class="font-label-md text-label-md">Device 360 System</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="task-queue-and-vision" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">checklist</span><span class="font-label-md text-label-md">Task Queue &amp; Vision</span></div><span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-container-high text-primary font-medium">12 active</span></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="live-desktop-studio" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">desktop_windows</span><span class="font-label-md text-label-md">Live Desktop Studio</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="interactive-terminal" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">terminal</span><span class="font-label-md text-label-md">Interactive Terminal</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="autonomous-workflows" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">account_tree</span><span class="font-label-md text-label-md">Autonomous Workflows</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="fleet-operations" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">bolt</span><span class="font-label-md text-label-md">Fleet Operations</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="ai-api-and-agents" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">smart_toy</span><span class="font-label-md text-label-md">AI API &amp; Agents</span></div></a></nav></div><div class="space-y-space-xs"><div class="px-space-sm py-1 font-mono-label text-mono-label text-outline uppercase tracking-wider">Governance Domain</div><nav class="space-y-1" data-active-classes="bg-primary-container text-on-primary-container font-semibold rounded-lg shadow-sm"><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="human-approvals" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">verified_user</span><span class="font-label-md text-label-md">Human Approvals</span></div><span class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-error-container text-error font-medium">3 urgent</span></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="security-policies" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">lock</span><span class="font-label-md text-label-md">Security Policies</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="audit-trail" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">description</span><span class="font-label-md text-label-md">Audit Trail</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="mcp-and-oauth" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">hub</span><span class="font-label-md text-label-md">MCP &amp; OAuth</span></div></a><a class="flex items-center justify-between px-space-sm py-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-all group min-h-[44px]" data-path="diagnostics-and-logs" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-outline-variant group-hover:text-on-surface">monitoring</span><span class="font-label-md text-label-md">Diagnostics &amp; Logs</span></div></a></nav></div></div><div class="p-space-md bg-surface-container-low"><div class="flex items-center justify-between p-space-sm rounded-xl bg-surface-shelf jx-elevation-1"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-tertiary text-lg">verified</span><div class="flex flex-col"><span class="font-mono-label text-mono-label text-on-surface">mTLS v1.3</span><span class="font-mono-label text-mono-label text-on-surface-variant">Zero-Trust Active</span></div></div><span class="w-2 h-2 rounded-full bg-tertiary"></span></div></div></aside><div class="pl-72"><header class="fixed top-0 left-72 right-0 h-16 bg-surface-elevated/90 backdrop-blur-xl z-40 jx-elevation-1 px-space-lg flex items-center justify-between"><div class="flex items-center gap-space-lg"><div class="flex items-center gap-2 px-space-sm py-1.5 rounded-lg bg-surface-shelf jx-elevation-1"><span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-tertiary"></span></span><span class="font-mono-code text-mono-code text-on-surface">Gateway: Online</span><span class="font-mono-label text-mono-label text-tertiary">(14ms latency)</span></div><button class="flex items-center gap-space-md px-space-md py-1.5 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1 min-h-[44px]" type="button"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-base">search</span><span class="font-body-sm text-body-sm">Quick Jump</span></div><kbd class="font-mono-label text-mono-label px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface">⌘K</kbd></button></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-xl bg-surface-shelf jx-elevation-1 min-h-[44px]"><span class="font-mono-code text-mono-code text-on-surface-variant">Auto-poll: 15s</span><button aria-label="Toggle auto-refresh" class="w-8 h-4 rounded-full bg-primary-container relative flex items-center transition-colors" type="button"><span class="w-3 h-3 rounded-full bg-on-primary-container absolute right-0.5"></span></button></div><button class="flex items-center gap-space-xs px-space-md py-1.5 rounded-xl bg-error-container text-error hover:bg-error hover:text-on-error transition-all font-label-md text-label-md jx-elevation-1 min-h-[44px] active:scale-95" type="button"><span class="material-symbols-outlined text-base">gpp_maybe</span><span>Emergency All-Stop</span></button><button class="flex items-center justify-center w-11 h-11 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Export System Telemetry" type="button"><span class="material-symbols-outlined text-lg">file_download</span></button><button class="flex items-center justify-center w-11 h-11 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors jx-elevation-1" title="Keyboard Shortcuts" type="button"><span class="material-symbols-outlined text-lg">help</span></button><div class="flex items-center gap-space-sm pl-space-sm bg-surface-shelf rounded-xl p-1 jx-elevation-1 min-h-[44px]"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAuFWrYo9_X5_2lv5Pz14HFQL3bk32LdE5PfsEJT4GqAyOaLRFY-pXJqeB9K0uleQ-08IWjdw1EHZuc3RfzxuIPagiTL2Hty9KpyMaOfobzz5vIxe4Xaf1nHkWoB8u7A_2VdK05mgWdmdXJl457_1CKk7BbiD3YJzFLxUoaxIXwuljMzr6UCY7FJYeVSqBNYzWPMPu4R19s7rZj77q0LXMTYCQIIL3ZzpwOEWltIa8"/><div class="flex flex-col text-left"><span class="font-label-md text-label-md text-on-surface">Sarah J.</span><div class="flex items-center gap-1"><span class="font-mono-label text-mono-label text-on-surface-variant">Lead SecOps</span><span class="w-1.5 h-1.5 rounded-full bg-accent-indigo"></span></div></div><span class="material-symbols-outlined text-outline-variant text-base pr-1">expand_more</span></div></div></header><main class="relative pt-16 w-full px-8 bg-surface-canvas min-h-screen"><div class="flex flex-col w-full">
+<!-- Sub-header / Breadcrumbs & Telemetry Ribbon -->
+<section class="flex flex-col md:flex-row md:items-center justify-between gap-space-md pb-space-lg">
+<div class="flex flex-col gap-1">
+<div class="flex items-center gap-2">
+<span class="font-mono-label text-mono-label text-outline uppercase tracking-wider">Governance Domain</span>
+<span class="text-outline-variant font-mono-code text-mono-code">/</span>
+<span class="font-mono-label text-mono-label text-primary uppercase tracking-wider">Security Policies &amp; Webhooks</span>
+</div>
+<div class="flex items-center gap-space-sm flex-wrap pt-0.5">
+<h1 class="font-headline-lg text-headline-lg text-on-surface tracking-tight">Zero-Trust Security Matrix</h1>
+<span class="px-2 py-0.5 rounded-lg bg-surface-container-high font-mono-label text-mono-label text-tertiary flex items-center gap-1 jx-elevation-1">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
+          Engine v3.4.1 Active
+        </span>
+<span class="font-mono-code text-mono-code text-on-surface-variant text-xs">
+          Enforcing policy envelopes across <strong class="text-on-surface font-semibold">1,452</strong> nodes
+        </span>
+</div>
+</div>
+<!-- Quick Global Action Toolbar -->
+<div class="flex items-center gap-space-sm flex-wrap self-start md:self-auto">
+<button class="flex items-center gap-2 px-space-md py-2 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-all font-label-md text-label-md jx-elevation-1 min-h-[44px] active:scale-95" id="exportSchemaBtn" type="button">
+<span class="material-symbols-outlined text-base">file_download</span>
+<span>Export JSON Schema</span>
+</button>
+<button class="flex items-center gap-2 px-space-md py-2 rounded-xl bg-surface-shelf hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-all font-label-md text-label-md jx-elevation-1 min-h-[44px] active:scale-95" id="rollbackBtn" type="button">
+<span class="material-symbols-outlined text-base text-accent-rose">history_toggle_off</span>
+<span>Rollback to v3.4.0</span>
+</button>
+<button class="flex items-center gap-2 px-space-lg py-2 rounded-xl bg-primary-container hover:bg-indigo-600 text-on-primary-container transition-all font-label-md text-label-md jx-elevation-1 min-h-[44px] active:scale-95 shadow-md" id="publishVersionBtn" type="button">
+<span class="material-symbols-outlined text-base">cloud_done</span>
+<span>Publish New Version</span>
+</button>
+</div>
+</section>
+<!-- KPI Metrics Band -->
+<section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-md pb-space-xl">
+<!-- Metric 1 -->
+<div class="p-space-lg rounded-xl bg-surface-elevated jx-elevation-2 flex flex-col justify-between relative overflow-hidden group">
+<div class="flex items-center justify-between">
+<span class="font-mono-label text-mono-label text-outline uppercase tracking-wider">Active Rules Enforced</span>
+<span class="w-8 h-8 rounded-lg bg-surface-shelf flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-lg">policy</span>
+</span>
+</div>
+<div class="mt-space-md">
+<div class="flex items-baseline gap-2">
+<span class="font-mono-metric text-mono-metric text-on-surface text-3xl font-bold">142</span>
+<span class="font-mono-code text-mono-code text-tertiary text-xs">98.6% coverage</span>
+</div>
+<div class="flex items-center gap-2 mt-2">
+<span class="px-2 py-0.5 rounded bg-surface-shelf font-mono-label text-mono-label text-outline-variant">4 Draft Staged</span>
+<span class="font-mono-code text-mono-code text-on-surface-variant text-xs">SHA-256 Validated</span>
+</div>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-primary to-transparent opacity-40"></div>
+</div>
+<!-- Metric 2 -->
+<div class="p-space-lg rounded-xl bg-surface-elevated jx-elevation-2 flex flex-col justify-between relative overflow-hidden group">
+<div class="flex items-center justify-between">
+<span class="font-mono-label text-mono-label text-outline uppercase tracking-wider">Binary Allowlists</span>
+<span class="w-8 h-8 rounded-lg bg-surface-shelf flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-lg">verified</span>
+</span>
+</div>
+<div class="mt-space-md">
+<div class="flex items-baseline gap-2">
+<span class="font-mono-metric text-mono-metric text-on-surface text-3xl font-bold">86</span>
+<span class="font-mono-code text-mono-code text-on-surface-variant text-xs">Binaries Certified</span>
+</div>
+<div class="flex items-center gap-2 mt-2">
+<span class="px-2 py-0.5 rounded bg-surface-shelf font-mono-label text-mono-label text-tertiary">+12 Since v3.4</span>
+<span class="font-mono-code text-mono-code text-on-surface-variant text-xs">Kernel eBPF Locked</span>
+</div>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-tertiary to-transparent opacity-40"></div>
+</div>
+<!-- Metric 3 -->
+<div class="p-space-lg rounded-xl bg-surface-elevated jx-elevation-2 flex flex-col justify-between relative overflow-hidden group">
+<div class="flex items-center justify-between">
+<span class="font-mono-label text-mono-label text-outline uppercase tracking-wider">Path Guardblocks</span>
+<span class="w-8 h-8 rounded-lg bg-surface-shelf flex items-center justify-center text-accent-ocean">
+<span class="material-symbols-outlined text-lg">folder_delete</span>
+</span>
+</div>
+<div class="mt-space-md">
+<div class="flex items-baseline gap-2">
+<span class="font-mono-metric text-mono-metric text-on-surface text-3xl font-bold">29</span>
+<span class="font-mono-code text-mono-code text-on-surface-variant text-xs">Trees Airgapped</span>
+</div>
+<div class="flex items-center gap-2 mt-2">
+<span class="px-2 py-0.5 rounded bg-surface-shelf font-mono-label text-mono-label text-accent-rose">0 Breaches</span>
+<span class="font-mono-code text-mono-code text-on-surface-variant text-xs">Strict Host Isolated</span>
+</div>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-accent-ocean to-transparent opacity-40"></div>
+</div>
+<!-- Metric 4 -->
+<div class="p-space-lg rounded-xl bg-surface-elevated jx-elevation-2 flex flex-col justify-between relative overflow-hidden group">
+<div class="flex items-center justify-between">
+<span class="font-mono-label text-mono-label text-outline uppercase tracking-wider">Webhook Ingestion</span>
+<span class="w-8 h-8 rounded-lg bg-surface-shelf flex items-center justify-center text-accent-violet">
+<span class="material-symbols-outlined text-lg">electrical_services</span>
+</span>
+</div>
+<div class="mt-space-md">
+<div class="flex items-baseline gap-2">
+<span class="font-mono-metric text-mono-metric text-on-surface text-3xl font-bold">4/4</span>
+<span class="font-mono-code text-mono-code text-tertiary text-xs">99.98% delivery</span>
+</div>
+<div class="flex items-center gap-2 mt-2">
+<span class="px-2 py-0.5 rounded bg-surface-shelf font-mono-label text-mono-label text-tertiary">P99 18ms</span>
+<span class="font-mono-code text-mono-code text-on-surface-variant text-xs">HMAC-SHA256 Sig</span>
+</div>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-accent-violet to-transparent opacity-40"></div>
+</div>
+</section>
+<!-- 2-Column Core Architecture -->
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-space-lg pb-space-xl">
+<!-- LEFT COLUMN: Policy Matrix & Guardrail Editor (7 cols on Desktop) -->
+<div class="xl:col-span-7 flex flex-col gap-space-lg">
+<!-- Panel Wrapper -->
+<div class="rounded-xl bg-surface-elevated jx-elevation-2 flex flex-col overflow-hidden">
+<!-- Header & Segmented Sub-tab navigation -->
+<div class="p-space-md sm:p-space-lg bg-surface-elevated flex flex-col sm:flex-row sm:items-center justify-between gap-space-md">
+<div class="flex items-center gap-3">
+<div class="p-2 rounded-lg bg-surface-shelf text-primary">
+<span class="material-symbols-outlined text-xl">security</span>
+</div>
+<div>
+<h2 class="font-headline-md text-headline-md text-on-surface">Execution Guardrail Matrix</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Deterministic eBPF rules controlling sandbox process isolation</p>
+</div>
+</div>
+<span class="font-mono-label text-mono-label px-2.5 py-1 rounded-full bg-surface-shelf text-on-surface-variant flex items-center gap-1.5 self-start sm:self-auto">
+<span class="w-1.5 h-1.5 rounded-full bg-accent-emerald"></span>
+            Realtime Enclave Sync
+          </span>
+</div>
+<!-- Segmented Control Bar -->
+<div class="px-space-md sm:px-space-lg py-2 bg-surface-container-low flex items-center gap-1 overflow-x-auto">
+<button class="tab-btn px-space-md py-2 rounded-lg font-label-md text-label-md text-on-primary-container bg-primary-container jx-elevation-1 transition-all whitespace-nowrap min-h-[44px] flex items-center gap-2" id="tab-binaries">
+<span class="material-symbols-outlined text-sm">terminal</span>
+            Executable Allowlists
+          </button>
+<button class="tab-btn px-space-md py-2 rounded-lg font-label-md text-label-md text-on-surface-variant hover:text-on-surface hover:bg-surface-shelf transition-all whitespace-nowrap min-h-[44px] flex items-center gap-2" id="tab-paths">
+<span class="material-symbols-outlined text-sm">folder_special</span>
+            Restricted Paths
+          </button>
+<button class="tab-btn px-space-md py-2 rounded-lg font-label-md text-label-md text-on-surface-variant hover:text-on-surface hover:bg-surface-shelf transition-all whitespace-nowrap min-h-[44px] flex items-center gap-2" id="tab-tiers">
+<span class="material-symbols-outlined text-sm">tune</span>
+            Risk Tier Overrides
+          </button>
+<button class="tab-btn px-space-md py-2 rounded-lg font-label-md text-label-md text-on-surface-variant hover:text-on-surface hover:bg-surface-shelf transition-all whitespace-nowrap min-h-[44px] flex items-center gap-2" id="tab-history">
+<span class="material-symbols-outlined text-sm">history</span>
+            Version Diff
+          </button>
+</div>
+<!-- SUBTAB 1: Executable Allowlists & Blocklists Editor -->
+<div class="p-space-md sm:p-space-lg flex flex-col gap-space-md" id="panel-binaries">
+<!-- Filter & Search Toolbar -->
+<div class="flex flex-col sm:flex-row items-center justify-between gap-space-sm">
+<div class="relative w-full sm:w-80">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline-variant text-base">filter_alt</span>
+<input class="w-full pl-9 pr-3 py-2 rounded-xl bg-surface-shelf text-on-surface placeholder:text-outline-variant font-mono-code text-mono-code jx-elevation-1 focus:outline-none min-h-[44px]" id="binarySearch" placeholder="Search binary command / hash..." type="text"/>
+</div>
+<div class="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+<button class="filter-chip px-3 py-1.5 rounded-lg bg-surface-shelf text-primary font-mono-label text-mono-label jx-elevation-1 whitespace-nowrap active:scale-95">All (86)</button>
+<button class="filter-chip px-3 py-1.5 rounded-lg bg-surface-container text-on-surface-variant hover:text-on-surface font-mono-label text-mono-label whitespace-nowrap active:scale-95">Allowed (74)</button>
+<button class="filter-chip px-3 py-1.5 rounded-lg bg-surface-container text-on-surface-variant hover:text-on-surface font-mono-label text-mono-label whitespace-nowrap active:scale-95">Escalated (8)</button>
+<button class="filter-chip px-3 py-1.5 rounded-lg bg-surface-container text-on-surface-variant hover:text-on-surface font-mono-label text-mono-label whitespace-nowrap active:scale-95">Blocked (4)</button>
+</div>
+</div>
+<!-- Policy Table -->
+<div class="overflow-x-auto rounded-xl bg-surface-container-low jx-elevation-1">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-shelf text-outline font-mono-label text-mono-label uppercase">
+<th class="py-3 px-4">Binary / Descriptor</th>
+<th class="py-3 px-4">Execution Policy</th>
+<th class="py-3 px-4">Assigned Risk</th>
+<th class="py-3 px-4">Enclave Condition</th>
+<th class="py-3 px-4 text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container font-mono-code text-mono-code text-xs">
+<!-- Row 1: systemctl -->
+<tr class="hover:bg-surface-container transition-colors group">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-accent-ocean"></span>
+<div>
+<span class="font-bold text-on-surface text-sm">systemctl</span>
+<div class="font-mono-label text-mono-label text-outline">/bin/systemctl · SHA: 9f8a...4b01</div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-surface-shelf text-on-surface font-semibold inline-flex items-center gap-1">
+<span class="material-symbols-outlined text-xs text-primary">verified_user</span>
+                      Allowed (Audit Sign-off)
+                    </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-secondary-container/40 text-on-secondary-container font-medium">Tier 2: Elevated</span>
+</td>
+<td class="py-3.5 px-4 text-on-surface-variant">2FA Dual-token tokenized JWT</td>
+<td class="py-3.5 px-4 text-right">
+<button class="p-1.5 rounded-lg bg-surface-shelf hover:bg-surface-bright text-on-surface-variant hover:text-on-surface transition-all jx-elevation-1 min-h-[36px] min-w-[36px]">
+<span class="material-symbols-outlined text-sm">tune</span>
+</button>
+</td>
+</tr>
+<!-- Row 2: docker -->
+<tr class="hover:bg-surface-container transition-colors group">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<div>
+<span class="font-bold text-on-surface text-sm">docker</span>
+<div class="font-mono-label text-mono-label text-outline">/usr/bin/docker · SHA: d87a...331f</div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-surface-shelf text-tertiary font-semibold inline-flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">check_circle</span>
+                      Allowed Rootless Only
+                    </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-secondary-container/40 text-on-secondary-container font-medium">Tier 2: Elevated</span>
+</td>
+<td class="py-3.5 px-4 text-on-surface-variant">No privileged daemon socket bind</td>
+<td class="py-3.5 px-4 text-right">
+<button class="p-1.5 rounded-lg bg-surface-shelf hover:bg-surface-bright text-on-surface-variant hover:text-on-surface transition-all jx-elevation-1 min-h-[36px] min-w-[36px]">
+<span class="material-symbols-outlined text-sm">tune</span>
+</button>
+</td>
+</tr>
+<!-- Row 3: apt / dnf -->
+<tr class="hover:bg-surface-container transition-colors group">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-accent-rose"></span>
+<div>
+<span class="font-bold text-on-surface text-sm">apt / dnf</span>
+<div class="font-mono-label text-mono-label text-outline">Package Management Subsystems</div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-error-container/40 text-error font-semibold inline-flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">gpp_maybe</span>
+                      Autonomous Blocklist
+                    </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-error-container text-error font-medium">Tier 3: Critical SLA</span>
+</td>
+<td class="py-3.5 px-4 text-on-surface-variant">Escalates to Human Approver</td>
+<td class="py-3.5 px-4 text-right">
+<button class="p-1.5 rounded-lg bg-surface-shelf hover:bg-surface-bright text-on-surface-variant hover:text-on-surface transition-all jx-elevation-1 min-h-[36px] min-w-[36px]">
+<span class="material-symbols-outlined text-sm">tune</span>
+</button>
+</td>
+</tr>
+<!-- Row 4: curl / wget -->
+<tr class="hover:bg-surface-container transition-colors group">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+<div>
+<span class="font-bold text-on-surface text-sm">curl / wget</span>
+<div class="font-mono-label text-mono-label text-outline">Outbound Telemetry &amp; HTTP Sockets</div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-surface-shelf text-primary font-semibold inline-flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">vpn_lock</span>
+                      Restricted: Egress Proxy Only
+                    </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-surface-shelf text-on-surface-variant font-medium">Tier 1: Nominal</span>
+</td>
+<td class="py-3.5 px-4 text-on-surface-variant">Internal Forward Proxy TLS Tunnel</td>
+<td class="py-3.5 px-4 text-right">
+<button class="p-1.5 rounded-lg bg-surface-shelf hover:bg-surface-bright text-on-surface-variant hover:text-on-surface transition-all jx-elevation-1 min-h-[36px] min-w-[36px]">
+<span class="material-symbols-outlined text-sm">tune</span>
+</button>
+</td>
+</tr>
+<!-- Row 5: rm -rf / -->
+<tr class="hover:bg-surface-container transition-colors group">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-accent-rose animate-ping"></span>
+<div>
+<span class="font-bold text-accent-rose text-sm">rm -rf / *</span>
+<div class="font-mono-label text-mono-label text-outline">Destructive Recursive System Calls</div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-error-container text-error font-bold inline-flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">dangerous</span>
+                      Strict Deny + Killswitch
+                    </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-error-container text-error font-bold">EMERGENCY ALL-STOP</span>
+</td>
+<td class="py-3.5 px-4 text-error">Instant Node Revocation &amp; Alert</td>
+<td class="py-3.5 px-4 text-right">
+<button class="p-1.5 rounded-lg bg-error-container hover:bg-accent-rose text-error hover:text-on-error transition-all jx-elevation-1 min-h-[36px] min-w-[36px]">
+<span class="material-symbols-outlined text-sm">lock_reset</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Add Rule Quick Form Inline Drawer -->
+<div class="p-space-md rounded-xl bg-surface-shelf flex flex-col md:flex-row items-center justify-between gap-space-md jx-elevation-1">
+<div class="flex items-center gap-3 w-full md:w-auto">
+<span class="material-symbols-outlined text-primary text-xl">add_moderator</span>
+<div>
+<h4 class="font-label-md text-label-md text-on-surface">Add Certified Command to Policy</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Compiles dynamic eBPF filter rule into policy bundle</p>
+</div>
+</div>
+<div class="flex items-center gap-2 w-full md:w-auto justify-end">
+<input class="px-3 py-1.5 rounded-lg bg-surface-elevated text-on-surface font-mono-code text-mono-code text-xs placeholder:text-outline-variant jx-elevation-1 focus:outline-none min-h-[44px] w-full md:w-56" placeholder="e.g. /usr/bin/kubectl" type="text"/>
+<button class="px-space-md py-2 rounded-lg bg-primary-container text-on-primary-container font-label-md text-label-md hover:bg-indigo-600 transition-all jx-elevation-1 min-h-[44px] whitespace-nowrap active:scale-95">
+                Stage Rule
+              </button>
+</div>
+</div>
+</div>
+<!-- SUBTAB 2: Restricted Filesystem Paths (Hidden by default, switched via JS) -->
+<div class="hidden p-space-md sm:p-space-lg flex flex-col gap-space-md" id="panel-paths">
+<div class="flex items-center justify-between">
+<h3 class="font-label-md text-label-md text-on-surface">Airgapped File Trees &amp; Enclave Mountpoints</h3>
+<span class="font-mono-code text-mono-code text-xs text-on-surface-variant">29 protected directory structures</span>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-space-md">
+<!-- Path Item 1 -->
+<div class="p-space-md rounded-xl bg-surface-container-low jx-elevation-1 flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-mono-code text-mono-code font-bold text-on-surface">/etc/shadow</span>
+<span class="px-2 py-0.5 rounded bg-error-container text-error font-mono-label text-mono-label">Strict Deny</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Host credentials store. Instant eBPF interception on open() or stat().</p>
+<div class="flex items-center justify-between pt-2 border-t border-surface-container font-mono-label text-mono-label text-outline">
+<span>Scope: All Linux Nodes</span>
+<span class="text-tertiary">Enclave Locked</span>
+</div>
+</div>
+<!-- Path Item 2 -->
+<div class="p-space-md rounded-xl bg-surface-container-low jx-elevation-1 flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-mono-code text-mono-code font-bold text-on-surface">/etc/ssl/certs</span>
+<span class="px-2 py-0.5 rounded bg-surface-shelf text-primary font-mono-label text-mono-label">Read-Only Audit</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Root certificate bundles. Modification attempts trigger SEV-1 audit incident.</p>
+<div class="flex items-center justify-between pt-2 border-t border-surface-container font-mono-label text-mono-label text-outline">
+<span>Scope: Cluster Fleet</span>
+<span class="text-on-surface">Immutable</span>
+</div>
+</div>
+<!-- Path Item 3 -->
+<div class="p-space-md rounded-xl bg-surface-container-low jx-elevation-1 flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-mono-code text-mono-code font-bold text-on-surface">C:\Windows\System32</span>
+<span class="px-2 py-0.5 rounded bg-error-container text-error font-mono-label text-mono-label">Strict Deny</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">System binaries and driver store. Agent restricted from kernel alterations.</p>
+<div class="flex items-center justify-between pt-2 border-t border-surface-container font-mono-label text-mono-label text-outline">
+<span>Scope: Windows Worker Pools</span>
+<span class="text-tertiary">TPM 2.0 Guarded</span>
+</div>
+</div>
+<!-- Path Item 4 -->
+<div class="p-space-md rounded-xl bg-surface-container-low jx-elevation-1 flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-mono-code text-mono-code font-bold text-on-surface">~/.ssh/id_*</span>
+<span class="px-2 py-0.5 rounded bg-error-container text-error font-mono-label text-mono-label">Kernel Enclave Locked</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">User identities &amp; keys. Hardcoded memory sandbox barrier with active tripwire.</p>
+<div class="flex items-center justify-between pt-2 border-t border-surface-container font-mono-label text-mono-label text-outline">
+<span>Scope: Global Fleet</span>
+<span class="text-accent-rose">Tripwire Active</span>
+</div>
+</div>
+<!-- Path Item 5 -->
+<div class="p-space-md rounded-xl bg-surface-container-low jx-elevation-1 flex flex-col gap-2 sm:col-span-2">
+<div class="flex items-center justify-between">
+<span class="font-mono-code text-mono-code font-bold text-on-surface">/var/run/docker.sock</span>
+<span class="px-2 py-0.5 rounded bg-secondary-container/40 text-on-secondary-container font-mono-label text-mono-label">Proxy Intercepted</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Privileged engine socket. All requests filtered through virtualized zero-trust socket daemon.</p>
+<div class="flex items-center justify-between pt-2 border-t border-surface-container font-mono-label text-mono-label text-outline">
+<span>Socket Virtualization v2</span>
+<span class="text-tertiary">Active Filter Active</span>
+</div>
+</div>
+</div>
+</div>
+<!-- SUBTAB 3: Risk Tier Overrides & Sensitivity Sliders -->
+<div class="hidden p-space-md sm:p-space-lg flex flex-col gap-space-lg" id="panel-tiers">
+<div class="flex flex-col gap-1">
+<h3 class="font-label-md text-label-md text-on-surface">Risk Escalation Threshold Tuners</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Calibrate autonomous vs supervised AI agent autonomy gates</p>
+</div>
+<div class="space-y-space-md">
+<!-- Slider 1 -->
+<div class="p-space-md rounded-xl bg-surface-shelf jx-elevation-1 flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface">Tier 3 (High-Risk) Human Approval Timeout</span>
+<span class="font-mono-code text-mono-code text-primary font-bold text-sm" id="tier3TimeoutVal">120 Seconds</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant text-xs">If an approved human sign-off does not resolve within window, action aborts automatically.</p>
+<input class="w-full accent-primary cursor-pointer min-h-[44px]" max="600" min="30" oninput="document.getElementById('tier3TimeoutVal').innerText = this.value + ' Seconds'" step="10" type="range" value="120"/>
+</div>
+<!-- Slider 2 -->
+<div class="p-space-md rounded-xl bg-surface-shelf jx-elevation-1 flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface">Entropy &amp; Shell Injection Sensitivity</span>
+<span class="font-mono-code text-mono-code text-tertiary font-bold text-sm" id="entropyVal">0.85 (Strict)</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant text-xs">Shannon entropy threshold trigger for dynamic script parameters and terminal command strings.</p>
+<input class="w-full accent-tertiary cursor-pointer min-h-[44px]" max="0.99" min="0.5" oninput="document.getElementById('entropyVal').innerText = parseFloat(this.value).toFixed(2) + ' (Strict)'" step="0.01" type="range" value="0.85"/>
+</div>
+<!-- Slider 3 -->
+<div class="p-space-md rounded-xl bg-surface-shelf jx-elevation-1 flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface">Rate Limit: Autonomous Tool Executions</span>
+<span class="font-mono-code text-mono-code text-secondary font-bold text-sm" id="rateLimitVal">25 calls / min</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant text-xs">Burst control throttle preventing agent recursive loop flooding across node groups.</p>
+<input class="w-full accent-secondary cursor-pointer min-h-[44px]" max="100" min="5" oninput="document.getElementById('rateLimitVal').innerText = this.value + ' calls / min'" step="5" type="range" value="25"/>
+</div>
+</div>
+</div>
+<!-- SUBTAB 4: Version Diff (Hidden by default) -->
+<div class="hidden p-space-md sm:p-space-lg flex flex-col gap-space-md" id="panel-history">
+<div class="flex items-center justify-between">
+<h3 class="font-label-md text-label-md text-on-surface">Semantic Version Diff (v3.4.1 vs v3.4.0)</h3>
+<span class="font-mono-code text-mono-code text-xs text-outline">Committed by secops-lead@bridge.internal</span>
+</div>
+<div class="p-space-md rounded-xl bg-surface-container-lowest font-mono-code text-mono-code text-xs text-on-surface space-y-1.5 overflow-x-auto jx-elevation-1">
+<div class="text-outline">@@ -14,7 +14,8 @@ Execution Guardrails</div>
+<div class="text-tertiary font-bold">+ ALLOW /usr/bin/containerd-shim-runc-v2 [TIER_2_AUDITED]</div>
+<div class="text-tertiary font-bold">+ RESTRICT /var/lib/kubelet/pods/** [KUBELET_ENCLAVE_ONLY]</div>
+<div class="text-accent-rose font-bold">- ALLOW /bin/curl --insecure [REVOKED_RULE]</div>
+<div class="text-on-surface">  DENY  /etc/shadow [STRICT_ABORT]</div>
+<div class="text-primary">+ WEBHOOK_NOTIFY event: "ENCLAVE_ATTESTATION_DRIFT" -&gt; PagerDuty, Slack</div>
+</div>
+</div>
+</div>
+<!-- Live Guardrail Verification Telemetry Card -->
+<div class="p-space-lg rounded-xl bg-surface-elevated jx-elevation-2 flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-tertiary">check_box</span>
+<span class="font-label-md text-label-md text-on-surface">Attestation Matrix Health</span>
+</div>
+<span class="font-mono-label text-mono-label text-tertiary">100% Cryptographic Match</span>
+</div>
+<!-- Custom SVG Mini Bar Visualizer -->
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between font-mono-code text-mono-code text-xs text-on-surface-variant">
+<span>Kernel eBPF Probes Loaded (1,452 nodes)</span>
+<span class="text-on-surface">1,452 / 1,452</span>
+</div>
+<div class="w-full bg-surface-shelf h-2 rounded-full overflow-hidden">
+<div class="bg-tertiary h-full rounded-full transition-all duration-500" style="width: 100%"></div>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-2 pt-2">
+<div class="p-2 rounded-lg bg-surface-shelf flex flex-col items-center text-center">
+<span class="font-mono-label text-mono-label text-outline">Tripwire Latency</span>
+<span class="font-mono-metric text-mono-metric text-on-surface text-base font-bold">0.4ms</span>
+</div>
+<div class="p-2 rounded-lg bg-surface-shelf flex flex-col items-center text-center">
+<span class="font-mono-label text-mono-label text-outline">Blocked Syscalls (24h)</span>
+<span class="font-mono-metric text-mono-metric text-accent-rose text-base font-bold">14</span>
+</div>
+<div class="p-2 rounded-lg bg-surface-shelf flex flex-col items-center text-center">
+<span class="font-mono-label text-mono-label text-outline">Policy Hash</span>
+<span class="font-mono-metric text-mono-metric text-primary text-base font-bold">a91c..fe</span>
+</div>
+</div>
+</div>
+</div>
+<!-- RIGHT COLUMN: Webhook Integration Manager (5 cols on Desktop) -->
+<div class="xl:col-span-5 flex flex-col gap-space-lg">
+<!-- Panel Wrapper -->
+<div class="rounded-xl bg-surface-elevated jx-elevation-2 flex flex-col p-space-md sm:p-space-lg gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="p-2 rounded-lg bg-surface-shelf text-accent-violet">
+<span class="material-symbols-outlined text-xl">webhook</span>
+</div>
+<div>
+<h2 class="font-headline-md text-headline-md text-on-surface">Webhook Channels</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Real-time SecOps alert syndication</p>
+</div>
+</div>
+<button class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-shelf hover:bg-surface-bright text-on-surface font-label-md text-label-md jx-elevation-1 min-h-[44px] active:scale-95 transition-all">
+<span class="material-symbols-outlined text-sm">add</span>
+<span>New Ingest</span>
+</button>
+</div>
+<!-- Webhook Channel Cards List -->
+<div class="flex flex-col gap-space-sm">
+<!-- Channel 1: Slack -->
+<div class="p-space-md rounded-xl bg-surface-container-low jx-elevation-1 flex flex-col gap-space-sm hover:bg-surface-shelf/60 transition-all">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-8 h-8 rounded-lg bg-[#4A154B]/20 flex items-center justify-center text-[#E01E5A] font-bold font-mono-code text-sm">#</span>
+<div>
+<h4 class="font-label-md text-label-md text-on-surface">Slack (#secops-high-risk-alerts)</h4>
+<span class="font-mono-label text-mono-label text-outline">Channel ID: C0681B439</span>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded bg-tertiary-container/30 text-on-tertiary-container font-mono-label text-mono-label flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                CONNECTED (12ms)
+              </span>
+</div>
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="px-2 py-0.5 rounded bg-surface-shelf font-mono-label text-mono-label text-on-surface-variant">Tier 3 Escalation</span>
+<span class="px-2 py-0.5 rounded bg-surface-shelf font-mono-label text-mono-label text-accent-rose">Killswitch Triggered</span>
+<span class="px-2 py-0.5 rounded bg-surface-shelf font-mono-label text-mono-label text-on-surface-variant">Node Offline &gt; 5m</span>
+</div>
+<div class="flex items-center justify-between pt-2 border-t border-surface-container">
+<span class="font-mono-code text-mono-code text-xs text-outline">Deliveries (24h): 1,280 / 100% OK</span>
+<button class="test-ping-btn px-3 py-1 rounded-lg bg-surface-shelf hover:bg-surface-bright text-primary font-mono-code text-mono-code text-xs jx-elevation-1 min-h-[36px] active:scale-95 transition-all">
+                Send Test Ping
+              </button>
+</div>
+</div>
+<!-- Channel 2: PagerDuty -->
+<div class="p-space-md rounded-xl bg-surface-container-low jx-elevation-1 flex flex-col gap-space-sm hover:bg-surface-shelf/60 transition-all">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-8 h-8 rounded-lg bg-[#06AC38]/20 flex items-center justify-center text-[#06AC38] font-bold font-mono-code text-sm">PD</span>
+<div>
+<h4 class="font-label-md text-label-md text-on-surface">PagerDuty (On-Call SEV-1)</h4>
+<span class="font-mono-label text-mono-label text-outline">Service: secops-infrastructure</span>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded bg-tertiary-container/30 text-on-tertiary-container font-mono-label text-mono-label flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                ACTIVE
+              </span>
+</div>
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="px-2 py-0.5 rounded bg-surface-shelf font-mono-label text-mono-label text-accent-rose">Enclave Attestation Failure</span>
+<span class="px-2 py-0.5 rounded bg-surface-shelf font-mono-label text-mono-label text-accent-rose">Agent Tampering</span>
+</div>
+<div class="flex items-center justify-between pt-2 border-t border-surface-container">
+<span class="font-mono-code text-mono-code text-xs text-outline">Deliveries (24h): 3 alerts fired</span>
+<button class="test-ping-btn px-3 py-1 rounded-lg bg-surface-shelf hover:bg-surface-bright text-primary font-mono-code text-mono-code text-xs jx-elevation-1 min-h-[36px] active:scale-95 transition-all">
+                Send Test Ping
+              </button>
+</div>
+</div>
+<!-- Channel 3: Microsoft Teams -->
+<div class="p-space-md rounded-xl bg-surface-container-low jx-elevation-1 flex flex-col gap-space-sm hover:bg-surface-shelf/60 transition-all">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-8 h-8 rounded-lg bg-[#5059C9]/20 flex items-center justify-center text-[#5059C9] font-bold font-mono-code text-sm">MS</span>
+<div>
+<h4 class="font-label-md text-label-md text-on-surface">Microsoft Teams (Incident Bridge)</h4>
+<span class="font-mono-label text-mono-label text-outline">Webhook URI Configured</span>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded bg-tertiary-container/30 text-on-tertiary-container font-mono-label text-mono-label flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                CONNECTED
+              </span>
+</div>
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="px-2 py-0.5 rounded bg-surface-shelf font-mono-label text-mono-label text-on-surface-variant">Human Approval SLA Warning (&lt;2m)</span>
+</div>
+<div class="flex items-center justify-between pt-2 border-t border-surface-container">
+<span class="font-mono-code text-mono-code text-xs text-outline">Deliveries (24h): 42 events</span>
+<button class="test-ping-btn px-3 py-1 rounded-lg bg-surface-shelf hover:bg-surface-bright text-primary font-mono-code text-mono-code text-xs jx-elevation-1 min-h-[36px] active:scale-95 transition-all">
+                Send Test Ping
+              </button>
+</div>
+</div>
+<!-- Channel 4: Custom Enterprise SIEM Webhook -->
+<div class="p-space-md rounded-xl bg-surface-container-low jx-elevation-1 flex flex-col gap-space-sm hover:bg-surface-shelf/60 transition-all">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-8 h-8 rounded-lg bg-primary-container/20 flex items-center justify-center text-primary font-bold font-mono-code text-sm">TLS</span>
+<div>
+<h4 class="font-label-md text-label-md text-on-surface">Custom SIEM Direct Ingestion</h4>
+<span class="font-mono-code text-mono-code text-xs text-primary truncate max-w-[210px] block">https://siem.internal.corp/v1/ingest</span>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded bg-tertiary-container/30 text-on-tertiary-container font-mono-label text-mono-label flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                TLS 1.3
+              </span>
+</div>
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="px-2 py-0.5 rounded bg-surface-shelf font-mono-label text-mono-label text-outline-variant">HMAC-SHA256 Signature</span>
+<span class="px-2 py-0.5 rounded bg-surface-shelf font-mono-label text-mono-label text-on-surface-variant">Full Audit Stream</span>
+</div>
+<div class="flex items-center justify-between pt-2 border-t border-surface-container">
+<span class="font-mono-code text-mono-code text-xs text-outline">Throughput: 84 msgs/sec</span>
+<button class="test-ping-btn px-3 py-1 rounded-lg bg-surface-shelf hover:bg-surface-bright text-primary font-mono-code text-mono-code text-xs jx-elevation-1 min-h-[36px] active:scale-95 transition-all">
+                Send Test Ping
+              </button>
+</div>
+</div>
+</div>
+</div>
+<!-- Webhook Event Subscription Checkbox Matrix -->
+<div class="rounded-xl bg-surface-elevated jx-elevation-2 p-space-md sm:p-space-lg flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<h3 class="font-label-md text-label-md text-on-surface">Global Event Broadcast Subscriptions</h3>
+<span class="font-mono-label text-mono-label text-tertiary">All Endpoints Active</span>
+</div>
+<div class="space-y-space-xs">
+<!-- Checkbox 1 -->
+<label class="flex items-center gap-3 p-2.5 rounded-xl bg-surface-container-low hover:bg-surface-shelf cursor-pointer transition-colors min-h-[44px]">
+<input checked="" class="w-5 h-5 rounded accent-primary-container cursor-pointer" type="checkbox"/>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface">High-Risk Tier Approvals</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant text-xs">Broadcasts whenever autonomous tool calls hit Tier 3 boundary.</span>
+</div>
+</label>
+<!-- Checkbox 2 -->
+<label class="flex items-center gap-3 p-2.5 rounded-xl bg-surface-container-low hover:bg-surface-shelf cursor-pointer transition-colors min-h-[44px]">
+<input checked="" class="w-5 h-5 rounded accent-primary-container cursor-pointer" type="checkbox"/>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface">Node Tamper / PCR Drift</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant text-xs">Emits on hardware TPM register shift or memory unbind alerts.</span>
+</div>
+</label>
+<!-- Checkbox 3 -->
+<label class="flex items-center gap-3 p-2.5 rounded-xl bg-surface-container-low hover:bg-surface-shelf cursor-pointer transition-colors min-h-[44px]">
+<input checked="" class="w-5 h-5 rounded accent-primary-container cursor-pointer" type="checkbox"/>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface">Self-Healing Failures</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant text-xs">Fires when agent failover or container restart loop exceeds limit.</span>
+</div>
+</label>
+<!-- Checkbox 4 -->
+<label class="flex items-center gap-3 p-2.5 rounded-xl bg-surface-container-low hover:bg-surface-shelf cursor-pointer transition-colors min-h-[44px]">
+<input checked="" class="w-5 h-5 rounded accent-primary-container cursor-pointer" type="checkbox"/>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface">Command Injection Anomalies</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant text-xs">Triggered when regex tokenizer flags suspicious pipe strings.</span>
+</div>
+</label>
+</div>
+</div>
+<!-- Live Webhook Delivery Stream preview -->
+<div class="rounded-xl bg-surface-elevated jx-elevation-2 p-space-md sm:p-space-lg flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-tertiary animate-ping"></span>
+<h3 class="font-label-md text-label-md text-on-surface">Live Delivery Log Stream</h3>
+</div>
+<span class="font-mono-code text-mono-code text-xs text-outline">Rolling Buffer</span>
+</div>
+<div class="space-y-2 font-mono-code text-mono-code text-xs">
+<!-- Log 1 -->
+<div class="p-2 rounded-lg bg-surface-container-lowest flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-tertiary font-bold">200 OK</span>
+<span class="text-on-surface-variant">Slack</span>
+<span class="text-outline">msg_81f9a</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-tertiary">14ms</span>
+<span class="text-outline">10:42:04</span>
+</div>
+</div>
+<!-- Log 2 -->
+<div class="p-2 rounded-lg bg-surface-container-lowest flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-tertiary font-bold">200 OK</span>
+<span class="text-on-surface-variant">SIEM-Ingest</span>
+<span class="text-outline">pkt_e4302</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-tertiary">6ms</span>
+<span class="text-outline">10:41:59</span>
+</div>
+</div>
+<!-- Log 3 -->
+<div class="p-2 rounded-lg bg-surface-container-lowest flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-tertiary font-bold">200 OK</span>
+<span class="text-on-surface-variant">Teams</span>
+<span class="text-outline">warn_79aa1</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-tertiary">22ms</span>
+<span class="text-outline">10:41:30</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Notification Toast Container (Dynamic Trigger) -->
+<div class="fixed bottom-6 right-6 p-4 rounded-xl bg-surface-elevated jx-elevation-3 flex items-center gap-3 transform translate-y-32 opacity-0 pointer-events-none transition-all duration-300 z-50" id="toastNotification">
+<div class="p-2 rounded-lg bg-tertiary/20 text-tertiary" id="toastIcon">
+<span class="material-symbols-outlined text-lg">check_circle</span>
+</div>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface" id="toastTitle">Action Verified</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant text-xs" id="toastMsg">Security policy synchronized to all 1,452 nodes.</span>
+</div>
+</div>
+<!-- Interactive Logic for Tab Switching, Test Pings, and Publishing Feedback -->
+<script>
+    // Tab switching controller
+    const tabs = [
+      { btn: 'tab-binaries', panel: 'panel-binaries' },
+      { btn: 'tab-paths', panel: 'panel-paths' },
+      { btn: 'tab-tiers', panel: 'panel-tiers' },
+      { btn: 'tab-history', panel: 'panel-history' }
+    ];
+
+    tabs.forEach(t => {
+      const button = document.getElementById(t.btn);
+      button.addEventListener('click', () => {
+        tabs.forEach(item => {
+          const b = document.getElementById(item.btn);
+          const p = document.getElementById(item.panel);
+          if (item.btn === t.btn) {
+            b.className = 'tab-btn px-space-md py-2 rounded-lg font-label-md text-label-md text-on-primary-container bg-primary-container jx-elevation-1 transition-all whitespace-nowrap min-h-[44px] flex items-center gap-2';
+            p.classList.remove('hidden');
+          } else {
+            b.className = 'tab-btn px-space-md py-2 rounded-lg font-label-md text-label-md text-on-surface-variant hover:text-on-surface hover:bg-surface-shelf transition-all whitespace-nowrap min-h-[44px] flex items-center gap-2';
+            p.classList.add('hidden');
+          }
+        });
+      });
+    });
+
+    // Toast Notification Utility
+    const toast = document.getElementById('toastNotification');
+    const toastTitle = document.getElementById('toastTitle');
+    const toastMsg = document.getElementById('toastMsg');
+
+    function triggerToast(title, msg) {
+      toastTitle.textContent = title;
+      toastMsg.textContent = msg;
+      toast.classList.remove('translate-y-32', 'opacity-0', 'pointer-events-none');
+      setTimeout(() => {
+        toast.classList.add('translate-y-32', 'opacity-0', 'pointer-events-none');
+      }, 3500);
+    }
+
+    // Ping buttons event listener
+    document.querySelectorAll('.test-ping-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const channelName = e.target.closest('.rounded-xl').querySelector('h4').innerText;
+        btn.innerText = 'Pinging...';
+        btn.classList.add('opacity-50');
+        setTimeout(() => {
+          btn.innerText = 'Send Test Ping';
+          btn.classList.remove('opacity-50');
+          triggerToast('Test Ping Dispatched', `Verified TLS connection to ${channelName} (9ms response).`);
+        }, 600);
+      });
+    });
+
+    // Publish New Version
+    document.getElementById('publishVersionBtn').addEventListener('click', () => {
+      triggerToast('Version Published', 'Policy v3.4.2 generated and eBPF signed across 1,452 nodes.');
+    });
+
+    // Rollback action
+    document.getElementById('rollbackBtn').addEventListener('click', () => {
+      triggerToast('Rollback Staged', 'Reverting to state hash SHA-256 for release v3.4.0.');
+    });
+
+    // Export schema action
+    document.getElementById('exportSchemaBtn').addEventListener('click', () => {
+      triggerToast('Schema Downloaded', 'Exported zero_trust_policy_v3.4.1.json schema successfully.');
+    });
+
+    // Search filter micro-interaction
+    const searchInput = document.getElementById('binarySearch');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        const val = e.target.value.toLowerCase();
+        const rows = document.querySelectorAll('#panel-binaries table tbody tr');
+        rows.forEach(r => {
+          const text = r.innerText.toLowerCase();
+          if (text.includes(val)) {
+            r.style.display = '';
+          } else {
+            r.style.display = 'none';
+          }
+        });
+      });
+    }
+  </script>
+</div></main></div></body></html>

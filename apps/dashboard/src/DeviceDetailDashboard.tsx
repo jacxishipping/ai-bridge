@@ -598,7 +598,55 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
             )}
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <JXButton
+              variant="soft"
+              size="sm"
+              onClick={async () => {
+                try {
+                  const res = await api.submitTask(deviceId, "capture_desktop_screenshot", {});
+                  setNotice(`Screenshot task queued: ${res.task_id}`);
+                } catch (e: any) {
+                  setError(`Screenshot failed: ${e.message}`);
+                }
+              }}
+              title="Capture immediate screenshot from device"
+            >
+              📸 Capture Screen
+            </JXButton>
+
+            <JXButton
+              variant="soft"
+              size="sm"
+              onClick={async () => {
+                try {
+                  const res = await api.submitTask(deviceId, "run_diagnostic_task", { task: "flush_dns" });
+                  setNotice(`Flush DNS task queued: ${res.task_id}`);
+                } catch (e: any) {
+                  setError(`Flush DNS failed: ${e.message}`);
+                }
+              }}
+              title="Flush DNS resolver caches"
+            >
+              🧹 Flush DNS
+            </JXButton>
+
+            <JXButton
+              variant="soft"
+              size="sm"
+              onClick={async () => {
+                try {
+                  const res = await api.submitTask(deviceId, "create_backup", {});
+                  setNotice(`Backup task queued: ${res.task_id}`);
+                } catch (e: any) {
+                  setError(`Backup failed: ${e.message}`);
+                }
+              }}
+              title="Trigger workspace backup on device"
+            >
+              ☁️ Create Backup
+            </JXButton>
+
             <MagneticButton
               variant="outline"
               tone="primary"
@@ -632,6 +680,25 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
               >
                 Dispatch Task
               </LiquidButton>
+            )}
+
+            {!isRevoked && (
+              <div style={{ display: "inline-flex" }}>
+                <HoldToConfirmButton
+                  label="Hold to Reboot"
+                  tone="danger"
+                  variant="solid"
+                  holdDurationMs={2000}
+                  onConfirm={async () => {
+                    try {
+                      await api.submitTask(deviceId, "run_diagnostic_task", { task: "reboot" });
+                      setNotice("Reboot signal dispatched to node.");
+                    } catch (e: any) {
+                      setError(`Reboot failed: ${e.message}`);
+                    }
+                  }}
+                />
+              </div>
             )}
           </div>
         </div>
@@ -1954,3 +2021,5 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
     </div>
   );
 }
+
+export default DeviceDetailDashboard;
