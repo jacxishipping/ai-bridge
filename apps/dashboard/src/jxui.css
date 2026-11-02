@@ -440,6 +440,20 @@ code, kbd, samp, pre {
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.14), var(--jx-specular-highlight) !important;
 }
 
+.f2-brand:focus-visible,
+.f2-status-pill:focus-visible,
+.f2-breadcrumb-link:focus-visible,
+.f2-nav-item:focus-visible,
+.f2-mobile-toggle:focus-visible,
+.f2-kpi-link:focus-visible {
+  outline: 2px solid var(--jx-border-focus) !important;
+  outline-offset: 3px !important;
+}
+
+.f2-mobile-search {
+  display: none !important;
+}
+
 .f2-nav-item-icon {
   width: 20px !important;
   height: 20px !important;
@@ -552,9 +566,21 @@ code, kbd, samp, pre {
 /* Bento KPI Cards */
 .f2-kpi-grid {
   display: grid !important;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)) !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)) !important;
   gap: 20px !important;
   margin-bottom: 28px !important;
+}
+
+.f2-kpi-link {
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 20px !important;
+  background: transparent !important;
+  color: inherit !important;
+  text-align: left !important;
 }
 
 .f2-kpi-card {
@@ -1127,9 +1153,13 @@ select.f2-select {
     backdrop-filter: blur(24px) !important;
     -webkit-backdrop-filter: blur(24px) !important;
     overflow-y: auto !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
   }
   .f2-nav.f2-nav-open {
     left: 0 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
   }
   .f2-nav-backdrop {
     position: fixed !important;
@@ -1167,6 +1197,9 @@ select.f2-select {
   }
   .f2-search-trigger {
     display: none !important;
+  }
+  .f2-mobile-search {
+    display: flex !important;
   }
   .f2-switch-label {
     display: none !important;
@@ -1241,6 +1274,59 @@ select.f2-select {
   }
   .f2-persona span:last-child {
     display: none !important;
+  }
+
+  .f2-auth-tabs {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    margin-bottom: 14px !important;
+  }
+  .f2-auth-tabs > button {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    flex: 1 1 0 !important;
+    height: auto !important;
+    min-height: 36px !important;
+    padding: 6px !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    line-height: 1.25 !important;
+  }
+  .f2-auth-header {
+    gap: 8px !important;
+    flex-wrap: wrap !important;
+  }
+  .f2-auth-brand {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    gap: 8px !important;
+  }
+  .f2-auth-brand > span:last-child {
+    min-width: 0 !important;
+    font-size: 14px !important;
+    line-height: 1.3 !important;
+  }
+  .f2-auth-card {
+    padding: 20px !important;
+  }
+}
+
+@media (max-width: 360px) {
+  .f2-auth-shell {
+    padding: 12px !important;
+  }
+  .f2-auth-card {
+    padding: 16px !important;
+  }
+  .f2-auth-header > .f2-brand {
+    flex-basis: 100% !important;
+  }
+  .f2-auth-header > button {
+    margin-left: auto !important;
   }
 }
 
@@ -1333,6 +1419,14 @@ div[role="tabpanel"].rounded-xl {
 .f2-status-pill:hover {
   background: rgba(16, 185, 129, 0.20) !important;
   transform: translateY(-1px) !important;
+}
+.f2-status-pill.danger {
+  background: rgba(244, 63, 94, 0.14) !important;
+  border-color: rgba(244, 63, 94, 0.42) !important;
+  color: #fb7185 !important;
+}
+.f2-status-pill.danger:hover {
+  background: rgba(244, 63, 94, 0.22) !important;
 }
 
 .f2-status-dot {
@@ -1572,13 +1666,6 @@ div:has(> span.tabular-nums) {
   border-color: var(--jx-border-subtle) !important;
 }
 
-
-/* 5-Column Balanced Bento Grid on Desktop */
-@media (min-width: 1280px) {
-  .f2-kpi-grid {
-    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
-  }
-}
 
 /* Copy View Link Luxury Pill */
 .f2-copy-link-btn {

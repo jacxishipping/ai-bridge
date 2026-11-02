@@ -554,6 +554,9 @@ export default function App() {
   const [cmdQuery, setCmdQuery] = useState("");
   const [cmdSelectedIndex, setCmdSelectedIndex] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const mobileNavToggleRef = useRef<HTMLButtonElement>(null);
+  const mobileNavRef = useRef<HTMLElement>(null);
+  const previousMobileNavOpen = useRef(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [devicePolicyModalId, setDevicePolicyModalId] = useState<string | null>(null);
   const [selectedDeviceIdForDashboard, setSelectedDeviceIdForDashboard] = useState<string | null>(() => {
@@ -590,6 +593,20 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    if (previousMobileNavOpen.current === mobileNavOpen) return;
+    previousMobileNavOpen.current = mobileNavOpen;
+    if (!window.matchMedia("(max-width: 960px)").matches) return;
+
+    if (mobileNavOpen) {
+      Array.from(mobileNavRef.current?.querySelectorAll<HTMLButtonElement>("button:not([disabled])") || [])
+        .find(button => button.getClientRects().length > 0)
+        ?.focus();
+    } else {
+      mobileNavToggleRef.current?.focus();
+    }
+  }, [mobileNavOpen]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -601,6 +618,7 @@ export default function App() {
         setEditModal(null);
         setDevicePolicyModalId(null);
         setEmergencyArmed(false);
+        setMobileNavOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -771,10 +789,10 @@ export default function App() {
   const authed = !!(tok || sessionToken());
   if (!authed) {
     return (
-      <div className="f2-shell" style={{ justifyContent: "center", alignItems: "center", padding: 24 }}>
-        <div className="f2-card" style={{ width: "100%", maxWidth: 440, padding: 28, boxShadow: "var(--shadow16)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <div className="f2-brand">
+      <div className="f2-shell f2-auth-shell" style={{ justifyContent: "center", alignItems: "center", padding: 24 }}>
+        <div className="f2-card f2-auth-card" style={{ width: "100%", maxWidth: 440, padding: 28, boxShadow: "var(--shadow16)" }}>
+          <div className="f2-auth-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div className="f2-brand f2-auth-brand">
               <span className="f2-brand-logo">
                 <FluentIcon name="approvals" />
               </span>
@@ -792,7 +810,7 @@ export default function App() {
           </div>
 
           <h1 style={{ margin: "0 0 6px", fontSize: 22, fontWeight: 600 }}>Sign in to your fleet</h1>
-          <p style={{ margin: "0 0 20px", fontSize: 13, color: "var(--colorNeutralForeground3)" }}>
+          <p style={{ margin: "0 0 20px", fontSize: 13, color: "var(--colorNeutralForeground2)" }}>
             Policy-governed MCP gateway & remote device orchestration.
           </p>
 
@@ -806,7 +824,7 @@ export default function App() {
               >
                 Continue with Google Single Sign-On
               </JXButton>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "16px 0 0", color: "var(--colorNeutralForeground3)", fontSize: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "16px 0 0", color: "var(--colorNeutralForeground2)", fontSize: 12 }}>
                 <div style={{ flex: 1, height: 1, background: "var(--colorNeutralStroke2)" }} />
                 <span>or use direct credentials</span>
                 <div style={{ flex: 1, height: 1, background: "var(--colorNeutralStroke2)" }} />
@@ -814,8 +832,9 @@ export default function App() {
             </div>
           )}
 
-          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+          <div className="f2-auth-tabs">
             <JXButton
+              fullWidth
               size="sm"
               variant={authTab === "token" ? "contained" : "soft"}
               onClick={() => setAuthTab("token")}
@@ -823,6 +842,7 @@ export default function App() {
               Admin Token
             </JXButton>
             <JXButton
+              fullWidth
               size="sm"
               variant={authTab === "user" ? "contained" : "soft"}
               onClick={() => setAuthTab("user")}
@@ -889,7 +909,7 @@ export default function App() {
             </div>
           )}
 
-          <p style={{ margin: "18px 0 0", fontSize: 12, color: "var(--colorNeutralForeground3)", lineHeight: 1.5 }}>
+          <p style={{ margin: "18px 0 0", fontSize: 12, color: "var(--colorNeutralForeground2)", lineHeight: 1.5 }}>
             Credentials are stored locally in your browser session. Never share device tokens in untrusted chats.
           </p>
         </div>
@@ -955,14 +975,17 @@ export default function App() {
           <button
             type="button"
             className="f2-icon-btn f2-mobile-toggle"
+            ref={mobileNavToggleRef}
             onClick={() => setMobileNavOpen(prev => !prev)}
-            aria-label="Toggle navigation menu"
-            title="Toggle navigation"
+            aria-label={mobileNavOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-expanded={mobileNavOpen}
+            aria-controls="dashboard-navigation"
+            title={mobileNavOpen ? "Close navigation" : "Open navigation"}
           >
             <FluentIcon name={mobileNavOpen ? "cancel" : "more"} />
           </button>
 
-          <div className="f2-brand" onClick={() => { setView("overview"); setMobileNavOpen(false); }}>
+          <button type="button" className="f2-brand" onClick={() => { setView("overview"); setMobileNavOpen(false); }}>
             <span className="f2-brand-logo" title="AI Bridge Control Plane">
               <FluentIcon name="approvals" />
             </span>
@@ -971,17 +994,18 @@ export default function App() {
                 AI Bridge <span className="f2-brand-badge">PRO</span>
               </span>
             </div>
-          </div>
+          </button>
 
-          <div
-            className="f2-status-pill"
+          <button
+            type="button"
+            className={`f2-status-pill${health?.emergency_stop ? " danger" : ""}`}
             onClick={() => setView("devices")}
             title={health?.emergency_stop ? "Emergency Stop is Active" : `${online.length} of ${devices.length} devices online (click to view)`}
-            style={{ cursor: "pointer" }}
+            aria-label={health?.emergency_stop ? "Emergency stop active. View devices." : `${online.length} of ${devices.length} devices online. View devices.`}
           >
             <span className={`f2-status-dot ${health?.emergency_stop ? "danger" : "online"}`} />
             <span>{health?.emergency_stop ? "STOPPED" : `${online.length}/${devices.length} Online`}</span>
-          </div>
+          </button>
         </div>
 
         {/* Center: Spotlight Search (⌘K Command Palette) */}
@@ -1017,7 +1041,7 @@ export default function App() {
 
           <button
             type="button"
-            className="f2-icon-action-btn"
+            className="f2-icon-action-btn f2-header-refresh"
             onClick={() => load()}
             disabled={loading}
             title={lastUpdated ? `Updated ${new Date(lastUpdated).toLocaleTimeString()} (Click to refresh)` : "Refresh fleet"}
@@ -1027,7 +1051,7 @@ export default function App() {
 
           <button
             type="button"
-            className="f2-icon-action-btn"
+            className="f2-icon-action-btn f2-header-theme"
             onClick={() => {
               const next = theme === "light" ? "dark" : "light";
               setTheme(next);
@@ -1150,7 +1174,58 @@ export default function App() {
         )}
         {/* Fluent 2 Navigation Drawer */}
 
-        <nav className={`f2-nav${mobileNavOpen ? " f2-nav-open" : ""}`} aria-label="Main Navigation">
+        <nav
+          id="dashboard-navigation"
+          ref={mobileNavRef}
+          className={`f2-nav${mobileNavOpen ? " f2-nav-open" : ""}`}
+          aria-label="Main Navigation"
+          onKeyDown={e => {
+            if (e.key !== "Tab" || !mobileNavOpen || !window.matchMedia("(max-width: 960px)").matches) return;
+            const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("button:not([disabled])"))
+              .filter(button => button.getClientRects().length > 0);
+            const first = items[0];
+            const last = items[items.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+              e.preventDefault();
+              last?.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+              e.preventDefault();
+              first?.focus();
+            }
+          }}
+        >
+
+          <button
+            type="button"
+            className="f2-nav-item f2-mobile-search"
+            onClick={() => {
+              setMobileNavOpen(false);
+              setCmdOpen(true);
+              setCmdQuery("");
+            }}
+          >
+            <span className="f2-nav-item-icon"><FluentIcon name="search" /></span>
+            <span style={{ flex: 1, textAlign: "left" }}>Search fleet, tasks, tools</span>
+          </button>
+
+          <button type="button" className="f2-nav-item f2-mobile-nav-action" onClick={() => { setMobileNavOpen(false); load(); }}>
+            <span className="f2-nav-item-icon" aria-hidden="true">↻</span>
+            <span style={{ flex: 1, textAlign: "left" }}>Refresh telemetry</span>
+          </button>
+
+          <button
+            type="button"
+            className="f2-nav-item f2-mobile-nav-action"
+            onClick={() => {
+              setMobileNavOpen(false);
+              const next = theme === "light" ? "dark" : "light";
+              setTheme(next);
+              if (toggleMode) toggleMode();
+            }}
+          >
+            <span className="f2-nav-item-icon"><FluentIcon name="theme" /></span>
+            <span style={{ flex: 1, textAlign: "left" }}>Switch to {theme === "light" ? "Dark" : "Light"} Mode</span>
+          </button>
 
           <div className="f2-nav-section-label">Operations</div>
 
@@ -1452,7 +1527,7 @@ export default function App() {
           <div className="f2-page-header">
             <div>
               <div className="f2-breadcrumb" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 13, marginBottom: 8 }}>
-                <span className="f2-breadcrumb-link" style={{ cursor: "pointer", color: "var(--jx-primary)", fontWeight: 500 }} onClick={() => setView("overview")}>AI Bridge</span>
+                <button type="button" className="f2-breadcrumb-link" style={{ cursor: "pointer", color: "var(--jx-primary)", fontWeight: 500 }} onClick={() => setView("overview")}>AI Bridge</button>
                 <span className="f2-breadcrumb-sep" style={{ color: "var(--jx-text-tertiary)" }}>/</span>
                 <span style={{ color: "var(--jx-text-tertiary)" }}>{meta.group === "ops" ? "Operations" : "Governance & Telemetry"}</span>
                 <span className="f2-breadcrumb-sep" style={{ color: "var(--jx-text-tertiary)" }}>/</span>
@@ -1531,9 +1606,9 @@ export default function App() {
 
           {/* ==================== OVERVIEW ==================== */}
           {view === "overview" && (
-            <div style={{ display: "grid", gap: 16 }}>
+            <div className="f2-overview-layout" style={{ display: "grid", gap: 16 }}>
               <div className="f2-kpi-grid">
-                <div onClick={() => setView("devices")} className="cursor-pointer" style={{ outline: "none" }}>
+                <button type="button" onClick={() => setView("devices")} className="f2-kpi-link">
                   <JXCard spotlight hoverLift className="f2-kpi-card">
                     <div className="f2-kpi-top">
                       <span>ONLINE DEVICES</span>
@@ -1545,9 +1620,9 @@ export default function App() {
                       <span>Active outbound-polling agents</span>
                     </div>
                   </JXCard>
-                </div>
+                </button>
 
-                <div onClick={() => setView("tasks")} className="cursor-pointer" style={{ outline: "none" }}>
+                <button type="button" onClick={() => setView("tasks")} className="f2-kpi-link">
                   <JXCard spotlight hoverLift className="f2-kpi-card">
                     <div className="f2-kpi-top">
                       <span>TOTAL TASKS</span>
@@ -1558,9 +1633,9 @@ export default function App() {
                       {taskByStatus["completed"] || 0} completed · {taskByStatus["queued"] || 0} queued · {taskByStatus["failed"] || 0} failed
                     </div>
                   </JXCard>
-                </div>
+                </button>
 
-                <div onClick={() => setView("approvals")} className="cursor-pointer" style={{ outline: "none" }}>
+                <button type="button" onClick={() => setView("approvals")} className="f2-kpi-link">
                   <JXCard spotlight hoverLift className="f2-kpi-card">
                     <div className="f2-kpi-top">
                       <span>PENDING APPROVALS</span>
@@ -1571,9 +1646,9 @@ export default function App() {
                     </div>
                     <div className="f2-kpi-meta">Awaiting administrator decision</div>
                   </JXCard>
-                </div>
+                </button>
 
-                <div onClick={() => setView("audit")} className="cursor-pointer" style={{ outline: "none" }}>
+                <button type="button" onClick={() => setView("audit")} className="f2-kpi-link">
                   <JXCard spotlight hoverLift className="f2-kpi-card">
                     <div className="f2-kpi-top">
                       <span>AUDIT EVENTS (24H)</span>
@@ -1582,9 +1657,9 @@ export default function App() {
                     <div className="f2-kpi-value">{audit24h}</div>
                     <div className="f2-kpi-meta">Recorded security & tool actions</div>
                   </JXCard>
-                </div>
+                </button>
 
-                <div onClick={() => setView("connections")} className="cursor-pointer" style={{ outline: "none" }}>
+                <button type="button" onClick={() => setView("connections")} className="f2-kpi-link">
                   <JXCard spotlight hoverLift className="f2-kpi-card">
                     <div className="f2-kpi-top">
                       <span>MCP & OAUTH GATEWAY</span>
@@ -1597,7 +1672,7 @@ export default function App() {
                       {connections ? `${connections.chatgpt.clients.length} OAuth client(s) · ${connections.chatgpt.active_access_tokens} active token(s)` : "Checking ports…"}
                     </div>
                   </JXCard>
-                </div>
+                </button>
               </div>
 
               {/* JXUI Tactile Command Strip */}
@@ -1703,7 +1778,7 @@ export default function App() {
                 </Card>
               )}
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 }}>
+              <div className="f2-overview-metric-grid">
                 <Card title="Tasks by Status">
                   {Object.entries(taskByStatus).map(([k, v]) => <Bar key={k} label={k} value={v} max={maxTask} />)}
                   {Object.keys(taskByStatus).length === 0 && <p style={{ color: "var(--colorNeutralForeground3)", fontSize: 13 }}>No tasks recorded yet.</p>}
@@ -1722,7 +1797,7 @@ export default function App() {
                 </Card>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", gap: 16 }}>
+              <div className="f2-overview-activity-grid">
                 <Card
                   title="Enrolled Fleet Status"
                   action={<JXButton size="sm" variant="soft" onClick={() => setView("devices")}>Manage devices →</JXButton>}
