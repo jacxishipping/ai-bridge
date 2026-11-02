@@ -500,6 +500,7 @@ export default function App() {
   const [cmdQuery, setCmdQuery] = useState("");
   const [cmdSelectedIndex, setCmdSelectedIndex] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [devicePolicyModalId, setDevicePolicyModalId] = useState<string | null>(null);
   const [selectedDeviceIdForDashboard, setSelectedDeviceIdForDashboard] = useState<string | null>(() => {
     return new URLSearchParams(window.location.search).get("device");
@@ -519,6 +520,14 @@ export default function App() {
   const [polServices, setPolServices] = useState("");
   const [polNote, setPolNote] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
+
+  useEffect(() => {
+    const onDocClick = () => setUserMenuOpen(false);
+    if (userMenuOpen) {
+      window.addEventListener("click", onDocClick);
+      return () => window.removeEventListener("click", onDocClick);
+    }
+  }, [userMenuOpen]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -885,47 +894,44 @@ export default function App() {
 
   return (
     <div className="f2-shell">
-      {/* Fluent 2 Acrylic Top App Bar */}
+      {/* JXUI Luxury Top App Bar: Minimal, Clean & 3-Column Architecture */}
       <header className="f2-topbar">
-        <button
-          type="button"
-          className="f2-icon-btn f2-mobile-toggle"
-          onClick={() => setMobileNavOpen(prev => !prev)}
-          aria-label="Toggle navigation menu"
-          title="Toggle navigation"
-        >
-          <FluentIcon name={mobileNavOpen ? "cancel" : "more"} />
-        </button>
-        <div className="f2-brand" onClick={() => { setView("overview"); setMobileNavOpen(false); }}>
-          <span className="f2-brand-logo" title="AI Bridge JXUI Control Plane">
-            <FluentIcon name="approvals" />
-          </span>
-          <div className="f2-brand-text">
-            <span className="f2-brand-title">
-              AI Bridge <span className="f2-brand-badge">JXUI PRO</span>
+        {/* Left: Mobile Toggle + Brand Logo + Fleet Status Pill */}
+        <div className="f2-topbar-left">
+          <button
+            type="button"
+            className="f2-icon-btn f2-mobile-toggle"
+            onClick={() => setMobileNavOpen(prev => !prev)}
+            aria-label="Toggle navigation menu"
+            title="Toggle navigation"
+          >
+            <FluentIcon name={mobileNavOpen ? "cancel" : "more"} />
+          </button>
+
+          <div className="f2-brand" onClick={() => { setView("overview"); setMobileNavOpen(false); }}>
+            <span className="f2-brand-logo" title="AI Bridge Control Plane">
+              <FluentIcon name="approvals" />
             </span>
-            <span className="f2-brand-subtitle">Autonomous Fleet &amp; Edge Cloud</span>
+            <div className="f2-brand-text">
+              <span className="f2-brand-title">
+                AI Bridge <span className="f2-brand-badge">PRO</span>
+              </span>
+            </div>
           </div>
-          {health && (
-            <Badge
-              value={health.emergency_stop ? "EMERGENCY STOP" : "System Online"}
-              tone={health.emergency_stop ? "red" : "green"}
-            />
-          )}
+
+          <div
+            className="f2-status-pill"
+            onClick={() => setView("devices")}
+            title={health?.emergency_stop ? "Emergency Stop is Active" : `${online.length} of ${devices.length} devices online (click to view)`}
+            style={{ cursor: "pointer" }}
+          >
+            <span className={`f2-status-dot ${health?.emergency_stop ? "danger" : "online"}`} />
+            <span>{health?.emergency_stop ? "STOPPED" : `${online.length}/${devices.length} Online`}</span>
+          </div>
         </div>
 
-        <div className="f2-topbar-actions">
-          {pending.length > 0 && (
-            <JXButton
-              size="sm"
-              variant="contained"
-              color="warning"
-              onClick={() => setView("approvals")}
-              title="Click to view and approve pending operations"
-            >
-              ⚠️ {pending.length} Action{pending.length > 1 ? "s" : ""} Pending Approval ↗
-            </JXButton>
-          )}
+        {/* Center: Spotlight Search (⌘K Command Palette) */}
+        <div className="f2-topbar-center">
           <button
             type="button"
             className="f2-search-trigger"
@@ -933,75 +939,50 @@ export default function App() {
               setCmdOpen(true);
               setCmdQuery("");
             }}
-            title="Open Spotlight Command Palette (⌘K / Ctrl+K)"
+            title="Spotlight Command Palette (⌘K / Ctrl+K)"
           >
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-              <FluentIcon name="search" />
-              <span>Spotlight Command…</span>
-            </span>
-            <span className="f2-kbd">⌘K</span>
+            <FluentIcon name="search" />
+            <span className="f2-search-placeholder">Search fleet, tasks, tools…</span>
+            <kbd className="f2-kbd">⌘K</kbd>
           </button>
+        </div>
 
-          <label className="f2-switch-label" style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12.5 }} title={autoRefresh ? "Auto-refresh is on (every 15s)" : "Auto-refresh is off"}>
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={e => setAutoRefresh(e.target.checked)}
-              style={{ accentColor: "var(--jx-primary)" }}
-            />
-            <span>Auto-refresh</span>
-          </label>
+        {/* Right: Consolidated Clean Action Cluster */}
+        <div className="f2-topbar-right">
+          {pending.length > 0 && (
+            <button
+              type="button"
+              className="f2-pending-badge"
+              onClick={() => setView("approvals")}
+              title={`${pending.length} pending operation(s) awaiting approval`}
+            >
+              <span className="f2-pending-pulse" />
+              <span>{pending.length} Pending</span>
+            </button>
+          )}
 
-          <span style={{ fontSize: 12, color: "var(--jx-text-tertiary)", whiteSpace: "nowrap" }} title={autoRefresh ? "Auto-refresh is on (every 15s)" : "Auto-refresh is off"}>
-            {lastUpdated ? `Updated ${new Date(lastUpdated).toLocaleTimeString()}` : "Not updated yet"}
-          </span>
           <button
             type="button"
-            className="f2-btn f2-btn-subtle"
+            className="f2-icon-action-btn"
             onClick={() => load()}
             disabled={loading}
-            style={{ padding: "6px 14px", fontSize: 12.5 }}
+            title={lastUpdated ? `Updated ${new Date(lastUpdated).toLocaleTimeString()} (Click to refresh)` : "Refresh fleet"}
           >
-            {loading ? "Refreshing…" : "Refresh"}
+            <span className={loading ? "f2-spin" : ""}>↻</span>
           </button>
 
           <button
             type="button"
-            className="f2-btn f2-btn-subtle"
+            className="f2-icon-action-btn"
             onClick={() => {
               const next = theme === "light" ? "dark" : "light";
               setTheme(next);
               if (toggleMode) toggleMode();
             }}
-            title="Switch between JXUI Light and Dark Obsidian modes"
-            style={{ padding: "6px 14px", fontSize: 12.5 }}
+            title={`Switch to ${theme === "light" ? "Dark" : "Light"} Mode`}
           >
-            <FluentIcon name="theme" />
-            <span>{theme === "light" ? "Dark Mode" : "Light Mode"}</span>
+            {theme === "light" ? "🌙" : "☀️"}
           </button>
-
-          <div className="f2-accent-picker" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 8px", background: "var(--jx-surface-sunken)", borderRadius: 10, border: "1px solid var(--jx-border-subtle)" }} title="Switch JXUI Neon Accent Palette">
-            {(["indigo", "violet", "emerald", "rose", "ocean"] as const).map(acc => (
-              <button
-                key={acc}
-                type="button"
-                onClick={() => setAccent && setAccent(acc)}
-                title={`Accent: ${acc.charAt(0).toUpperCase() + acc.slice(1)}`}
-                style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: "50%",
-                  background: acc === "indigo" ? "#6366f1" : acc === "violet" ? "#a855f7" : acc === "emerald" ? "#10b981" : acc === "rose" ? "#f43f5e" : "#0ea5e9",
-                  border: accent === acc ? "2px solid #ffffff" : "2px solid transparent",
-                  boxShadow: accent === acc ? "0 0 8px rgba(99, 102, 241, 0.7)" : "none",
-                  cursor: "pointer",
-                  padding: 0,
-                  transition: "transform 140ms ease",
-                  transform: accent === acc ? "scale(1.2)" : "scale(1)",
-                }}
-              />
-            ))}
-          </div>
 
           {health?.emergency_stop ? (
             <LiquidButton
@@ -1012,13 +993,13 @@ export default function App() {
                 setNotice({ intent: "success", text: "Emergency stop cleared. Task queue resumed." });
                 load();
               }}
-              style={{ padding: "6px 14px", fontSize: 12.5 }}
+              style={{ padding: "6px 14px", fontSize: 12, height: 32 }}
             >
-              Resume Queue
+              Resume Fleet
             </LiquidButton>
           ) : (
             <HoldToConfirmButton
-              label="Hold to Stop Fleet"
+              label="Stop Fleet"
               tone="danger"
               variant="solid"
               holdDurationMs={1200}
@@ -1030,28 +1011,78 @@ export default function App() {
             />
           )}
 
-          {me && (
-            <span className="f2-persona" title={`Signed in as ${me.username} (${me.role})`}>
-              <span className="f2-avatar">{String(me.username || "A").slice(0, 2)}</span>
-              <span>
-                <b>{me.username}</b> <span style={{ color: "var(--colorNeutralForeground3)" }}>· {me.role}</span>
-              </span>
-            </span>
-          )}
+          {/* User Profile & Workspace Settings Dropdown */}
+          <div className="f2-user-menu-wrap" style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
+            <button
+              type="button"
+              className="f2-user-pill-btn"
+              onClick={() => setUserMenuOpen(prev => !prev)}
+              title="Profile & Workspace Settings"
+            >
+              <span className="f2-avatar">{String(me?.username || "A").slice(0, 2).toUpperCase()}</span>
+              <span className="f2-user-name">{me?.username || "admin"}</span>
+              <span className="f2-caret">{userMenuOpen ? "▴" : "▾"}</span>
+            </button>
 
-          <JXButton
-            size="sm"
-            variant="soft"
-            onClick={async () => {
-              try { if (sessionToken()) await api.logout(); } catch { /* local sign-out still clears an unavailable session */ }
-              localStorage.removeItem("ai_bridge_admin_token");
-              localStorage.removeItem("ai_bridge_session_token");
-              setTok("");
-              setMe(null);
-            }}
-          >
-            Sign out
-          </JXButton>
+            {userMenuOpen && (
+              <div className="f2-user-popover">
+                <div className="f2-user-popover-header">
+                  <div className="f2-user-popover-name">{me?.username || "Admin"}</div>
+                  <div className="f2-user-popover-role">{me?.role || "Administrator"} · Fleet Cloud</div>
+                </div>
+
+                <div className="f2-popover-divider" />
+
+                <div className="f2-popover-section">
+                  <div className="f2-popover-label">Theme Accent</div>
+                  <div className="f2-swatch-row">
+                    {(["indigo", "violet", "emerald", "rose", "ocean"] as const).map(acc => (
+                      <button
+                        key={acc}
+                        type="button"
+                        onClick={() => setAccent && setAccent(acc)}
+                        className={`f2-palette-swatch ${accent === acc ? "active" : ""}`}
+                        style={{
+                          background: acc === "indigo" ? "#6366f1" : acc === "violet" ? "#a855f7" : acc === "emerald" ? "#10b981" : acc === "rose" ? "#f43f5e" : "#0ea5e9"
+                        }}
+                        title={`Accent: ${acc.charAt(0).toUpperCase() + acc.slice(1)}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="f2-popover-divider" />
+
+                <label className="f2-popover-toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={autoRefresh}
+                    onChange={e => setAutoRefresh(e.target.checked)}
+                    style={{ accentColor: "var(--jx-primary)" }}
+                  />
+                  <span>Auto-refresh telemetry (15s)</span>
+                </label>
+
+                <div className="f2-popover-divider" />
+
+                <button
+                  type="button"
+                  className="f2-popover-signout-btn"
+                  onClick={async () => {
+                    try { if (sessionToken()) await api.logout(); } catch {}
+                    localStorage.removeItem("ai_bridge_admin_token");
+                    localStorage.removeItem("ai_bridge_session_token");
+                    setTok("");
+                    setMe(null);
+                    setUserMenuOpen(false);
+                  }}
+                >
+                  <span>Sign out</span>
+                  <span>➔</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 

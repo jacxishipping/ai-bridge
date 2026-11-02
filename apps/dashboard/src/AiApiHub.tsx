@@ -643,7 +643,7 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <div style={{ flex: 1 }}>
               <JXTextField
-                placeholder="Ask AI to run commands, check servers, or automate Windows GUI..."
+                placeholder="Ask AI to run commands, check servers, or automate Windows GUI..." showCharacterCounter={false} maxLength={4096}
                 value={chatInput}
                 onChange={(val) => setChatInput(val)}
                 disabled={isSendingChat}

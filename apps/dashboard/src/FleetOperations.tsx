@@ -382,7 +382,7 @@ export const FleetOperations: React.FC = () => {
               <JXTextField
                 value={nodeQuery}
                 onChange={(val: any) => { setNodeQuery(val); setNodePage(0); }}
-                placeholder="Search nodes by name, OS, or ID…"
+                placeholder="Search nodes by name, OS, or ID…" showCharacterCounter={false} maxLength={256}
               />
             </div>
             <span style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", alignSelf: "center" }}>
@@ -608,14 +608,14 @@ export const FleetOperations: React.FC = () => {
                 </div>
                 <div style={{ minWidth: 200 }}>
                   <JXTextField
-                    placeholder="Tool (e.g. run_shell, get_system_info)"
+                    placeholder="Tool (e.g. run_shell, get_system_info)" showCharacterCounter={false} maxLength={256}
                     value={customTool}
                     onChange={(val: any) => setCustomTool(val)}
                   />
                 </div>
                 <div style={{ flex: 1, minWidth: 220 }}>
                   <JXTextField
-                    placeholder='Args JSON (e.g. {"command": "hostname"})'
+                    placeholder='Args JSON (e.g. {"command": "hostname"})' showCharacterCounter={false} maxLength={4096}
                     value={customArgs}
                     onChange={(val: any) => setCustomArgs(val)}
                   />
