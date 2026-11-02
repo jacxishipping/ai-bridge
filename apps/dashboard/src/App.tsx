@@ -182,6 +182,8 @@ function FluentIcon({ name }: { name: string }) {
       return <svg {...props}><path d="M3.5 4A1.5 1.5 0 0 0 2 5.5v9A1.5 1.5 0 0 0 3.5 16h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 16.5 4h-13Zm1.85 3.15 2.5 2.5a.5.5 0 0 1 0 .7l-2.5 2.5a.5.5 0 0 1-.7-.7L6.79 10 4.65 7.85a.5.5 0 0 1 .7-.7ZM9.5 12h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1 0-1Z"/></svg>;
     case "theme":
       return <svg {...props}><path d="M10 3.5a6.5 6.5 0 1 0 5.79 9.48.5.5 0 0 0-.64-.69A5.5 5.5 0 0 1 8.81 4.15a.5.5 0 0 0-.23-.96A6.5 6.5 0 0 0 10 3.5Z"/></svg>;
+        case "copy":
+      return <svg {...props}><path d="M4 4.5A1.5 1.5 0 0 1 5.5 3h6A1.5 1.5 0 0 1 13 4.5v1h1.5A1.5 1.5 0 0 1 16 7v8.5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 6 15.5V14H5.5A1.5 1.5 0 0 1 4 12.5v-8ZM7 14h1.5a1.5 1.5 0 0 1 1.5 1.5V16h4.5a.5.5 0 0 0 .5-.5V7a.5.5 0 0 0-.5-.5H13v6a1.5 1.5 0 0 1-1.5 1.5H7Zm-1.5-1H11a.5.5 0 0 0 .5-.5v-8a.5.5 0 0 0-.5-.5H5.5a.5.5 0 0 0-.5.5v8a.5.5 0 0 0 .5.5Z"/></svg>;
     case "search":
       return <svg {...props}><path d="M8.5 3a5.5 5.5 0 0 1 4.38 8.82l3.65 3.65a.5.5 0 0 1-.7.7l-3.65-3.65A5.5 5.5 0 1 1 8.5 3Zm0 1a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z"/></svg>;
     case "dispatch":
@@ -371,15 +373,67 @@ function Card({ title, action, children }: { title: string; action?: any; childr
 
 function Bar({ label, value, max }: { label: string; value: number; max: number }) {
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  
+  const getGradient = (l: string) => {
+    const lower = l.toLowerCase();
+    if (lower === "completed" || lower === "allowed" || lower === "online" || lower === "up" || lower === "live") {
+      return "linear-gradient(90deg, #10b981 0%, #059669 100%)";
+    }
+    if (lower === "failed" || lower === "denied" || lower === "revoked" || lower === "cancelled" || lower === "down") {
+      return "linear-gradient(90deg, #f43f5e 0%, #e11d48 100%)";
+    }
+    if (lower === "queued" || lower === "running" || lower === "pending" || lower === "needs_approval") {
+      return "linear-gradient(90deg, #f59e0b 0%, #d97706 100%)";
+    }
+    if (lower.includes("shell") || lower.includes("terminal")) {
+      return "linear-gradient(90deg, #6366f1 0%, #4f46e5 100%)";
+    }
+    if (lower.includes("screenshot") || lower.includes("vision") || lower.includes("desktop")) {
+      return "linear-gradient(90deg, #0ea5e9 0%, #0284c7 100%)";
+    }
+    return "linear-gradient(90deg, #8b5cf6 0%, #7c3aed 100%)";
+  };
+
+  const getBadgeColor = (l: string) => {
+    const lower = l.toLowerCase();
+    if (lower === "completed" || lower === "allowed") return "#10b981";
+    if (lower === "failed" || lower === "denied") return "#f43f5e";
+    if (lower === "queued" || lower === "running" || lower === "pending") return "#f59e0b";
+    return "var(--jx-text-secondary)";
+  };
+
   return (
-    <div className="f2-bar-row">
-      <span style={{ width: 140, color: "var(--colorNeutralForeground2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={label}>
+    <div className="f2-bar-row" style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 0" }}>
+      <span
+        style={{
+          width: 140,
+          color: getBadgeColor(label),
+          fontWeight: 600,
+          fontSize: 12.5,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap"
+        }}
+        title={label}
+      >
         {label}
       </span>
-      <div className="f2-bar-track">
-        <div className="f2-bar-fill" style={{ width: `${pct}%` }} />
+      <div className="f2-bar-track" style={{ flex: 1, height: 7, borderRadius: 9999, background: "var(--jx-surface-sunken)", overflow: "hidden", border: "1px solid var(--jx-border-subtle)" }}>
+        <div
+          className="f2-bar-fill"
+          style={{
+            width: `${Math.max(4, pct)}%`,
+            height: "100%",
+            borderRadius: 9999,
+            background: getGradient(label),
+            boxShadow: `0 0 10px ${getBadgeColor(label)}44`,
+            transition: "width 0.6s cubic-bezier(0.16, 1, 0.3, 1)"
+          }}
+        />
       </div>
-      <span style={{ width: 42, textAlign: "right", fontWeight: 600 }}>{value}</span>
+      <span style={{ minWidth: 36, textAlign: "right", fontWeight: 700, fontSize: 12.5, fontFamily: "var(--font-mono)", color: "var(--jx-text-primary)" }}>
+        {value}
+      </span>
     </div>
   );
 }
@@ -1410,7 +1464,7 @@ export default function App() {
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               <button
                 type="button"
-                className="f2-btn f2-btn-subtle"
+                className="f2-copy-link-btn"
                 title="Copy a link to this exact view"
                 onClick={async () => {
                   try {
@@ -1421,7 +1475,8 @@ export default function App() {
                   }
                 }}
               >
-                🔗 Copy link
+                <FluentIcon name="copy" />
+                <span>Copy view link</span>
               </button>
               {view !== "tasks" && (
                 <MagneticButton
@@ -1561,7 +1616,7 @@ export default function App() {
                 marginBottom: 24,
               }}>
                 <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--jx-text-tertiary)" }}>
-                  ⚡ Quick Dispatch:
+                  Quick Actions:
                 </span>
                 <MagneticButton strength={12} variant="soft" tone="primary" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => { setView("tasks"); setTaskTool("run_shell"); setTaskArgs('{"command": "uptime && free -h"}'); }} title="Dispatch shell diagnostics task"><FluentIcon name="terminal" /><span>Fleet Uptime & RAM</span></MagneticButton>
                 <MagneticButton strength={12} variant="soft" tone="primary" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => { setView("tasks"); setTaskTool("capture_desktop_screenshot"); setTaskArgs("{}"); }} title="Capture live screenshot"><FluentIcon name="live_studio" /><span>Desktop Vision Inspector</span></MagneticButton>
@@ -1819,7 +1874,7 @@ export default function App() {
                                     setView("device_detail");
                                   }}
                                   title={`Open full system dashboard for ${d.name}`}
-                                  startIcon={<span>🖥️</span>}
+                                  startIcon={<span style={{ color: "var(--jx-primary)", fontSize: 13 }}>■</span>}
                                 >
                                   {d.name}
                                 </JXButton>
@@ -1857,7 +1912,7 @@ export default function App() {
                                   onClick={() => setDevicePolicyModalId(d.id)}
                                   title="Custom device abilities configured. Click to view & edit."
                                 >
-                                  🛡️ Custom ({d.policy?.denied_tools?.length ? `${d.policy.denied_tools.length} blocked` : "Active"})
+                                  Custom ({d.policy?.denied_tools?.length ? `${d.policy.denied_tools.length} blocked` : "Active"})
                                 </JXButton>
                               ) : (
                                 <JXButton
@@ -1866,7 +1921,7 @@ export default function App() {
                                   onClick={() => setDevicePolicyModalId(d.id)}
                                   title="Inheriting global server security policy. Click to customize."
                                 >
-                                  🌐 Global Default
+                                  Global Default
                                 </JXButton>
                               )}
                             </td>

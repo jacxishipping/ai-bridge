@@ -283,7 +283,7 @@ const WindowsLiveCard: React.FC<WindowsLiveCardProps> = ({
                 color="primary"
                 size="md"
               >
-                🎮 Take Dual-Control Takeover
+                Dual-Control Takeover
               </JXButton>
             </div>
           )}
@@ -310,7 +310,7 @@ const WindowsLiveCard: React.FC<WindowsLiveCardProps> = ({
             onClick={() => onTakeControl(device.id)}
             style={{ padding: "6px 12px", fontSize: 12, fontWeight: 700, borderRadius: 6 }}
           >
-            🎮 Take Control
+            Take Control
           </MagneticButton>
           <MagneticButton
             variant="soft"
@@ -321,7 +321,7 @@ const WindowsLiveCard: React.FC<WindowsLiveCardProps> = ({
             title="Dispatch Win+R Run shortcut"
             style={{ padding: "6px 10px", fontSize: 12, borderRadius: 6 }}
           >
-            ⌨️ Win+R
+            Win+R
           </MagneticButton>
           <MagneticButton
             variant="soft"
@@ -332,7 +332,7 @@ const WindowsLiveCard: React.FC<WindowsLiveCardProps> = ({
             title="Open high-res snapshot in new tab"
             style={{ padding: "6px 10px", fontSize: 12, borderRadius: 6 }}
           >
-            📸 Shot
+            Screenshot
           </MagneticButton>
         </div>
 
@@ -791,14 +791,14 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
             variant={viewMode === "wall" ? "contained" : "soft"}
             onClick={() => setViewMode("wall")}
           >
-            🪟 Windows Fleet Live Wall ({windowsCount} Live)
+            Windows Fleet Live Wall ({windowsCount} Live)
           </JXButton>
 
           <JXButton
             variant={viewMode === "single" ? "contained" : "soft"}
             onClick={() => setViewMode("single")}
           >
-            🖥️ Single Focused Studio
+            Single Focused Studio
           </JXButton>
         </div>
 
@@ -860,14 +860,14 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
                   size="sm"
                   onClick={() => setWallFilter("windows")}
                 >
-                  🪟 Windows Only ({windowsCount})
+                  Windows Only ({windowsCount})
                 </JXButton>
                 <JXButton
                   variant={wallFilter === "all" ? "contained" : "soft"}
                   size="sm"
                   onClick={() => setWallFilter("all")}
                 >
-                  🌐 All Nodes ({devices.length})
+                  All Nodes ({devices.length})
                 </JXButton>
               </div>
 
@@ -1032,7 +1032,7 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
                   size="sm"
                   onClick={() => setStreamMode("webrtc")}
                 >
-                  🎥 WebRTC {webrtcStatus === "connected" ? "● LIVE" : ""}
+                  WebRTC {webrtcStatus === "connected" ? "● LIVE" : ""}
                 </JXButton>
                 <JXButton
                   variant={streamMode === "frames" ? "contained" : "soft"}
@@ -1114,7 +1114,7 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
                 size="sm"
                 onClick={handleEmergencyHalt}
               >
-                {emergencyArmed ? "🛑 Confirm Emergency Stop?" : "🛑 Emergency Stop"}
+                {emergencyArmed ? "🛑 Confirm Emergency Stop?" : "Emergency Stop"}
               </JXButton>
             </div>
           )}
@@ -1225,28 +1225,28 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
                 size="sm"
                 onClick={() => handleSendHotkey(selectedDevice, "win+r")}
               >
-                ⌨️ Win + R (Run)
+                Win + R (Run)
               </JXButton>
               <JXButton
                 variant="soft"
                 size="sm"
                 onClick={() => handleSendHotkey(selectedDevice, "ctrl+s")}
               >
-                💾 Ctrl + S (Save)
+                Ctrl + S (Save)
               </JXButton>
               <JXButton
                 variant="soft"
                 size="sm"
                 onClick={() => handleSendHotkey(selectedDevice, "alt+tab")}
               >
-                🔄 Alt + Tab
+                Alt + Tab
               </JXButton>
               <JXButton
                 variant="soft"
                 size="sm"
                 onClick={() => handleSendHotkey(selectedDevice, "ctrl+shift+esc")}
               >
-                📊 Task Manager
+                Task Manager
               </JXButton>
               <JXButton
                 variant="soft"
@@ -1333,7 +1333,7 @@ export const LiveDesktopStudio: React.FC<LiveDesktopStudioProps> = ({ devices, o
               onClick={handleUpdateFleet}
               loading={updating}
             >
-              🚀 Update Entire Fleet
+              Update Entire Fleet
             </JXButton>
           </div>
         </div>

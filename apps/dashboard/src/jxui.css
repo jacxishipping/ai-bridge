@@ -1571,3 +1571,90 @@ div:has(> span.tabular-nums) {
 [data-theme="dark"] .border-slate-200 {
   border-color: var(--jx-border-subtle) !important;
 }
+
+
+/* 5-Column Balanced Bento Grid on Desktop */
+@media (min-width: 1280px) {
+  .f2-kpi-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+}
+
+/* Copy View Link Luxury Pill */
+.f2-copy-link-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 8px 14px !important;
+  border-radius: 10px !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  color: var(--jx-text-secondary) !important;
+  background: var(--jx-surface-sunken) !important;
+  border: 1px solid var(--jx-border-subtle) !important;
+  cursor: pointer !important;
+  transition: all 0.16s ease !important;
+}
+.f2-copy-link-btn:hover {
+  background: var(--jx-surface-2) !important;
+  color: var(--jx-text-primary) !important;
+  border-color: var(--jx-primary) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Custom Obsidian Sleek Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Tactile Suggestion Chips */
+.f2-suggestion-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  padding: 6px 13px !important;
+  border-radius: 9999px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: var(--jx-text-secondary) !important;
+  background: var(--jx-surface-sunken) !important;
+  border: 1px solid var(--jx-border-subtle) !important;
+  cursor: pointer !important;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  outline: none !important;
+}
+.f2-suggestion-chip:hover {
+  background: var(--jx-surface-2) !important;
+  color: var(--jx-text-primary) !important;
+  border-color: var(--jx-primary) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.16) !important;
+}
+.f2-suggestion-chip:active {
+  transform: translateY(0) scale(0.98) !important;
+}
+
+/* Subtle table row hover highlight */
+.f2-table tbody tr {
+  transition: background 0.15s ease !important;
+}
+.f2-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.028) !important;
+}
+
+/* Polished Tabular Alignment */
+.f2-table td {
+  vertical-align: middle !important;
+}

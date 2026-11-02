@@ -502,7 +502,8 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
         </div>
       )}
       {/* Top Header Card */}
-      <div className="f2-card" style={{ padding: "18px 20px" }}>
+      <JXCard spotlight hoverLift className="f2-card">
+        <div style={{ padding: "18px 20px" }}>
         {/* Navigation Breadcrumb & Device Switcher */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -533,7 +534,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
               onClick={() => setShowExportModal(true)}
               title="Export complete system diagnostic report in Markdown or JSON"
             >
-              📋 Export Report
+              Export Report
             </JXButton>
 
             <MagneticButton
@@ -617,7 +618,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
                 onClick={() => onOpenPolicyModal(deviceId)}
                 title="Configure allowed tools, apps, and guardrails for this device"
               >
-                🛡️ Abilities
+                Abilities
               </JXButton>
             )}
 
@@ -629,12 +630,13 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
                 title="Open task composer to run any tool on this device"
                 style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700 }}
               >
-                🚀 Dispatch Task
+                Dispatch Task
               </LiquidButton>
             )}
           </div>
         </div>
-      </div>
+        </div>
+      </JXCard>
 
       {/* Smart Health Insights Banner */}
       {(hasHighCpu || hasHighMem || hasHighDisk || isHeartbeatLag) && (
@@ -889,13 +891,13 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
       <div style={{ marginBottom: 14 }}>
         <JXTabs
           tabs={[
-            { id: "specs", label: "💻 System Full Info" },
-            { id: "network", label: "🌐 Network & Listening Ports", count: listeningSockets.length || undefined },
-            { id: "servers", label: "⚙️ Running Servers & Processes", count: processes.length || undefined },
-            { id: "terminal", label: "⚡ Terminal & Shell", count: terminalHistory.length || undefined },
-            { id: "apps", label: "📦 Installed Apps & Packages", count: (apps.allowed_apps?.length || 0) + (apps.installed_packages?.length || 0) || undefined },
-            { id: "vision", label: "👁️ Vision & Desktop" },
-            { id: "history", label: "📜 Task Execution History", count: recentTasks.length || undefined },
+            { id: "specs", label: "System Full Info" },
+            { id: "network", label: "Network & Listening Ports", count: listeningSockets.length || undefined },
+            { id: "servers", label: "Running Servers & Processes", count: processes.length || undefined },
+            { id: "terminal", label: "Terminal & Shell", count: terminalHistory.length || undefined },
+            { id: "apps", label: "Installed Apps & Packages", count: (apps.allowed_apps?.length || 0) + (apps.installed_packages?.length || 0) || undefined },
+            { id: "vision", label: "Vision & Desktop" },
+            { id: "history", label: "Task Execution History", count: recentTasks.length || undefined },
           ]}
           value={activeTab}
           onChange={(val) => setActiveTab(val as any)}
@@ -983,7 +985,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
-                  <span>🌐 Active Listening Ports & Sockets</span>
+                  <span>Active Listening Ports & Sockets</span>
                   <span className="f2-badge" data-tone="blue">{listeningSockets.length} Open Sockets</span>
                 </h3>
                 <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", marginTop: 2 }}>
@@ -1063,7 +1065,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
           {/* Network Adapters & IP Addresses */}
           <div className="f2-card" style={{ padding: 20 }}>
             <div style={{ marginBottom: 14 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>📡 Network Adapters & IP Interfaces</h3>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Network Adapters & IP Interfaces</h3>
               <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", marginTop: 2 }}>
                 Physical and virtual network interfaces configured on the host.
               </div>
@@ -1127,7 +1129,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
-                  <span>🐳 Docker Container Services</span>
+                  <span>Docker Container Services</span>
                   {docker.available && (
                     <span className="f2-badge" data-tone="green">Docker Engine Active</span>
                   )}
@@ -1184,7 +1186,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
           <div className="f2-card" style={{ padding: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>📊 Live Process Tree & Resource Consumers</h3>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Live Process Tree & Resource Consumers</h3>
                 <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", marginTop: 2 }}>
                   Real-time active processes sorted by CPU and memory load.
                 </div>
@@ -1440,7 +1442,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
           <div className="f2-card" style={{ padding: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>🖥️ Allowlisted Desktop & GUI Applications</h3>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Allowlisted Desktop & GUI Applications</h3>
                 <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", marginTop: 2 }}>
                   Applications authorized by device policy for automated or interactive launch.
                 </div>
@@ -1494,7 +1496,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
           <div className="f2-card" style={{ padding: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>📦 System Packages Installed</h3>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>System Packages Installed</h3>
                 <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", marginTop: 2 }}>
                   Packages deployed via <code>winget</code> (Windows) or <code>apt-get</code> / <code>dnf</code> (Linux).
                 </div>
@@ -1547,7 +1549,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
           <div className="f2-card" style={{ padding: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 14 }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>📸 Interactive Desktop Screen Vision & HUD</h3>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Interactive Desktop Screen Vision & HUD</h3>
                 <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", marginTop: 2 }}>
                   Multimodal vision capture. Click anywhere on the image to simulate mouse clicks or keystroke automation.
                 </div>
@@ -1568,7 +1570,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
                   onClick={() => handleTriggerTelemetry(["capture_desktop_screenshot"])}
                   loading={refreshing}
                 >
-                  📸 Capture Screen
+                  Capture Screen
                 </JXButton>
               </div>
             </div>
@@ -1614,7 +1616,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
           <div className="f2-card" style={{ padding: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>🪟 Active Desktop Windows</h3>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Active Desktop Windows</h3>
                 <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", marginTop: 2 }}>
                   Open application windows currently visible on the host desktop.
                 </div>
@@ -1669,7 +1671,7 @@ ${docker.containers?.map((c: any) => `- **${c.name}** (${c.image}): ${c.status}`
         <div className="f2-card" style={{ padding: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>📜 Device Task Execution Stream</h3>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Device Task Execution Stream</h3>
               <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)", marginTop: 2 }}>
                 Audit history of all diagnostic probes and commands dispatched to this specific device.
               </div>

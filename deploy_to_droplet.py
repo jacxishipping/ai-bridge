@@ -70,6 +70,7 @@ def main():
         ("apps/dashboard/src/DeviceDetailDashboard.tsx", "/opt/ai-bridge/apps/dashboard/src/DeviceDetailDashboard.tsx"),
         ("apps/dashboard/src/FleetOperations.tsx", "/opt/ai-bridge/apps/dashboard/src/FleetOperations.tsx"),
         ("apps/dashboard/src/LiveDesktopStudio.tsx", "/opt/ai-bridge/apps/dashboard/src/LiveDesktopStudio.tsx"),
+        ("apps/dashboard/src/WorkflowPlanner.tsx", "/opt/ai-bridge/apps/dashboard/src/WorkflowPlanner.tsx"),
         ("apps/dashboard/src/jxui.css", "/opt/ai-bridge/apps/dashboard/src/jxui.css"),
         ("apps/dashboard/src/main.tsx", "/opt/ai-bridge/apps/dashboard/src/main.tsx"),
         ("apps/dashboard/src/tailwind.css", "/opt/ai-bridge/apps/dashboard/src/tailwind.css"),

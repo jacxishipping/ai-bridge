@@ -367,10 +367,10 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
   const activeMaskedKey = aiSettings?.masked_keys?.[activeProvider] || "";
 
   const mainTabs = [
-    { id: "chat", label: "💬 Fleet Copilot Chat" },
-    { id: "settings", label: "🔑 Connect AI API Key" },
-    { id: "invoker", label: "⚡ Live Tool Tester" },
-    { id: "docs", label: "💻 SDK & REST Snippets" },
+    { id: "chat", label: "Fleet Copilot Chat" },
+    { id: "settings", label: "Connect AI API Key" },
+    { id: "invoker", label: "Live Tool Tester" },
+    { id: "docs", label: "SDK & REST Snippets" },
   ];
 
   const providerOptions = [
@@ -380,15 +380,15 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
     { id: "groq", label: "Groq (Ultra-Fast Llama 3.3 70B)" },
     { id: "deepseek", label: "DeepSeek (DeepSeek V3 / R1)" },
     { id: "ollama", label: "Local Ollama (Offline / Self-Hosted)" },
-    { id: "custom", label: "⚡ Custom AI Endpoint (OpenRouter, Together, LocalAI, vLLM)" },
+    { id: "custom", label: "Custom AI Endpoint (OpenRouter, Together, LocalAI, vLLM)" },
   ];
 
   const deviceOptions = [
-    { id: "auto", label: "⚡ Auto (Auto-route based on tool type)" },
-    { id: "local", label: "🖥️ local (Droplet / MCP Host)" },
+    { id: "auto", label: "Auto (Auto-route based on tool type)" },
+    { id: "local", label: "Local (Droplet / MCP Host)" },
     ...devices.map(d => ({
       id: d.name || d.id,
-      label: `${d.os && d.os.toLowerCase().includes("win") ? "🪟" : "🐧"} ${d.name} (${d.os || "Unknown OS"}, ${d.status})`,
+      label: `${d.name} (${d.os || "node"}, ${d.status})`,
     })),
   ];
 
@@ -622,20 +622,22 @@ curl -X POST "${baseUrl}/v1/chat/completions" \\
           {/* Quick Action Suggestion Chips */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {[
-              { label: "📸 Screenshot windows-pc", prompt: "Take a screenshot of windows-pc and show me what is on screen" },
-              { label: "🔤 Native OCR & Text Grounding", prompt: "Run OCR on windows-pc screen and list all detected text buttons with coordinates" },
-              { label: "🎯 Click by Text (Zero Guesswork)", prompt: "Find and click the 'Settings' button on windows-pc" },
-              { label: "🏷️ Set-of-Marks Overlay", prompt: "Generate a set of marks screenshot on windows-pc and enumerate all clickable UI elements" },
-              { label: "🐧 Ubuntu Uptime & Disk", prompt: "Check uptime, CPU load, and disk space on ubuntu" },
-              { label: "🪟 Windows Apps", prompt: "List open application windows on windows-pc" },
-              { label: "🩺 Full Fleet Health", prompt: "Provide a complete health and telemetry status summary for all devices in our fleet" },
+              { icon: "📸", label: "Screenshot windows-pc", prompt: "Take a screenshot of windows-pc and show me what is on screen" },
+              { icon: "🔤", label: "Native OCR & Text Grounding", prompt: "Run OCR on windows-pc screen and list all detected text buttons with coordinates" },
+              { icon: "🎯", label: "Click by Text (Zero Guesswork)", prompt: "Find and click the 'Settings' button on windows-pc" },
+              { icon: "🏷️", label: "Set-of-Marks Overlay", prompt: "Generate a set of marks screenshot on windows-pc and enumerate all clickable UI elements" },
+              { icon: "🐧", label: "Ubuntu Uptime & Disk", prompt: "Check uptime, CPU load, and disk space on ubuntu" },
+              { icon: "🪟", label: "Windows Apps", prompt: "List open application windows on windows-pc" },
+              { icon: "🩺", label: "Full Fleet Health", prompt: "Provide a complete health and telemetry status summary for all devices in our fleet" },
             ].map((chip, idx) => (
-              <JXChip
+              <button
                 key={idx}
-                label={chip.label}
-                tone="indigo"
+                type="button"
+                className="f2-suggestion-chip"
                 onClick={() => handleSendChat(chip.prompt)}
-              />
+              >
+                <span>{chip.label}</span>
+              </button>
             ))}
           </div>
 

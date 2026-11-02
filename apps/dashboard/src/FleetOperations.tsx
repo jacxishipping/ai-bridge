@@ -300,7 +300,7 @@ export const FleetOperations: React.FC = () => {
           different size/weight. */}
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
         <JXButton variant="outlined" size="sm" onClick={loadData}>
-          🔄 Refresh Fleet
+          ↻ Refresh Fleet
         </JXButton>
       </div>
 
@@ -363,10 +363,10 @@ export const FleetOperations: React.FC = () => {
       <div style={{ marginBottom: 12 }}>
         <JXTabs
           tabs={[
-            { id: "telemetry", label: "📊 Fleet Telemetry & Nodes" },
-            { id: "broadcast", label: "⚡ Multi-Node Broadcast Bus" },
-            { id: "triggers", label: `🛡️ Self-Healing Triggers (${triggersList.length})` },
-            { id: "schedules", label: `⏰ Fleet Scheduler (${schedulesList.length})` },
+            { id: "telemetry", label: "Fleet Telemetry & Nodes" },
+            { id: "broadcast", label: "Multi-Node Broadcast Bus" },
+            { id: "triggers", label: `Self-Healing Triggers (${triggersList.length})` },
+            { id: "schedules", label: `Fleet Scheduler (${schedulesList.length})` },
           ]}
           value={activeTab}
           onChange={(val: any) => setActiveTab(val)}
@@ -394,18 +394,9 @@ export const FleetOperations: React.FC = () => {
               .filter(d => !nodeQuery || `${d.name || ""} ${d.os || ""} ${d.id || ""}`.toLowerCase().includes(nodeQuery.toLowerCase()))
               .slice(nodePage * 12, nodePage * 12 + 12)
               .map((dev) => (
-              <div
-                key={dev.id}
-                style={{
-                  background: "var(--colorNeutralBackground2)",
-                  border: "1px solid var(--colorNeutralStroke2)",
-                  borderRadius: 10,
-                  padding: 16,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 10,
-                }}
-              >
+              <div key={dev.id} style={{ outline: "none" }}>
+                <JXCard spotlight hoverLift className="f2-card">
+                  <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ fontWeight: 700, fontSize: 15 }}>{dev.name}</div>
                   <span
@@ -486,8 +477,10 @@ export const FleetOperations: React.FC = () => {
                   onClick={() => viewDeviceTelemetry(dev)}
                   fullWidth
                 >
-                  📈 View Metric History
+                  ↗ View Metric History
                 </JXButton>
+                  </div>
+                </JXCard>
               </div>
             ))}
           </div>

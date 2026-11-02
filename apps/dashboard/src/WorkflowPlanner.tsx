@@ -236,16 +236,21 @@ export const WorkflowPlanner: React.FC<WorkflowPlannerProps> = ({ devices, onNot
         {templates.length > 0 && (
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--colorNeutralStroke2)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: "var(--colorNeutralForeground2)" }}>Templates:</span>
-            {templates.map(tpl => (
-              <JXButton
-                key={tpl.id}
-                variant="soft"
-                size="sm"
-                onClick={() => handleSelectTemplate(tpl)}
-              >
-                {tpl.name}
-              </JXButton>
-            ))}
+            {templates.map(tpl => {
+              const cleanName = tpl.name.replace(/^[^a-zA-Z0-9]+/, '').trim();
+              return (
+                <button
+                  key={tpl.id}
+                  type="button"
+                  className="f2-suggestion-chip"
+                  onClick={() => handleSelectTemplate(tpl)}
+                  title={tpl.description}
+                >
+                  <span style={{ color: "var(--jx-primary)" }}>✦</span>
+                  <span>{cleanName}</span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
