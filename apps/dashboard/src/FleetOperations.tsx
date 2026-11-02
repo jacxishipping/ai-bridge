@@ -389,7 +389,7 @@ export const FleetOperations: React.FC = () => {
               {(fleetData?.devices || []).filter(d => !nodeQuery || `${d.name || ""} ${d.os || ""} ${d.id || ""}`.toLowerCase().includes(nodeQuery.toLowerCase())).length} of {fleetData?.devices?.length || 0} nodes
             </span>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 260px), 1fr))", gap: 14 }}>
             {(fleetData?.devices || [])
               .filter(d => !nodeQuery || `${d.name || ""} ${d.os || ""} ${d.id || ""}`.toLowerCase().includes(nodeQuery.toLowerCase()))
               .slice(nodePage * 12, nodePage * 12 + 12)

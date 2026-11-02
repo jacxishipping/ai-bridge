@@ -34,6 +34,39 @@ import { Pager } from "./Pager";
 type View = "overview" | "devices" | "device_detail" | "tasks" | "approvals" | "audit" | "policies" | "connections" | "ai_api" | "workflows" | "fleet_ops" | "live_studio" | "terminal" | "logs";
 type Theme = "light" | "dark";
 
+
+const TOOL_DESCRIPTIONS: Record<string, { tier: number; label: string; tone: "green" | "amber" | "red"; desc: string }> = {
+  get_system_info: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Collects hardware specs, OS version, CPU cores, and memory capacity." },
+  get_resource_usage: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Reads real-time CPU, RAM, and disk utilization percentages." },
+  get_network_info: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Queries network adapters, IP interfaces, and DNS settings." },
+  get_disk_usage: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Inspects mounted drive partitions and available disk space." },
+  get_memory_usage: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Reads memory stats, active buffers, and swap allocation." },
+  list_workspace: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Enumerates directories and file listings in the active workspace." },
+  read_workspace_file: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Reads text/code contents of a specified workspace file." },
+  search_workspace: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Performs full-text ripgrep/regex search across project files." },
+  create_workspace_file: { tier: 2, label: "Tier 2 — Workspace Modification", tone: "amber", desc: "Creates or overwrites a file inside the device workspace." },
+  edit_workspace_file: { tier: 2, label: "Tier 2 — Workspace Modification", tone: "amber", desc: "Modifies targeted lines in an existing workspace code file." },
+  move_workspace_file: { tier: 2, label: "Tier 2 — Workspace Modification", tone: "amber", desc: "Renames or relocates a file within the workspace tree." },
+  delete_workspace_file: { tier: 3, label: "Tier 3 — High Risk Deletion", tone: "red", desc: "Permanently deletes a file from the workspace filesystem." },
+  get_service_status: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Checks systemd / Windows Service status and uptime." },
+  get_recent_logs: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Streams recent system journal and application log buffers." },
+  list_processes: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Gathers snapshot of all running processes and memory footprint." },
+  list_docker_containers: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Lists active and exited Docker containers on the host." },
+  git_status: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Inspects Git working tree clean/dirty status and branch head." },
+  git_diff: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Generates unified diff of uncommitted workspace changes." },
+  run_project_tests: { tier: 2, label: "Tier 2 — Test Execution", tone: "amber", desc: "Runs automated test harnesses (pytest, vitest, cargo test)." },
+  run_linter: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Executes static analysis / lint check on project sources." },
+  create_backup: { tier: 2, label: "Tier 2 — Backup Creation", tone: "amber", desc: "Creates an archival backup archive of workspace state." },
+  deploy_application: { tier: 3, label: "Tier 3 — Deployment Action", tone: "red", desc: "Deploys code changes and triggers service reload." },
+  run_shell: { tier: 3, label: "Tier 3 — Arbitrary Shell Execution", tone: "red", desc: "Executes arbitrary terminal / PowerShell commands on host machine." },
+  take_screenshot: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Captures visual desktop screen frame of target device." },
+  capture_desktop_screenshot: { tier: 1, label: "Tier 1 — Safe Observation", tone: "green", desc: "Captures full-resolution desktop screen frame with window HUD." },
+  mouse_click: { tier: 2, label: "Tier 2 — Desktop Input", tone: "amber", desc: "Simulates hardware mouse click at specified coordinates." },
+  keyboard_type: { tier: 2, label: "Tier 2 — Desktop Input", tone: "amber", desc: "Types text keystrokes into active focused window." },
+  launch_approved_application: { tier: 2, label: "Tier 2 — App Launch", tone: "amber", desc: "Launches an allowlisted native application executable." },
+  install_package: { tier: 3, label: "Tier 3 — Package Installation", tone: "red", desc: "Installs system package via apt, choco, or winget." },
+};
+
 const TOOLS = [
   "get_system_info", "get_resource_usage", "get_network_info", "get_disk_usage", "get_memory_usage",
   "list_workspace", "read_workspace_file", "search_workspace", "create_workspace_file",
@@ -550,6 +583,15 @@ export default function App() {
   const [logCount, setLogCount] = useState(100);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [secondsAgo, setSecondsAgo] = useState<number>(0);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (lastUpdated) {
+        setSecondsAgo(Math.floor((Date.now() - lastUpdated) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lastUpdated]);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
   const [cmdSelectedIndex, setCmdSelectedIndex] = useState(0);
@@ -996,16 +1038,40 @@ export default function App() {
             </div>
           </button>
 
-          <button
-            type="button"
-            className={`f2-status-pill${health?.emergency_stop ? " danger" : ""}`}
-            onClick={() => setView("devices")}
-            title={health?.emergency_stop ? "Emergency Stop is Active" : `${online.length} of ${devices.length} devices online (click to view)`}
-            aria-label={health?.emergency_stop ? "Emergency stop active. View devices." : `${online.length} of ${devices.length} devices online. View devices.`}
-          >
-            <span className={`f2-status-dot ${health?.emergency_stop ? "danger" : "online"}`} />
-            <span>{health?.emergency_stop ? "STOPPED" : `${online.length}/${devices.length} Online`}</span>
-          </button>
+          {health?.emergency_stop ? (
+            <button
+              type="button"
+              className="f2-status-pill danger"
+              onClick={() => setView("overview")}
+              title="Emergency Stop is Active. All tasks blocked."
+              aria-label="Emergency stop active. View operations."
+            >
+              <span className="f2-status-dot danger" />
+              <span>STOPPED</span>
+            </button>
+          ) : secondsAgo >= 30 ? (
+            <button
+              type="button"
+              className="f2-status-pill stale"
+              onClick={() => load()}
+              title={`Data last updated ${secondsAgo}s ago. Click to refresh.`}
+              aria-label={`Data last updated ${secondsAgo} seconds ago. Click to refresh.`}
+            >
+              <span className="f2-status-dot stale" />
+              <span>⚠️ Stale ({secondsAgo}s) · ↻</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="f2-status-pill"
+              onClick={() => setView("devices")}
+              title={`${online.length} of ${devices.length} devices online · updated ${secondsAgo}s ago`}
+              aria-label={`${online.length} of ${devices.length} devices online. View devices.`}
+            >
+              <span className="f2-status-dot online" />
+              <span>{online.length}/{devices.length} Online{secondsAgo > 0 ? ` · ${secondsAgo}s` : ""}</span>
+            </button>
+          )}
         </div>
 
         {/* Center: Spotlight Search (⌘K Command Palette) */}
@@ -1524,6 +1590,79 @@ export default function App() {
 
         {/* Fluent 2 Workspace Canvas */}
         <main className="f2-canvas" aria-busy={loading}>
+          {/* Global Persistent Operational Triage Ribbon */}
+          {(() => {
+            const hasEmergency = Boolean(health?.emergency_stop);
+            const pendingList = approvals.filter(a => a.status === "pending");
+            const offlineDevices = devices.filter(d => !d.is_online && d.status !== "online" && !d.revoked);
+
+            if (!hasEmergency && pendingList.length === 0 && offlineDevices.length === 0) {
+              return null;
+            }
+
+            return (
+              <div className="f2-triage-ribbon" role="alert" aria-live="polite">
+                {hasEmergency && (
+                  <div className="f2-triage-item f2-triage-danger">
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
+                      <span style={{ fontSize: 16 }}>🛑</span>
+                      <div className="f2-triage-text">
+                        <strong>EMERGENCY STOP ACTIVE:</strong> All outbound autonomous task executions are halted.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="f2-triage-btn f2-triage-btn-danger"
+                      onClick={async () => {
+                        await api.emergencyClear();
+                        setNotice({ intent: "success", text: "Emergency stop cleared. Operations resumed." });
+                        load();
+                      }}
+                    >
+                      Resume Fleet
+                    </button>
+                  </div>
+                )}
+
+                {pendingList.length > 0 && (
+                  <div className="f2-triage-item f2-triage-warning">
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
+                      <span style={{ fontSize: 16 }}>⚠️</span>
+                      <div className="f2-triage-text">
+                        <strong>{pendingList.length} Pending Approval{pendingList.length > 1 ? "s" : ""}:</strong> Requires administrator sign-off before dispatching to fleet nodes.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="f2-triage-btn f2-triage-btn-warning"
+                      onClick={() => setView("approvals")}
+                    >
+                      Review Queue ({pendingList.length}) ↗
+                    </button>
+                  </div>
+                )}
+
+                {offlineDevices.length > 0 && (
+                  <div className="f2-triage-item f2-triage-info">
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
+                      <span style={{ fontSize: 16 }}>⚪</span>
+                      <div className="f2-triage-text">
+                        <strong>{offlineDevices.length} Node{offlineDevices.length > 1 ? "s" : ""} Offline:</strong> {offlineDevices.map(d => d.name).slice(0, 3).join(", ")}{offlineDevices.length > 3 ? ` +${offlineDevices.length - 3} more` : ""}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="f2-triage-btn f2-triage-btn-info"
+                      onClick={() => setView("devices")}
+                    >
+                      Inspect Fleet ↗
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           <div className="f2-page-header">
             <div>
               <div className="f2-breadcrumb" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 13, marginBottom: 8 }}>
@@ -1939,7 +2078,7 @@ export default function App() {
                         const caps: string[] = Array.isArray(d.capabilities) ? d.capabilities : [];
                         return (
                           <tr key={d.id}>
-                            <td>
+                            <td data-label="Device">
                               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                 <JXButton
                                   size="sm"
@@ -1959,7 +2098,7 @@ export default function App() {
                                 <CopyButton text={String(d.id)} label="Copy" />
                               </div>
                             </td>
-                            <td>
+                            <td data-label="Host & OS">
                               {d.hostname || "—"}
                               <div style={{ fontSize: 12, color: "var(--colorNeutralForeground3)" }}>{d.os || ""}</div>
                               {(tags.length > 0 || caps.length > 0) && (
@@ -1977,8 +2116,8 @@ export default function App() {
                                 </div>
                               )}
                             </td>
-                            <td><Badge value={d.revoked ? "revoked" : d.status} /></td>
-                            <td>
+                            <td data-label="Status"><Badge value={d.revoked ? "revoked" : d.status} /></td>
+                            <td data-label="Guardrails">
                               {d.has_custom_policy ? (
                                 <JXButton
                                   size="sm"
@@ -2000,14 +2139,14 @@ export default function App() {
                                 </JXButton>
                               )}
                             </td>
-                            <td>
+                            <td data-label="Last Seen">
                               {rel(d.last_seen)}
                               <div style={{ fontSize: 11, color: "var(--colorNeutralForeground3)" }}>{fmt(d.last_seen)}</div>
                             </td>
-                            <td style={{ color: expSoon ? "var(--colorStatusDangerForeground1)" : undefined }}>
+                            <td data-label="Token Expiry" style={{ color: expSoon ? "var(--colorStatusDangerForeground1)" : undefined }}>
                               {d.token_expires_at ? rel(d.token_expires_at) : "—"}
                             </td>
-                            <td>
+                            <td data-label="Actions">
                               <TableRowActions
                                 actions={[
                                   {
@@ -2250,6 +2389,66 @@ export default function App() {
                     Run Task
                   </JXButton>
                 </form>
+
+                {/* Pre-Flight Inspection Panel */}
+                {taskTool && (
+                  <div className="f2-preflight-card">
+                    {(() => {
+                      const descObj = TOOL_DESCRIPTIONS[taskTool] || {
+                        tier: 2,
+                        label: "Tier 2 — Execution Tool",
+                        tone: "amber",
+                        desc: "Executes tool against selected target device.",
+                      };
+                      const targetDev = devices.find(d => d.id === taskDevice);
+                      const isJsonOk = (() => {
+                        if (!taskArgs.trim()) return true;
+                        try { JSON.parse(taskArgs); return true; } catch { return false; }
+                      })();
+                      const willRequireApproval = Boolean(
+                        descObj.tier >= 3 || targetDev?.has_custom_policy
+                      );
+
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, flexWrap: "wrap" }}>
+                              <span style={{ fontWeight: 800, color: "var(--jx-text-primary)", letterSpacing: "0.04em", fontSize: 11, textTransform: "uppercase" }}>Pre-Flight Check:</span>
+                              <code style={{ color: "var(--jx-primary)", fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "var(--jx-surface-2)" }}>{taskTool}</code>
+                              <span style={{ color: "var(--jx-text-tertiary)" }}>➔</span>
+                              <b>{targetDev ? targetDev.name : (taskDevice ? taskDevice : "No target selected")}</b>
+                              {targetDev && (
+                                <span className="f2-badge" data-tone={targetDev.is_online || targetDev.status === "online" ? "green" : "grey"} style={{ fontSize: 10.5, padding: "1px 6px" }}>
+                                  ● {targetDev.is_online || targetDev.status === "online" ? "Online" : "Offline"}
+                                </span>
+                              )}
+                            </div>
+
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <span className="f2-badge" data-tone={descObj.tone} style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px" }}>
+                                {descObj.label}
+                              </span>
+                              <span className="f2-badge" data-tone={willRequireApproval ? "amber" : "blue"} style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px" }}>
+                                {willRequireApproval ? "⚠️ Requires Human Approval" : "⚡ Direct Autonomous Execution"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6, fontSize: 12, color: "var(--jx-text-secondary)", marginTop: 2 }}>
+                            <span><b>Expected Impact:</b> {descObj.desc}</span>
+                            <span>
+                              {isJsonOk ? (
+                                <span style={{ color: "#10b981", fontWeight: 600 }}>✓ Valid Arguments JSON</span>
+                              ) : (
+                                <span style={{ color: "#f43f5e", fontWeight: 700 }}>✕ Invalid JSON Syntax</span>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </Card>
 
               <Card
@@ -2315,33 +2514,55 @@ export default function App() {
                     />
                   </div>
                 </div>
-                <div className="f2-table-wrap">
-                  <table className="f2-table">
-                    <thead>
-                      <tr>
-                        <th>Task ID</th>
-                        <th>Device</th>
-                        <th>Tool</th>
-                        <th>Risk Tier</th>
-                        <th>Status</th>
-                        <th>Submitted</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pagedTasks.map(t => {
-                        const isOpen = expandedTaskId === t.id;
-                        const info = isOpen ? parseTaskResult(t.result || "") : null;
-                        return (
-                          <Fragment key={t.id}>
-                            <tr data-expanded={String(isOpen)}>
-                              <td><code>{String(t.id).slice(0, 8)}</code></td>
-                              <td><b>{deviceNameOf(t.device_id)}</b></td>
-                              <td><code>{t.tool}</code></td>
-                              <td><Badge value={`Tier ${t.tier ?? "?"}`} tone={t.tier >= 4 ? "red" : t.tier === 3 ? "amber" : "blue"} /></td>
-                              <td><Badge value={t.status} /></td>
-                              <td>{rel(t.created_at)}</td>
-                              <td>
+                {filteredTasks.length === 0 ? (
+                  <div className="f2-empty-state">
+                    <div className="f2-empty-icon">📋</div>
+                    <div className="f2-empty-title">No tasks found</div>
+                    <div className="f2-empty-desc">
+                      {taskStatus === "all"
+                        ? "The fleet task queue is currently empty. Dispatch a task above or select a quick diagnostic preset."
+                        : `No tasks currently matching the status "${taskStatus}".`}
+                    </div>
+                    <JXButton
+                      size="sm"
+                      variant="soft"
+                      onClick={() => {
+                        setTaskTool("run_shell");
+                        setTaskArgs('{"command": "uptime && free -h"}');
+                        if (online[0]) setTaskDevice(online[0].id);
+                      }}
+                    >
+                      ⚡ Load Diagnostic Preset
+                    </JXButton>
+                  </div>
+                ) : (
+                  <div className="f2-table-wrap">
+                    <table className="f2-table">
+                      <thead>
+                        <tr>
+                          <th>Task ID</th>
+                          <th>Device</th>
+                          <th>Tool</th>
+                          <th>Risk Tier</th>
+                          <th>Status</th>
+                          <th>Submitted</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pagedTasks.map(t => {
+                          const isOpen = expandedTaskId === t.id;
+                          const info = isOpen ? parseTaskResult(t.result || "") : null;
+                          return (
+                            <Fragment key={t.id}>
+                              <tr data-expanded={String(isOpen)}>
+                                <td data-label="Task ID"><code>{String(t.id).slice(0, 8)}</code></td>
+                                <td data-label="Device"><b>{deviceNameOf(t.device_id)}</b></td>
+                                <td data-label="Tool"><code>{t.tool}</code></td>
+                                <td data-label="Risk Tier"><Badge value={`Tier ${t.tier ?? "?"}`} tone={t.tier >= 4 ? "red" : t.tier === 3 ? "amber" : "blue"} /></td>
+                                <td data-label="Status"><Badge value={t.status} /></td>
+                                <td data-label="Submitted">{rel(t.created_at)}</td>
+                                <td data-label="Actions">
                                 <TableRowActions
                                   actions={[
                                     t.status === "needs_approval" && {
@@ -2598,7 +2819,10 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
-                <Pager total={filteredTasks.length} page={taskPage} pageSize={25} onPage={setTaskPage} />
+                )}
+                {filteredTasks.length > 0 && (
+                  <Pager total={filteredTasks.length} page={taskPage} pageSize={25} onPage={setTaskPage} />
+                )}
               </Card>
             </div>
           )}
@@ -2606,7 +2830,19 @@ export default function App() {
           {/* ==================== APPROVALS ==================== */}
           {view === "approvals" && (
             <Card title={`Approval Queue (${approvals.length})`}>
-              <div style={{ display: "grid", gap: 10 }}>
+              {approvals.length === 0 ? (
+                <div className="f2-empty-state">
+                  <div className="f2-empty-icon">✅</div>
+                  <div className="f2-empty-title">All Approvals Clear</div>
+                  <div className="f2-empty-desc">
+                    Zero operations are awaiting human authorization. All tool tasks are executing within approved security guardrails.
+                  </div>
+                  <JXButton size="sm" variant="soft" onClick={() => setView("tasks")}>
+                    Inspect Tasks Execution Queue ↗
+                  </JXButton>
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
                 {approvals.map(a => (
                   <div
                     key={a.id}
@@ -2697,10 +2933,10 @@ export default function App() {
                     />
                   </div>
                 ))}
-                {approvals.length === 0 && <p style={{ color: "var(--colorNeutralForeground3)", fontSize: 13 }}>No approval requests yet.</p>}
               </div>
-            </Card>
-          )}
+            )}
+          </Card>
+        )}
 
           {/* ==================== AUDIT ==================== */}
           {view === "audit" && (
@@ -2742,8 +2978,20 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="f2-table-wrap">
-                <table className="f2-table">
+              {filteredAudit.length === 0 ? (
+                <div className="f2-empty-state">
+                  <div className="f2-empty-icon">📜</div>
+                  <div className="f2-empty-title">No audit events found</div>
+                  <div className="f2-empty-desc">
+                    {auditQuery || auditTool !== "all"
+                      ? "No events match the selected search filter."
+                      : "Audit trail is empty. Executed tool actions and operator approvals will record here."}
+                  </div>
+                </div>
+              ) : (
+                <>
+                <div className="f2-table-wrap">
+                  <table className="f2-table">
                   <thead>
                     <tr>
                       <th>Timestamp</th>
@@ -2756,19 +3004,21 @@ export default function App() {
                   <tbody>
                     {pagedAudit.map(a => (
                       <tr key={a.id}>
-                        <td>{fmt(a.ts)}</td>
-                        <td><b>{a.actor || "—"}</b></td>
-                        <td><code>{a.device_id ? String(a.device_id).slice(0, 8) : "—"}</code></td>
-                        <td><code>{a.tool}</code></td>
-                        <td><Badge value={a.decision || "?"} /></td>
+                        <td data-label="Timestamp">{fmt(a.ts)}</td>
+                        <td data-label="Actor"><b>{a.actor || "—"}</b></td>
+                        <td data-label="Device"><code>{a.device_id ? String(a.device_id).slice(0, 8) : "—"}</code></td>
+                        <td data-label="Tool / Action"><code>{a.tool}</code></td>
+                        <td data-label="Decision"><Badge value={a.decision || "?"} /></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
               <Pager total={filteredAudit.length} page={auditPage} pageSize={25} onPage={setAuditPage} />
-            </Card>
-          )}
+              </>
+            )}
+          </Card>
+        )}
 
           {/* ==================== POLICIES & WEBHOOKS ==================== */}
           {view === "policies" && (
@@ -3011,7 +3261,7 @@ export default function App() {
                             <td>
                               <code>tier3={String(pol.allow_tier3)} desktop={String(pol.desktop_enabled)} apps=[{(pol.allowed_apps || []).join(", ")}]</code>
                             </td>
-                            <td>
+                            <td data-label="Actions">
                               <TableRowActions
                                 actions={[
                                   {
@@ -3142,11 +3392,11 @@ export default function App() {
                             const cid = c.client_id || c.client_id_prefix;
                             return (
                               <tr key={i}>
-                                <td><b>{c.client_name || "MCP Client"}</b></td>
-                                <td><code>{c.client_id_prefix}…</code></td>
-                                <td style={{ wordBreak: "break-all", fontSize: 12 }}>{c.redirect_uris}</td>
-                                <td>{fmt(c.created_at)}</td>
-                                <td>
+                                <td data-label="Client Name"><b>{c.client_name || "MCP Client"}</b></td>
+                                <td data-label="Client ID"><code>{c.client_id_prefix}…</code></td>
+                                <td data-label="Redirect URIs" style={{ wordBreak: "break-all", fontSize: 12 }}>{c.redirect_uris}</td>
+                                <td data-label="Registered">{fmt(c.created_at)}</td>
+                                <td data-label="Actions">
                                   <TableRowActions
                                     actions={[
                                       {
