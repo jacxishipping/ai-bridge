@@ -65,11 +65,13 @@ def upload_file(local_path, remote_path):
 
 def main():
     files_to_sync = [
+        ("apps/dashboard/index.html", "/opt/ai-bridge/apps/dashboard/index.html"),
         ("apps/dashboard/src/App.tsx", "/opt/ai-bridge/apps/dashboard/src/App.tsx"),
         ("apps/dashboard/src/AiApiHub.tsx", "/opt/ai-bridge/apps/dashboard/src/AiApiHub.tsx"),
         ("apps/dashboard/src/DeviceDetailDashboard.tsx", "/opt/ai-bridge/apps/dashboard/src/DeviceDetailDashboard.tsx"),
         ("apps/dashboard/src/FleetOperations.tsx", "/opt/ai-bridge/apps/dashboard/src/FleetOperations.tsx"),
         ("apps/dashboard/src/LiveDesktopStudio.tsx", "/opt/ai-bridge/apps/dashboard/src/LiveDesktopStudio.tsx"),
+        ("apps/dashboard/src/SecurityPolicies.tsx", "/opt/ai-bridge/apps/dashboard/src/SecurityPolicies.tsx"),
         ("apps/dashboard/src/WorkflowPlanner.tsx", "/opt/ai-bridge/apps/dashboard/src/WorkflowPlanner.tsx"),
         ("apps/dashboard/src/jxui.css", "/opt/ai-bridge/apps/dashboard/src/jxui.css"),
         ("apps/dashboard/src/main.tsx", "/opt/ai-bridge/apps/dashboard/src/main.tsx"),
