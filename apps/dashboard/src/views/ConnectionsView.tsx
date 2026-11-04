@@ -247,7 +247,7 @@ export const ConnectionsView: React.FC = () => {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Protocol Header & Action Ribbon */}
       <JXCard className="bg-slate-900/60 border-slate-800">
         <div className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { ArrowRight, KeyRound, Shield, UserRound } from "lucide-react";
+import { ArrowRight, KeyRound, UserRound } from "lucide-react";
 import { JXAlert, JXButton, JXCard, JXCardContent, JXTextField } from "../ui";
+import { Brand, BrandArt } from "../Brand";
 import { api, authenticate } from "../api";
 import { useDashboardStore } from "../state/dashboardStore";
 
@@ -31,15 +32,16 @@ export const LoginView: React.FC = () => {
     } finally { setBusy(false); }
   };
 
-  return <main className="flex min-h-dvh items-center justify-center bg-[#0B0F19] px-4 py-10 text-slate-100">
-    <div className="w-full max-w-md space-y-6">
-      <div className="space-y-3 text-center">
-        <Shield className="mx-auto h-9 w-9 text-indigo-400" aria-hidden="true" />
-        <h1 className="text-2xl font-semibold tracking-tight">Connect to AI Bridge</h1>
+  return <main className="product-auth">
+    <header className="product-container py-4"><Brand /></header>
+    <div className="product-auth-content">
+    <div className="product-auth-form space-y-4">
+      <div className="space-y-3">
+        <h1>Connect to AI Bridge</h1>
       </div>
       <JXCard>
         <JXCardContent>
-          <div className="space-y-5">
+          <div className="space-y-4">
             <div className="grid grid-cols-2 gap-2" role="group" aria-label="Sign-in method">
               <JXButton color={method === "token" ? "primary" : "neutral"} variant={method === "token" ? "contained" : "outlined"}
                 aria-pressed={method === "token"} onClick={() => { setMethod("token"); setError(""); }} startIcon={<KeyRound className="h-4 w-4" />}>Admin token</JXButton>
@@ -64,7 +66,9 @@ export const LoginView: React.FC = () => {
           </div>
         </JXCardContent>
       </JXCard>
-      <p className="text-center text-xs text-slate-400">Credentials are kept for this browser session, not saved permanently.</p>
+      <p className="text-xs leading-relaxed text-slate-400">Credentials are kept for this browser session, not saved permanently.</p>
+    </div>
+    <div className="product-auth-art"><BrandArt /></div>
     </div>
   </main>;
 };

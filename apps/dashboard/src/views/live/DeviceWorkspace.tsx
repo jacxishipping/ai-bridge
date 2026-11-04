@@ -31,10 +31,10 @@ export function DeviceWorkspace({ device, devices, tab, canAct, setTab, back }:
   const [status, setStatus] = useState("all");
   return <div className="space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <h2 className="break-all text-base font-semibold">{deviceName(device)}</h2>
+      <h2 dir="auto" className="break-all text-base font-semibold">{deviceName(device)}</h2>
       <JXButton color="neutral" variant="text" onClick={back}>All devices</JXButton>
     </div>
-    <nav aria-label="Device workspace" className="flex flex-wrap gap-2 border-b border-slate-700 pb-3">
+    <nav aria-label="Device workspace" className="product-section-tabs flex flex-wrap gap-2 pb-1">
       {["details", "tasks", "terminal", "desktop"].map((value) => <JXButton key={value} color="neutral"
         variant={tab === value ? "contained" : "text"} aria-current={tab === value ? "page" : undefined}
         onClick={() => { setStatus("all"); setTab(value); }}>{value.charAt(0).toUpperCase() + value.slice(1)}</JXButton>)}

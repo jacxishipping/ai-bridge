@@ -252,7 +252,7 @@ export const AiApiHubView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* SECTION 1: Provider Connector Cards */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">

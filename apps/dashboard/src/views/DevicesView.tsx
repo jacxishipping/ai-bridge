@@ -183,7 +183,7 @@ export const DevicesView: React.FC = () => {
   );
 
   return (
-    <div className="w-full space-y-6">
+    <div className="w-full space-y-4">
       {/* Top Context & Header Ribbon */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
         <div>

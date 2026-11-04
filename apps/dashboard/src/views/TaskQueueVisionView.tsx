@@ -326,7 +326,7 @@ export const TaskQueueVisionView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Main Split Studio Grid */}
       <JXGrid columns={12} gap="lg">
         {/* LEFT COLUMN: Tool Dispatch Studio (5 cols) */}

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, RefreshCw, Shield } from "lucide-react";
+import { ArrowUpRight, RefreshCw, ShieldCheck } from "lucide-react";
 import { api, clearCredentials } from "../api";
-import { GlassModal, JXAlert, JXBadge, JXButton, JXCard, JXCardHeader, JXCardContent } from "../ui";
+import { GlassModal, JXAlert, JXBadge, JXButton } from "../ui";
+import { Brand } from "../Brand";
 import { useDashboardStore } from "../state/dashboardStore";
 import { LiveWorkspace } from "./live/LiveWorkspace";
 import type { LiveDevice } from "./live/shared";
@@ -43,51 +44,54 @@ export function LiveControlView() {
     } catch (err) { setActionError(err instanceof Error ? err.message : "The server rejected this action."); }
     finally { setActing(false); }
   };
-  return <main className="min-h-dvh bg-[#0B0F19] p-4 text-slate-100 sm:p-8">
-    <div className="mx-auto max-w-6xl space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-5">
-        <div className="flex items-center gap-3">
-          <Shield className="h-7 w-7 text-indigo-400" />
-          <div><h1 className="text-xl font-semibold">Control plane</h1></div>
-        </div>
-        <div className="flex flex-wrap gap-2">
+  return <main className="product-live">
+    <header className="product-topbar">
+      <div className="product-container flex min-h-14 flex-wrap items-center justify-between gap-3 py-2">
+        <Brand />
+        <div className="flex flex-wrap items-center gap-2">
           <JXButton color="neutral" variant="outlined" onClick={refresh} disabled={loading} loading={loading} loadingLabel="Refreshing…" startIcon={<RefreshCw className="h-4 w-4" />}>Refresh</JXButton>
           <JXButton color="neutral" variant="text" onClick={signOut}>Sign out</JXButton>
         </div>
-      </header>
+      </div>
+    </header>
+    <div className="product-container space-y-4 py-4 sm:py-5">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h1>Control plane</h1>
+          {snapshot && <p className="text-xs text-slate-400">Updated {snapshot.checkedAt.toLocaleTimeString()}</p>}
+        </div>
+        {snapshot && <div className="flex min-w-0 flex-wrap items-center gap-4">
+          <p className="max-w-full break-words text-xs text-slate-300 [overflow-wrap:anywhere]">Signed in as <span dir="auto">{snapshot.identity.actor || snapshot.identity.username || "operator"}</span> · {snapshot.identity.role}</p>
+          <JXBadge color={error ? "warning" : "success"} statusText={error ? "Stale data" : "Connected"} />
+        </div>}
+      </div>
       {error && <div className="space-y-3">
         <JXAlert severity="error" title="Control plane unavailable" description={`${error} Previously loaded data, if shown, may be stale.`} />
         <JXButton color="neutral" variant="outlined" onClick={signOut}>Return to sign in</JXButton>
       </div>}
       {loading && !snapshot && <p role="status" className="py-8 text-sm text-slate-400">Loading your control plane…</p>}
       {snapshot && <>
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <p className="text-sm text-slate-300">Signed in as {snapshot.identity.actor || snapshot.identity.username || "operator"} · {snapshot.identity.role}<br />
-            <span className="text-xs text-slate-400">Updated {snapshot.checkedAt.toLocaleTimeString()}</span>
-          </p>
-          <JXBadge color={error ? "warning" : "success"} statusText={error ? "Stale data" : "Connected"} />
-        </div>
-        <JXCard>
-          <JXCardHeader title="Fleet safety" />
-          <JXCardContent>
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <p role="status" className="text-sm">{snapshot.health.emergency_stop ? "Emergency stop is active." : "Emergency stop is not active."}</p>
-              <JXButton color={snapshot.health.emergency_stop ? "success" : "error"}
+        <section aria-label="Fleet safety" className="product-safety relative px-3 py-2" data-stopped={snapshot.health.emergency_stop}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <ShieldCheck className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+                <p role="status" className="text-sm text-slate-300">{snapshot.health.emergency_stop ? "Emergency stop is active." : "Emergency stop is not active."}</p>
+              </div>
+              <JXButton variant="outlined" color={snapshot.health.emergency_stop ? "success" : "error"}
                 disabled={Boolean(error) || snapshot.identity.role !== "admin"}
                 onClick={() => { setActionError(""); setConfirm(true); }}>{snapshot.health.emergency_stop ? "Clear emergency stop" : "Stop fleet"}</JXButton>
             </div>
             {snapshot.identity.role !== "admin" && <p className="mt-2 text-xs text-slate-400">An administrator is required to change the emergency stop.</p>}
-          </JXCardContent>
-        </JXCard>
+        </section>
         <LiveWorkspace key={`${snapshot.identity.actor || snapshot.identity.username}:${snapshot.identity.role}`}
           identity={`${snapshot.identity.actor || snapshot.identity.username || "operator"}:${snapshot.identity.role}`}
           role={snapshot.identity.role || "viewer"} devices={snapshot.devices} stale={Boolean(error) || loading}
           stopped={snapshot.health.emergency_stop} refresh={() => { void refresh(); }} />
       </>}
-      <div className="space-y-2 border-t border-slate-800 pt-5">
-        <JXButton color="neutral" variant="text" onClick={() => navigate("overview")} startIcon={<ArrowLeft className="h-4 w-4" />}>Explore dashboard preview</JXButton>
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-5">
         <p className="text-xs leading-relaxed text-slate-400">The preview uses sample data, not your live fleet.</p>
-      </div>
+        <JXButton color="neutral" variant="text" onClick={() => navigate("overview")} endIcon={<ArrowUpRight className="h-4 w-4" />}>Explore dashboard preview</JXButton>
+      </footer>
     </div>
     <GlassModal open={confirm} onClose={() => { if (!acting) setConfirm(false); }} title={snapshot?.health.emergency_stop ? "Clear the real emergency stop?" : "Stop the real fleet?"}>
       <div className="space-y-5">

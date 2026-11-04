@@ -293,7 +293,7 @@ export const FleetOperationsView: React.FC = () => {
     : 100;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* SECTION 1: Multi-Node Command Bus */}
       <JXCard className="bg-slate-900/60 border-slate-800">
         <JXCardHeader

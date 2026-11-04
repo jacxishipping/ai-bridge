@@ -346,7 +346,7 @@ export const SecurityPoliciesView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* 4-Tab Policy Rule Matrix */}
       <JXCard className="bg-slate-900/60 border-slate-800">
         <div className="p-4 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
@@ -681,7 +681,7 @@ export const SecurityPoliciesView: React.FC = () => {
 
                 <JXCardContent>
                   <div className="space-y-2 pt-1 text-xs">
-                    <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block">
+                    <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block">
                       Subscribed Incident Events
                     </span>
 

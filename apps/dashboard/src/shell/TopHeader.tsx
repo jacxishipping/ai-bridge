@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { AlertTriangle, Menu, Search, Square, Play } from "lucide-react";
 import { GlassModal, JXButton } from "../ui";
+import { Brand } from "../Brand";
 import { useDashboardStore } from "../state/dashboardStore";
 
 export const TopHeader: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
@@ -12,19 +13,22 @@ export const TopHeader: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
   const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ K" : "Ctrl K";
 
   return (
-    <header className="flex shrink-0 items-center gap-3 border-b border-slate-800 bg-slate-900/90 px-4 py-3 sm:px-6">
+    <header className="product-topbar flex min-h-14 shrink-0 items-center gap-2 px-3 py-2 sm:px-5">
       <button type="button" onClick={onMenu} aria-label="Open navigation"
         className="lg:hidden flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-700 hover:bg-slate-800">
         <Menu className="h-5 w-5" />
       </button>
+      <div className="hidden min-[360px]:block lg:hidden"><Brand compact /></div>
       <JXButton variant="outlined" color="neutral" size="sm"
         onClick={() => setCommandPaletteOpen(true)}
         aria-label="Search pages and devices"
-        className="min-w-0! flex-1! justify-start! text-slate-300"
+        className="product-search min-w-0! flex-1! max-w-xl! justify-start! text-slate-300"
         startIcon={<Search className="h-4 w-4 shrink-0" />}>
-        <span>Search</span>
-        <kbd className="hidden md:inline ml-auto rounded border border-slate-700 px-1.5 py-0.5 text-xs">{shortcut}</kbd>
+        <span className="flex items-center justify-between gap-2"><span>Search</span>
+          <kbd className="hidden md:inline rounded border border-slate-700 px-1.5 py-0.5 text-xs">{shortcut}</kbd>
+        </span>
       </JXButton>
+      <div className="hidden flex-1 lg:block" />
       <JXButton variant="outlined" color={stopped ? "success" : "error"} size="sm"
         onClick={() => setConfirmOpen(true)}
         aria-label={stopped ? "Resume demo fleet" : "Emergency All-Stop"}

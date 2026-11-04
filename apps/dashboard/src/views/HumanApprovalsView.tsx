@@ -219,7 +219,7 @@ export const HumanApprovalsView: React.FC = () => {
   const pendingCount = approvals.filter((a) => a.status === "pending").length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Main Split: Left Urgent Queue, Right Approval Inspector */}
       <JXGrid columns={12} gap="lg">
         {/* Left: Urgent Approval Queue */}

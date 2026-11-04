@@ -100,3 +100,26 @@ design; automated checks are not a substitute for assistive-technology testing.
 - Put payloads, endpoints and technical detail behind intentional inspection.
 - Use neutral surfaces and normal title/body hierarchy; reserve color for
   actions, errors and statuses rather than decorating every heading.
+
+## Brand system
+
+The sign-in, live workspace and preview share the same bridge mark and wordmark.
+`public/brand-mark.svg` is also the favicon. Product colors, surfaces, navigation,
+typography and responsive shell rules live in `src/tailwind.css`; the `--product-*`
+tokens are the source of truth for product chrome. JXUI interaction behavior stays
+in the shared adapters instead of being reimplemented per screen.
+
+Use cobalt for primary actions and selection. Keep success, warning and danger
+colors semantic. Dark navy surfaces, restrained borders, readable type and
+compact spacing replace glass effects and oversized promotional treatments.
+Authentication artwork is decorative and never represents actual fleet data.
+
+Density is shared rather than configured per view: 56px headers, 14px card
+padding, 20px page titles and 34px desktop controls. The `--product-control-*`,
+`--product-nav-*` and `--product-table-py` tokens govern interactive spacing.
+Narrow screens (below 640px) and coarse pointers retain 44px button, field and
+navigation targets. Do not use browser zoom or shrink body text to fit more data.
+
+Device names and account names support mixed-direction text. Dates and counts
+use the browser's locale. This is a visual brand system, not a translated UI;
+there is no language picker or claim of full RTL localization.

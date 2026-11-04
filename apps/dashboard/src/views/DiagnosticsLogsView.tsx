@@ -250,7 +250,7 @@ export const DiagnosticsLogsView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Status Ribbon with Ingest EPS and Ring Buffer Meter */}
       <JXCard className="bg-slate-900/60 border-slate-800">
         <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs font-mono">
@@ -472,7 +472,7 @@ export const DiagnosticsLogsView: React.FC = () => {
                   </div>
 
                   {/* Actions: Filter by Trace ID & Pin to Audit Trail */}
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <JXButton
                       variant="soft"
                       color="primary"

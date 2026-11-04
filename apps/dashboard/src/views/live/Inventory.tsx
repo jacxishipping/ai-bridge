@@ -1,4 +1,5 @@
 import React, { useRef, useState } from "react";
+import { Server } from "lucide-react";
 import { api, ApiError } from "../../api";
 import { GlassModal, JXButton } from "../../ui";
 import { TaskComposer } from "./TaskComposer";
@@ -83,7 +84,7 @@ export function Inventory({ devices, filters, onFilters, canAct, canEnroll, open
     </Empty> : !visible.length ? <Empty title="No matching devices">
       <JXButton color="neutral" variant="outlined" onClick={() => onFilters({ ...defaultFilters, taskStatus: filters.taskStatus })}>Clear device filters</JXButton>
     </Empty> : <div className="overflow-x-auto" role="region" aria-label="Live device inventory" tabIndex={0}>
-      <table className="w-full min-w-[520px] text-left text-sm">
+      <table className="product-table w-full min-w-[520px] text-left text-sm">
         <thead className="border-b border-slate-700 text-xs text-slate-400"><tr>
           <th className="p-3"><input type="checkbox" aria-label="Select visible devices" disabled={!canAct || !eligible.length} checked={allSelected}
             onChange={(e) => setSelected(e.target.checked ? [...new Set([...selected, ...eligible.map((device) => device.id)])] : selected.filter((id) => !eligible.some((device) => device.id === id)))} /></th>
@@ -92,8 +93,10 @@ export function Inventory({ devices, filters, onFilters, canAct, canEnroll, open
         <tbody>{visible.map((device) => <tr key={device.id} className="border-b border-slate-800 hover:bg-slate-800/40">
           <td className="p-3"><input type="checkbox" aria-label={`Select ${deviceName(device)}`} disabled={!canAct || !!device.revoked}
             checked={targets.some((target) => target.id === device.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, device.id] : selected.filter((id) => id !== device.id))} /></td>
-          <td className="p-3"><button onClick={() => openDevice(device.id)} className="text-left font-medium text-slate-100 underline decoration-slate-600 underline-offset-4">{deviceName(device)}</button></td>
-          <td className="p-3 capitalize">{deviceStatus(device)}</td><td className="p-3 text-xs text-slate-400">{time(device.last_seen)}</td>
+          <td className="p-3"><button onClick={() => openDevice(device.id)} className="product-device-link flex items-center gap-3 text-left">
+            <Server className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" /><span dir="auto">{deviceName(device)}</span>
+          </button></td>
+          <td className="p-3 capitalize"><span className="product-status" data-status={deviceStatus(device)}>{deviceStatus(device)}</span></td><td className="p-3 text-xs text-slate-400">{time(device.last_seen)}</td>
           <td className="p-3"><details><summary aria-label={`More actions for ${deviceName(device)}`} className="cursor-pointer text-slate-300">More</summary>
             <div className="mt-2 grid gap-2">{["tasks", "terminal", "desktop"].map((tab) => <button key={tab} className="py-1 text-left text-xs capitalize text-slate-300" onClick={() => openDevice(device.id, tab)}>{tab}</button>)}</div>
           </details></td>

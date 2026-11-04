@@ -33,7 +33,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
     mainRef.current?.focus({ preventScroll: true });
   }, [view]);
   return (
-    <div className="h-dvh w-full flex bg-[#0B0F19] text-slate-100 overflow-hidden font-sans">
+    <div className="product-shell h-dvh w-full flex text-slate-100 overflow-hidden">
       <a href="#main-content" onClick={(event) => { event.preventDefault(); mainRef.current?.focus(); }}
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-indigo-600 focus:p-3 focus:text-white">
         Skip to content
@@ -59,9 +59,9 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.15 }}
-          className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-[#0a0e18]/60 p-4 sm:p-6 focus:outline-none"
+          className="product-content flex-1 min-w-0 overflow-y-auto overflow-x-hidden p-3 sm:p-5 focus:outline-none"
         >
-          {children}
+          <div className="mx-auto w-full max-w-[1440px]">{children}</div>
         </motion.main>
       </div>
 

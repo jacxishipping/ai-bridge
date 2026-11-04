@@ -125,9 +125,9 @@ export const App: React.FC = () => {
       breadcrumbs: ["AI Bridge", "Governance", "Diagnostics & Logs"],
     },
     login: {
-      title: "Zero-Trust Dual-Auth Console",
+      title: "Sign in",
       domain: "Authentication",
-      breadcrumbs: ["AI Bridge", "Authentication", "Login"],
+      breadcrumbs: ["AI Bridge", "Sign in"],
     },
   };
 

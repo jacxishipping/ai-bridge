@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Layers3, Server, ShieldCheck } from "lucide-react";
 import { GlassModal, JXButton, JXCard } from "../../ui";
 import { ApprovalsPanel } from "./ApprovalsPanel";
 import { DeviceWorkspace } from "./DeviceWorkspace";
@@ -39,14 +40,25 @@ export function LiveWorkspace({ devices, identity, role, stale, stopped, refresh
   const selected = devices.find((device) => device.id === route.device);
   const canAct = !stale && !stopped && ["admin", "operator"].includes(role);
   const listVisible = route.section === "tasks" || (route.section === "devices" && !route.device);
-  return <div className="space-y-4">
-    <nav aria-label="Control plane sections" className="flex flex-wrap gap-2">
-      {(["devices", "tasks", "approvals"] as const).map((section) => <JXButton key={section} color="neutral"
-        variant={route.section === section ? "contained" : "text"} aria-current={route.section === section ? "page" : undefined}
-        onClick={() => navigate({ ...route, section })}>{section.charAt(0).toUpperCase() + section.slice(1)}</JXButton>)}
+  return <div className="workspace-layout">
+    <nav aria-label="Control plane sections" className="workspace-navigation">
+      <p className="workspace-navigation-label product-kicker">Workspace</p>
+      {(["devices", "tasks", "approvals"] as const).map((section) => {
+        const Icon = { devices: Server, tasks: Layers3, approvals: ShieldCheck }[section];
+        return <button key={section} className="product-nav-link" aria-current={route.section === section ? "page" : undefined}
+          onClick={() => navigate({ ...route, section })}>
+          <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+          {section.charAt(0).toUpperCase() + section.slice(1)}
+        </button>;
+      })}
     </nav>
+    <div className="min-w-0 space-y-3">
+    {(route.section !== "devices" || !route.device) && <div className="flex items-center gap-3">
+      <h2 className="text-base font-semibold tracking-tight">{route.section.charAt(0).toUpperCase() + route.section.slice(1)}</h2>
+      {route.section === "devices" && <span className="text-xs tabular-nums text-slate-400">{devices.length.toLocaleString()} total</span>}
+    </div>}
     {storageError && <p role="status" className="text-xs text-amber-300">{storageError}</p>}
-    {listVisible && <div className="flex flex-wrap items-center gap-2">
+    {listVisible && <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-2">
       <JXButton color="neutral" variant="text" onClick={() => { setFilters({ ...defaultFilters, status: "offline" }); navigate({ section: "devices", tab: "details" }); }}>Offline devices</JXButton>
       <JXButton color="neutral" variant="text" onClick={() => { setFilters({ ...defaultFilters, taskStatus: "failed" }); navigate({ section: "tasks", tab: "details" }); }}>Failed tasks</JXButton>
       <details className="min-w-0 text-sm">
@@ -71,6 +83,7 @@ export function LiveWorkspace({ devices, identity, role, stale, stopped, refresh
         route.section === "tasks" ? <TasksPanel devices={devices} canAct={canAct} status={filters.taskStatus} onStatus={(taskStatus) => setFilters({ ...filters, taskStatus })} /> :
           <ApprovalsPanel canDecide={!stale && !stopped && role === "admin"} />}
     </JXCard>
+    </div>
     {saving && <GlassModal title="Save current view" onClose={() => setSaving(false)}>
       <form className="space-y-4" onSubmit={(event) => {
         event.preventDefault();

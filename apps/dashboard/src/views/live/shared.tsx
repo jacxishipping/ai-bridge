@@ -14,7 +14,7 @@ export interface LiveApproval {
   requested_by?: string; created_at?: number;
 }
 
-export const fieldClass = "w-full min-w-0 rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100";
+export const fieldClass = "product-input w-full min-w-0 rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100";
 /** Keep label text separate from option text and editable/read-only values. */
 export function Field({ label, children, className = "" }:
   { label: string; children: React.ReactElement<{ id?: string }>; className?: string }) {

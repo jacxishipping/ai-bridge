@@ -19,13 +19,14 @@ export * from "@jacxishippingorg/jx-ui-react";
 // v3.0's lockWidth forces every control to at least 180px, including icons and
 // controls in narrow grids. Use content sizing; loading labels remain explicit.
 export function JXButton(props: React.ComponentProps<typeof Button>) {
-  return <Button {...props} lockWidth={false} halo={false}
-    className={`max-w-full whitespace-normal! h-auto! py-2 shadow-none! rounded-lg! ${props.className || ""}`} />;
+  return <Button {...props} lockWidth={false} halo={false} spring={false}
+    data-tone={props.color || "primary"} data-variant={props.variant || "contained"}
+    className={`product-button max-w-full whitespace-normal! h-auto! shadow-none! rounded-md! ${props.className || ""}`} />;
 }
 
 export function JXStack({ direction = "row", spacing = "sm", className = "", children, ...props }:
   React.HTMLAttributes<HTMLDivElement> & { direction?: "row" | "col"; spacing?: "xs" | "sm" | "md" | "lg" }) {
-  const gap = { xs: "gap-1.5", sm: "gap-2.5", md: "gap-4", lg: "gap-6" }[spacing];
+  const gap = { xs: "gap-1", sm: "gap-2", md: "gap-3", lg: "gap-4" }[spacing];
   return <div {...props} className={`flex min-w-0 ${direction === "col" ? "flex-col" : "flex-row"} ${gap} ${className}`}>{children}</div>;
 }
 
@@ -41,7 +42,7 @@ export function JXGridItem({ colSpan = 12, rowSpan, className = "", ...props }:
 }
 
 export function JXCard(props: React.ComponentProps<typeof Card>) {
-  return <Card {...props} spotlight={false} hoverLift={false} className={`rounded-xl! shadow-none! ${props.className || ""}`} />;
+  return <Card {...props} spotlight={false} hoverLift={false} className={`product-surface rounded-xl! shadow-none! ${props.className || ""}`} />;
 }
 
 /** Use normal title/body hierarchy instead of the library's accent kicker. */
@@ -121,7 +122,7 @@ export function GlassModal({ open = true, onClose, title, children }:
   return <dialog ref={ref} aria-labelledby={titleId}
     onCancel={(event) => { event.preventDefault(); close.current?.(); }}
     onClick={(event) => { if (event.target === event.currentTarget) close.current?.(); }}
-    className="m-auto w-[calc(100%-2rem)] max-w-2xl max-h-[90dvh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-0 text-slate-100 shadow-2xl backdrop:bg-slate-950/80 backdrop:backdrop-blur-sm">
+    className="product-dialog m-auto w-[calc(100%-2rem)] max-w-2xl max-h-[90dvh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-0 text-slate-100 shadow-2xl backdrop:bg-slate-950/80 backdrop:backdrop-blur-sm">
     <JXBox padding="lg" border={false} className="min-w-0">
       <div className="mb-5 flex items-center justify-between gap-4">
         <h2 id={titleId} className="text-base font-semibold">{title}</h2>
