@@ -5,6 +5,7 @@
  */
 
 import { useSyncExternalStore } from "react";
+import { readRoute, writeRoute } from "./navigation";
 import type {
   EnrolledDevice,
   DeviceTelemetry,
@@ -661,11 +662,12 @@ class DashboardStore {
   private nextTaskSequence = 89220;
 
   constructor() {
+    const route = readRoute();
     this.state = {
-      currentView: "overview",
+      currentView: route.view,
       setCurrentView: (view: ViewId) => this.setCurrentView(view),
       devices: SEED_DEVICES,
-      selectedDeviceId: "srv-us-east-412",
+      selectedDeviceId: SEED_DEVICES.some((d) => d.id === route.device) ? route.device! : "srv-us-east-412",
       setSelectedDeviceId: (id: string) => this.setSelectedDeviceId(id),
       tasks: SEED_TASKS,
       dispatchTask: (params: TaskDispatchParams) => this.dispatchTask(params),
@@ -712,12 +714,21 @@ class DashboardStore {
 
   public setCurrentView = (currentView: ViewId): void => {
     if (this.state.currentView === currentView) return;
+    writeRoute(currentView, currentView === "device-360-system" ? this.state.selectedDeviceId : undefined);
     this.state = { ...this.state, currentView };
+    this.notify();
+  };
+
+  public syncRoute = (): void => {
+    const route = readRoute();
+    const selectedDeviceId = SEED_DEVICES.some((d) => d.id === route.device) ? route.device! : this.state.selectedDeviceId;
+    this.state = { ...this.state, currentView: route.view, selectedDeviceId };
     this.notify();
   };
 
   public setSelectedDeviceId = (selectedDeviceId: string): void => {
     if (this.state.selectedDeviceId === selectedDeviceId) return;
+    if (this.state.currentView === "device-360-system") writeRoute("device-360-system", selectedDeviceId);
     this.state = { ...this.state, selectedDeviceId };
     this.notify();
   };
@@ -883,6 +894,11 @@ class DashboardStore {
 
 // Singleton store instance
 export const dashboardStore = new DashboardStore();
+
+if (typeof window !== "undefined") {
+  window.addEventListener("popstate", dashboardStore.syncRoute);
+  window.addEventListener("hashchange", dashboardStore.syncRoute);
+}
 
 // React hook for component consumption
 export function useDashboardStore<T = DashboardStoreState>(

@@ -7,6 +7,7 @@
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
+  GlassModal,
   JXCard,
   JXCardHeader,
   JXCardContent,
@@ -16,7 +17,7 @@ import {
   JXTextField,
   JXGrid,
   JXGridItem,
-} from "@jacxishippingorg/jx-ui-react";
+} from "../ui";
 import {
   ShieldCheck,
   FileCheck,
@@ -97,7 +98,7 @@ export const AuditTrailView: React.FC = () => {
     }, 700);
   };
 
-  const handleExport = (format: "csv" | "jsonld" | "pdf") => {
+  const handleExport = (format: "csv" | "jsonld") => {
     if (filteredRecords.length === 0) return;
 
     if (format === "csv") {
@@ -131,20 +132,6 @@ export const AuditTrailView: React.FC = () => {
       a.download = `audit-report-${Date.now()}.jsonld`;
       a.click();
       URL.revokeObjectURL(url);
-    } else {
-      // PDF payload simulation
-      const pdfMeta = {
-        title: "AI Bridge Audit Certificate",
-        format: "pdf",
-        records: filteredRecords.length,
-      };
-      const blob = new Blob([JSON.stringify(pdfMeta)], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `audit-certificate-${Date.now()}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
     }
 
     setExportMenuOpen(false);
@@ -157,22 +144,6 @@ export const AuditTrailView: React.FC = () => {
       {/* Cryptographic Merkle Root Header & Verification Action */}
       <JXCard className="bg-slate-900/60 border-slate-800">
         <div className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                RFC 3161 Timestamp Authority Validated
-              </span>
-              <span className="font-mono text-xs text-slate-400">DigiCert Stratum-1 Verified</span>
-            </div>
-            <div className="flex items-baseline gap-2 pt-1">
-              <span className="text-xs font-mono text-slate-400">Merkle Root:</span>
-              <code className="text-sm font-mono text-slate-200 font-bold tracking-wider">
-                {merkleRoot}
-              </code>
-            </div>
-          </div>
-
           <div className="flex items-center gap-2 flex-wrap">
             <JXButton
               variant="contained"
@@ -182,7 +153,7 @@ export const AuditTrailView: React.FC = () => {
               onClick={handleVerifyIntegrity}
               startIcon={<FileCheck className="w-4 h-4" />}
             >
-              Verify Integrity
+              Preview verification
             </JXButton>
 
             {/* Multi-Format Exporter Dropdown */}
@@ -196,7 +167,7 @@ export const AuditTrailView: React.FC = () => {
                 startIcon={<Download className="w-4 h-4" />}
                 endIcon={<ChevronDown className="w-3.5 h-3.5" />}
               >
-                Export Suite
+                Export
               </JXButton>
 
               {exportMenuOpen && (
@@ -207,7 +178,7 @@ export const AuditTrailView: React.FC = () => {
                     className="w-full flex items-center gap-2.5 p-2 rounded-lg text-slate-200 hover:bg-slate-800 text-left transition-colors"
                   >
                     <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                    <span>Export Immutable CSV</span>
+                    <span>CSV</span>
                   </button>
                   <button
                     type="button"
@@ -215,15 +186,7 @@ export const AuditTrailView: React.FC = () => {
                     className="w-full flex items-center gap-2.5 p-2 rounded-lg text-slate-200 hover:bg-slate-800 text-left transition-colors"
                   >
                     <FileJson className="w-4 h-4 text-indigo-400" />
-                    <span>Export Signed JSON-LD</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExport("pdf")}
-                    className="w-full flex items-center gap-2.5 p-2 rounded-lg text-slate-200 hover:bg-slate-800 text-left transition-colors"
-                  >
-                    <FileText className="w-4 h-4 text-rose-400" />
-                    <span>Export Audit Report (PDF)</span>
+                    <span>JSON-LD</span>
                   </button>
                 </div>
               )}
@@ -237,7 +200,7 @@ export const AuditTrailView: React.FC = () => {
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 <span>
-                  Cryptographic Integrity Confirmed: All {verificationProof.blocksChecked} blocks match Merkle tree root hash link.
+                  Sample verification complete: {verificationProof.blocksChecked} blocks.
                 </span>
               </div>
               <span className="text-slate-400">Validated in {verificationProof.latencyMs}ms</span>
@@ -254,90 +217,12 @@ export const AuditTrailView: React.FC = () => {
         )}
       </JXCard>
 
-      {/* 4 KPI Statistics Bento Units */}
-      <JXGrid columns={12} gap="md">
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Total Ledger Records"
-              subheader="Append-only immutable rows"
-              icon={<FileText className="w-4 h-4 text-indigo-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">1,492,019</span>
-                <JXBadge color="primary" statusText="100% Synced" />
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Sequenced blocks 1 to 14,920
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Verified Merkle Blocks"
-              subheader="100 records per block node"
-              icon={<Hash className="w-4 h-4 text-cyan-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-cyan-400">14,920</span>
-                <span className="text-xs font-mono text-emerald-400">Valid Root</span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Zero tamper drift detected
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Violations Prevented"
-              subheader="Automated kernel drops"
-              icon={<AlertTriangle className="w-4 h-4 text-rose-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-rose-400">42</span>
-                <span className="text-xs font-mono text-rose-400">Enforced</span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Unauthorized bash & path escapes
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Human Approvals Logged"
-              subheader="SecOps audit trail sign-offs"
-              icon={<User className="w-4 h-4 text-emerald-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">184</span>
-                <span className="text-xs font-mono text-emerald-400">100% Signed</span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Tier-3 & Tier-4 authorizations
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-      </JXGrid>
-
       {/* Filter Ribbon & Immutable Data Grid */}
       <JXCard className="bg-slate-900/60 border-slate-800">
         <div className="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
           <div className="flex items-center gap-2 flex-wrap">
             <select
+              aria-label="Filter audit verdicts"
               value={verdictFilter}
               onChange={(e) => setVerdictFilter(e.target.value)}
               className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none"
@@ -349,6 +234,7 @@ export const AuditTrailView: React.FC = () => {
             </select>
 
             <select
+              aria-label="Filter audit actors"
               value={actorFilter}
               onChange={(e) => setActorFilter(e.target.value)}
               className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none"
@@ -446,12 +332,12 @@ export const AuditTrailView: React.FC = () => {
       {/* Cryptographic Verification Modal */}
       <AnimatePresence>
         {selectedProofEvent && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <GlassModal onClose={() => setSelectedProofEvent(null)} title="Sample audit proof">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-4 shadow-2xl"
+              className="space-y-4"
             >
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div className="flex items-center gap-2 text-emerald-400 font-bold">
@@ -460,6 +346,7 @@ export const AuditTrailView: React.FC = () => {
                 </div>
                 <button
                   type="button"
+                  aria-label="Close audit proof"
                   onClick={() => setSelectedProofEvent(null)}
                   className="text-slate-400 hover:text-slate-200"
                 >
@@ -513,7 +400,7 @@ export const AuditTrailView: React.FC = () => {
                 </JXButton>
               </div>
             </motion.div>
-          </div>
+          </GlassModal>
         )}
       </AnimatePresence>
     </div>

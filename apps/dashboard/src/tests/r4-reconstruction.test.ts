@@ -98,7 +98,7 @@ export async function runR4Tests() {
     }
   });
 
-  await it('R4.4: Screen 1 (Overview) includes 4-Metric Bento Ribbon and Activity Feed', () => {
+  await it('R4.4: Overview includes a concise fleet summary and recent tasks', () => {
     // Check either OverviewView.tsx or App.tsx
     let overviewContent = '';
     const overviewViewPath = path.join(SRC_ROOT, 'views', 'OverviewView.tsx');
@@ -109,11 +109,11 @@ export async function runR4Tests() {
     }
 
     expect(
-      overviewContent.includes('Fleet') || overviewContent.includes('Active') || overviewContent.includes('Nodes')
-    ).toBeTruthy('Overview must render active fleet metrics');
+      overviewContent.includes('Devices online') && overviewContent.includes('Awaiting approval')
+    ).toBeTruthy('Overview must show device and approval counts');
     expect(
-      overviewContent.includes('Throughput') || overviewContent.includes('Completed') || overviewContent.includes('Tasks')
-    ).toBeTruthy('Overview must render task throughput metrics');
+      overviewContent.includes('Active tasks') && overviewContent.includes('Recent tasks')
+    ).toBeTruthy('Overview must show active and recent tasks');
   });
 
   await it('R4.5: Screen 2 (Devices) includes SmartDataTable and Platform filters', () => {

@@ -7,6 +7,7 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
+  GlassModal,
   JXCard,
   JXCardHeader,
   JXCardContent,
@@ -17,7 +18,7 @@ import {
   JXTextField,
   JXGrid,
   JXGridItem,
-} from "@jacxishippingorg/jx-ui-react";
+} from "../ui";
 import {
   ShieldCheck,
   Lock,
@@ -346,93 +347,10 @@ export const SecurityPoliciesView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* 4 KPI Telemetry Metrics */}
-      <JXGrid columns={12} gap="md">
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Policy Enforcement"
-              subheader="Zero-bypass kernel hooks"
-              icon={<ShieldCheck className="w-4 h-4 text-emerald-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">Active</span>
-                <JXBadge color="success" statusText="Strict Mode" />
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                eBPF & Windows Filter Driver
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Permitted Binaries"
-              subheader="SHA-256 attested signatures"
-              icon={<FileCode className="w-4 h-4 text-indigo-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">
-                  {binaries.filter((b) => b.status === "allowed").length} Allowed
-                </span>
-                <span className="text-xs font-mono text-rose-400">
-                  {binaries.filter((b) => b.status === "blocked").length} Blocked
-                </span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                0 Unsigned binary executions
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Webhook Channels"
-              subheader="Incident response integration"
-              icon={<Webhook className="w-4 h-4 text-cyan-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">4 Connected</span>
-                <span className="text-xs font-mono text-emerald-400">200 OK</span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Slack • Teams • Discord • PagerDuty
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Policy Release Version"
-              subheader="Cryptographically signed"
-              icon={<GitCompare className="w-4 h-4 text-cyan-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">{policyVersion}</span>
-                <JXBadge color="primary" statusText="Active" />
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Synced across all 40 fleet nodes
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-      </JXGrid>
-
       {/* 4-Tab Policy Rule Matrix */}
       <JXCard className="bg-slate-900/60 border-slate-800">
-        <div className="p-4 border-b border-slate-800/80 flex items-center justify-between">
-          <div className="flex items-center gap-2 p-1 rounded-lg bg-slate-950 border border-slate-800">
+        <div className="p-4 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2 p-1 rounded-lg bg-slate-950 border border-slate-800">
             <button
               type="button"
               onClick={() => setActiveTab("binaries")}
@@ -595,6 +513,7 @@ export const SecurityPoliciesView: React.FC = () => {
                     <span className="font-mono text-indigo-400 font-bold">{tier3Timeout}s</span>
                   </div>
                   <input
+                    aria-label="Tier 3 execution timeout in seconds"
                     type="range"
                     min={30}
                     max={300}
@@ -618,6 +537,7 @@ export const SecurityPoliciesView: React.FC = () => {
                     </span>
                   </div>
                   <input
+                    aria-label="Burst rate limit in calls per minute"
                     type="range"
                     min={10}
                     max={120}
@@ -641,6 +561,7 @@ export const SecurityPoliciesView: React.FC = () => {
                     </span>
                   </div>
                   <input
+                    aria-label="Entropy sensitivity"
                     type="range"
                     min={0.5}
                     max={0.99}
@@ -719,7 +640,7 @@ export const SecurityPoliciesView: React.FC = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Webhook className="w-5 h-5 text-indigo-400" />
-            <h2 className="text-lg font-bold text-slate-100">Webhook Integration Manager</h2>
+            <h2 className="text-base font-semibold text-slate-100">Webhooks</h2>
           </div>
           <span className="text-xs font-mono text-slate-400">
             Outbound SecOps alerting and incident automation
@@ -730,15 +651,15 @@ export const SecurityPoliciesView: React.FC = () => {
           {webhooks.map((wh) => (
             <JXGridItem key={wh.id} colSpan={6}>
               <JXCard className="bg-slate-900/60 border-slate-800">
-                <div className="p-4 border-b border-slate-800/60 flex items-center justify-between">
-                  <div>
+                <div className="p-4 border-b border-slate-800/60 flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
                     <h4 className="text-sm font-semibold text-slate-100">{wh.name}</h4>
                     <span className="text-[11px] font-mono text-slate-400 truncate block max-w-xs">
                       {wh.urlMasked}
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {wh.lastPingStatus && (
                       <span className="font-mono text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                         {wh.lastPingStatus.code} OK ({wh.lastPingStatus.latencyMs}ms)
@@ -815,8 +736,7 @@ export const SecurityPoliciesView: React.FC = () => {
         {/* Live Delivery Log Stream */}
         <JXCard className="bg-slate-900/60 border-slate-800">
           <JXCardHeader
-            title="Live Outgoing Webhook Delivery Log"
-            subheader="Real-time audit of webhook payloads and responses"
+            title="Delivery log"
             icon={<Activity className="w-5 h-5 text-indigo-400" />}
           />
           <JXCardContent>
@@ -824,7 +744,7 @@ export const SecurityPoliciesView: React.FC = () => {
               {deliveryLogs.map((log) => (
                 <div
                   key={log.id}
-                  className="flex items-center justify-between p-3 rounded-lg bg-slate-950 border border-slate-800"
+                  className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg bg-slate-950 border border-slate-800"
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-indigo-400 font-bold">{log.id}</span>
@@ -833,7 +753,7 @@ export const SecurityPoliciesView: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-emerald-400 font-bold">{log.status}</span>
-                    <span className="text-slate-500">{log.time}</span>
+                    <span className="text-slate-400">{log.time}</span>
                   </div>
                 </div>
               ))}
@@ -845,12 +765,12 @@ export const SecurityPoliciesView: React.FC = () => {
       {/* Add Binary Modal */}
       <AnimatePresence>
         {showAddBinary && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <GlassModal onClose={() => setShowAddBinary(false)} title="Add sample executable">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-4 shadow-2xl"
+              className="space-y-4"
             >
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div className="flex items-center gap-2 text-indigo-400 font-bold">
@@ -859,6 +779,7 @@ export const SecurityPoliciesView: React.FC = () => {
                 </div>
                 <button
                   type="button"
+                  aria-label="Close executable form"
                   onClick={() => setShowAddBinary(false)}
                   className="text-slate-400 hover:text-slate-200"
                 >
@@ -910,7 +831,7 @@ export const SecurityPoliciesView: React.FC = () => {
                 </JXButton>
               </div>
             </motion.div>
-          </div>
+          </GlassModal>
         )}
       </AnimatePresence>
     </div>

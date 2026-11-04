@@ -6,9 +6,60 @@ const isProdOrigin =
   window.location.hostname !== "127.0.0.1";
 const BASE =
   envBase || (isProdOrigin ? window.location.origin : "http://127.0.0.1:8000");
+export const apiOrigin = BASE;
 
-export function token() { return localStorage.getItem("ai_bridge_admin_token") || ""; }
-export function sessionToken() { return localStorage.getItem("ai_bridge_session_token") || ""; }
+export function token() { return sessionStorage.getItem("ai_bridge_admin_token") || ""; }
+export function sessionToken() { return sessionStorage.getItem("ai_bridge_session_token") || ""; }
+
+export function clearCredentials() {
+  sessionStorage.removeItem("ai_bridge_admin_token");
+  sessionStorage.removeItem("ai_bridge_session_token");
+  // Remove credentials persisted by older dashboard versions too.
+  localStorage.removeItem("ai_bridge_admin_token");
+  localStorage.removeItem("ai_bridge_session_token");
+}
+
+/** Consume the server's OIDC redirect once, before rendering or saving history.
+ * The live view verifies this session with /api/auth/me before showing any data.
+ */
+export function consumeIdentityRedirect() {
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  if (!params.has("session_token")) return false;
+  const session = params.get("session_token");
+  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/live`);
+  clearCredentials();
+  if (session) sessionStorage.setItem("ai_bridge_session_token", session);
+  return true;
+}
+
+export async function authenticate(credentials: { token: string } | { username: string; password: string }) {
+  clearCredentials();
+  try {
+    if ("token" in credentials) {
+      const response = await fetch(BASE + "/api/auth/me", {
+        headers: { "X-Admin-Token": credentials.token },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) throw new Error("Token rejected. Check your server's admin token.");
+      const identity = await response.json();
+      sessionStorage.setItem("ai_bridge_admin_token", credentials.token);
+      return identity;
+    }
+    const response = await api.login(credentials.username, credentials.password);
+    sessionStorage.setItem("ai_bridge_session_token", response.session_token);
+    return response;
+  } catch (error) {
+    clearCredentials();
+    if (error instanceof TypeError || (error instanceof DOMException && error.name === "TimeoutError")) {
+      throw new Error("Cannot reach the control plane. Check that the API is running and try again.");
+    }
+    throw error;
+  }
+}
+
+export class ApiError extends Error {
+  constructor(message: string, public uncertain = false, public status?: number) { super(message); }
+}
 
 async function call(path: string, method = "GET", body?: unknown) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -16,21 +67,25 @@ async function call(path: string, method = "GET", body?: unknown) {
   const at = token();
   if (st) headers["X-Session-Token"] = st;
   else if (at) headers["X-Admin-Token"] = at;
-  let res = await fetch(BASE + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
-  if (res.status === 401) {
-    localStorage.removeItem("ai_bridge_session_token");
-    if (st && at) {
-      // Expired session token in localStorage; clear it and retry with admin token
-      delete headers["X-Session-Token"];
-      headers["X-Admin-Token"] = at;
-      res = await fetch(BASE + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
-    }
+  let res: Response;
+  try {
+    res = await fetch(BASE + path, { method, headers, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15000) });
+  } catch {
+    throw new ApiError(method === "GET" ? "Cannot reach the control plane. Try refreshing." :
+      "Outcome unknown. The server may have received this request. Refresh the relevant records before submitting again.", method !== "GET");
   }
-  if (!res.ok) throw new Error(`${method} ${path} -> ${res.status}`);
-  return res.json();
+  if (!res.ok) {
+    if (res.status === 401) clearCredentials();
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(res.status === 401 ? "Your session expired. Please sign in again." :
+      `${res.status}: ${typeof detail?.detail === "string" ? detail.detail : "The server could not complete this request."}`,
+    method !== "GET" && res.status >= 500, res.status);
+  }
+  try { return await res.json(); }
+  catch { throw new ApiError("Response could not be read. Refresh to check the outcome.", method !== "GET"); }
 }
 export const api = {
-  health: () => fetch(BASE + "/health").then(r => r.json()),
+  health: () => fetch(BASE + "/health", { signal: AbortSignal.timeout(10000) }).then(r => { if (!r.ok) throw new Error("Health check failed"); return r.json(); }),
   devices: () => call("/api/devices"),
   enroll: (name: string) => call("/api/devices/enroll", "POST", { name }),
   revoke: (id: string) => call(`/api/devices/${id}/revoke`, "POST", {}),
@@ -43,9 +98,9 @@ export const api = {
   deviceOverview: (id: string) => call(`/api/devices/${encodeURIComponent(id)}/overview`),
   refreshDeviceTelemetry: (id: string, tools?: string[]) =>
     call(`/api/devices/${encodeURIComponent(id)}/refresh`, "POST", { tools }),
-  tasks: () => call("/api/tasks"),
+  tasks: (deviceId?: string) => call(`/api/tasks${deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ""}`),
   taskDetail: (id: string) => call(`/api/tasks/${id}`),
-  submitTask: (device_id: string, tool: string, args: any = {}) => call("/api/tasks", "POST", { device_id, tool, args }),
+  submitTask: (device_id: string, tool: string, args: any = {}, tenant?: string) => call("/api/tasks", "POST", { device_id, tool, args, tenant }),
   cancelTask: (id: string) => call(`/api/tasks/${id}/cancel`, "POST", {}),
   updateTask: (id: string, body: { tool?: string; args?: any; status?: string }) =>
     call(`/api/tasks/${encodeURIComponent(id)}`, "PUT", body),
@@ -53,13 +108,13 @@ export const api = {
   clearTasks: (status?: string) =>
     call(`/api/tasks${status && status !== "all" ? `?status=${encodeURIComponent(status)}` : ""}`, "DELETE"),
   approvals: () => call("/api/approvals"),
-  decide: (id: string, decision: string) => call(`/api/approvals/${id}/decide`, "POST", { decision }),
+  decide: (id: string, decision: string, reason = "") => call(`/api/approvals/${encodeURIComponent(id)}/decide`, "POST", { decision, reason }),
   deleteApproval: (id: string) => call(`/api/approvals/${encodeURIComponent(id)}`, "DELETE"),
   audit: () => call("/api/audit"),
   exportAudit: () => call("/api/audit/export"),
   emergencyStop: () => call("/api/emergency-stop", "POST", {}),
   emergencyClear: () => call("/api/emergency-stop/clear", "POST", {}),
-  login: (username: string, password: string) => fetch(BASE + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) }).then(async r => { if (!r.ok) throw new Error("Login failed"); return r.json(); }),
+  login: (username: string, password: string) => fetch(BASE + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }), signal: AbortSignal.timeout(15000) }).then(async r => { if (!r.ok) throw new Error("Username or password rejected."); return r.json(); }),
   logout: () => call("/api/auth/logout", "POST", {}),
   policies: () => call("/api/policies"),
   policyHistory: () => call("/api/policies/history"),
@@ -83,7 +138,7 @@ export const api = {
   getWebhook: () => call("/api/settings/webhook"),
   setWebhook: (webhook_url: string) => call("/api/settings/webhook", "POST", { webhook_url }),
   testWebhook: () => call("/api/settings/webhook/test", "POST", {}),
-  oidcConfigured: () => fetch(BASE + "/api/auth/oidc/configured").then(r => r.json()),
+  oidcConfigured: () => fetch(BASE + "/api/auth/oidc/configured", { signal: AbortSignal.timeout(10000) }).then(r => { if (!r.ok) throw new Error("Identity provider unavailable"); return r.json(); }),
   me: () => call("/api/auth/me"),
   oidcLogin: () => { window.location.href = BASE + "/api/auth/oidc/login"; },
   aiTools: (format = "raw", device?: string) =>

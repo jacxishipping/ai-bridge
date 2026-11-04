@@ -28,7 +28,7 @@ import {
   GlassModal,
   HoldToConfirmButton,
   BreadcrumbTrail,
-} from "@jacxishippingorg/jx-ui-react";
+} from "../ui";
 import {
   Server,
   Activity,
@@ -493,15 +493,9 @@ export const Device360View: React.FC = () => {
       {/* Breadcrumb Navigation & Node Selector Ribbon */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
         <div>
-          <BreadcrumbTrail
-            crumbs={["AI Bridge", "Operations Domain", "Device 360", selectedDevice.hostname]}
-          />
           <h1 className="text-xl font-bold tracking-tight text-slate-100 mt-1">
-            Device 360 System Dashboard
+            Device details
           </h1>
-          <p className="text-xs text-slate-400 font-mono mt-0.5">
-            Hardware Telemetry, Process Governance, Sockets & Daemons • mTLS v1.3 Key-Bound
-          </p>
         </div>
 
         {/* Node Switcher Dropdown */}
@@ -511,7 +505,7 @@ export const Device360View: React.FC = () => {
             value={selectedDeviceId}
             onChange={(val) => setSelectedDeviceId(val)}
             searchable
-            label="Switch Fleet Node"
+            label="Device"
           />
         </div>
       </div>
@@ -538,7 +532,7 @@ export const Device360View: React.FC = () => {
                       {selectedDevice.arch}
                     </span>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold">
-                      Online • mTLS v1.3 Verified
+                      {selectedDevice.status}
                     </span>
                   </div>
                   <p className="text-xs text-slate-400 font-mono mt-0.5">
@@ -610,8 +604,7 @@ export const Device360View: React.FC = () => {
         <JXGridItem colSpan={3}>
           <JXCard spotlight hoverLift className="bg-slate-900/60 border-slate-800 h-full">
             <JXCardHeader
-              title="CPU Compute"
-              subheader={`${telemetry.cpuClockGhz} GHz Xeon Scalable`}
+              title="CPU"
               icon={<Cpu className="w-4 h-4 text-indigo-400" />}
             />
             <JXCardContent>
@@ -649,8 +642,7 @@ export const Device360View: React.FC = () => {
         <JXGridItem colSpan={3}>
           <JXCard spotlight hoverLift className="bg-slate-900/60 border-slate-800 h-full">
             <JXCardHeader
-              title="Physical Memory"
-              subheader="DDR5 ECC Registered"
+              title="Memory"
               icon={<Layers className="w-4 h-4 text-purple-400" />}
             />
             <JXCardContent>
@@ -686,8 +678,7 @@ export const Device360View: React.FC = () => {
         <JXGridItem colSpan={3}>
           <JXCard spotlight hoverLift className="bg-slate-900/60 border-slate-800 h-full">
             <JXCardHeader
-              title="Storage Volumes"
-              subheader="NVMe Solid State PCIe 4.0"
+              title="Storage"
               icon={<HardDrive className="w-4 h-4 text-emerald-400" />}
             />
             <JXCardContent>
@@ -725,8 +716,7 @@ export const Device360View: React.FC = () => {
         <JXGridItem colSpan={3}>
           <JXCard spotlight hoverLift className="bg-slate-900/60 border-slate-800 h-full">
             <JXCardHeader
-              title="Network Throughput"
-              subheader="Bidirectional eth0 / WireGuard"
+              title="Network"
               icon={<Activity className="w-4 h-4 text-cyan-400" />}
             />
             <JXCardContent>

@@ -1,3 +1,24 @@
 @import "tailwindcss";
 @source "../node_modules/@jacxishippingorg/jx-ui-react";
-@custom-variant dark (&:where(.dark, [data-theme="dark"], [data-mode="dark"]));
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background: #0B0F19;
+    font-family: "Plus Jakarta Sans", sans-serif;
+  }
+  body { margin: 0; }
+  button, input, select, textarea { font: inherit; }
+  button:not(:disabled), summary { cursor: pointer; }
+  :focus-visible { outline: 2px solid #818cf8; outline-offset: 3px; }
+  input, select, textarea { max-width: 100%; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
