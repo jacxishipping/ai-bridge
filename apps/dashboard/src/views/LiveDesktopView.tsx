@@ -16,7 +16,7 @@ import {
   JXCardContent,
   JXBadge,
   JXButton,
-} from "@jacxishippingorg/jx-ui-react";
+} from "../ui";
 import {
   Monitor,
   Mouse,
@@ -122,48 +122,7 @@ export const LiveDesktopView: React.FC = () => {
     <div className="space-y-5">
       {/* Top Header & Breadcrumb Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
-        <div>
-          <div className="flex items-center gap-2 font-mono text-xs text-slate-400">
-            <span className="uppercase tracking-wider">Operations</span>
-            <span className="text-slate-600">/</span>
-            <span className="uppercase tracking-wider text-indigo-400">Live Desktop Studio</span>
-            <span className="text-slate-600">/</span>
-            <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200">
-              {selectedDevice?.hostname || "srv-us-east-412"}
-            </span>
-          </div>
-          <h2 className="text-lg font-bold text-slate-100 tracking-tight mt-1 flex items-center gap-3">
-            Interactive Remote Workspace
-            <span className="font-mono text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-              Stream Synchronized
-            </span>
-          </h2>
-        </div>
-
-        {/* Telemetry Pills */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800 font-mono text-xs">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
-            </span>
-            <span className="text-slate-200">WebRTC P2P</span>
-            <span className="text-emerald-400 font-semibold">60 FPS • 18ms</span>
-          </div>
-
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800 font-mono text-xs">
-            <Radio className="w-3.5 h-3.5 text-indigo-400" />
-            <span className="text-slate-200">Dual-Control:</span>
-            <span className="text-emerald-400 font-semibold">
-              {controlMode === "takeover" ? "Operator Takeover" : "Observer Mode"}
-            </span>
-          </div>
-
-          <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800 font-mono text-xs text-slate-400">
-            <Cpu className="w-3.5 h-3.5" />
-            <span>H.265 / NVENC HW</span>
-          </div>
-        </div>
+        <p className="text-sm text-slate-400">{selectedDevice?.hostname || "No device selected"}</p>
       </div>
 
       {/* Floating Dual-Control Takeover Bar */}
@@ -338,7 +297,7 @@ export const LiveDesktopView: React.FC = () => {
         </div>
 
         {recentMacroNotice && (
-          <div className="font-mono text-xs text-indigo-300 bg-indigo-950/60 px-3 py-1 rounded-lg border border-indigo-500/30 animate-pulse">
+          <div className="font-mono text-xs text-indigo-300 bg-indigo-950/60 px-3 py-1 rounded-lg border border-indigo-500/30">
             {recentMacroNotice}
           </div>
         )}
@@ -484,7 +443,7 @@ export const LiveDesktopView: React.FC = () => {
 
             {/* SoM Mark #102: Command Shell */}
             <div className="absolute left-[68%] top-[12%] w-[29%] h-[82%] border-2 border-emerald-400/70 bg-emerald-500/5 rounded-xl flex items-start justify-between p-2">
-              <span className="px-2 py-0.5 rounded bg-emerald-600 text-white font-mono text-[10px] font-bold shadow-md">
+              <span className="px-2 py-0.5 rounded bg-emerald-800 text-white font-mono text-[10px] font-bold shadow-md">
                 SoM #102 • Command Shell
               </span>
               <span className="font-mono text-[10px] text-emerald-300 bg-slate-950/80 px-1.5 py-0.5 rounded border border-emerald-500/30">
@@ -494,7 +453,7 @@ export const LiveDesktopView: React.FC = () => {
 
             {/* SoM Mark #103: Performance Bar */}
             <div className="absolute left-[4%] top-[72%] w-[62%] h-[22%] border-2 border-cyan-400/70 bg-cyan-500/5 rounded-xl flex items-start justify-between p-2">
-              <span className="px-2 py-0.5 rounded bg-cyan-600 text-white font-mono text-[10px] font-bold shadow-md">
+              <span className="px-2 py-0.5 rounded bg-cyan-800 text-white font-mono text-[10px] font-bold shadow-md">
                 SoM #103 • Telemetry Metrics
               </span>
               <span className="font-mono text-[10px] text-cyan-300 bg-slate-950/80 px-1.5 py-0.5 rounded border border-cyan-500/30">
@@ -535,21 +494,13 @@ export const LiveDesktopView: React.FC = () => {
           </div>
         )}
 
-        {/* Bottom Enclave Telemetry HUD Overlay */}
-        <div className="absolute bottom-2 left-2 right-2 px-3 py-1.5 rounded-lg bg-slate-950/85 backdrop-blur-md border border-slate-800 flex items-center justify-between font-mono text-[11px] text-slate-400 pointer-events-none">
-          <span className="flex items-center gap-1.5 text-emerald-400">
-            <Lock className="w-3.5 h-3.5" />
-            mTLS Encrypted Enclave Stream • Session #LDS-99201 • Sarah J. (Lead SecOps)
-          </span>
-          <span className="tabular-nums">3840×2160 native (DPI: 2.0)</span>
-        </div>
       </div>
 
       {/* Active Windows HUD Tray (Collapsible & Focusable) */}
       <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
           <span className="font-mono text-xs uppercase tracking-wider text-slate-400 pl-1 hidden sm:inline">
-            Active Windows HUD:
+            Windows
           </span>
           {windowsList.map((win) => {
             const isFocused = win.id === activeWindowId;
@@ -606,56 +557,6 @@ export const LiveDesktopView: React.FC = () => {
         </div>
       </div>
 
-      {/* Bottom Telemetry Metrics Strip (8 Bento Cards) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-        <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col font-mono">
-          <span className="text-[10px] text-slate-400 uppercase">Stream Bitrate</span>
-          <span className="text-base font-bold text-slate-100 mt-1">14.82 Mbps</span>
-          <span className="text-[10px] text-emerald-400 mt-0.5">Optimal Bandwidth</span>
-        </div>
-
-        <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col font-mono">
-          <span className="text-[10px] text-slate-400 uppercase">Packet Loss</span>
-          <span className="text-base font-bold text-emerald-400 mt-1">0.00 %</span>
-          <span className="text-[10px] text-slate-500 mt-0.5">0 / 28,490 lost</span>
-        </div>
-
-        <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col font-mono">
-          <span className="text-[10px] text-slate-400 uppercase">Framerate</span>
-          <span className="text-base font-bold text-slate-100 mt-1">59.8 FPS</span>
-          <span className="text-[10px] text-emerald-400 mt-0.5">Target: 60 FPS</span>
-        </div>
-
-        <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col font-mono">
-          <span className="text-[10px] text-slate-400 uppercase">Render Latency</span>
-          <span className="text-base font-bold text-emerald-400 mt-1">2.1 ms</span>
-          <span className="text-[10px] text-slate-500 mt-0.5">NVENC sync</span>
-        </div>
-
-        <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col font-mono">
-          <span className="text-[10px] text-slate-400 uppercase">Total Dropped</span>
-          <span className="text-base font-bold text-slate-100 mt-1">0 frames</span>
-          <span className="text-[10px] text-emerald-400 mt-0.5">Zero-drop buffer</span>
-        </div>
-
-        <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col font-mono">
-          <span className="text-[10px] text-slate-400 uppercase">Audio Stream</span>
-          <span className="text-base font-bold text-slate-100 mt-1">Opus 48kHz</span>
-          <span className="text-[10px] text-emerald-400 mt-0.5">128 kbps stereo</span>
-        </div>
-
-        <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col font-mono">
-          <span className="text-[10px] text-slate-400 uppercase">Hardware GPU</span>
-          <span className="text-base font-bold text-cyan-400 mt-1">RTX 4090</span>
-          <span className="text-[10px] text-slate-500 mt-0.5">Driver 550.54</span>
-        </div>
-
-        <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col font-mono">
-          <span className="text-[10px] text-slate-400 uppercase">Session Idle</span>
-          <span className="text-base font-bold text-slate-100 mt-1">0s</span>
-          <span className="text-[10px] text-indigo-400 mt-0.5">Operator Active</span>
-        </div>
-      </div>
     </div>
   );
 };

@@ -18,7 +18,7 @@ import {
   JXGrid,
   JXGridItem,
   JXLinearProgress,
-} from "@jacxishippingorg/jx-ui-react";
+} from "../ui";
 import {
   Terminal,
   Activity,
@@ -250,40 +250,10 @@ export const DiagnosticsLogsView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Status Ribbon with Ingest EPS and Ring Buffer Meter */}
       <JXCard className="bg-slate-900/60 border-slate-800">
         <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs font-mono">
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="font-bold text-slate-100">INGEST: 1,840 eps</span>
-            </div>
-
-            <div className="h-4 w-px bg-slate-800" />
-
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400">Ring Buffer:</span>
-              <span className={`font-bold ${getRingBufferColor(ringBufferPercent)}`}>
-                {ringBufferUsedMb} MB / {ringBufferTotalMb} MB ({ringBufferPercent}%)
-              </span>
-            </div>
-
-            <div className="h-4 w-px bg-slate-800" />
-
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400">Capture Window:</span>
-              <span className="text-indigo-400 font-semibold">Live Rolling 15m</span>
-            </div>
-
-            <div className="h-4 w-px bg-slate-800" />
-
-            <div className="flex items-center gap-1.5 text-emerald-400">
-              <Check className="w-3.5 h-3.5" />
-              <span>Zero-Drop Locked</span>
-            </div>
-          </div>
-
           <div className="flex items-center gap-2 flex-wrap">
             <JXButton
               variant={isPaused ? "contained" : "soft"}
@@ -292,7 +262,7 @@ export const DiagnosticsLogsView: React.FC = () => {
               onClick={() => setIsPaused(!isPaused)}
               startIcon={isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
             >
-              {isPaused ? "Resume Stream" : "Pause Stream (Space)"}
+              {isPaused ? "Resume" : "Pause"}
             </JXButton>
 
             <JXButton
@@ -334,6 +304,7 @@ export const DiagnosticsLogsView: React.FC = () => {
           <div className="flex items-center gap-2 flex-wrap">
             {/* Target Service Dropdown */}
             <select
+              aria-label="Target log service"
               value={targetService}
               onChange={(e) => setTargetService(e.target.value)}
               className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none"
@@ -347,6 +318,7 @@ export const DiagnosticsLogsView: React.FC = () => {
 
             {/* Buffer Size Selector */}
             <select
+              aria-label="Log buffer size"
               value={bufferSize}
               onChange={(e) => setBufferSize(Number(e.target.value))}
               className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none"
@@ -359,7 +331,7 @@ export const DiagnosticsLogsView: React.FC = () => {
             {/* Auto-Scroll Toggle */}
             <div className="flex items-center gap-2 p-1.5 rounded-lg bg-slate-950 border border-slate-800">
               <span className="text-slate-400">Auto-Scroll</span>
-              <JXSwitch checked={autoScroll} onChange={() => setAutoScroll(!autoScroll)} />
+              <JXSwitch label="Auto-scroll logs" checked={autoScroll} onChange={() => setAutoScroll(!autoScroll)} />
             </div>
 
             {/* Regex Query Input */}
@@ -437,14 +409,19 @@ export const DiagnosticsLogsView: React.FC = () => {
                   return (
                     <div
                       key={log.id}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedEntry(log); }
+                      }}
                       onClick={() => setSelectedEntry(log)}
-                      className={`p-2 rounded-lg cursor-pointer transition-colors flex items-start gap-3 ${
+                      className={`p-2 rounded-lg cursor-pointer transition-colors flex flex-wrap items-start gap-3 ${
                         isSelected
                           ? "bg-indigo-950/60 border border-indigo-500/60 text-slate-100"
                           : "hover:bg-slate-950/60 text-slate-300"
                       }`}
                     >
-                      <span className="text-slate-500 text-[11px] shrink-0">{log.timestamp.slice(11, 23)}</span>
+                      <span className="text-slate-400 text-[11px] shrink-0">{log.timestamp.slice(11, 23)}</span>
                       <span className="text-indigo-400 font-semibold shrink-0">[{log.workerThread}]</span>
                       <span className="text-cyan-400 font-semibold shrink-0">[{log.moduleTag}]</span>
                       <span
@@ -473,8 +450,7 @@ export const DiagnosticsLogsView: React.FC = () => {
         <JXGridItem colSpan={4}>
           <JXCard className="bg-slate-900/60 border-slate-800">
             <JXCardHeader
-              title="Structured JSON Log Inspector"
-              subheader="Parsed telemetry attributes and distributed trace correlation"
+              title="Log details"
               icon={<FileCode className="w-5 h-5 text-indigo-400" />}
             />
             <JXCardContent>
@@ -482,21 +458,21 @@ export const DiagnosticsLogsView: React.FC = () => {
                 <div className="space-y-4 text-xs font-mono">
                   <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
                     <div className="flex justify-between">
-                      <span className="text-slate-500">Service:</span>
+                      <span className="text-slate-400">Service:</span>
                       <span className="text-slate-200 font-semibold">{selectedEntry.service}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-500">Worker PID:</span>
+                      <span className="text-slate-400">Worker PID:</span>
                       <span className="text-slate-200">{selectedEntry.pid}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-500">Trace ID:</span>
+                      <span className="text-slate-400">Trace ID:</span>
                       <span className="text-cyan-400 font-bold">{selectedEntry.traceId}</span>
                     </div>
                   </div>
 
                   {/* Actions: Filter by Trace ID & Pin to Audit Trail */}
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <JXButton
                       variant="soft"
                       color="primary"
@@ -519,7 +495,7 @@ export const DiagnosticsLogsView: React.FC = () => {
 
                   {/* Formatted JSON Payload Attributes */}
                   <div className="space-y-1.5">
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
                       Parsed Structured Attributes
                     </span>
                     <pre className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 overflow-x-auto max-h-56 overflow-y-auto">
@@ -527,17 +503,10 @@ export const DiagnosticsLogsView: React.FC = () => {
                     </pre>
                   </div>
 
-                  {/* Target Node Topology Context */}
-                  <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1 text-[11px]">
-                    <div className="text-slate-400 font-bold">Node Topology Context</div>
-                    <div className="text-slate-500">
-                      Host: srv-us-east-412 • Zone: us-east-1a • Enclave: eBPF strict
-                    </div>
-                  </div>
                 </div>
               ) : (
-                <div className="p-8 text-center text-slate-500 font-mono text-xs">
-                  Click any log row on the canvas to inspect structured attributes.
+                <div className="p-8 text-center text-slate-400 text-sm">
+                  Select a log to see its details.
                 </div>
               )}
             </JXCardContent>
@@ -545,86 +514,6 @@ export const DiagnosticsLogsView: React.FC = () => {
         </JXGridItem>
       </JXGrid>
 
-      {/* 4 Subsystem Health & Ingestion Metrics Bento Units */}
-      <JXGrid columns={12} gap="md">
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Core Service Uptime"
-              subheader="ai-bridge-core.service"
-              icon={<Server className="w-4 h-4 text-emerald-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">42d 18h</span>
-                <span className="text-xs font-mono text-emerald-400">1.4% CPU</span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                182 MB RSS • Zero crashes recorded
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="MCP Gateway Uptime"
-              subheader="ai-bridge-mcp-gateway"
-              icon={<Activity className="w-4 h-4 text-indigo-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">42d 18h</span>
-                <span className="text-xs font-mono text-indigo-400">0.8% CPU</span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                94 MB RSS • 42 Concurrent SSE
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Edge Fleet Daemon"
-              subheader="ai-bridge-edge-daemon"
-              icon={<Shield className="w-4 h-4 text-cyan-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">19d 04h</span>
-                <span className="text-xs font-mono text-cyan-400">0.3% CPU</span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                62 MB RSS • Mesh loopback
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Zero-Drop Ring Buffer"
-              subheader="Recycling allocator gauge"
-              icon={<HardDrive className="w-4 h-4 text-emerald-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className={`font-mono text-2xl font-bold ${getRingBufferColor(ringBufferPercent)}`}>
-                  {ringBufferPercent}%
-                </span>
-                <span className="text-xs font-mono text-slate-400">30.72 MB / 64 MB</span>
-              </div>
-              <div className="mt-2">
-                <JXLinearProgress value={ringBufferPercent} className="w-full bg-slate-800" />
-              </div>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-      </JXGrid>
     </div>
   );
 };

@@ -22,7 +22,7 @@ import {
   JXAlert,
   GlassModal,
   BreadcrumbTrail,
-} from "@jacxishippingorg/jx-ui-react";
+} from "../ui";
 import {
   Server,
   Activity,
@@ -67,6 +67,7 @@ export const DevicesView: React.FC = () => {
   const [enrollModalOpen, setEnrollModalOpen] = useState<boolean>(false);
   const [enrollPlatformTab, setEnrollPlatformTab] = useState<string>("linux");
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
+  const [clipboardError, setClipboardError] = useState("");
   const [enrollArchRole, setEnrollArchRole] = useState<string>("Standard Worker (Linux x86_64 / arm64)");
   const [sandboxDir, setSandboxDir] = useState<string>("/opt/ai-bridge/workspace");
   const [tokenExpiry, setTokenExpiry] = useState<string>("24h");
@@ -148,15 +149,13 @@ export const DevicesView: React.FC = () => {
 
   const handleCopyEnrollCommand = useCallback(async () => {
     const text = enrollPlatformTab === "linux" ? linuxEnrollCommand : windowsEnrollCommand;
+    setClipboardError("");
     try {
-      if (typeof navigator !== "undefined" && navigator.clipboard) {
-        await navigator.clipboard.writeText(text);
-      }
+      await navigator.clipboard.writeText(text);
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2000);
     } catch {
-      setCopiedCode(true);
-      setTimeout(() => setCopiedCode(false), 2000);
+      setClipboardError("Clipboard access was denied. Select and copy the sample command manually.");
     }
   }, [enrollPlatformTab, linuxEnrollCommand, windowsEnrollCommand]);
 
@@ -184,17 +183,13 @@ export const DevicesView: React.FC = () => {
   );
 
   return (
-    <div className="w-full space-y-6">
+    <div className="w-full space-y-4">
       {/* Top Context & Header Ribbon */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
         <div>
-          <BreadcrumbTrail crumbs={["AI Bridge", "Operations Domain", "Enrolled Devices"]} />
           <h1 className="text-xl font-bold tracking-tight text-slate-100 mt-1">
-            Enrolled Fleet Devices
+            Devices
           </h1>
-          <p className="text-xs text-slate-400 font-mono mt-0.5">
-            40 connected nodes across distributed infrastructure with cryptographic mTLS attestation.
-          </p>
         </div>
 
         <JXStack direction="row" spacing="sm" className="items-center flex-wrap">
@@ -206,8 +201,7 @@ export const DevicesView: React.FC = () => {
             startIcon={<PlusCircle className="w-3.5 h-3.5" />}
             className="bg-indigo-600 hover:bg-indigo-500 font-semibold"
           >
-            <span>Enroll Device</span>
-            <kbd className="ml-1.5 px-1 py-0.5 rounded bg-black/30 text-[10px] font-mono">⌘N</kbd>
+            <span>Add device</span>
           </JXButton>
 
           <JXButton
@@ -225,89 +219,6 @@ export const DevicesView: React.FC = () => {
           </JXButton>
         </JXStack>
       </div>
-
-      {/* Top Metrics Ribbon */}
-      <JXGrid columns={12} gap="md">
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight hoverLift className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Total Enrolled"
-              subheader="Active node registry"
-              icon={<Server className="w-4 h-4 text-indigo-400" />}
-            />
-            <JXCardContent>
-              <div className="space-y-1">
-                <span className="font-mono text-2xl font-bold text-slate-100 tabular-nums">
-                  {totalCount} Nodes
-                </span>
-                <div className="text-[11px] font-mono text-emerald-400">
-                  +12 provisioned this month
-                </div>
-              </div>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight hoverLift className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Online & Healthy"
-              subheader="95.0% fleet SLA"
-              icon={<Activity className="w-4 h-4 text-emerald-400" />}
-            />
-            <JXCardContent>
-              <div className="space-y-1">
-                <span className="font-mono text-2xl font-bold text-emerald-400 tabular-nums">
-                  {onlineCount} Nodes
-                </span>
-                <div className="text-[11px] font-mono text-slate-400">
-                  Heartbeat latency &lt; 20ms
-                </div>
-              </div>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight hoverLift className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Windows Nodes"
-              subheader="Datacenter & Workstation"
-              icon={<Monitor className="w-4 h-4 text-cyan-400" />}
-            />
-            <JXCardContent>
-              <div className="space-y-1">
-                <span className="font-mono text-2xl font-bold text-cyan-400 tabular-nums">
-                  {windowsCount} Nodes
-                </span>
-                <div className="text-[11px] font-mono text-slate-400">
-                  Server 2022 / Win 11 Pro
-                </div>
-              </div>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight hoverLift className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Linux / macOS"
-              subheader="Cloud compute & Apple Silicon"
-              icon={<Terminal className="w-4 h-4 text-amber-400" />}
-            />
-            <JXCardContent>
-              <div className="space-y-1">
-                <span className="font-mono text-2xl font-bold text-amber-400 tabular-nums">
-                  {linuxCount + macCount} Nodes
-                </span>
-                <div className="text-[11px] font-mono text-slate-400">
-                  {linuxCount} Linux • {macCount} macOS
-                </div>
-              </div>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-      </JXGrid>
 
       {/* Filter Toolbar: Status Chips, Platform Segmented Controls, Search */}
       <JXCard className="bg-slate-900/60 border-slate-800">
@@ -368,7 +279,7 @@ export const DevicesView: React.FC = () => {
                       : "text-slate-400 hover:text-slate-200"
                   }`}
                 >
-                  All Platforms
+                  All
                 </button>
                 <button
                   type="button"
@@ -390,7 +301,7 @@ export const DevicesView: React.FC = () => {
                       : "text-slate-400 hover:text-slate-200"
                   }`}
                 >
-                  Ubuntu / Debian ({linuxCount})
+                  Linux ({linuxCount})
                 </button>
                 <button
                   type="button"
@@ -401,7 +312,7 @@ export const DevicesView: React.FC = () => {
                       : "text-slate-400 hover:text-slate-200"
                   }`}
                 >
-                  macOS Sonoma ({macCount})
+                  macOS ({macCount})
                 </button>
               </div>
             </div>
@@ -412,7 +323,7 @@ export const DevicesView: React.FC = () => {
                 <JXTextField
                   value={searchQuery}
                   onChange={(val) => setSearchQuery(val)}
-                  placeholder="Search by hostname, node UUID, architecture, or model (e.g. srv-us-east, x86_64, Claude)..."
+                  placeholder="Search devices…"
                   startIcon={<Search className="w-4 h-4 text-slate-400" />}
                   size="md"
                   clearable
@@ -422,6 +333,7 @@ export const DevicesView: React.FC = () => {
               <div className="md:col-span-4 flex items-center justify-end gap-2 text-xs font-mono">
                 <span className="text-slate-400">Sort by:</span>
                 <select
+                  aria-label="Sort devices by"
                   value={sortField}
                   onChange={(e) => setSortField(e.target.value as any)}
                   className="bg-slate-800 border border-slate-700 text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
@@ -446,30 +358,27 @@ export const DevicesView: React.FC = () => {
       {/* SmartDataTable: 7 Columns Device Inventory */}
       <JXCard className="bg-slate-900/60 border-slate-800 overflow-hidden">
         <JXCardHeader
-          title="Fleet Inventory Table"
-          subheader={`Displaying ${filteredDevices.length} of ${devices.length} enrolled compute agents`}
+          title={`Devices (${filteredDevices.length})`}
           icon={<Server className="w-4 h-4 text-indigo-400" />}
         />
         <JXCardContent>
           <div className="space-y-2">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs min-w-[1050px]">
+            <div tabIndex={0} role="region" aria-label="Device inventory" className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-sm min-w-[640px]">
                 <thead>
-                  <tr className="border-b border-slate-800 bg-slate-850/60 text-slate-400 font-mono uppercase tracking-wider">
+                  <tr className="border-b border-slate-800 text-xs text-slate-400">
                     <th className="py-3 px-3">Status</th>
-                    <th className="py-3 px-3">Device Identity & UUID</th>
-                    <th className="py-3 px-3">Operating System</th>
-                    <th className="py-3 px-3">Cadence / Latency</th>
-                    <th className="py-3 px-3">Workspace Path</th>
-                    <th className="py-3 px-3">Assigned Models</th>
+                    <th className="py-3 px-3">Device</th>
+                    <th className="py-3 px-3">OS</th>
+                    <th className="py-3 px-3">Last seen</th>
                     <th className="py-3 px-3 sticky right-0 bg-slate-850 text-right pr-4">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60 font-mono">
+                <tbody className="divide-y divide-slate-800/60">
                   {filteredDevices.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-400">
-                        No enrolled devices match the current query & platform filter.
+                      <td colSpan={5} className="py-12 text-center text-slate-400">
+                        No matching devices.
                       </td>
                     </tr>
                   ) : (
@@ -489,9 +398,6 @@ export const DevicesView: React.FC = () => {
                           <td className="py-3 px-3 whitespace-nowrap">
                             <div className="flex items-center gap-2">
                               <span className="relative flex h-2.5 w-2.5">
-                                {isOnline && (
-                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                                )}
                                 <span
                                   className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
                                     isOnline
@@ -511,7 +417,7 @@ export const DevicesView: React.FC = () => {
                                     : "bg-rose-500/10 text-rose-400"
                                 }`}
                               >
-                                {isOnline ? "Online (mTLS)" : isUnresponsive ? "Unresponsive" : "Offline"}
+                                {isOnline ? "Online" : isUnresponsive ? "Unresponsive" : "Offline"}
                               </span>
                             </div>
                           </td>
@@ -520,22 +426,10 @@ export const DevicesView: React.FC = () => {
                           <td className="py-3 px-3">
                             <div className="flex flex-col">
                               <div className="flex items-center gap-2">
-                                <span className="font-bold text-slate-100 group-hover:text-indigo-300 transition-colors">
-                                  {device.id}
-                                </span>
-                                <span
-                                  className={`text-[10px] px-1.5 py-0.2 rounded uppercase ${
-                                    device.arch === "aarch64"
-                                      ? "bg-indigo-500/20 text-indigo-300"
-                                      : "bg-slate-800 text-slate-300"
-                                  }`}
-                                >
-                                  {device.arch}
+                                <span className="font-medium text-slate-100">
+                                  {device.hostname}
                                 </span>
                               </div>
-                              <span className="text-[10px] text-slate-400 truncate max-w-[200px]">
-                                {device.hostname}
-                              </span>
                             </div>
                           </td>
 
@@ -551,66 +445,30 @@ export const DevicesView: React.FC = () => {
                               )}
                               <div className="flex flex-col">
                                 <span className="text-slate-200 font-medium">{device.osRelease}</span>
-                                <span className="text-[10px] text-slate-400 capitalize">
-                                  {device.platform} kernel
-                                </span>
                               </div>
                             </div>
                           </td>
 
                           {/* 4. Cadence / Latency */}
                           <td className="py-3 px-3">
-                            <div className="flex flex-col">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-emerald-400 font-bold tabular-nums">
-                                  {device.latencyMs}ms ping
-                                </span>
-                                <span className="text-slate-400 text-[10px]">
-                                  ({device.pollIntervalSec}s poll)
-                                </span>
-                              </div>
-                              <span className="text-[10px] text-slate-400">
-                                Heartbeat: {new Date(device.lastHeartbeat).toLocaleTimeString()}
-                              </span>
-                            </div>
-                          </td>
-
-                          {/* 5. Workspace Path */}
-                          <td className="py-3 px-3">
-                            <code className="text-[11px] px-2 py-0.5 rounded bg-slate-850 text-indigo-200 border border-slate-700/60 select-all truncate block max-w-[220px]">
-                              {device.workspacePath}
-                            </code>
-                          </td>
-
-                          {/* 6. Assigned Models */}
-                          <td className="py-3 px-3">
-                            <div className="flex items-center gap-1 flex-wrap max-w-[220px]">
-                              {device.assignedModels.map((model) => (
-                                <span
-                                  key={model}
-                                  className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/40"
-                                >
-                                  {model}
-                                </span>
-                              ))}
-                            </div>
+                            <span className="text-xs tabular-nums text-slate-400">{new Date(device.lastHeartbeat).toLocaleTimeString()}</span>
                           </td>
 
                           {/* 7. Sticky Actions (Right) */}
                           <td className="py-3 px-3 sticky right-0 bg-slate-900 group-hover:bg-slate-850/70 transition-colors text-right pr-4">
                             <div className="flex items-center justify-end gap-1.5">
                               <JXButton
-                                variant="contained"
-                                color="primary"
+                                variant="text"
+                                color="neutral"
                                 size="sm"
                                 onClick={() => {
                                   setSelectedDeviceId(device.id);
                                   setCurrentView("device-360-system");
                                 }}
                                 endIcon={<ArrowRight className="w-3 h-3" />}
-                                className="text-[11px] bg-indigo-600 hover:bg-indigo-500"
+                                className="text-xs"
                               >
-                                Inspect 360
+                                Details
                               </JXButton>
 
                               <JXButton
@@ -621,7 +479,7 @@ export const DevicesView: React.FC = () => {
                                 startIcon={<Play className="w-3 h-3 text-emerald-400" />}
                                 className="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-200"
                               >
-                                Dispatch
+                                Run task
                               </JXButton>
                             </div>
                           </td>
@@ -641,12 +499,13 @@ export const DevicesView: React.FC = () => {
         <GlassModal
           open={enrollModalOpen}
           onClose={() => setEnrollModalOpen(false)}
-          title="Enroll New Compute Node"
+          title="Preview device enrollment"
         >
           <div className="space-y-4 max-w-xl w-full text-xs font-mono">
             <p className="text-slate-400 text-xs">
-              Generate cryptographic provisioning tokens and execution one-liners to bootstrap agents into the zero-trust mesh.
+              This is an enrollment preview. The token and commands are examples, not valid credentials. Do not run these sample commands.
             </p>
+            {clipboardError && <p role="alert" className="text-rose-300">{clipboardError}</p>}
 
             {/* Target Architecture & Role selector */}
             <div className="space-y-1">
@@ -654,6 +513,7 @@ export const DevicesView: React.FC = () => {
                 Target Architecture & Role
               </label>
               <select
+                aria-label="Target architecture and role"
                 value={enrollArchRole}
                 onChange={(e) => setEnrollArchRole(e.target.value)}
                 className="w-full bg-slate-800 border border-slate-700 text-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
@@ -681,7 +541,7 @@ export const DevicesView: React.FC = () => {
                 placeholder="/opt/ai-bridge/workspace"
                 size="md"
               />
-              <span className="text-[11px] text-slate-500">
+              <span className="text-[11px] text-slate-400">
                 Directory path where remote agent task processes will isolate execution.
               </span>
             </div>
@@ -711,7 +571,7 @@ export const DevicesView: React.FC = () => {
 
             {/* Script Platform Tabs */}
             <div className="space-y-2 pt-2 border-t border-slate-800">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <span className="text-slate-300 font-semibold text-xs">
                   Provisioning One-Liner
                 </span>
@@ -768,9 +628,9 @@ export const DevicesView: React.FC = () => {
             </div>
 
             {/* Modal Actions */}
-            <div className="flex items-center justify-between pt-3 border-t border-slate-800">
-              <span className="text-[11px] text-slate-500">
-                SHA-256 Signature verification enforced
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
+              <span className="text-[11px] text-slate-400">
+                Preview only · no key is issued
               </span>
               <div className="flex items-center gap-2">
                 <JXButton
@@ -794,7 +654,7 @@ export const DevicesView: React.FC = () => {
                   }}
                   className="bg-indigo-600 hover:bg-indigo-500"
                 >
-                  {tokenProvisioned ? "Key Provisioned!" : "Generate Node Key"}
+                  {tokenProvisioned ? "Preview complete" : "Simulate key generation"}
                 </JXButton>
               </div>
             </div>
@@ -817,6 +677,7 @@ export const DevicesView: React.FC = () => {
             <div className="space-y-1">
               <label className="text-slate-300 font-semibold">Select Tool</label>
               <select
+                aria-label="Select dispatch tool"
                 value={dispatchTool}
                 onChange={(e) => setDispatchTool(e.target.value)}
                 className="w-full bg-slate-800 border border-slate-700 text-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"

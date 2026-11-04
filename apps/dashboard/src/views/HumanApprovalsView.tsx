@@ -7,6 +7,7 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
+  GlassModal,
   JXCard,
   JXCardHeader,
   JXCardContent,
@@ -17,7 +18,7 @@ import {
   JXGrid,
   JXGridItem,
   JXLinearProgress,
-} from "@jacxishippingorg/jx-ui-react";
+} from "../ui";
 import {
   ShieldAlert,
   Clock,
@@ -218,99 +219,7 @@ export const HumanApprovalsView: React.FC = () => {
   const pendingCount = approvals.filter((a) => a.status === "pending").length;
 
   return (
-    <div className="space-y-6">
-      {/* 4 KPI Telemetry Metrics */}
-      <JXGrid columns={12} gap="md">
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Pending Urgent"
-              subheader="Privileged human verification"
-              icon={<ShieldAlert className="w-4 h-4 text-rose-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">
-                  {pendingCount}
-                </span>
-                <JXBadge
-                  color={pendingCount > 0 ? "error" : "success"}
-                  statusText={pendingCount > 0 ? "Review Required" : "All Clear"}
-                />
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Tier-3 Shell & Tier-4 Kernel invocations
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Urgent SLA Window"
-              subheader="Auto-reject failsafe"
-              icon={<Clock className="w-4 h-4 text-amber-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-amber-400">
-                  {formatCountdown(countdownSeconds)}
-                </span>
-                <span className="text-xs font-mono text-slate-400">10m max lock</span>
-              </div>
-              <div className="mt-2">
-                <JXLinearProgress
-                  value={Math.round((countdownSeconds / 300) * 100)}
-                  className="w-full bg-slate-800"
-                />
-              </div>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Reviewed Today"
-              subheader="92.1% automated sandbox match"
-              icon={<CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline gap-2">
-                <span className="font-mono text-2xl font-bold text-slate-100">47</span>
-                <span className="text-xs font-mono text-emerald-400">Authorized</span>
-                <span className="text-slate-600">/</span>
-                <span className="font-mono text-2xl font-bold text-rose-400">6</span>
-                <span className="text-xs font-mono text-rose-400">Denied</span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Lead SecOps cryptographic sign-offs
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Avg Sign-off Velocity"
-              subheader="Well within SLA threshold"
-              icon={<RotateCcw className="w-4 h-4 text-indigo-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">1m 42s</span>
-                <span className="text-xs font-mono text-emerald-400">▼ 18s today</span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                P50 decision latency across SecOps
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-      </JXGrid>
-
+    <div className="space-y-4">
       {/* Main Split: Left Urgent Queue, Right Approval Inspector */}
       <JXGrid columns={12} gap="lg">
         {/* Left: Urgent Approval Queue */}
@@ -362,7 +271,7 @@ export const HumanApprovalsView: React.FC = () => {
                             ? "bg-emerald-500/20 text-emerald-300"
                             : req.status === "denied"
                             ? "bg-rose-500/20 text-rose-300"
-                            : "bg-amber-500/20 text-amber-300 animate-pulse"
+                            : "bg-amber-500/20 text-amber-300"
                         }`}
                       >
                         {req.status}
@@ -386,7 +295,7 @@ export const HumanApprovalsView: React.FC = () => {
 
                     {isPending && (
                       <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] font-mono">
-                        <span className="text-slate-500">Auto-kill SLA</span>
+                        <span className="text-slate-400">Auto-kill SLA</span>
                         <span className="text-amber-400 font-bold flex items-center gap-1">
                           <Clock className="w-3 h-3" />
                           {formatCountdown(countdownSeconds)}
@@ -414,7 +323,7 @@ export const HumanApprovalsView: React.FC = () => {
                 <JXCardContent>
                   <div className="grid grid-cols-3 gap-3 p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono">
                     <div>
-                      <span className="text-slate-500 uppercase tracking-wider block text-[10px]">
+                      <span className="text-slate-400 uppercase tracking-wider block text-[10px]">
                         Target Host Node
                       </span>
                       <span className="font-semibold text-slate-200">
@@ -422,7 +331,7 @@ export const HumanApprovalsView: React.FC = () => {
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-500 uppercase tracking-wider block text-[10px]">
+                      <span className="text-slate-400 uppercase tracking-wider block text-[10px]">
                         Permission Tier
                       </span>
                       <span className="font-semibold text-amber-400">
@@ -430,7 +339,7 @@ export const HumanApprovalsView: React.FC = () => {
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-500 uppercase tracking-wider block text-[10px]">
+                      <span className="text-slate-400 uppercase tracking-wider block text-[10px]">
                         Cryptographic Proof
                       </span>
                       <span className="text-slate-300 truncate block">
@@ -444,14 +353,13 @@ export const HumanApprovalsView: React.FC = () => {
               {/* Exact AST Command Diff with Dangerous Parameter Highlighting */}
               <JXCard className="bg-slate-900/60 border-slate-800">
                 <JXCardHeader
-                  title="Section A: Exact AST Command Syntax Diff"
-                  subheader="Dangerous parameter flags highlighted in high-contrast rose"
+                  title="Command changes"
                   icon={<FileCode className="w-4 h-4 text-indigo-400" />}
                 />
                 <JXCardContent>
                   <div className="space-y-3">
                     <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
-                      <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block mb-2">
+                      <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-2">
                         Requested Command String
                       </span>
                       {renderHighlightedCommand(activeApproval.command)}
@@ -480,14 +388,13 @@ export const HumanApprovalsView: React.FC = () => {
               {/* Remote Visual Context Screenshot */}
               <JXCard className="bg-slate-900/60 border-slate-800">
                 <JXCardHeader
-                  title="Section B: Remote Desktop Visual Context"
-                  subheader="State of remote workstation at invocation millisecond"
+                  title="Desktop context"
                   icon={<Eye className="w-4 h-4 text-cyan-400" />}
                 />
                 <JXCardContent>
                   <div className="rounded-xl bg-slate-950 border border-slate-800 p-6 flex flex-col items-center justify-center text-center space-y-3">
                     <div className="w-full max-w-md h-40 rounded-lg border border-slate-800 bg-slate-900 flex flex-col items-center justify-center relative overflow-hidden">
-                      <div className="absolute top-2 left-2 text-[10px] font-mono text-slate-500">
+                      <div className="absolute top-2 left-2 text-[10px] font-mono text-slate-400">
                         {activeApproval.deviceHostname} (1920x1080@60Hz)
                       </div>
                       <Terminal className="w-10 h-10 text-slate-700 mb-2" />
@@ -506,8 +413,8 @@ export const HumanApprovalsView: React.FC = () => {
               {activeApproval.status === "pending" && (
                 <JXCard className="bg-slate-900/60 border-slate-800">
                   <JXCardHeader
-                    title="Section C: Mandatory Safety Checklist & Authorization Gate"
-                    subheader="All 3 compliance checks must be validated before execution authorization"
+                    title="Safety checklist"
+                    subheader="Complete all checks before approving."
                     icon={<CheckSquare className="w-4 h-4 text-emerald-400" />}
                   />
                   <JXCardContent>
@@ -563,8 +470,8 @@ export const HumanApprovalsView: React.FC = () => {
                       )}
 
                       {/* Action CTAs */}
-                      <div className="flex items-center justify-between pt-2">
-                        <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <JXButton
                             variant="soft"
                             color="error"
@@ -614,12 +521,11 @@ export const HumanApprovalsView: React.FC = () => {
       {/* Historical Decision Archive Table */}
       <JXCard className="bg-slate-900/60 border-slate-800">
         <JXCardHeader
-          title="Historical Decision Archive"
-          subheader="Immutable log of past SecOps operator authorization decisions"
+          title="Decision history"
           icon={<History className="w-5 h-5 text-indigo-400" />}
         />
         <JXCardContent>
-          <div className="overflow-x-auto rounded-xl border border-slate-800">
+          <div tabIndex={0} role="region" aria-label="Approval decision history" className="overflow-x-auto rounded-xl border border-slate-800">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-950 border-b border-slate-800 text-slate-400 font-mono uppercase">
@@ -663,12 +569,12 @@ export const HumanApprovalsView: React.FC = () => {
       {/* Mandatory Deny Reason Modal */}
       <AnimatePresence>
         {showDenyModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <GlassModal onClose={() => setShowDenyModal(false)} title="Deny sample request">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-4 shadow-2xl"
+              className="space-y-4"
             >
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div className="flex items-center gap-2 text-rose-400 font-bold">
@@ -677,6 +583,7 @@ export const HumanApprovalsView: React.FC = () => {
                 </div>
                 <button
                   type="button"
+                  aria-label="Close denial"
                   onClick={() => setShowDenyModal(false)}
                   className="text-slate-400 hover:text-slate-200"
                 >
@@ -717,7 +624,7 @@ export const HumanApprovalsView: React.FC = () => {
                 </JXButton>
               </div>
             </motion.div>
-          </div>
+          </GlassModal>
         )}
       </AnimatePresence>
     </div>

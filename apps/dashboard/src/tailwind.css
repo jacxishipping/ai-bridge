@@ -1,3 +1,134 @@
 @import "tailwindcss";
 @source "../node_modules/@jacxishippingorg/jx-ui-react";
-@custom-variant dark (&:where(.dark, [data-theme="dark"], [data-mode="dark"]));
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
+/* Shared product tokens. Keep status colors independent of the brand accent. */
+:root {
+  --product-canvas: #0b111b;
+  --product-surface: #111b29;
+  --product-raised: #192639;
+  --product-line: #29384c;
+  --product-muted: #9aaac0;
+  --product-text: #edf2fa;
+  --product-accent: #2563eb;
+  --product-accent-hover: #1d4ed8;
+  --product-accent-soft: #142642;
+  --product-accent-text: #a9c6ff;
+  --product-control-height: 34px;
+  --product-control-py: 6px;
+  --product-nav-height: 34px;
+  --product-nav-py: 6px;
+  --product-table-py: 10px;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background: var(--product-canvas);
+    font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body { margin: 0; }
+  button, input, select, textarea { font: inherit; }
+  button:not(:disabled), summary { cursor: pointer; }
+  :focus-visible { outline: 2px solid #93b4ff; outline-offset: 3px; }
+  input, select, textarea { max-width: 100%; }
+  input[type="checkbox"] { accent-color: var(--product-accent); }
+  ::selection { background: #234b87; color: white; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+.product-brand { position: relative; display: flex; align-items: center; gap: 9px; flex-shrink: 0; }
+.product-brand img { flex-shrink: 0; width: 28px; height: 28px; }
+.product-brand > span { color: var(--product-text); font-size: 16px; font-weight: 700; letter-spacing: -.045em; }
+.product-button {
+  min-height: var(--product-control-height); padding: var(--product-control-py) 12px;
+  font-size: 13px; font-weight: 600; line-height: 1.5;
+}
+.product-button[data-tone="primary"][data-variant="contained"] {
+  background: var(--product-accent); border-color: #3b79f5; color: white;
+}
+.product-button[data-tone="primary"][data-variant="contained"]:hover:not(:disabled) { background: var(--product-accent-hover); }
+.product-button[data-tone="primary"][data-variant="outlined"] { border-color: #466a9e; color: var(--product-accent-text); }
+.product-button[data-tone="primary"][data-variant="soft"] { background: var(--product-accent-soft); border-color: #2a4164; color: var(--product-accent-text); }
+.product-button[data-tone="neutral"][data-variant="contained"],
+.product-button[data-tone="primary"][aria-pressed="true"] {
+  background: var(--product-accent-soft); border-color: #365c94; color: var(--product-accent-text);
+}
+.product-button[data-tone="primary"][aria-pressed="true"]:hover:not(:disabled) { background: #1b3151; color: #d4e2ff; }
+.product-button[data-tone="neutral"][data-variant="outlined"] {
+  background: transparent; border-color: var(--product-line); color: #d6e0ef;
+}
+.product-button[data-tone="neutral"][data-variant="outlined"]:hover:not(:disabled) { background: var(--product-raised); border-color: #42566f; }
+.product-surface { padding: 14px; background: var(--product-surface); border-color: var(--product-line); backdrop-filter: none; }
+.product-dialog { background: var(--product-surface); border-color: #3c506c; }
+.product-input {
+  min-height: var(--product-control-height); padding: var(--product-control-py) 10px;
+  background: #0d1623; border-color: #394c65; border-radius: 6px;
+}
+.product-input:focus { border-color: #75a6ff; }
+.product-input::placeholder { color: #91a2b9; }
+main h1 { font-size: 20px; font-weight: 600; letter-spacing: -.03em; line-height: 1.3; }
+.product-kicker { color: var(--product-muted); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.product-sidebar { background: #0d1522; border-color: var(--product-line); }
+.product-nav-link {
+  display: flex; align-items: center; gap: 9px; min-height: var(--product-nav-height); width: 100%;
+  border: 1px solid transparent; border-radius: 6px; padding: var(--product-nav-py) 10px;
+  color: #a7b7cd; font-size: 13px; font-weight: 500; text-align: start; transition: background-color .15s, color .15s;
+}
+.product-nav-link:hover { background: #152135; color: var(--product-text); }
+.product-nav-link[aria-current="page"] { background: var(--product-accent-soft); border-color: #2a4164; color: #c5d9ff; }
+.product-topbar { background: #0d1522; border-bottom: 1px solid var(--product-line); }
+.product-search > span:not(.shrink-0) { min-width: 0; flex: 1; }
+.product-shell, .product-content { background: var(--product-canvas); }
+.product-live { min-height: 100dvh; background: var(--product-canvas); color: var(--product-text); }
+.product-container { width: 100%; max-width: 1440px; margin-inline: auto; padding-inline: clamp(12px, 2vw, 24px); }
+.product-safety { border: 1px solid var(--product-line); border-radius: 10px; background: #101b2b; }
+.product-safety[data-stopped="true"] { border-color: #84474b; background: #271b24; }
+.workspace-layout { display: grid; gap: 16px; }
+.workspace-navigation { display: flex; gap: 4px; border-bottom: 1px solid var(--product-line); padding-bottom: 8px; }
+.workspace-navigation .product-nav-link { justify-content: center; width: auto; flex: 1; }
+.workspace-navigation-label { display: none; }
+.product-table th { font-size: 11px; font-weight: 600; color: #a7b7cd; }
+.product-table tbody td { padding-block: var(--product-table-py); }
+.product-device-link { color: #e7effd; font-weight: 600; text-decoration: none; }
+.product-device-link:hover { color: #a9c6ff; text-decoration: underline; text-underline-offset: 4px; }
+.product-status { display: inline-flex; align-items: center; gap: 7px; color: #c6d2e3; font-size: 12px; }
+.product-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #8797af; flex-shrink: 0; }
+.product-status[data-status="online"]::before { background: #6ee7b7; }
+.product-status[data-status="revoked"]::before { background: #fda4af; }
+.product-section-tabs { border-bottom: 1px solid var(--product-line); }
+.product-section-tabs button { border-radius: 0 !important; border: 0; border-bottom: 2px solid transparent; background: transparent !important; color: #a7b7cd !important; }
+.product-section-tabs button[aria-current="page"] { color: #bed4ff !important; border-bottom-color: #75a6ff; }
+.product-auth { min-height: 100dvh; background: var(--product-canvas); color: var(--product-text); display: flex; flex-direction: column; }
+.product-auth-content { display: grid; align-items: center; gap: 40px; width: 100%; max-width: 1040px; margin: auto; padding: 24px 20px 40px; }
+.product-auth-form { width: 100%; max-width: 380px; margin-inline: auto; }
+.product-auth-art { display: none; }
+.product-auth-art svg { width: 100%; max-width: 520px; height: auto; }
+@media (min-width: 1024px) {
+  .workspace-layout { grid-template-columns: 176px minmax(0, 1fr); gap: 20px; align-items: start; }
+  .workspace-navigation { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 4px; border-bottom: 0; padding-top: 4px; }
+  .workspace-navigation .product-nav-link { justify-content: flex-start; width: 100%; flex: initial; }
+  .workspace-navigation-label { display: block; margin: 4px 12px 12px; }
+  .product-auth-content { grid-template-columns: 1fr 1fr; }
+  .product-auth-art { display: flex; align-items: center; justify-content: center; min-height: 420px; border-left: 1px solid var(--product-line); padding-left: 32px; }
+}
+/* Compact desktop controls, generous targets on narrow or touch-first screens. */
+@media (max-width: 639px), (pointer: coarse) {
+  :root {
+    --product-control-height: 44px;
+    --product-control-py: 10px;
+    --product-nav-height: 44px;
+    --product-nav-py: 10px;
+    --product-table-py: 12px;
+  }
+}
+@media (max-width: 359px) { .workspace-navigation svg { display: none; } }

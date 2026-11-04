@@ -7,6 +7,7 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
+  GlassModal,
   JXCard,
   JXCardHeader,
   JXCardContent,
@@ -19,7 +20,7 @@ import {
   JXGrid,
   JXGridItem,
   JXLinearProgress,
-} from "@jacxishippingorg/jx-ui-react";
+} from "../ui";
 import {
   Radio,
   Zap,
@@ -292,97 +293,11 @@ export const FleetOperationsView: React.FC = () => {
     : 100;
 
   return (
-    <div className="space-y-6">
-      {/* 4 Telemetry Statistics Cards */}
-      <JXGrid columns={12} gap="md">
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Broadcast Runs"
-              subheader="99.4% SLA adherence"
-              icon={<Radio className="w-4 h-4 text-indigo-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">1,842</span>
-                <JXBadge color="primary" statusText="Zero Dropouts" />
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Synchronous fan-out via authenticated mTLS
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Reactive Triggers"
-              subheader="Autonomous sentinels"
-              icon={<Zap className="w-4 h-4 text-cyan-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">
-                  {rules.filter((r) => r.enabled).length} Active
-                </span>
-                <span className="text-xs font-mono text-slate-400">
-                  / {rules.length} Total
-                </span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Closed-loop self-healing watchdog daemons
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Scheduled Cron Tasks"
-              subheader="Distributed epoch locks"
-              icon={<Calendar className="w-4 h-4 text-emerald-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">
-                  {cronJobs.length} Jobs
-                </span>
-                <span className="text-xs font-mono text-emerald-400">Next: 4m 12s</span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Guaranteed once-per-interval execution
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Auto-Healed (24h)"
-              subheader="Remediated without SecOps"
-              icon={<HeartPulse className="w-4 h-4 text-rose-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-emerald-400">37 Recovered</span>
-                <JXBadge color="success" statusText="Zero Escalations" />
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Memory flushed, daemons recycled, mTLS renewed
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-      </JXGrid>
-
+    <div className="space-y-4">
       {/* SECTION 1: Multi-Node Command Bus */}
       <JXCard className="bg-slate-900/60 border-slate-800">
         <JXCardHeader
-          title="Multi-Node Command Bus"
-          subheader="Broadcast shell and automation payloads simultaneously across tagged nodes"
+          title="Run on multiple devices"
           icon={<Terminal className="w-5 h-5 text-indigo-400" />}
         />
         <JXCardContent>
@@ -474,6 +389,7 @@ export const FleetOperationsView: React.FC = () => {
                     </span>
                   </div>
                   <input
+                    aria-label="Concurrent nodes"
                     type="range"
                     min={1}
                     max={20}
@@ -482,7 +398,7 @@ export const FleetOperationsView: React.FC = () => {
                     onChange={(e) => setConcurrency(Math.min(20, Math.max(1, Number(e.target.value))))}
                     className="w-full accent-indigo-500 bg-slate-800 rounded-lg cursor-pointer"
                   />
-                  <div className="flex justify-between text-[10px] font-mono text-slate-500">
+                  <div className="flex justify-between text-[10px] font-mono text-slate-400">
                     <span>1 (Staged)</span>
                     <span>5 (Default)</span>
                     <span>20 (Full Burst)</span>
@@ -543,6 +459,7 @@ export const FleetOperationsView: React.FC = () => {
                     <span>SHA256: e82b...9a12 • Ed25519 Signed</span>
                   </div>
                   <textarea
+                    aria-label="Broadcast script payload"
                     rows={8}
                     value={scriptPayload}
                     onChange={(e) => setScriptPayload(e.target.value)}
@@ -617,7 +534,7 @@ export const FleetOperationsView: React.FC = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <HeartPulse className="w-5 h-5 text-emerald-400" />
-            <h2 className="text-lg font-bold text-slate-100">Reactive Self-Healing Rules Engine</h2>
+            <h2 className="text-base font-semibold text-slate-100">Automation rules</h2>
           </div>
           <span className="text-xs font-mono text-slate-400">
             Autonomous closed-loop remediation sentinels
@@ -651,6 +568,8 @@ export const FleetOperationsView: React.FC = () => {
                       {rule.enabled ? "Active" : "Disabled"}
                     </span>
                     <JXSwitch
+                      label={`Enable ${rule.name}`}
+                      cardMode={false}
                       checked={rule.enabled}
                       onChange={() => handleToggleRule(rule.id)}
                     />
@@ -697,8 +616,7 @@ export const FleetOperationsView: React.FC = () => {
       {/* SECTION 3: Fleet Cron Scheduler Table */}
       <JXCard className="bg-slate-900/60 border-slate-800">
         <JXCardHeader
-          title="Fleet Cron Scheduler"
-          subheader="Distributed periodic task schedules across edge nodes"
+          title="Schedules"
           icon={<Calendar className="w-5 h-5 text-indigo-400" />}
         />
         <JXCardContent>
@@ -765,12 +683,12 @@ export const FleetOperationsView: React.FC = () => {
       {/* Failure Drill-down Modal */}
       <AnimatePresence>
         {selectedFailedNode && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <GlassModal onClose={() => setSelectedFailedNode(null)} title="Sample broadcast failure">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-4 shadow-2xl"
+              className="space-y-4"
             >
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div className="flex items-center gap-2 text-rose-400 font-bold">
@@ -779,6 +697,7 @@ export const FleetOperationsView: React.FC = () => {
                 </div>
                 <button
                   type="button"
+                  aria-label="Close broadcast failure"
                   onClick={() => setSelectedFailedNode(null)}
                   className="text-slate-400 hover:text-slate-200"
                 >
@@ -822,7 +741,7 @@ export const FleetOperationsView: React.FC = () => {
                 </JXButton>
               </div>
             </motion.div>
-          </div>
+          </GlassModal>
         )}
       </AnimatePresence>
     </div>

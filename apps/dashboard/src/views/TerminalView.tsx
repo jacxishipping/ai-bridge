@@ -16,7 +16,7 @@ import {
   JXCardContent,
   JXBadge,
   JXButton,
-} from "@jacxishippingorg/jx-ui-react";
+} from "../ui";
 import {
   Terminal as TerminalIcon,
   Server,
@@ -279,35 +279,11 @@ export const TerminalView: React.FC = () => {
     <div className="space-y-5">
       {/* Top Header & Breadcrumb Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
-        <div>
-          <div className="flex items-center gap-2 font-mono text-xs text-slate-400">
-            <span className="uppercase tracking-wider">Operations</span>
-            <span className="text-slate-600">/</span>
-            <span className="uppercase tracking-wider text-indigo-400">Interactive Terminal</span>
-            <span className="text-slate-600">/</span>
-            <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200">
-              {targetDevice.hostname}
-            </span>
-          </div>
-          <h2 className="text-lg font-bold text-slate-100 tracking-tight mt-1 flex items-center gap-3">
-            Interactive ANSI Live Terminal Studio
-            <span className="font-mono text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-              PTY Active
-            </span>
-          </h2>
-        </div>
-
         {/* Node Switcher & SecOps Escalation */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-mono text-xs">
-            <Shield className="w-3.5 h-3.5" />
-            <span className="font-semibold uppercase tracking-wider">Escalation Active</span>
-            <span className="text-slate-600">|</span>
-            <span className="text-slate-300">Sarah J. (Lead SecOps)</span>
-          </div>
-
           {/* Node Selector */}
           <select
+            aria-label="Terminal target node"
             value={targetNodeId}
             onChange={(e) => setTargetNodeId(e.target.value)}
             className="min-h-[40px] px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-200 font-mono text-xs focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer"
@@ -318,44 +294,6 @@ export const TerminalView: React.FC = () => {
               </option>
             ))}
           </select>
-        </div>
-      </div>
-
-      {/* Active Connection Metadata Bar (4 Cards) */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-2 rounded-xl bg-slate-900/70 border border-slate-800">
-        <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-950/80 border border-slate-800/80 font-mono text-xs">
-          <TerminalIcon className="w-4 h-4 text-cyan-400" />
-          <div className="flex flex-col">
-            <span className="text-[10px] text-slate-500 uppercase tracking-wider">Shell Runtime</span>
-            <span className="text-slate-200 font-semibold">{shellRuntime}</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-950/80 border border-slate-800/80 font-mono text-xs">
-          <Radio className="w-4 h-4 text-indigo-400" />
-          <div className="flex flex-col">
-            <span className="text-[10px] text-slate-500 uppercase tracking-wider">PTY Allocation</span>
-            <span className="text-slate-200 font-semibold">{isWindows ? "conhost.exe" : "/dev/pts/4"}</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-950/80 border border-slate-800/80 font-mono text-xs">
-          <Shield className="w-4 h-4 text-emerald-400" />
-          <div className="flex flex-col">
-            <span className="text-[10px] text-slate-500 uppercase tracking-wider">Protocol</span>
-            <span className="text-slate-200 font-semibold">WSS + TLS 1.3 / mTLS</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-950/80 border border-slate-800/80 font-mono text-xs">
-          <Activity className="w-4 h-4 text-emerald-400" />
-          <div className="flex flex-col">
-            <span className="text-[10px] text-slate-500 uppercase tracking-wider">WebSocket Ping</span>
-            <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>2ms RTT (Loss: 0.0%)</span>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -434,7 +372,7 @@ export const TerminalView: React.FC = () => {
       </div>
 
       {reconnectNotice && (
-        <div className="p-3 rounded-xl bg-indigo-950/70 border border-indigo-500/40 text-xs font-mono text-indigo-300 animate-pulse text-center">
+        <div role="status" className="p-3 rounded-xl bg-indigo-950/70 border border-indigo-500/40 text-xs font-mono text-indigo-300 text-center">
           {reconnectNotice}
         </div>
       )}

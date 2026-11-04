@@ -15,7 +15,7 @@ import {
   JXCardContent,
   JXBadge,
   JXButton,
-} from "@jacxishippingorg/jx-ui-react";
+} from "../ui";
 import {
   Zap,
   Send,
@@ -300,7 +300,7 @@ export const TaskQueueVisionView: React.FC = () => {
         );
       case "running":
         return (
-          <span className="inline-flex items-center gap-1 font-mono text-[11px] px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 animate-pulse">
+          <span className="inline-flex items-center gap-1 font-mono text-[11px] px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
             <RefreshCw className="w-3 h-3 text-cyan-400 animate-spin" /> Running
           </span>
         );
@@ -326,47 +326,14 @@ export const TaskQueueVisionView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Top Telemetry & Live Bus Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-xs uppercase tracking-wider text-slate-400">Operations</span>
-            <span className="text-slate-600 font-mono text-xs">/</span>
-            <h2 className="text-lg font-bold text-slate-100 tracking-tight">
-              Task Queue & Vision Inspector
-            </h2>
-          </div>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 text-[11px] font-mono border border-indigo-500/20">
-            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
-            STREAM LIVE
-          </span>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800">
-            <span className="font-mono text-[11px] text-slate-400 uppercase">Queue Latency</span>
-            <span className="font-mono text-xs text-emerald-400 font-semibold tabular-nums">1.8ms</span>
-          </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800">
-            <span className="font-mono text-[11px] text-slate-400 uppercase">Bus Rate</span>
-            <span className="font-mono text-xs text-indigo-300 font-semibold tabular-nums">1,420 ops/s</span>
-          </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800">
-            <span className="font-mono text-[11px] text-slate-400 uppercase">Active Tasks</span>
-            <span className="font-mono text-xs text-cyan-400 font-semibold tabular-nums">{tasks.length}</span>
-          </div>
-        </div>
-      </div>
-
+    <div className="space-y-4">
       {/* Main Split Studio Grid */}
       <JXGrid columns={12} gap="lg">
         {/* LEFT COLUMN: Tool Dispatch Studio (5 cols) */}
         <JXGridItem colSpan={5}>
           <JXCard className="bg-slate-900/70 border-slate-800 shadow-xl">
             <JXCardHeader
-              title="Tool Dispatch Studio"
-              subheader="Execute zero-trust commands on remote runtime hosts"
+              title="Run a task"
               icon={<Zap className="w-4 h-4 text-indigo-400" />}
             />
             <JXCardContent>
@@ -375,11 +342,8 @@ export const TaskQueueVisionView: React.FC = () => {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
                   <label htmlFor="target-host-select" className="font-medium text-slate-200">
-                    Target Host System
+                    Device
                   </label>
-                  <span className="font-mono text-[11px] text-emerald-400 flex items-center gap-1">
-                    <Shield className="w-3 h-3" /> mTLS Verified
-                  </span>
                 </div>
                 <select
                   id="target-host-select"
@@ -399,7 +363,7 @@ export const TaskQueueVisionView: React.FC = () => {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
                   <label htmlFor="tool-select" className="font-medium text-slate-200">
-                    Registered Agent Tool
+                    Tool
                   </label>
                   <span className={`font-mono text-[10px] px-2 py-0.5 rounded font-semibold uppercase ${getRiskBadgeColor(activeRiskTier)}`}>
                     {activeRiskTier.replace("_", " ")}
@@ -482,6 +446,7 @@ export const TaskQueueVisionView: React.FC = () => {
 
                 <div className="relative rounded-xl bg-slate-950 border border-slate-800 p-2 font-mono text-xs">
                   <textarea
+                    aria-label="Tool arguments JSON"
                     rows={7}
                     value={argsJson}
                     onChange={handleJsonChange}
@@ -538,8 +503,7 @@ export const TaskQueueVisionView: React.FC = () => {
             {/* Upper: Execution Stream Table */}
             <JXCard className="bg-slate-900/70 border-slate-800 shadow-xl">
               <JXCardHeader
-                title="Execution Stream"
-                subheader="Live audit ledger of autonomous tool invocations"
+                title="Tasks"
                 icon={<Layers className="w-4 h-4 text-cyan-400" />}
               />
               <JXCardContent>
@@ -636,7 +600,6 @@ export const TaskQueueVisionView: React.FC = () => {
             <JXCard className="bg-slate-900/70 border-slate-800 shadow-xl">
               <JXCardHeader
                 title={`Vision Inspector — #${activeTask?.id || "N/A"}`}
-                subheader="Set-of-Marks (SoM) bounding visual segmentation map"
                 icon={<Crosshair className="w-4 h-4 text-emerald-400" />}
               />
               <JXCardContent>
@@ -851,7 +814,7 @@ export const TaskQueueVisionView: React.FC = () => {
                     </button>
                   </div>
 
-                  <pre className="p-3 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs text-slate-200 overflow-x-auto max-h-36">
+                  <pre tabIndex={0} aria-label="Task output" className="p-3 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs text-slate-200 overflow-x-auto max-h-36">
                     <code>
                       {JSON.stringify(
                         {

@@ -7,6 +7,7 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
+  GlassModal,
   JXCard,
   JXCardHeader,
   JXCardContent,
@@ -16,7 +17,7 @@ import {
   JXTextField,
   JXGrid,
   JXGridItem,
-} from "@jacxishippingorg/jx-ui-react";
+} from "../ui";
 import {
   Network,
   Zap,
@@ -246,24 +247,10 @@ export const ConnectionsView: React.FC = () => {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Protocol Header & Action Ribbon */}
       <JXCard className="bg-slate-900/60 border-slate-800">
         <div className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-xs px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold">
-                MCP v1.0.4 Standard
-              </span>
-              <span className="font-mono text-xs text-slate-400">
-                Transport: SSE Stream + stdio Bridge • mTLS Stream Synchronized
-              </span>
-            </div>
-            <h2 className="text-lg font-bold text-slate-100">
-              Model Context Protocol (MCP) & OAuth Credential Vault
-            </h2>
-          </div>
-
           <div className="flex items-center gap-2 flex-wrap">
             <JXButton
               variant="outlined"
@@ -273,7 +260,7 @@ export const ConnectionsView: React.FC = () => {
               onClick={handleRotateSecret}
               startIcon={<RotateCcw className="w-4 h-4" />}
             >
-              Rotate Gateway Secret
+              Rotate secret
             </JXButton>
             <JXButton
               variant="contained"
@@ -282,7 +269,7 @@ export const ConnectionsView: React.FC = () => {
               onClick={handleSignToken}
               startIcon={<KeyRound className="w-4 h-4" />}
             >
-              Issue OAuth Client
+              Add client
             </JXButton>
           </div>
         </div>
@@ -296,95 +283,13 @@ export const ConnectionsView: React.FC = () => {
         )}
       </JXCard>
 
-      {/* 4 Telemetry Statistics Cards */}
-      <JXGrid columns={12} gap="md">
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Protocol Gateways"
-              subheader="100% Stream Uptime"
-              icon={<Radio className="w-4 h-4 text-emerald-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">6 / 6 Live</span>
-                <JXBadge color="success" statusText="Streamable" />
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Full-duplex SSE event pipes
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Concurrent SSE"
-              subheader="p99: 18ms latency"
-              icon={<Activity className="w-4 h-4 text-cyan-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-cyan-400">42 Clients</span>
-                <span className="text-xs font-mono text-cyan-400">0 Dropped</span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Desktop, Terminal & Telemetry
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="OAuth Credentials"
-              subheader="RFC 6749 Client Credentials"
-              icon={<KeyRound className="w-4 h-4 text-indigo-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">18 Valid</span>
-                <span className="text-xs font-mono text-emerald-400">0 Compromised</span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                PKCE S256 + DPoP token binding
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Exposed Primitives"
-              subheader="Strict Zod v3 contract engine"
-              icon={<Layers className="w-4 h-4 text-emerald-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">34 Tool Schemas</span>
-                <JXBadge color="primary" statusText="Zod Validated" />
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                JSON-RPC 2.0 contract stubs
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-      </JXGrid>
-
       {/* SECTION 1: Registered MCP Server Streams Grid */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Radio className="w-5 h-5 text-indigo-400" />
-            <h2 className="text-lg font-bold text-slate-100">Registered MCP Server Streams</h2>
+            <h2 className="text-base font-semibold text-slate-100">MCP servers</h2>
           </div>
-          <span className="text-xs font-mono text-slate-400">
-            Live Streamable Endpoints
-          </span>
         </div>
 
         <JXGrid columns={12} gap="md">
@@ -411,15 +316,15 @@ export const ConnectionsView: React.FC = () => {
                   <div className="space-y-3 pt-1 text-xs font-mono">
                     <div className="grid grid-cols-3 gap-2">
                       <div className="p-2 rounded bg-slate-950 border border-slate-800/80">
-                        <span className="text-[10px] text-slate-500 uppercase block">Transport</span>
+                        <span className="text-[10px] text-slate-400 uppercase block">Transport</span>
                         <span className="text-slate-200 font-semibold">{conn.transport.toUpperCase()}</span>
                       </div>
                       <div className="p-2 rounded bg-slate-950 border border-slate-800/80">
-                        <span className="text-[10px] text-slate-500 uppercase block">Subscribers</span>
+                        <span className="text-[10px] text-slate-400 uppercase block">Subscribers</span>
                         <span className="text-cyan-400 font-semibold">{conn.connectedClients} active</span>
                       </div>
                       <div className="p-2 rounded bg-slate-950 border border-slate-800/80">
-                        <span className="text-[10px] text-slate-500 uppercase block">Throughput</span>
+                        <span className="text-[10px] text-slate-400 uppercase block">Throughput</span>
                         <span className="text-emerald-400 font-semibold">{conn.throughputReqMin} req/m</span>
                       </div>
                     </div>
@@ -445,8 +350,7 @@ export const ConnectionsView: React.FC = () => {
       {/* SECTION 2: Active AI Client Sessions Table */}
       <JXCard className="bg-slate-900/60 border-slate-800">
         <JXCardHeader
-          title="Active AI Client Sessions"
-          subheader="Connected IDEs, agent processes, and CLI developer sessions"
+          title="Client sessions"
           icon={<Terminal className="w-5 h-5 text-indigo-400" />}
         />
         <JXCardContent>
@@ -475,7 +379,6 @@ export const ConnectionsView: React.FC = () => {
                     <td className="p-3 text-slate-300">{sess.duration}</td>
                     <td className="p-3">
                       <span className="text-indigo-400 font-semibold">{sess.invocations}</span>
-                      <span className="text-slate-500 text-[11px]"> ({sess.errorRate})</span>
                     </td>
                     <td className="p-3">
                       <div className="flex gap-1 flex-wrap">
@@ -514,8 +417,7 @@ export const ConnectionsView: React.FC = () => {
         <JXGridItem colSpan={6}>
           <JXCard className="bg-slate-900/60 border-slate-800">
             <JXCardHeader
-              title="OAuth 2.0 Registered Clients & Token Vault"
-              subheader="Bearer tokens bound with PKCE S256 and DPoP proof"
+              title="OAuth clients"
               icon={<KeyRound className="w-5 h-5 text-indigo-400" />}
             />
             <JXCardContent>
@@ -569,8 +471,7 @@ export const ConnectionsView: React.FC = () => {
         <JXGridItem colSpan={6}>
           <JXCard className="bg-slate-900/60 border-slate-800">
             <JXCardHeader
-              title="Interactive Client Handshake Preview"
-              subheader="Issue and cryptographically sign PKCE DPoP JWT bearer tokens"
+              title="Token preview"
               icon={<Sparkles className="w-5 h-5 text-cyan-400" />}
             />
             <JXCardContent>
@@ -578,6 +479,7 @@ export const ConnectionsView: React.FC = () => {
                 <div>
                   <label className="block text-slate-400 mb-1">Target Client ID</label>
                   <select
+                    aria-label="Target OAuth client"
                     value={targetClientId}
                     onChange={(e) => setTargetClientId(e.target.value)}
                     className="w-full p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none"
@@ -658,7 +560,7 @@ export const ConnectionsView: React.FC = () => {
 
       {/* SECTION 4: Realtime Wire Protocol Audit Drawer */}
       <JXCard className="bg-slate-900/60 border-slate-800">
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between text-xs font-mono">
+        <div className="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
           <div className="flex items-center gap-3">
             <span className="font-bold text-slate-200">Wire Protocol Realtime Audit Drawer</span>
             <span className="text-slate-400">SSE JSON-RPC 2.0 Live Frame Stream</span>
@@ -666,6 +568,7 @@ export const ConnectionsView: React.FC = () => {
 
           <div className="flex items-center gap-2">
             <select
+              aria-label="Filter protocol methods"
               value={wireFilter}
               onChange={(e) => setWireFilter(e.target.value)}
               className="p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none"
@@ -695,8 +598,8 @@ export const ConnectionsView: React.FC = () => {
                 key={frame.id}
                 className="p-3 rounded-lg bg-slate-950 border border-slate-800 flex items-start justify-between gap-4"
               >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span
                       className={`px-1.5 py-0.2 rounded text-[10px] uppercase font-bold ${
                         frame.direction === "inbound"
@@ -707,9 +610,9 @@ export const ConnectionsView: React.FC = () => {
                       {frame.direction}
                     </span>
                     <span className="text-indigo-400 font-bold">{frame.method}</span>
-                    <span className="text-slate-500">[{frame.timestamp}]</span>
+                    <span className="text-slate-400">[{frame.timestamp}]</span>
                   </div>
-                  <pre className="text-slate-300 text-[11px] overflow-x-auto">
+                  <pre tabIndex={0} aria-label="Protocol frame payload" className="text-slate-300 text-[11px] overflow-x-auto">
                     <code>{JSON.stringify(frame.payload)}</code>
                   </pre>
                 </div>
@@ -723,12 +626,12 @@ export const ConnectionsView: React.FC = () => {
       {/* Inspect Spec Modal */}
       <AnimatePresence>
         {inspectSpecStream && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <GlassModal onClose={() => setInspectSpecStream(null)} title="MCP connection details">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-800 p-6 space-y-4 shadow-2xl"
+              className="space-y-4"
             >
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div className="flex items-center gap-2 text-indigo-400 font-bold">
@@ -737,6 +640,7 @@ export const ConnectionsView: React.FC = () => {
                 </div>
                 <button
                   type="button"
+                  aria-label="Close MCP details"
                   onClick={() => setInspectSpecStream(null)}
                   className="text-slate-400 hover:text-slate-200"
                 >
@@ -776,7 +680,7 @@ export const ConnectionsView: React.FC = () => {
                 </JXButton>
               </div>
             </motion.div>
-          </div>
+          </GlassModal>
         )}
       </AnimatePresence>
     </div>

@@ -5,6 +5,7 @@
 
 export type ViewId =
   | "overview"
+  | "live"
   | "devices"
   | "device-360-system"
   | "task-queue-and-vision"

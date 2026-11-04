@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "tsx src/tests/run-all-tests.ts"
+    "test": "tsx src/tests/run-all-tests.ts",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "@jacxishippingorg/jx-ui-react": "^3.0.0",
@@ -17,6 +18,8 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",

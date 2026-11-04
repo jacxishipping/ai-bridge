@@ -16,7 +16,7 @@ import {
   JXTextField,
   JXGrid,
   JXGridItem,
-} from "@jacxishippingorg/jx-ui-react";
+} from "../ui";
 import {
   Bot,
   Cpu,
@@ -196,20 +196,7 @@ export const AiApiHubView: React.FC = () => {
     durationMs: number;
     tokens: { input: number; output: number; cost: string };
     output: Record<string, unknown>;
-  } | null>({
-    status: "fulfilled",
-    nodeId: "srv-us-east-412",
-    tool: "desktop.capture_screen",
-    model: "claude-3-5-sonnet-20241022",
-    durationMs: 142,
-    tokens: { input: 412, output: 89, cost: "$0.0018" },
-    output: {
-      image_hash: "sha256:49c0d12aef89b3c48201a9df9802bf14a7e9",
-      dimensions: "3840x2160@60Hz",
-      som_boxes_detected: 42,
-      enclave_signature: "MEQCID3k8...ed25519_verified",
-    },
-  });
+  } | null>(null);
 
   const handlePing = (providerId: string) => {
     setProviders((prev) =>
@@ -265,171 +252,48 @@ export const AiApiHubView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      {/* 4 Telemetry Metrics Bento Ribbon */}
-      <JXGrid columns={12} gap="md">
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Active Gateways"
-              subheader="4 Providers online"
-              icon={<Radio className="w-4 h-4 text-emerald-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">4 / 4</span>
-                <JXBadge color="success" statusText="100% Up" />
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Anthropic • OpenAI • Gemini • Ollama
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Daily Invocations"
-              subheader="avg 18ms latency"
-              icon={<Activity className="w-4 h-4 text-indigo-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">184,920</span>
-                <span className="text-xs font-mono text-indigo-400 font-semibold">p99: 41ms</span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Synchronous tool call fanout
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Token Consumption"
-              subheader="24h rolling window"
-              icon={<Sparkles className="w-4 h-4 text-cyan-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-slate-100">42.8M</span>
-                <span className="text-xs font-mono text-emerald-400 font-semibold">$34.12 cost</span>
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                88.2% semantic cache hit rate
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        <JXGridItem colSpan={3}>
-          <JXCard spotlight className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="mTLS Handshake Rate"
-              subheader="Ed25519 TPM hardware bound"
-              icon={<Shield className="w-4 h-4 text-cyan-400" />}
-            />
-            <JXCardContent>
-              <div className="flex items-baseline justify-between">
-                <span className="font-mono text-2xl font-bold text-emerald-400">100.0%</span>
-                <JXBadge color="success" statusText="Attested" />
-              </div>
-              <p className="mt-2 text-[11px] font-mono text-slate-400">
-                Zero untrusted endpoint requests
-              </p>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-      </JXGrid>
-
+    <div className="space-y-4">
       {/* SECTION 1: Provider Connector Cards */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-indigo-400" />
-            <h2 className="text-lg font-bold text-slate-100">Configured AI Providers & Connectors</h2>
+            <h2 className="text-base font-semibold text-slate-100">Providers</h2>
           </div>
-          <span className="text-xs font-mono text-slate-400">
-            Native Model Gateway Adapters
-          </span>
         </div>
 
-        <JXGrid columns={12} gap="md">
-          {providers.map((p) => (
-            <JXGridItem key={p.id} colSpan={3}>
-              <JXCard className="bg-slate-900/60 border-slate-800">
-                <div className="p-4 border-b border-slate-800/60 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center font-bold">
-                      {p.name[0]}
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-semibold text-slate-100">{p.name}</h4>
-                      <span className="text-[11px] font-mono text-emerald-400 flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                        {p.status}
-                      </span>
-                    </div>
-                  </div>
-                  <JXButton
-                    variant="soft"
-                    color="neutral"
-                    size="sm"
-                    loading={p.isPinging}
-                    onClick={() => handlePing(p.id)}
-                    startIcon={<RefreshCw className="w-3 h-3" />}
-                  >
-                    Ping
-                  </JXButton>
+        <JXCard>
+          <JXCardContent>
+            <ul className="divide-y divide-slate-800">
+              {providers.map((provider) => <li key={provider.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-medium text-slate-200">{provider.name}</h3>
+                  <p className="mt-1 break-all text-xs text-slate-400">{provider.defaultModel}</p>
+                  <details className="mt-2 text-xs text-slate-400">
+                    <summary>Connection details</summary>
+                    <code className="mt-2 block break-all">{provider.endpoint}</code>
+                    <p className="mt-1">{provider.status} · {provider.latencyMs}ms</p>
+                  </details>
                 </div>
-
-                <JXCardContent>
-                  <div className="space-y-2 text-xs font-mono">
-                    <div className="flex justify-between text-slate-400">
-                      <span>Default Model:</span>
-                      <span className="text-slate-200 font-semibold">{p.defaultModel}</span>
-                    </div>
-
-                    <div className="flex justify-between text-slate-400">
-                      <span>Latency:</span>
-                      <span className="text-indigo-400 font-bold">{p.latencyMs}ms</span>
-                    </div>
-
-                    <div className="flex justify-between text-slate-400">
-                      <span>Key:</span>
-                      <span className="text-slate-300">{p.keyMasked}</span>
-                    </div>
-
-                    <div className="pt-2">
-                      <span className="text-[10px] text-slate-500 truncate block">
-                        {p.endpoint}
-                      </span>
-                    </div>
-                  </div>
-                </JXCardContent>
-              </JXCard>
-            </JXGridItem>
-          ))}
-        </JXGrid>
+                <JXButton variant="outlined" color="neutral" size="sm" loading={provider.isPinging}
+                  onClick={() => handlePing(provider.id)} aria-label={`Test ${provider.name}`}>Test</JXButton>
+              </li>)}
+            </ul>
+          </JXCardContent>
+        </JXCard>
       </div>
 
       {/* SECTION 2 & 3: Multi-Language SDK Generator & Interactive Tool Sandbox */}
       <JXGrid columns={12} gap="lg">
         {/* Multi-Language SDK Code Generator */}
-        <JXGridItem colSpan={6}>
+        <JXGridItem colSpan={12}>
           <JXCard className="bg-slate-900/60 border-slate-800">
-            <JXCardHeader
-              title="Multi-Language SDK Code Generator"
-              subheader="Connect autonomous agents and workflows directly to AI Bridge"
-              icon={<Code2 className="w-5 h-5 text-indigo-400" />}
-            />
+            <details>
+              <summary className="text-sm font-semibold text-slate-200">Code examples</summary>
             <JXCardContent>
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 p-1 rounded-lg bg-slate-950 border border-slate-800">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-lg bg-slate-950 border border-slate-800">
                     <button
                       type="button"
                       onClick={() => setSdkLang("python")}
@@ -493,22 +357,22 @@ export const AiApiHubView: React.FC = () => {
                   </JXButton>
                 </div>
 
-                <div className="rounded-xl bg-slate-950 border border-slate-800 p-4 font-mono text-xs overflow-x-auto text-slate-200 leading-relaxed max-h-[380px] overflow-y-auto">
+                <div tabIndex={0} role="region" aria-label="SDK code example" className="rounded-xl bg-slate-950 border border-slate-800 p-4 font-mono text-xs overflow-x-auto text-slate-200 leading-relaxed max-h-[380px] overflow-y-auto">
                   <pre>
                     <code>{SDK_SNIPPETS[sdkLang]}</code>
                   </pre>
                 </div>
               </div>
             </JXCardContent>
+            </details>
           </JXCard>
         </JXGridItem>
 
         {/* Interactive Tool Execution Studio Sandbox */}
-        <JXGridItem colSpan={6}>
+        <JXGridItem colSpan={12}>
           <JXCard className="bg-slate-900/60 border-slate-800">
             <JXCardHeader
-              title="Interactive Tool Execution Studio"
-              subheader="Direct agent sandbox for inspecting tool contracts and return schemas"
+              title="Try a tool"
               icon={<Terminal className="w-5 h-5 text-indigo-400" />}
             />
             <JXCardContent>
@@ -516,9 +380,10 @@ export const AiApiHubView: React.FC = () => {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-mono text-slate-400 mb-1">
-                      Target Fleet Node
+                      Device
                     </label>
                     <select
+                      aria-label="Target fleet node"
                       value={selectedNode}
                       onChange={(e) => setSelectedNode(e.target.value)}
                       className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-200 focus:outline-none"
@@ -533,9 +398,10 @@ export const AiApiHubView: React.FC = () => {
 
                   <div>
                     <label className="block text-xs font-mono text-slate-400 mb-1">
-                      Reasoning Model
+                      Model
                     </label>
                     <select
+                      aria-label="Reasoning model"
                       value={selectedModel}
                       onChange={(e) => setSelectedModel(e.target.value)}
                       className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-200 focus:outline-none"
@@ -550,9 +416,10 @@ export const AiApiHubView: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-mono text-slate-400 mb-1">
-                    Exposed Tool Primitive
+                    Tool
                   </label>
                   <select
+                    aria-label="Exposed tool primitive"
                     value={selectedTool}
                     onChange={(e) => setSelectedTool(e.target.value)}
                     className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-200 focus:outline-none"
@@ -566,9 +433,10 @@ export const AiApiHubView: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-mono text-slate-400 mb-1">
-                    Tool Arguments Payload (JSON)
+                    Arguments (JSON)
                   </label>
                   <textarea
+                    aria-label="Tool arguments JSON"
                     rows={4}
                     value={promptText}
                     onChange={(e) => setPromptText(e.target.value)}
@@ -577,9 +445,6 @@ export const AiApiHubView: React.FC = () => {
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono text-slate-400">
-                    Auth: mTLS Pinned Bearer Token
-                  </span>
                   <JXButton
                     variant="contained"
                     color="primary"
@@ -588,7 +453,7 @@ export const AiApiHubView: React.FC = () => {
                     onClick={handleExecuteTool}
                     startIcon={<Play className="w-4 h-4" />}
                   >
-                    Execute Tool Sandbox
+                    Run sample
                   </JXButton>
                 </div>
 
@@ -604,7 +469,7 @@ export const AiApiHubView: React.FC = () => {
                         {executionResult.tokens.input} in / {executionResult.tokens.output} out ({executionResult.tokens.cost})
                       </span>
                     </div>
-                    <pre className="text-xs font-mono text-slate-300 overflow-x-auto max-h-40 overflow-y-auto">
+                    <pre tabIndex={0} aria-label="Tool response" className="text-xs font-mono text-slate-300 overflow-x-auto max-h-40 overflow-y-auto">
                       <code>{JSON.stringify(executionResult.output, null, 2)}</code>
                     </pre>
                   </div>

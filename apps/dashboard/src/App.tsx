@@ -4,8 +4,7 @@
  * Strict JXUI Primitives & Lucide Icons. ZERO inline styles.
  */
 
-import React from "react";
-import { BreadcrumbTrail } from "@jacxishippingorg/jx-ui-react";
+import React, { useEffect } from "react";
 import { AppShell } from "./shell/AppShell";
 import { useDashboardStore } from "./state/dashboardStore";
 import type { ViewId } from "./types/dashboard";
@@ -26,6 +25,7 @@ import { SecurityPoliciesView } from "./views/SecurityPoliciesView";
 import { AuditTrailView } from "./views/AuditTrailView";
 import { ConnectionsView } from "./views/ConnectionsView";
 import { DiagnosticsLogsView } from "./views/DiagnosticsLogsView";
+import { LiveControlView } from "./views/LiveControlView";
 
 export interface ViewMetadata {
   title: string;
@@ -37,10 +37,6 @@ const VIEWS_WITH_OWN_HEADER: ViewId[] = [
   "overview",
   "devices",
   "device-360-system",
-  "task-queue-and-vision",
-  "live-desktop-studio",
-  "interactive-terminal",
-  "autonomous-workflows",
 ];
 
 export const App: React.FC = () => {
@@ -53,84 +49,92 @@ export const App: React.FC = () => {
 
   // View titles and navigation breadcrumbs metadata for all 15 routes
   const viewMeta: Record<ViewId, ViewMetadata> = {
+    live: {
+      title: "Control plane",
+      domain: "Live",
+      breadcrumbs: ["AI Bridge", "Control plane"],
+    },
     overview: {
-      title: "Command Overview & Bento Metrics",
+      title: "Fleet overview",
       domain: "Operations Domain",
       breadcrumbs: ["AI Bridge", "Operations", "Overview"],
     },
     devices: {
-      title: "Enrolled Devices & Node Inventory",
+      title: "Devices",
       domain: "Operations Domain",
       breadcrumbs: ["AI Bridge", "Operations", "Devices"],
     },
     "device-360-system": {
-      title: "Device 360 System Dashboard & Hardware Gauges",
+      title: "Device details",
       domain: "Operations Domain",
       breadcrumbs: ["AI Bridge", "Operations", "Device 360", selectedHostname],
     },
     "task-queue-and-vision": {
-      title: "Task Queue & Vision Inspector (SoM Overlay)",
+      title: "Tasks & vision",
       domain: "Operations Domain",
       breadcrumbs: ["AI Bridge", "Operations", "Task Queue & Vision"],
     },
     "live-desktop-studio": {
-      title: "Live Desktop Studio & Dual-Control Takeover",
+      title: "Remote desktop",
       domain: "Operations Domain",
       breadcrumbs: ["AI Bridge", "Operations", "Live Desktop"],
     },
     "interactive-terminal": {
-      title: "Interactive ANSI Live Terminal Studio",
+      title: "Terminal",
       domain: "Operations Domain",
       breadcrumbs: ["AI Bridge", "Operations", "Terminal"],
     },
     "autonomous-workflows": {
-      title: "Autonomous Workflows & Multi-Turn DAG Stepper",
+      title: "Workflows",
       domain: "Operations Domain",
       breadcrumbs: ["AI Bridge", "Operations", "Workflows"],
     },
     "fleet-operations": {
-      title: "Multi-Node Broadcast & Self-Healing Hub",
+      title: "Fleet operations",
       domain: "Operations Domain",
       breadcrumbs: ["AI Bridge", "Operations", "Fleet Operations"],
     },
     "ai-api-and-agents": {
-      title: "AI API & Custom Agents Hub",
+      title: "AI providers & agents",
       domain: "Operations Domain",
       breadcrumbs: ["AI Bridge", "Operations", "AI API & Agents"],
     },
     "human-approvals": {
-      title: "Human-in-the-Loop Approvals & AST Diff Inspector",
+      title: "Human approvals",
       domain: "Governance Domain",
       breadcrumbs: ["AI Bridge", "Governance", "Human Approvals"],
     },
     "security-policies": {
-      title: "Security Policies, Allowlist & Webhook Manager",
+      title: "Security policies",
       domain: "Governance Domain",
       breadcrumbs: ["AI Bridge", "Governance", "Security Policies"],
     },
     "audit-trail": {
-      title: "Merkle Root Ledger & Cryptographic Verifier",
+      title: "Audit trail",
       domain: "Governance Domain",
       breadcrumbs: ["AI Bridge", "Governance", "Audit Trail"],
     },
     "mcp-and-oauth": {
-      title: "MCP Protocol Gateway & OAuth Credential Vault",
+      title: "MCP & OAuth",
       domain: "Governance Domain",
       breadcrumbs: ["AI Bridge", "Governance", "MCP & OAuth"],
     },
     "diagnostics-and-logs": {
-      title: "Systemd Log Stream & Ring Buffer Inspector",
+      title: "Diagnostics & logs",
       domain: "Governance Domain",
       breadcrumbs: ["AI Bridge", "Governance", "Diagnostics & Logs"],
     },
     login: {
-      title: "Zero-Trust Dual-Auth Console",
+      title: "Sign in",
       domain: "Authentication",
-      breadcrumbs: ["AI Bridge", "Authentication", "Login"],
+      breadcrumbs: ["AI Bridge", "Sign in"],
     },
   };
 
   const currentMeta = viewMeta[currentView] || viewMeta.overview;
+  useEffect(() => {
+    document.title = `${currentMeta.breadcrumbs[currentMeta.breadcrumbs.length - 1]} · AI Bridge${currentView !== "live" && currentView !== "login" ? " · Demo" : ""}`;
+  }, [currentView, currentMeta.title]);
 
   const renderActiveView = () => {
     switch (currentView) {
@@ -173,6 +177,7 @@ export const App: React.FC = () => {
   if (currentView === "login") {
     return <LoginView />;
   }
+  if (currentView === "live") return <LiveControlView />;
 
   return (
     <AppShell currentView={currentView} viewMeta={currentMeta}>
@@ -180,13 +185,9 @@ export const App: React.FC = () => {
         {!VIEWS_WITH_OWN_HEADER.includes(currentView) && (
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60 mb-6">
             <div>
-              <BreadcrumbTrail crumbs={currentMeta.breadcrumbs} />
               <h1 className="text-xl font-bold tracking-tight text-slate-100 mt-1">
                 {currentMeta.title}
               </h1>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">
-                {currentMeta.domain} • 40 Managed Nodes • mTLS v1.3 Zero-Trust Synchronized
-              </p>
             </div>
           </div>
         )}

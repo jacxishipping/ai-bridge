@@ -16,8 +16,8 @@ import {
   JXCardContent,
   JXBadge,
   JXButton,
-  JXDialog,
-} from "@jacxishippingorg/jx-ui-react";
+  GlassModal,
+} from "../ui";
 import {
   Workflow,
   CheckCircle2,
@@ -379,27 +379,9 @@ export const WorkflowsView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Top Header & Breadcrumb Ribbon */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
-        <div>
-          <div className="flex items-center gap-2 font-mono text-xs text-slate-400">
-            <span className="uppercase tracking-wider">Operations</span>
-            <span className="text-slate-600">/</span>
-            <span className="uppercase tracking-wider text-indigo-400">Autonomous Workflows</span>
-            <span className="text-slate-600">/</span>
-            <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200">
-              {activePlan.title}
-            </span>
-          </div>
-          <h2 className="text-lg font-bold text-slate-100 tracking-tight mt-1 flex items-center gap-3">
-            Autonomous Workflows & Multi-Turn Plans
-            <span className="font-mono text-[11px] px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-              v2.4.0 High-Integrity Engine
-            </span>
-          </h2>
-        </div>
-
         {/* Action Controls */}
         <div className="flex items-center gap-2">
           <button
@@ -408,76 +390,15 @@ export const WorkflowsView: React.FC = () => {
             className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center gap-2 transition-all shadow-md shadow-indigo-600/25 active:scale-95"
           >
             <Plus className="w-4 h-4" />
-            <span>Create New Workflow</span>
+            <span>New workflow</span>
           </button>
         </div>
       </div>
 
-      {/* 4-Bento Metrics Ribbon */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col justify-between font-mono">
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>ACTIVE WORKFLOWS</span>
-            <Workflow className="w-4 h-4 text-indigo-400" />
-          </div>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-bold text-slate-100">14</span>
-            <span className="text-xs text-emerald-400">/ 16 registered</span>
-          </div>
-          <div className="w-full bg-slate-800 h-1 rounded-full mt-2 overflow-hidden">
-            <div className="bg-indigo-500 h-full rounded-full w-[87%]"></div>
-          </div>
-        </div>
-
-        <div className="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col justify-between font-mono">
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>SUCCESS RATE (7D)</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          </div>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-bold text-emerald-400">99.4%</span>
-            <span className="text-xs text-slate-400">+0.2% vs baseline</span>
-          </div>
-          <div className="w-full bg-slate-800 h-1 rounded-full mt-2 overflow-hidden">
-            <div className="bg-emerald-500 h-full rounded-full w-[99%]"></div>
-          </div>
-        </div>
-
-        <div className="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col justify-between font-mono">
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>RUNS TODAY (24H)</span>
-            <Activity className="w-4 h-4 text-cyan-400" />
-          </div>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-bold text-slate-100">428</span>
-            <span className="text-xs text-slate-400">Avg 3.8s / plan</span>
-          </div>
-          <div className="w-full bg-slate-800 h-1 rounded-full mt-2 overflow-hidden">
-            <div className="bg-cyan-500 h-full rounded-full w-[68%]"></div>
-          </div>
-        </div>
-
-        <div className="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 flex flex-col justify-between font-mono">
-          <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>PENDING HUMAN GATES</span>
-            <AlertTriangle className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-bold text-amber-400">1</span>
-            <span className="text-xs px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300">
-              Tier-3 Escrow
-            </span>
-          </div>
-          <div className="w-full bg-slate-800 h-1 rounded-full mt-2 overflow-hidden">
-            <div className="bg-amber-500 h-full rounded-full w-[100%]"></div>
-          </div>
-        </div>
-      </div>
-
       {notice && (
-        <div className="p-3 rounded-xl bg-indigo-950/70 border border-indigo-500/40 text-xs font-mono text-indigo-300 animate-pulse flex items-center justify-between">
+        <div role="status" className="p-3 rounded-xl bg-indigo-950/70 border border-indigo-500/40 text-xs font-mono text-indigo-300 flex items-center justify-between">
           <span>{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} className="text-slate-400 hover:text-slate-200">
+          <button type="button" aria-label="Dismiss notification" onClick={() => setNotice(null)} className="text-slate-400 hover:text-slate-200">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -489,8 +410,7 @@ export const WorkflowsView: React.FC = () => {
         <JXGridItem colSpan={4}>
           <JXCard className="bg-slate-900/70 border-slate-800 shadow-xl">
             <JXCardHeader
-              title="Workflow Directory"
-              subheader="Configured multi-turn plans across fleet"
+              title="Workflows"
               icon={<Layers className="w-4 h-4 text-indigo-400" />}
             />
             <JXCardContent>
@@ -534,7 +454,7 @@ export const WorkflowsView: React.FC = () => {
                 </div>
 
                 {/* Workflow Cards Stack */}
-                <div className="space-y-2 max-h-[580px] overflow-y-auto pr-1">
+                <div tabIndex={0} aria-label="Workflow plans" className="space-y-2 max-h-[580px] overflow-y-auto pr-1">
                   {filteredPlans.map((plan) => {
                     const isSelected = plan.id === selectedPlanId;
                     return (
@@ -561,7 +481,7 @@ export const WorkflowsView: React.FC = () => {
                           <span
                             className={`font-mono text-[10px] px-2 py-0.5 rounded font-semibold uppercase shrink-0 ${
                               plan.status === "running"
-                                ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 animate-pulse"
+                                ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40"
                                 : plan.status === "succeeded"
                                 ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
                                 : plan.status === "awaiting_gate"
@@ -577,7 +497,7 @@ export const WorkflowsView: React.FC = () => {
                           {plan.description}
                         </p>
 
-                        <div className="mt-2 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] font-mono text-slate-500">
+                        <div className="mt-2 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] font-mono text-slate-400">
                           <span className="text-emerald-400 font-semibold">{plan.successRate}</span>
                           <span>{plan.lastRan}</span>
                         </div>
@@ -597,7 +517,7 @@ export const WorkflowsView: React.FC = () => {
             <JXCard className="bg-slate-900/70 border-slate-800 shadow-xl">
               <JXCardHeader
                 title={activePlan.title}
-                subheader={`Execution ID: #${activePlan.id} • Cadence: ${activePlan.cadence} • Target: ${activePlan.targetFleet}`}
+                subheader={activePlan.targetFleet}
                 icon={<Workflow className="w-4 h-4 text-indigo-400" />}
               />
               <JXCardContent>
@@ -652,7 +572,7 @@ export const WorkflowsView: React.FC = () => {
                                   step.status === "completed"
                                     ? "bg-emerald-600 text-white"
                                     : step.status === "running"
-                                    ? "bg-indigo-600 text-white animate-pulse"
+                                    ? "bg-indigo-600 text-white"
                                     : "bg-slate-800 text-slate-400"
                                 }`}
                               >
@@ -677,7 +597,7 @@ export const WorkflowsView: React.FC = () => {
                                     ? "text-emerald-400"
                                     : step.status === "running"
                                     ? "text-indigo-400 font-bold"
-                                    : "text-slate-500"
+                                    : "text-slate-400"
                                 }
                               >
                                 {step.status}
@@ -696,23 +616,14 @@ export const WorkflowsView: React.FC = () => {
             {/* Lower: Step Deep Inspection Sub-Panel */}
             <JXCard className="bg-slate-900/70 border-slate-800 shadow-xl">
               <JXCardHeader
-                title={`Step ${activeStep.number} Deep Inspection — ${activeStep.name}`}
-                subheader={`Tool: ${activeStep.tool} • Latency: ${activeStep.duration}`}
+                title={`Step ${activeStep.number}: ${activeStep.name}`}
+                subheader={activeStep.tool}
                 icon={<Eye className="w-4 h-4 text-emerald-400" />}
               />
               <JXCardContent>
                 <div className="space-y-4">
                   {/* Inspection Header Badge */}
                   <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-800/60">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs px-2.5 py-1 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
-                        CHECKPOINT PASSED (99.8% CONFIDENCE)
-                      </span>
-                      <span className="font-mono text-xs text-slate-400">
-                        Model: Claude 3.5 Sonnet (Vision Gate)
-                      </span>
-                    </div>
-
                     <button
                       type="button"
                       onClick={copyStepPayload}
@@ -764,21 +675,6 @@ export const WorkflowsView: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Execution Telemetry Stats */}
-                      <div className="grid grid-cols-3 gap-2 font-mono text-xs">
-                        <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                          <span className="text-[10px] text-slate-500 uppercase block">STEP LATENCY</span>
-                          <span className="text-slate-200 font-bold">{activeStep.duration}</span>
-                        </div>
-                        <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                          <span className="text-[10px] text-slate-500 uppercase block">PEAK MEMORY</span>
-                          <span className="text-slate-200 font-bold">42.4 MB</span>
-                        </div>
-                        <div className="p-2 rounded-lg bg-slate-950 border border-slate-800">
-                          <span className="text-[10px] text-slate-500 uppercase block">VERIFIED NODES</span>
-                          <span className="text-emerald-400 font-bold">12 / 12 (100%)</span>
-                        </div>
-                      </div>
                     </div>
 
                     {/* Right Pane: AI Reasoning Trace & Tool Payload */}
@@ -800,8 +696,8 @@ export const WorkflowsView: React.FC = () => {
 
                       {/* Input JSON Parameters Payload */}
                       <div className="space-y-1">
-                        <span className="text-[10px] text-slate-500 uppercase block">
-                          INPUT PARAMETERS PAYLOAD
+                        <span className="text-xs text-slate-400 block">
+                          Arguments
                         </span>
                         <pre className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 overflow-x-auto max-h-32">
                           <code>{JSON.stringify(activeStep.payload, null, 2)}</code>
@@ -855,8 +751,8 @@ export const WorkflowsView: React.FC = () => {
 
       {/* Workflow Builder Modal */}
       {builderOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="w-full max-w-xl rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-6 space-y-4 font-mono text-xs text-slate-200">
+        <GlassModal onClose={() => setBuilderOpen(false)} title="Create sample workflow">
+          <div className="space-y-4 font-mono text-xs text-slate-200">
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Workflow className="w-5 h-5 text-indigo-400" />
@@ -864,6 +760,7 @@ export const WorkflowsView: React.FC = () => {
               </div>
               <button
                 type="button"
+                aria-label="Close workflow builder"
                 onClick={() => setBuilderOpen(false)}
                 className="text-slate-400 hover:text-slate-200 p-1"
               >
@@ -898,6 +795,7 @@ export const WorkflowsView: React.FC = () => {
                 <div>
                   <label className="text-slate-400 uppercase text-[10px] block mb-1">Target Host</label>
                   <select
+                    aria-label="Workflow target host"
                     value={newTargetNode}
                     onChange={(e) => setNewTargetNode(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 outline-none focus:border-indigo-500"
@@ -913,6 +811,7 @@ export const WorkflowsView: React.FC = () => {
                 <div>
                   <label className="text-slate-400 uppercase text-[10px] block mb-1">Failure Fallback</label>
                   <select
+                    aria-label="Workflow failure fallback"
                     value={newFallback}
                     onChange={(e) => setNewFallback(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 outline-none focus:border-indigo-500"
@@ -990,7 +889,7 @@ export const WorkflowsView: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </GlassModal>
       )}
     </div>
   );
