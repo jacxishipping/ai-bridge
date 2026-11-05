@@ -96,8 +96,8 @@ export function JXLinearProgress({ value = 0, label = "Progress", className = ""
     className={`block w-full h-2 overflow-hidden rounded-full [&::-webkit-progress-bar]:bg-slate-800 [&::-webkit-progress-value]:bg-indigo-500 [&::-moz-progress-bar]:bg-indigo-500 ${className}`}>{value}%</progress>;
 }
 
-export function GlassModal({ open = true, onClose, title, children }:
-  React.PropsWithChildren<{ open?: boolean; onClose?: () => void; title?: string }>) {
+export function GlassModal({ open = true, onClose, title, children, closeLabel = "Close dialog" }:
+  React.PropsWithChildren<{ open?: boolean; onClose?: () => void; title?: string; closeLabel?: string }>) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const close = useRef(onClose);
@@ -126,7 +126,7 @@ export function GlassModal({ open = true, onClose, title, children }:
     <JXBox padding="lg" border={false} className="min-w-0">
       <div className="mb-5 flex items-center justify-between gap-4">
         <h2 id={titleId} className="text-base font-semibold">{title}</h2>
-        <button type="button" onClick={onClose} aria-label="Close dialog"
+        <button type="button" onClick={onClose} aria-label={closeLabel}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800">
           <X className="h-5 w-5" aria-hidden="true" />
         </button>

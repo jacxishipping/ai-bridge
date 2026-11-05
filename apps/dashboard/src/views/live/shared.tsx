@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import { formatDate, languages, useLanguage } from "../../i18n";
 
 export interface LiveDevice {
   id: string; name?: string; hostname?: string; os?: string; status?: string;
   revoked?: boolean; last_seen?: number | null; tenant?: string;
+  group?: string; tags?: string[]; token_expires_at?: number;
 }
 export interface LiveTask {
   id: string; device_id: string; tool: string; status: string; tier?: number;
@@ -27,7 +29,7 @@ export const text = (value: unknown) => typeof value === "string" ? value : JSON
 export const message = (error: unknown) => error instanceof Error ? error.message : "Unable to complete this request.";
 export const deviceName = (device: LiveDevice) => device.name || device.hostname || device.id;
 export const deviceStatus = (device: LiveDevice) => device.revoked ? "revoked" : device.status || "unknown";
-export const time = (timestamp?: number | null) => timestamp ? new Date(timestamp * 1000).toLocaleString() : "Not reported";
+export const time = (timestamp?: number | null) => timestamp ? formatDate(new Date(timestamp * 1000), { dateStyle: "medium", timeStyle: "medium" }) : "Not reported";
 export const taskStates = ["all", "queued", "running", "completed", "failed", "needs_approval", "canceled", "timed_out"];
 export const normalizeTaskStatus = (status: string) => status === "cancelled" ? "canceled" : status;
 export const taskStatus = (status: string) => ({
@@ -44,6 +46,7 @@ export function useRead<T>(load: () => Promise<T>, poll = false) {
   const [data, setData] = useState<T>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [checkedAt, setCheckedAt] = useState<Date>();
   const generation = useRef(0);
   const inFlight = useRef<number>();
   const refresh = useCallback(async () => {
@@ -53,7 +56,7 @@ export function useRead<T>(load: () => Promise<T>, poll = false) {
     setLoading(true);
     try {
       const next = await load();
-      if (current === generation.current) { setData(next); setError(""); }
+      if (current === generation.current) { setData(next); setError(""); setCheckedAt(new Date()); }
     } catch (err) { if (current === generation.current) setError(message(err)); }
     finally {
       if (inFlight.current === current) inFlight.current = undefined;
@@ -65,7 +68,28 @@ export function useRead<T>(load: () => Promise<T>, poll = false) {
     const interval = poll ? window.setInterval(() => { if (!document.hidden) void refresh(); }, 5000) : undefined;
     return () => { ++generation.current; inFlight.current = undefined; window.clearInterval(interval); };
   }, [refresh, poll]);
-  return { data, error, loading, refresh };
+  return { data, error, loading, refresh, checkedAt };
+}
+
+export function ReadState({ loading, error, checkedAt }: { loading: boolean; error: string; checkedAt?: Date }) {
+  const { date } = useLanguage();
+  const updated = checkedAt ? date(checkedAt, { timeStyle: "medium" }) : "";
+  return <div role="status" className="text-xs text-slate-400">
+    {error ? <span className="text-amber-300">{error} Last successful update: {updated || "never"}. Refresh to reconnect.</span> :
+      loading ? "Refreshing…" : checkedAt ? `Updated ${updated}` : "Not loaded"}
+  </div>;
+}
+
+export function Pagination({ page, total, size = 25, onPage }: { page: number; total: number; size?: number; onPage: (page: number) => void }) {
+  const { locale, t, number } = useLanguage();
+  const pages = Math.max(1, Math.ceil(total / size));
+  return <nav lang={locale} dir={languages.find(language => language.code === locale)!.dir}
+    aria-label={t("{count} results · Page {page} of {pages}", { count: number(total), page: number(page), pages: number(pages) })}
+    className="flex flex-wrap items-center justify-end gap-3 text-xs text-slate-300">
+    <span>{t("{count} results · Page {page} of {pages}", { count: number(total), page: number(page), pages: number(pages) })}</span>
+    <button className="product-button rounded border border-slate-600 disabled:opacity-40" disabled={page <= 1} onClick={() => onPage(page - 1)}>{t("Previous page")}</button>
+    <button className="product-button rounded border border-slate-600 disabled:opacity-40" disabled={page >= pages} onClick={() => onPage(page + 1)}>{t("Next page")}</button>
+  </nav>;
 }
 
 export function Payload({ title = "Technical details", value }: { title?: string; value: unknown }) {

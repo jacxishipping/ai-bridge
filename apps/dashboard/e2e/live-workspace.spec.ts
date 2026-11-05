@@ -81,9 +81,9 @@ test("device workspace preserves device and tab across reload, Back and section 
   await expect(page.getByText("An interactive remote shell is not available here.", { exact: false })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("button", { name: "Run command", exact: true })).toBeVisible();
-  await page.getByRole("navigation", { name: "Control plane sections" }).getByRole("button", { name: "Approvals", exact: true }).click();
+  await page.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: "Approvals", exact: true }).click();
   await expect(page.getByText("No pending approvals", { exact: true })).toBeVisible();
-  await page.getByRole("navigation", { name: "Control plane sections" }).getByRole("button", { name: "Devices", exact: true }).click();
+  await page.getByRole("navigation", { name: "Workspace", exact: true }).getByRole("button", { name: "Devices", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Alpha", exact: true })).toBeVisible();
   await tabs.getByRole("button", { name: "Desktop", exact: true }).click();
   await expect(page.getByRole("button", { name: "Capture snapshot" })).toBeVisible();
@@ -329,7 +329,7 @@ for (const width of [390, 1440]) {
       await page.route("**/api/approvals", (request) => request.fulfill({ json: [approval] }));
       await page.setViewportSize({ width, height: 1000 });
       await page.goto(`/#/live${route}`);
-      await expect(page.getByRole("navigation", { name: "Control plane sections" })).toBeVisible();
+      await expect(page.getByRole("navigation", { name: "Workspace", exact: true })).toBeVisible();
       await expect(page.locator("h1")).toHaveCount(1);
       expect(await page.locator("main").evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);

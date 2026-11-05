@@ -5,8 +5,12 @@ import "./tailwind.css";
 import App from "./App";
 import { consumeIdentityRedirect } from "./api";
 import { dashboardStore } from "./state/dashboardStore";
+import { applySavedDensity } from "./DensityControl";
+import { initializeLanguage } from "./i18n";
 
 if (consumeIdentityRedirect()) dashboardStore.syncRoute();
+applySavedDensity();
+initializeLanguage();
 
 function DashboardTheme({ children }: React.PropsWithChildren) {
   const { mode, setMode } = useJXTheme();

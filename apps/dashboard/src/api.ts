@@ -61,8 +61,9 @@ export class ApiError extends Error {
   constructor(message: string, public uncertain = false, public status?: number) { super(message); }
 }
 
-async function call(path: string, method = "GET", body?: unknown) {
+async function call(path: string, method = "GET", body?: unknown, extraHeaders: Record<string, string> = {}) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
+  Object.assign(headers, extraHeaders);
   const st = sessionToken();
   const at = token();
   if (st) headers["X-Session-Token"] = st;
@@ -99,8 +100,18 @@ export const api = {
   refreshDeviceTelemetry: (id: string, tools?: string[]) =>
     call(`/api/devices/${encodeURIComponent(id)}/refresh`, "POST", { tools }),
   tasks: (deviceId?: string) => call(`/api/tasks${deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ""}`),
+  taskHistory: (params: { q: string; status: string; device_id: string; tenant: string; page: number }) =>
+    call(`/api/tasks/history?${new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)]))}`),
   taskDetail: (id: string) => call(`/api/tasks/${id}`),
-  submitTask: (device_id: string, tool: string, args: any = {}, tenant?: string) => call("/api/tasks", "POST", { device_id, tool, args, tenant }),
+  submitTask: (device_id: string, tool: string, args: any = {}, tenant?: string, requestKey = crypto.randomUUID()) =>
+    call("/api/tasks", "POST", { device_id, tool, args, tenant }, { "Idempotency-Key": requestKey }),
+  users: () => call("/api/auth/users"),
+  createUser: (body: { username: string; password: string; role: string }) => call("/api/auth/users", "POST", body),
+  updateUser: (username: string, body: { role: string; disabled: boolean }) =>
+    call(`/api/auth/users/${encodeURIComponent(username)}`, "PATCH", body),
+  deviceMetadata: (id: string, body: { group: string; tags: string[] }) =>
+    call(`/api/devices/${encodeURIComponent(id)}/metadata`, "PUT", body),
+  notifications: () => call("/api/fleet/notifications"),
   cancelTask: (id: string) => call(`/api/tasks/${id}/cancel`, "POST", {}),
   updateTask: (id: string, body: { tool?: string; args?: any; status?: string }) =>
     call(`/api/tasks/${encodeURIComponent(id)}`, "PUT", body),

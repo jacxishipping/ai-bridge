@@ -2,27 +2,27 @@
 from __future__ import annotations
 
 import json
-import tempfile
 import threading
 import time
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from ai_bridge.client import AIBridgeClient, AIBridgeError
+from ai_bridge.client import AIBridgeClient
 from ai_bridge.control.app import create_app
 
 ADMIN_TOKEN = "test-ai-admin-token"
 
 
 @pytest.fixture
-def fresh_client():
-    tmp_dir = Path(tempfile.mkdtemp())
-    db = tmp_dir / "test_ai_control.db"
+def fresh_client(tmp_path, monkeypatch):
+    # Local-tool tests must never depend on or inspect a user's home workspace.
+    monkeypatch.setenv("AI_BRIDGE_WORKSPACE", str(tmp_path))
+    db = tmp_path / "test_ai_control.db"
     app = create_app(admin_token=ADMIN_TOKEN, db_path=db)
-    client = TestClient(app)
-    return client, app
+    with TestClient(app) as client:
+        yield client, app
+    app.state.conn.close()
 
 
 def test_ai_tools_formats(fresh_client):
@@ -113,7 +113,6 @@ def test_ai_execute_device_flow(fresh_client):
     )
     assert enroll_res.status_code == 200
     dev_info = enroll_res.json()
-    dev_id = dev_info["device_id"]
     dev_token = dev_info["device_token"]
 
     # Background simulator for agent execution

@@ -2,7 +2,7 @@ import React from "react";
 
 /** One identity across authentication, live operations and the preview shell. */
 export function Brand({ compact = false }: { compact?: boolean }) {
-  return <div className="product-brand">
+  return <div lang="en" dir="ltr" className="product-brand">
     <img src={`${import.meta.env.BASE_URL}brand-mark.svg`} width={34} height={34} alt="" />
     <span className={compact ? "sr-only" : ""}>AI Bridge</span>
   </div>;

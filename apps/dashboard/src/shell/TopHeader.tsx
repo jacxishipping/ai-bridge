@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { AlertTriangle, Menu, Search, Square, Play } from "lucide-react";
 import { GlassModal, JXButton } from "../ui";
 import { Brand } from "../Brand";
+import { DensityControl } from "../DensityControl";
+import { LanguageControl } from "../LanguageControl";
 import { useDashboardStore } from "../state/dashboardStore";
 
 export const TopHeader: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
@@ -29,6 +31,8 @@ export const TopHeader: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
         </span>
       </JXButton>
       <div className="hidden flex-1 lg:block" />
+      <LanguageControl />
+      <div className="hidden md:block"><DensityControl /></div>
       <JXButton variant="outlined" color={stopped ? "success" : "error"} size="sm"
         onClick={() => setConfirmOpen(true)}
         aria-label={stopped ? "Resume demo fleet" : "Emergency All-Stop"}
