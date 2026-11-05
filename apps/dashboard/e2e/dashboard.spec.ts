@@ -31,7 +31,7 @@ test("search supports keyboard selection, Escape, and focus restoration", async 
   await page.goto("/#/overview");
   const trigger = page.getByRole("button", { name: "Search pages and devices", exact: true });
   await trigger.click();
-  const search = page.getByRole("combobox");
+  const search = page.getByRole("combobox", { name: "Search pages and devices" });
   await expect(search).toBeFocused();
   await search.fill("Devices");
   await page.keyboard.press("ArrowDown");

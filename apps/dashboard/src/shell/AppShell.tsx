@@ -33,7 +33,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
     mainRef.current?.focus({ preventScroll: true });
   }, [view]);
   return (
-    <div className="product-shell h-dvh w-full flex text-slate-100 overflow-hidden">
+    <div lang="en" dir="ltr" className="product-shell h-dvh w-full flex text-slate-100 overflow-hidden">
       <a href="#main-content" onClick={(event) => { event.preventDefault(); mainRef.current?.focus(); }}
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-indigo-600 focus:p-3 focus:text-white">
         Skip to content

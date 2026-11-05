@@ -2,7 +2,7 @@ import React, { useCallback, useState } from "react";
 import { api } from "../../api";
 import { JXButton } from "../../ui";
 import { TaskComposer } from "./TaskComposer";
-import { argsOf, deviceName, Empty, Field, fieldClass, LiveDevice, LiveTask, normalizeTaskStatus, Payload, taskStates, taskStatus, text, time, useRead } from "./shared";
+import { argsOf, deviceName, Empty, Field, fieldClass, LiveDevice, LiveTask, normalizeTaskStatus, Pagination, Payload, ReadState, taskStates, taskStatus, text, time, useRead } from "./shared";
 
 function TaskResult({ task }: { task: LiveTask }) {
   if (task.result == null || task.result === "") return <p className="text-sm text-slate-400">
@@ -21,19 +21,33 @@ function TaskResult({ task }: { task: LiveTask }) {
 
 export function TasksPanel({ devices, device, canAct, onlyTool, status = "all", onStatus = () => {} }:
   { devices: LiveDevice[]; device?: LiveDevice; canAct: boolean; onlyTool?: string; status?: string; onStatus?: (value: string) => void }) {
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [history, setHistory] = useState(false);
   const load = useCallback(async () => {
+    if (history) {
+      const result = await api.taskHistory({ q: query, status, device_id: device?.id || "", tenant: device?.tenant || "default", page });
+      if (!Array.isArray(result.items) || !Number.isInteger(result.total)) throw new Error("Invalid task history response.");
+      return { items: result.items as LiveTask[], total: result.total as number };
+    }
     const result = await api.tasks(device?.id);
     if (!Array.isArray(result)) throw new Error("The server returned an invalid task list.");
-    return result as LiveTask[];
-  }, [device?.id]);
-  const { data, error, loading, refresh } = useRead(load, true);
+    return { items: result as LiveTask[], total: result.length };
+  }, [device?.id, device?.tenant, history, history ? query : "", history ? status : "", history ? page : 1]);
+  const state = useRead(load, true);
+  const { data, error, loading, refresh } = state;
   const [composer, setComposer] = useState<{ tool?: string; args?: Record<string, unknown>; device?: LiveDevice }>();
-  const tasks = (data || []).filter((task) => (!onlyTool || task.tool === onlyTool) && (status === "all" || normalizeTaskStatus(task.status) === status));
+  const tasks = (data?.items || []).filter((task) => (!onlyTool || task.tool === onlyTool) && (status === "all" || normalizeTaskStatus(task.status) === status) &&
+    [task.id, task.tool, task.device_id, devices.find(d => d.id === task.device_id)?.name].some(value => value?.toLowerCase().includes(query.toLowerCase())));
+  const total = history ? data?.total || 0 : tasks.length;
+  const currentPage = history ? page : Math.min(page, Math.max(1, Math.ceil(total / 25)));
+  const shown = history ? tasks : tasks.slice((currentPage - 1) * 25, currentPage * 25);
   const availableDevices = (device ? [device] : devices).filter((item) => !item.revoked);
   return <section aria-label={onlyTool === "run_shell" ? "Command tasks" : onlyTool === "capture_desktop_frame" ? "Desktop snapshots" : "Tasks"} className="space-y-4">
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div className="flex flex-wrap gap-3">
-        <Field label="Task status"><select value={status} className={fieldClass} onChange={(e) => onStatus(e.target.value)}>
+        <Field label="Find task"><input className={fieldClass} value={query} maxLength={200} placeholder={history ? "Task ID or tool" : "Task, tool or device"} onChange={e => { setQuery(e.target.value); setPage(1); }} /></Field>
+        <Field label="Task status"><select value={status} className={fieldClass} onChange={(e) => { setPage(1); onStatus(e.target.value); }}>
           {taskStates.map((value) => <option key={value} value={value}>{value === "all" ? "All tasks" : taskStatus(value)}</option>)}
         </select></Field>
         <JXButton color="neutral" variant="outlined" disabled={loading} onClick={refresh}>Refresh tasks</JXButton>
@@ -43,13 +57,15 @@ export function TasksPanel({ devices, device, canAct, onlyTool, status = "all", 
       </JXButton>}
     </div>
     {!canAct && <p className="text-xs text-slate-400">Task submission requires an operator, an active fleet, and current device data.</p>}
+    {!onlyTool && <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={history} onChange={e => { setHistory(e.target.checked); setPage(1); setQuery(""); }} />Search full server history</label>}
+    <ReadState {...state} />
     {error && <p role="alert" className="text-sm text-amber-300">{error} Previously loaded tasks may be stale.</p>}
     {loading && !data && <p role="status" className="py-6 text-sm text-slate-400">Loading tasks…</p>}
     {data && !tasks.length && <Empty title={status !== "all" ? "No matching tasks" : "No tasks yet"}>
       {status !== "all" ? <JXButton color="neutral" variant="outlined" onClick={() => onStatus("all")}>Clear task filter</JXButton> :
         <p className="text-sm text-slate-400">{device ? "Submit a task to this device to get started." : "Open a device to submit a task."}</p>}
     </Empty>}
-    <ul className="divide-y divide-slate-800">{tasks.map((task) => {
+    <ul className="divide-y divide-slate-800">{shown.map((task) => {
       const target = devices.find((item) => item.id === task.device_id);
       const safeRetry = task.status === "failed" && ["get_system_info", "get_resource_usage", "get_network_info"].includes(task.tool) &&
         Object.keys(argsOf(task)).length === 0 && target && !target.revoked;
@@ -72,7 +88,8 @@ export function TasksPanel({ devices, device, canAct, onlyTool, status = "all", 
         </details>
       </li>;
     })}</ul>
-    {data && data.length >= 200 && <p className="text-xs text-slate-400">Showing the latest 200 tasks returned by the server.</p>}
+    {total > 25 && <Pagination page={currentPage} total={total} onPage={setPage} />}
+    {!history && data && data.items.length >= 200 && <p className="text-xs text-slate-400">Showing the latest 200 tasks returned by the server. Enable full server history to search older tasks.</p>}
     {composer && <TaskComposer devices={composer.device ? [composer.device] : availableDevices} canAct={canAct && !error}
       initialTool={composer.tool} initialArgs={composer.args}
       onClose={() => setComposer(undefined)} onSubmitted={() => { void refresh(); }} />}

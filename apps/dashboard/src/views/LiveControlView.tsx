@@ -3,6 +3,9 @@ import { ArrowUpRight, RefreshCw, ShieldCheck } from "lucide-react";
 import { api, clearCredentials } from "../api";
 import { GlassModal, JXAlert, JXBadge, JXButton } from "../ui";
 import { Brand } from "../Brand";
+import { DensityControl } from "../DensityControl";
+import { LanguageControl } from "../LanguageControl";
+import { useLanguage } from "../i18n";
 import { useDashboardStore } from "../state/dashboardStore";
 import { LiveWorkspace } from "./live/LiveWorkspace";
 import type { LiveDevice } from "./live/shared";
@@ -11,6 +14,7 @@ interface Snapshot { identity: { actor?: string; username?: string; role?: strin
 
 /** Live data is deliberately separate from the local demonstration store. */
 export function LiveControlView() {
+  const { t, date } = useLanguage();
   const navigate = useDashboardStore((s) => s.setCurrentView);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState("");
@@ -49,29 +53,31 @@ export function LiveControlView() {
       <div className="product-container flex min-h-14 flex-wrap items-center justify-between gap-3 py-2">
         <Brand />
         <div className="flex flex-wrap items-center gap-2">
-          <JXButton color="neutral" variant="outlined" onClick={refresh} disabled={loading} loading={loading} loadingLabel="Refreshing…" startIcon={<RefreshCw className="h-4 w-4" />}>Refresh</JXButton>
-          <JXButton color="neutral" variant="text" onClick={signOut}>Sign out</JXButton>
+          <LanguageControl />
+          <DensityControl />
+          <JXButton color="neutral" variant="outlined" onClick={refresh} disabled={loading} loading={loading} loadingLabel={t("Refreshing…")} startIcon={<RefreshCw className="h-4 w-4" />}>{t("Refresh")}</JXButton>
+          <JXButton color="neutral" variant="text" onClick={signOut}>{t("Sign out")}</JXButton>
         </div>
       </div>
     </header>
     <div className="product-container space-y-4 py-4 sm:py-5">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
-          <h1>Control plane</h1>
-          {snapshot && <p className="text-xs text-slate-400">Updated {snapshot.checkedAt.toLocaleTimeString()}</p>}
+          <h1>{t("Control plane")}</h1>
+          {snapshot && <p lang="en" dir="ltr" className="text-xs text-slate-400">Updated <bdi>{date(snapshot.checkedAt, { timeStyle: "medium" })}</bdi></p>}
         </div>
         {snapshot && <div className="flex min-w-0 flex-wrap items-center gap-4">
-          <p className="max-w-full break-words text-xs text-slate-300 [overflow-wrap:anywhere]">Signed in as <span dir="auto">{snapshot.identity.actor || snapshot.identity.username || "operator"}</span> · {snapshot.identity.role}</p>
-          <JXBadge color={error ? "warning" : "success"} statusText={error ? "Stale data" : "Connected"} />
+          <p lang="en" dir="ltr" className="max-w-full break-words text-xs text-slate-300 [overflow-wrap:anywhere]">Signed in as <bdi>{snapshot.identity.actor || snapshot.identity.username || "operator"}</bdi> · {snapshot.identity.role}</p>
+          <JXBadge color={error ? "warning" : "success"} statusText={t(error ? "Stale data" : "Connected")} />
         </div>}
       </div>
-      {error && <div className="space-y-3">
+      {error && <div lang="en" dir="ltr" className="space-y-3">
         <JXAlert severity="error" title="Control plane unavailable" description={`${error} Previously loaded data, if shown, may be stale.`} />
         <JXButton color="neutral" variant="outlined" onClick={signOut}>Return to sign in</JXButton>
       </div>}
-      {loading && !snapshot && <p role="status" className="py-8 text-sm text-slate-400">Loading your control plane…</p>}
+      {loading && !snapshot && <p role="status" lang="en" dir="ltr" className="py-8 text-sm text-slate-400">Loading your control plane…</p>}
       {snapshot && <>
-        <section aria-label="Fleet safety" className="product-safety relative px-3 py-2" data-stopped={snapshot.health.emergency_stop}>
+        <section lang="en" dir="ltr" aria-label="Fleet safety" className="product-safety relative px-3 py-2" data-stopped={snapshot.health.emergency_stop}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <ShieldCheck className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
@@ -88,12 +94,12 @@ export function LiveControlView() {
           role={snapshot.identity.role || "viewer"} devices={snapshot.devices} stale={Boolean(error) || loading}
           stopped={snapshot.health.emergency_stop} refresh={() => { void refresh(); }} />
       </>}
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-5">
+      <footer lang="en" dir="ltr" className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-5">
         <p className="text-xs leading-relaxed text-slate-400">The preview uses sample data, not your live fleet.</p>
         <JXButton color="neutral" variant="text" onClick={() => navigate("overview")} endIcon={<ArrowUpRight className="h-4 w-4" />}>Explore dashboard preview</JXButton>
       </footer>
     </div>
-    <GlassModal open={confirm} onClose={() => { if (!acting) setConfirm(false); }} title={snapshot?.health.emergency_stop ? "Clear the real emergency stop?" : "Stop the real fleet?"}>
+    <div lang="en" dir="ltr"><GlassModal open={confirm} onClose={() => { if (!acting) setConfirm(false); }} title={snapshot?.health.emergency_stop ? "Clear the real emergency stop?" : "Stop the real fleet?"}>
       <div className="space-y-5">
         <p className="text-sm leading-relaxed text-slate-300">This sends an authenticated request to your control plane and affects real devices. Continue only if you are authorized.</p>
         {actionError && <JXAlert severity="error" title="Change not confirmed" description={actionError} />}
@@ -102,6 +108,6 @@ export function LiveControlView() {
           <JXButton color="error" loading={acting} disabled={acting} onClick={changeStop}>Confirm change</JXButton>
         </div>
       </div>
-    </GlassModal>
+    </GlassModal></div>
   </main>;
 }

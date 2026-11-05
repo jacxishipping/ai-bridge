@@ -4,7 +4,7 @@ import { api, ApiError } from "../../api";
 import { GlassModal, JXButton } from "../../ui";
 import { TaskComposer } from "./TaskComposer";
 import { defaultFilters, Filters } from "./preferences";
-import { deviceName, deviceStatus, Empty, Field, fieldClass, LiveDevice, message, time } from "./shared";
+import { deviceName, deviceStatus, Empty, Field, fieldClass, LiveDevice, message, Pagination, time } from "./shared";
 
 function Enrollment({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState("");
@@ -31,6 +31,13 @@ function Enrollment({ onClose, onCreated }: { onClose: () => void; onCreated: ()
         <Field label="Device ID"><input className={fieldClass} readOnly value={result.device_id} /></Field>
         <Field label="Device token"><textarea className={`${fieldClass} font-mono`} readOnly value={result.device_token} /></Field>
         <p className="text-sm text-slate-400">The device stays offline until its agent connects using these credentials.</p>
+        <ol className="list-inside list-decimal space-y-2 text-sm text-slate-300">
+          <li>Install the agent on the target computer using the repository’s platform installation guide.</li>
+          <li>Configure its control-plane URL and the device token above in the agent’s private environment file.</li>
+          <li>Start the agent service, then refresh Devices to confirm its first heartbeat.</li>
+          <li>Open the device and submit a read-only System information task to verify execution.</li>
+        </ol>
+        <a className="text-sm text-blue-300 underline" href="https://github.com/jacxishipping/ai-bridge#readme" target="_blank" rel="noreferrer">Agent installation guide</a>
         <JXButton color="neutral" variant="outlined" onClick={async () => {
           try { await navigator.clipboard.writeText(result.device_token); setFeedback("Device token copied."); }
           catch { setFeedback("Clipboard unavailable. Select and copy the token above."); }
@@ -54,11 +61,16 @@ export function Inventory({ devices, filters, onFilters, canAct, canEnroll, open
   const [selected, setSelected] = useState<string[]>([]);
   const [bulk, setBulk] = useState(false);
   const [enroll, setEnroll] = useState(false);
+  const [page, setPage] = useState(1);
   const query = filters.query.trim().toLocaleLowerCase();
-  const visible = devices.filter((device) => (filters.status === "all" || deviceStatus(device) === filters.status) &&
+  const visible = devices.filter((device) => (filters.status === "all" || (filters.status === "attention" ?
+    !device.revoked && (deviceStatus(device) !== "online" || !device.last_seen || device.last_seen * 1000 < Date.now() - 120000) : deviceStatus(device) === filters.status)) &&
+    (!filters.group || device.group === filters.group) && (!filters.tag || device.tags?.includes(filters.tag)) &&
     [device.name, device.hostname, device.id].some((value) => value?.toLocaleLowerCase().includes(query)))
     .sort((a, b) => filters.sort === "last_seen" ? (b.last_seen || 0) - (a.last_seen || 0) || deviceName(a).localeCompare(deviceName(b)) : deviceName(a).localeCompare(deviceName(b)));
-  const eligible = visible.filter((device) => !device.revoked);
+  const currentPage = Math.min(page, Math.max(1, Math.ceil(visible.length / 25)));
+  const pageDevices = visible.slice((currentPage - 1) * 25, currentPage * 25);
+  const eligible = pageDevices.filter((device) => !device.revoked);
   const targets = devices.filter((device) => selected.includes(device.id) && !device.revoked);
   const allSelected = eligible.length > 0 && eligible.every((device) => selected.includes(device.id));
   return <section aria-label="Devices" className="space-y-4">
@@ -66,11 +78,17 @@ export function Inventory({ devices, filters, onFilters, canAct, canEnroll, open
       <Field label="Find device" className="grow basis-48"><input className={fieldClass} value={filters.query} maxLength={200} placeholder="Name, hostname or ID"
         onChange={(e) => onFilters({ ...filters, query: e.target.value })} /></Field>
       <Field label="Device status"><select className={fieldClass} value={filters.status} onChange={(e) => onFilters({ ...filters, status: e.target.value })}>
-        {["all", "online", "offline", "revoked", "unknown"].map((value) => <option key={value} value={value}>{value === "all" ? "All devices" : value.charAt(0).toUpperCase() + value.slice(1)}</option>)}
+        {["all", "online", "offline", "attention", "revoked", "unknown"].map((value) => <option key={value} value={value}>{value === "all" ? "All devices" : value === "attention" ? "Offline or stale" : value.charAt(0).toUpperCase() + value.slice(1)}</option>)}
       </select></Field>
       <Field label="Sort devices"><select className={fieldClass} value={filters.sort} onChange={(e) => onFilters({ ...filters, sort: e.target.value })}>
         <option value="name">Name</option><option value="last_seen">Last seen</option>
       </select></Field>
+      {(filters.group || devices.some(device => device.group)) && <Field label="Filter group"><select className={fieldClass} value={filters.group || ""} onChange={e => { setPage(1); onFilters({ ...filters, group: e.target.value }); }}>
+        <option value="">All groups</option>{[...new Set(devices.map(device => device.group).filter(Boolean))].sort().map(group => <option key={group}>{group}</option>)}
+      </select></Field>}
+      {(filters.tag || devices.some(device => device.tags?.length)) && <Field label="Filter tag"><select className={fieldClass} value={filters.tag || ""} onChange={e => { setPage(1); onFilters({ ...filters, tag: e.target.value }); }}>
+        <option value="">All tags</option>{[...new Set(devices.flatMap(device => device.tags || []))].sort().map(tag => <option key={tag}>{tag}</option>)}
+      </select></Field>}
       <JXButton color="neutral" variant="outlined" disabled={!canEnroll} onClick={() => setEnroll(true)}>Enroll device</JXButton>
     </div>
     {!canEnroll && <p className="text-xs text-slate-400">Enrollment requires an administrator and current fleet data.</p>}
@@ -90,7 +108,7 @@ export function Inventory({ devices, filters, onFilters, canAct, canEnroll, open
             onChange={(e) => setSelected(e.target.checked ? [...new Set([...selected, ...eligible.map((device) => device.id)])] : selected.filter((id) => !eligible.some((device) => device.id === id)))} /></th>
           <th className="p-3">Device</th><th className="p-3">Status</th><th className="p-3">Last seen</th><th className="relative p-3"><span className="sr-only">Actions</span></th>
         </tr></thead>
-        <tbody>{visible.map((device) => <tr key={device.id} className="border-b border-slate-800 hover:bg-slate-800/40">
+        <tbody>{pageDevices.map((device) => <tr key={device.id} className="border-b border-slate-800 hover:bg-slate-800/40">
           <td className="p-3"><input type="checkbox" aria-label={`Select ${deviceName(device)}`} disabled={!canAct || !!device.revoked}
             checked={targets.some((target) => target.id === device.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, device.id] : selected.filter((id) => id !== device.id))} /></td>
           <td className="p-3"><button onClick={() => openDevice(device.id)} className="product-device-link flex items-center gap-3 text-left">
@@ -103,6 +121,7 @@ export function Inventory({ devices, filters, onFilters, canAct, canEnroll, open
         </tr>)}</tbody>
       </table>
     </div>}
+    {visible.length > 25 && <Pagination page={currentPage} total={visible.length} onPage={setPage} />}
     {bulk && <TaskComposer devices={targets} canAct={canAct} onClose={() => { setBulk(false); setSelected([]); }} onSubmitted={refresh} />}
     {enroll && <Enrollment onClose={() => setEnroll(false)} onCreated={refresh} />}
   </section>;

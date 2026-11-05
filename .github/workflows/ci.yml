@@ -25,3 +25,12 @@ jobs:
           cache-dependency-path: apps/dashboard/package-lock.json
       - run: npm ci
       - run: npm run build
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: dashboard-browser-failures
+          path: apps/dashboard/test-results/
+          retention-days: 7

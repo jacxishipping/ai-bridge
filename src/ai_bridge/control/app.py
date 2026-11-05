@@ -758,6 +758,9 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     def audit(actor: str, device_id: str, tool: str, args: dict, decision: str, result: str = "", tenant: str = "default"):
         dbmod.audit(conn, tenant=tenant, actor=actor, device_id=device_id, tool=tool, args=args, decision=decision, result=result)
 
+    from .workspace import install_workspace_routes
+    install_workspace_routes(app, conn, require_role, audit)
+
     @app.get("/health")
     def health():
         return {"status": "ok", "version": "0.3.0", "emergency_stop": app.state.emergency_stop}
@@ -820,10 +823,16 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     @app.get("/api/devices")
     def list_devices(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None), tenant: str = "default"):
         require_role("viewer", x_admin_token, x_session_token)
-        rows = conn.execute("SELECT id, name, hostname, os, tenant, status, last_seen, revoked, created_at, token_expires_at, policy_json FROM devices WHERE tenant=?", (tenant,)).fetchall()
+        rows = conn.execute(
+            "SELECT d.id, d.name, d.hostname, d.os, d.tenant, d.status, d.last_seen, d.revoked, d.created_at, "
+            "d.token_expires_at, d.policy_json, m.group_name, m.tags_json FROM devices d "
+            "LEFT JOIN device_metadata m ON m.device_id=d.id WHERE d.tenant=?", (tenant,),
+        ).fetchall()
         result = []
         for r in rows:
             d = dict(r)
+            d["group"] = d.pop("group_name", None) or ""
+            d["tags"] = json.loads(d.pop("tags_json", None) or "[]")
             raw_p = d.get("policy_json") or "{}"
             try:
                 parsed_p = json.loads(raw_p) if isinstance(raw_p, str) else (raw_p or {})
@@ -1211,6 +1220,10 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     @app.post("/api/tasks")
     def submit_task(body: TaskIn, request: Request, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         actor = require_role("operator", x_admin_token, x_session_token)
+        request_key = request.headers.get("Idempotency-Key")
+        if request_key is not None and (not request_key or len(request_key) > 128 or not request_key.isascii()):
+            raise HTTPException(422, "Idempotency-Key must be 1–128 ASCII characters.")
+        request_hash = hashlib.sha256(json.dumps(body.model_dump(), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         if app.state.emergency_stop:
             raise HTTPException(status_code=403, detail="Emergency stop is active; no new tasks accepted.")
         row = conn.execute("SELECT * FROM devices WHERE id=? AND tenant=? AND revoked=0", (body.device_id, body.tenant)).fetchone()
@@ -1245,18 +1258,31 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             elif tier.value > max_unattended:
                 needs_approval = True
 
-        if needs_approval:
-            approval_id = uuid.uuid4().hex[:12]
-            approval_ttl = max(60, int(os.environ.get("AI_BRIDGE_APPROVAL_TTL_SECONDS", "3600")))
-            policy_row = conn.execute("SELECT MAX(version) AS version FROM policies").fetchone()
-            policy_version = policy_row["version"] or 0
-            conn.execute("INSERT INTO approvals (id, task_id, tool, reason, created_at, expires_at, policy_version) VALUES (?,?,?,?,?,?,?)",
-                         (approval_id, task_id, body.tool, f"Tier-{tier.value} operation requires human approval.", dbmod.now(), dbmod.now() + approval_ttl, policy_version))
-            status = "needs_approval"
-        conn.execute("INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, approval_id, created_at, updated_at)"
-                     " VALUES (?,?,?,?,?,?,?,?,?,?)",
-                     (task_id, body.device_id, body.tenant, body.tool, json.dumps(body.args), tier.value, status, approval_id, dbmod.now(), dbmod.now()))
-        conn.commit()
+        with conn.transaction():
+            if request_key:
+                claim = conn.execute(
+                    "INSERT INTO task_submissions (actor, request_key, request_hash, task_id) VALUES (?,?,?,?) "
+                    "ON CONFLICT (actor, request_key) DO NOTHING", (actor, request_key, request_hash, task_id),
+                )
+                if claim.rowcount == 0:
+                    prior = conn.execute("SELECT * FROM task_submissions WHERE actor=? AND request_key=?", (actor, request_key)).fetchone()
+                    if prior["request_hash"] != request_hash:
+                        raise HTTPException(409, "Idempotency key was already used for a different task.")
+                    task = conn.execute("SELECT * FROM tasks WHERE id=?", (prior["task_id"],)).fetchone()
+                    if task is None:
+                        raise HTTPException(409, "Original task was removed. This submission cannot be replayed.")
+                    return {"task_id": task["id"], "status": task["status"], "tier": task["tier"], "approval_id": task["approval_id"]}
+            if needs_approval:
+                approval_id = uuid.uuid4().hex[:12]
+                approval_ttl = max(60, int(os.environ.get("AI_BRIDGE_APPROVAL_TTL_SECONDS", "3600")))
+                policy_row = conn.execute("SELECT MAX(version) AS version FROM policies").fetchone()
+                policy_version = policy_row["version"] or 0
+                conn.execute("INSERT INTO approvals (id, task_id, tool, reason, created_at, expires_at, policy_version) VALUES (?,?,?,?,?,?,?)",
+                             (approval_id, task_id, body.tool, f"Tier-{tier.value} operation requires human approval.", dbmod.now(), dbmod.now() + approval_ttl, policy_version))
+                status = "needs_approval"
+            conn.execute("INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, approval_id, created_at, updated_at)"
+                         " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                         (task_id, body.device_id, body.tenant, body.tool, json.dumps(body.args), tier.value, status, approval_id, dbmod.now(), dbmod.now()))
         audit(actor, body.device_id, body.tool, body.args, status, tenant=body.tenant)
         if status == "queued":
             notify_tasks()
