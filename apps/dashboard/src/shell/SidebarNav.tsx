@@ -2,6 +2,7 @@ import React from "react";
 import { ArrowUpRight } from "lucide-react";
 import { Brand } from "../Brand";
 import { useDashboardStore } from "../state/dashboardStore";
+import { token, sessionToken, clearCredentials, api } from "../api";
 import { navigationItems } from "./navigation";
 import type { ViewId } from "../types/dashboard";
 
@@ -36,7 +37,25 @@ export const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }
       </div>)}
     </div>
     <div className="border-t border-slate-800 p-3">
-      <button type="button" onClick={() => navigate("login")} className="product-nav-link">Connect to server<ArrowUpRight className="ms-auto h-4 w-4" aria-hidden="true" /></button>
+      {Boolean(token() || sessionToken()) ? (
+        <button
+          type="button"
+          onClick={async () => {
+            try { await api.logout(); } catch {}
+            clearCredentials();
+            navigate("login");
+          }}
+          className="product-nav-link text-slate-300 hover:text-rose-300"
+        >
+          Sign out
+          <ArrowUpRight className="ms-auto h-4 w-4" aria-hidden="true" />
+        </button>
+      ) : (
+        <button type="button" onClick={() => navigate("login")} className="product-nav-link">
+          Connect to server
+          <ArrowUpRight className="ms-auto h-4 w-4" aria-hidden="true" />
+        </button>
+      )}
     </div>
   </nav>;
 };

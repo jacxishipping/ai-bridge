@@ -247,5 +247,6 @@ export interface DashboardStoreState {
   operatorProfile: OperatorProfile;
   gatewayLatencyMs: number;
   gatewayStatus: "online" | "degraded" | "offline";
+  refreshLive?: () => Promise<void>;
 }
 

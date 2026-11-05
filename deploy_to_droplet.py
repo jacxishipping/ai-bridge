@@ -1,8 +1,6 @@
 import urllib.request
 import json
-import gzip
-import base64
-import os
+import time
 import sys
 
 MCP_URL = "https://jxiptvplayer.app/mcp"
@@ -26,7 +24,7 @@ def run_remote_shell(cmd):
             "Content-Type": "application/json"
         }
     )
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=120) as resp:
         res = json.loads(resp.read().decode("utf-8"))
         if res.get("isError"):
             raise RuntimeError(f"MCP Error: {res}")
@@ -34,71 +32,48 @@ def run_remote_shell(cmd):
         out = json.loads(content_text)
         return out
 
-def upload_file(local_path, remote_path):
-    print(f"Reading {local_path}...")
-    with open(local_path, "rb") as f:
-        raw_data = f.read()
-    
-    gz_data = gzip.compress(raw_data)
-    b64_str = base64.b64encode(gz_data).decode("ascii")
-    print(f"Uploading {local_path} ({len(raw_data)} bytes -> {len(b64_str)} b64 gzip) to {remote_path}...")
-    
-    # Clean remote temp file
-    run_remote_shell("rm -f /tmp/sync_chunk.b64")
-    
-    # Chunk size: 8000 chars per line
-    chunk_size = 8000
-    for i in range(0, len(b64_str), chunk_size):
-        chunk = b64_str[i:i + chunk_size]
-        cmd = f"printf '%s' '{chunk}' >> /tmp/sync_chunk.b64"
-        run_remote_shell(cmd)
-        
-    # Decompress into destination
-    py_cmd = f"python3 -c \"import base64, gzip; open('{remote_path}', 'wb').write(gzip.decompress(base64.b64decode(open('/tmp/sync_chunk.b64').read())))\""
-    res = run_remote_shell(py_cmd)
+def execute(step_name, cmd):
+    print(f"\n=======================================================")
+    print(f"STEP: {step_name}")
+    print(f"CMD:  {cmd}")
+    print(f"=======================================================")
+    start = time.time()
+    res = run_remote_shell(cmd)
+    elapsed = time.time() - start
+    print(f"Return code: {res.get('returncode')} ({elapsed:.2f}s)")
+    if res.get("stdout"):
+        print("STDOUT:\n" + res.get("stdout").strip())
+    if res.get("stderr"):
+        print("STDERR:\n" + res.get("stderr").strip())
     if res.get("returncode") != 0:
-        raise RuntimeError(f"Failed to decompress {remote_path}: {res}")
-    
-    # Verify file size
-    verify = run_remote_shell(f"wc -c {remote_path}")
-    print(f"Verified: {verify.get('stdout', '').strip()}")
+        raise RuntimeError(f"Step '{step_name}' failed with code {res.get('returncode')}")
+    return res
 
 def main():
-    files_to_sync = [
-        ("apps/dashboard/index.html", "/opt/ai-bridge/apps/dashboard/index.html"),
-        ("apps/dashboard/src/App.tsx", "/opt/ai-bridge/apps/dashboard/src/App.tsx"),
-        ("apps/dashboard/src/AiApiHub.tsx", "/opt/ai-bridge/apps/dashboard/src/AiApiHub.tsx"),
-        ("apps/dashboard/src/DeviceDetailDashboard.tsx", "/opt/ai-bridge/apps/dashboard/src/DeviceDetailDashboard.tsx"),
-        ("apps/dashboard/src/FleetOperations.tsx", "/opt/ai-bridge/apps/dashboard/src/FleetOperations.tsx"),
-        ("apps/dashboard/src/LiveDesktopStudio.tsx", "/opt/ai-bridge/apps/dashboard/src/LiveDesktopStudio.tsx"),
-        ("apps/dashboard/src/SecurityPolicies.tsx", "/opt/ai-bridge/apps/dashboard/src/SecurityPolicies.tsx"),
-        ("apps/dashboard/src/WorkflowPlanner.tsx", "/opt/ai-bridge/apps/dashboard/src/WorkflowPlanner.tsx"),
-        ("apps/dashboard/src/jxui.css", "/opt/ai-bridge/apps/dashboard/src/jxui.css"),
-        ("apps/dashboard/src/main.tsx", "/opt/ai-bridge/apps/dashboard/src/main.tsx"),
-        ("apps/dashboard/src/tailwind.css", "/opt/ai-bridge/apps/dashboard/src/tailwind.css"),
-    ]
+    print("Starting Droplet deployment from origin/main...")
     
-    for local_p, remote_p in files_to_sync:
-        if os.path.exists(local_p):
-            upload_file(local_p, remote_p)
-        else:
-            print(f"Skipping non-existent {local_p}")
-            
-    print("\n--- Running npm run build on Droplet ---")
-    build_res = run_remote_shell("cd /opt/ai-bridge/apps/dashboard && npm run build")
-    print("Build output:")
-    print(build_res.get("stdout"))
-    if build_res.get("stderr"):
-        print("Stderr:", build_res.get("stderr"))
-        
-    if build_res.get("returncode") == 0:
-        print("\n--- Reloading Nginx on Droplet ---")
-        reload_res = run_remote_shell("systemctl reload nginx")
-        print(reload_res.get("stdout"))
-        print("\nSUCCESS! Droplet updated and live with authentic JXUI components!")
-    else:
-        print("\nBuild failed on remote droplet! Check stderr above.")
+    # 1. Git pull / reset to origin/main
+    execute("Git Fetch & Reset", "cd /opt/ai-bridge && git fetch origin && git reset --hard origin/main && git clean -fd")
+    
+    # 2. Check commit hash
+    execute("Verify Git Commit", "cd /opt/ai-bridge && git log -n 1 --oneline")
+    
+    # 3. Update backend in .venv
+    execute("Update Python package", "cd /opt/ai-bridge && .venv/bin/pip install -e .")
+    
+    # 4. Restart backend control service
+    execute("Restart AI Bridge Control", "systemctl restart ai-bridge-control")
+    time.sleep(2)
+    execute("Check Control Service Status", "systemctl is-active ai-bridge-control")
+    
+    # 5. Build Dashboard
+    execute("NPM Install", "cd /opt/ai-bridge/apps/dashboard && npm install --prefer-offline")
+    execute("NPM Build", "cd /opt/ai-bridge/apps/dashboard && npm run build")
+    
+    # 6. Reload Nginx
+    execute("Reload Nginx", "systemctl reload nginx")
+    
+    print("\nDroplet deployment finished successfully!")
 
 if __name__ == "__main__":
     main()
-

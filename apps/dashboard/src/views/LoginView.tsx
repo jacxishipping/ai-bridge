@@ -3,7 +3,7 @@ import { ArrowRight, KeyRound, UserRound } from "lucide-react";
 import { JXAlert, JXButton, JXCard, JXCardContent, JXTextField } from "../ui";
 import { Brand, BrandArt } from "../Brand";
 import { api, authenticate } from "../api";
-import { useDashboardStore } from "../state/dashboardStore";
+import { dashboardStore, useDashboardStore } from "../state/dashboardStore";
 import { LanguageControl } from "../LanguageControl";
 import { useLanguage } from "../i18n";
 
@@ -29,7 +29,8 @@ export const LoginView: React.FC = () => {
     setError("");
     try {
       await authenticate(method === "token" ? { token: token.trim() } : { username: username.trim(), password });
-      navigate("live");
+      await dashboardStore.refreshLive();
+      navigate("overview");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed. Please try again.");
     } finally { setBusy(false); }

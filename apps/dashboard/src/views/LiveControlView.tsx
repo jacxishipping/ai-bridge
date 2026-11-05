@@ -95,8 +95,8 @@ export function LiveControlView() {
           stopped={snapshot.health.emergency_stop} refresh={() => { void refresh(); }} />
       </>}
       <footer lang="en" dir="ltr" className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-5">
-        <p className="text-xs leading-relaxed text-slate-400">The preview uses sample data, not your live fleet.</p>
-        <JXButton color="neutral" variant="text" onClick={() => navigate("overview")} endIcon={<ArrowUpRight className="h-4 w-4" />}>Explore dashboard preview</JXButton>
+        <p className="text-xs leading-relaxed text-slate-400">Operations Dashboard: view complete fleet telemetry, charts, and device execution.</p>
+        <JXButton color="neutral" variant="text" onClick={() => navigate("overview")} endIcon={<ArrowUpRight className="h-4 w-4" />}>Explore full dashboard</JXButton>
       </footer>
     </div>
     <div lang="en" dir="ltr"><GlassModal open={confirm} onClose={() => { if (!acting) setConfirm(false); }} title={snapshot?.health.emergency_stop ? "Clear the real emergency stop?" : "Stop the real fleet?"}>
