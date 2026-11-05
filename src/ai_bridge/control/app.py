@@ -586,7 +586,11 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     db_path = db_path or (data_dir / "control.db")
     conn = dbmod.connect(db_path=db_path, database_url=database_url)
     app = FastAPI(title="AI Bridge Control Plane", version="0.3.0")
-    app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "http://201.79.36.129", "https://jxiptvplayer.app"],
+    allowed_origins = [
+        "http://127.0.0.1:5173", "http://localhost:5173", "http://201.79.36.129",
+        "https://jxiptvplayer.app", "http://18.188.153.166", "https://18.188.153.166"
+    ]
+    app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_origin_regex=".*",
                        allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     app.state.conn = conn
     app.state.admin_token = token
@@ -3506,5 +3510,24 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         get_effective_device_policy,
         audit,
     )
+
+    # Mount frontend SPA static files if dashboard build dist exists
+    dist_dir = Path("/app/apps/dashboard/dist")
+    if not dist_dir.exists():
+        dist_dir = Path(__file__).resolve().parent.parent.parent.parent / "apps" / "dashboard" / "dist"
+    if dist_dir.exists():
+        from fastapi.staticfiles import StaticFiles
+        from fastapi.responses import FileResponse
+
+        assets_dir = dist_dir / "assets"
+        if assets_dir.exists():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="static_assets")
+
+        @app.get("/{full_path:path}")
+        async def serve_spa_frontend(full_path: str):
+            target = dist_dir / full_path
+            if full_path and target.is_file():
+                return FileResponse(target)
+            return FileResponse(dist_dir / "index.html")
 
     return app
