@@ -556,15 +556,18 @@ def capture_desktop_screenshot(device: str | None = None) -> dict:
 
 
 def _to_vision_content(res: dict) -> list:
-    """Convert a frame/screenshot dict with base64_data or image_base64 into native MCP ImageContent + TextContent metadata."""
+    """Convert a frame/screenshot dict (or remote device task wrapper) into native MCP ImageContent + TextContent metadata."""
     if not isinstance(res, dict):
         return [TextContent(type="text", text=json.dumps(res))]
-    b64_val = res.get("base64_data") or res.get("image_base64")
+    inner = res.get("result") if isinstance(res.get("result"), dict) else res
+    b64_val = inner.get("base64_data") or inner.get("image_base64") or res.get("base64_data") or res.get("image_base64")
     if not b64_val:
         return [TextContent(type="text", text=json.dumps(res))]
     b64 = str(b64_val)
-    mime = str(res.get("mime_type") or "image/jpeg")
+    mime = str(inner.get("mime_type") or res.get("mime_type") or "image/jpeg")
     meta = {k: v for k, v in res.items() if k not in ("base64_data", "image_base64")}
+    if isinstance(meta.get("result"), dict):
+        meta["result"] = {k: v for k, v in meta["result"].items() if k not in ("base64_data", "image_base64")}
     return [
         ImageContent(type="image", data=b64, mimeType=mime),
         TextContent(type="text", text=json.dumps(meta)),
