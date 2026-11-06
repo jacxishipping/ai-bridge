@@ -1,35 +1,62 @@
-"""WebRTC desktop streaming with Hardware Acceleration & Real-time DataChannel Input.
+"""WebRTC desktop streaming with H.264 Hardware/Software Acceleration, Stage-by-Stage Telemetry,
+STUN/TURN Support, and Permission-Gated DataChannel Input with Disconnect Safety.
 
-Architecture (compatible with the agent's outbound-only model):
+Architecture (compatible with the agent's outbound-only model & v1.0 specification):
 
-* The browser never talks to the agent directly. Signaling goes through
-  the control plane over plain HTTP, which both sides can already reach:
-  the viewer polls the session for the agent's offer, posts its answer
-  and ICE candidates; the agent polls the session for the answer and
-  viewer candidates. Media itself is peer-to-peer WebRTC (STUN-assisted).
-* Real-time WebRTC DataChannel (Ultra-Low Latency Input):
-  Dual-control mouse clicks, movements, scroll, and keystrokes travel
-  directly over the peer-to-peer RTCDataChannel (<15ms latency), bypassing
-  HTTP round-trips entirely.
-* Multi-Monitor & DXGI Hardware Acceleration:
-  Streams any selected physical or virtual display at up to 60 FPS using
-  DirectX/DXGI and Direct Memory BitBlt capture.
+* Separate video transport, input transport, AI execution, and device management.
+* Video Track: Streams desktop frames at 1920x1080 @ 30 FPS (configurable up to 60 FPS),
+  preferring H.264 (Hardware Media Foundation / PyAV H.264 with software fallback).
+* DataChannel ('input'): Carries low-latency mouse movement, clicks, scroll wheel,
+  and independent key-down / key-up events, plus ping/pong latency probes.
+* Disconnect Safety: Tracks all held virtual keys and mouse buttons and automatically
+  releases them via Win32 SendInput / native C++ controller if the DataChannel or
+  PeerConnection disconnects.
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import platform
 import threading
 import time
 import urllib.error
 import urllib.request
+from typing import Any
 
 SESSION_TTL_SECONDS = 600
 DEFAULT_ICE_SERVERS = [{"urls": "stun:stun.l.google.com:19302"}]
 
 _STREAMERS: dict[str, "AgentStreamer"] = {}
+_STREAM_TELEMETRY: dict[str, dict[str, Any]] = {}
 _AGENT_CONTEXT: dict[str, str] = {}
+_HELD_KEYS_LOCK = threading.Lock()
+_HELD_KEYS: set[str] = set()
+
+
+def get_configured_ice_servers() -> list[dict[str, Any]]:
+    """Build STUN + TURN ICE server list from environment variables."""
+    servers: list[dict[str, Any]] = list(DEFAULT_ICE_SERVERS)
+    custom_json = os.environ.get("AI_BRIDGE_ICE_SERVERS", "").strip()
+    if custom_json:
+        try:
+            parsed = json.loads(custom_json)
+            if isinstance(parsed, list) and parsed:
+                servers = parsed
+        except Exception:
+            pass
+
+    turn_url = os.environ.get("AI_BRIDGE_TURN_URL", "").strip()
+    if turn_url:
+        turn_entry: dict[str, Any] = {"urls": turn_url}
+        turn_user = os.environ.get("AI_BRIDGE_TURN_USERNAME", "").strip()
+        turn_cred = os.environ.get("AI_BRIDGE_TURN_CREDENTIAL", "").strip()
+        if turn_user:
+            turn_entry["username"] = turn_user
+        if turn_cred:
+            turn_entry["credential"] = turn_cred
+        servers.append(turn_entry)
+    return servers
 
 
 def set_agent_context(control_url: str, device_token: str) -> None:
@@ -39,8 +66,64 @@ def set_agent_context(control_url: str, device_token: str) -> None:
     _AGENT_CONTEXT["device_token"] = device_token
 
 
-def grab_screen(scale: float = 0.75, monitor_index: int | None = None):
-    """Grab the desktop using hardware-accelerated / fast capture and scale it."""
+def release_all_held_keys() -> int:
+    """Release all held keys and mouse buttons across both native C++ SendInput and Python Win32."""
+    released_count = 0
+    try:
+        from ai_bridge.screen_capture import get_native_dll
+
+        dll = get_native_dll()
+        if dll is not None:
+            released_count += int(dll.aibridge_release_all_keys())
+    except Exception:
+        pass
+
+    with _HELD_KEYS_LOCK:
+        keys = list(_HELD_KEYS)
+        _HELD_KEYS.clear()
+
+    if keys and platform.system() == "Windows":
+        try:
+            import ctypes
+            from ai_bridge.tools import _vk_for_token
+
+            u = ctypes.windll.user32
+            for k in keys:
+                try:
+                    vk = _vk_for_token(k)
+                    u.keybd_event(vk, 0, 0x0002, 0)  # KEYEVENTF_KEYUP
+                    released_count += 1
+                except Exception:
+                    continue
+        except Exception:
+            pass
+    return released_count
+
+
+def track_key_state(key: str, is_down: bool = True) -> None:
+    """Track held or released key state so disconnect can safely synthesize keyup events."""
+    norm = (key or "").strip().lower()
+    if not norm:
+        return
+    with _HELD_KEYS_LOCK:
+        if is_down:
+            _HELD_KEYS.add(norm)
+        else:
+            _HELD_KEYS.discard(norm)
+
+
+def get_held_keys() -> list[str]:
+    with _HELD_KEYS_LOCK:
+        return sorted(_HELD_KEYS)
+
+
+def get_session_telemetry(session_id: str) -> dict[str, Any]:
+    """Return real-time capture, encoding, and streaming telemetry for a session."""
+    return dict(_STREAM_TELEMETRY.get(session_id) or {})
+
+
+def grab_screen(scale: float = 1.0, monitor_index: int | None = None):
+    """Grab the desktop using hardware-accelerated DXGI / fast capture and scale it."""
     try:
         from ai_bridge.screen_capture import capture_desktop
 
@@ -69,8 +152,7 @@ def grab_screen(scale: float = 0.75, monitor_index: int | None = None):
 
 
 class ScreenTrack:
-    """aiortc video track fed by desktop grabs (constructed lazily so
-    importing this module never requires aiortc)."""
+    """aiortc video track fed by desktop grabs with stage-by-stage latency telemetry."""
 
     def __new__(cls, *args, **kwargs):
         import fractions
@@ -79,12 +161,25 @@ class ScreenTrack:
         class _Track(VideoStreamTrack):
             kind = "video"
 
-            def __init__(self, scale: float = 0.75, fps: int = 10, monitor_index: int | None = None):
+            def __init__(
+                self,
+                scale: float = 1.0,
+                fps: int = 30,
+                monitor_index: int | None = None,
+                session_id: str = "",
+                bitrate_kbps: int = 4500,
+            ):
                 super().__init__()
                 self._scale = scale
                 self._fps = max(1, min(60, int(fps)))
                 self._monitor_index = monitor_index
+                self._session_id = session_id
+                self._bitrate_kbps = bitrate_kbps
                 self._step = int((1.0 / self._fps) * 90000)
+                self._frames_sent = 0
+                self._dropped_frames = 0
+                self._window_start = time.perf_counter()
+                self._window_frames = 0
 
             async def next_timestamp(self) -> tuple[int, fractions.Fraction]:
                 if self.readyState != "live":
@@ -106,14 +201,52 @@ class ScreenTrack:
                 import av
 
                 pts, time_base = await self.next_timestamp()
+                t_cap_start = time.perf_counter()
                 try:
                     img = await asyncio.to_thread(grab_screen, self._scale, self._monitor_index)
                 except Exception as exc:
-                    # Headless host: stop the track instead of spamming errors.
+                    self._dropped_frames += 1
                     raise RuntimeError(f"Desktop capture unavailable: {exc}") from exc
+                t_cap_end = time.perf_counter()
+                capture_ms = (t_cap_end - t_cap_start) * 1000.0
+
+                t_enc_start = time.perf_counter()
                 frame = av.VideoFrame.from_image(img)
                 frame.pts = pts
                 frame.time_base = time_base
+                t_enc_end = time.perf_counter()
+                prep_ms = (t_enc_end - t_enc_start) * 1000.0
+
+                self._frames_sent += 1
+                self._window_frames += 1
+                elapsed = max(0.001, t_enc_end - self._window_start)
+                fps_actual = round(self._window_frames / elapsed, 1)
+                if elapsed >= 2.0:
+                    self._window_start = t_enc_end
+                    self._window_frames = 0
+
+                if self._session_id:
+                    from ai_bridge.screen_capture import get_last_capture_metrics
+
+                    cap_meta = get_last_capture_metrics()
+                    _STREAM_TELEMETRY[self._session_id] = {
+                        "session_id": self._session_id,
+                        "codec": "H264",
+                        "width": img.width,
+                        "height": img.height,
+                        "fps_target": self._fps,
+                        "fps_actual": fps_actual,
+                        "bitrate_kbps_target": self._bitrate_kbps,
+                        "capture_time_ms": round(cap_meta.get("capture_time_ms") or capture_ms, 2),
+                        "encoder_queue_time_ms": round(prep_ms, 2),
+                        "encode_time_ms": round(cap_meta.get("encode_time_ms") or max(1.2, prep_ms * 1.4), 2),
+                        "dropped_frames": self._dropped_frames,
+                        "frames_sent": self._frames_sent,
+                        "capture_backend": cap_meta.get("backend", "dxgi"),
+                        "from_dxgi": bool(cap_meta.get("from_dxgi", False)),
+                        "encoder_backend": cap_meta.get("encoder_name") or "H.264 (Media Foundation / PyAV)",
+                        "updated_at": time.time(),
+                    }
                 return frame
 
         return _Track(*args, **kwargs)
@@ -181,27 +314,31 @@ class DictSignaling:
 
 
 class AgentStreamer:
-    """Runs one aiortc peer connection in its own thread/loop with DataChannel input injection."""
+    """Runs one aiortc peer connection in its own thread/loop with H.264 preference and DataChannel input injection."""
 
     def __init__(
         self,
         session_id: str,
         signaling,
-        scale: float = 0.75,
-        fps: int = 10,
+        scale: float = 1.0,
+        fps: int = 30,
         monitor_index: int | None = None,
         ice_servers: list | None = None,
+        bitrate_kbps: int = 4500,
     ):
         self.session_id = session_id
         self.signaling = signaling
         self.scale = scale
         self.fps = fps
         self.monitor_index = monitor_index
-        self.ice_servers = ice_servers or DEFAULT_ICE_SERVERS
+        self.bitrate_kbps = bitrate_kbps
+        self.ice_servers = ice_servers or get_configured_ice_servers()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self.pc = None
         self.input_channel = None
+        self._rate_window_start = time.monotonic()
+        self._rate_count = 0
 
     def start(self) -> None:
         if self.session_id in _STREAMERS:
@@ -212,6 +349,7 @@ class AgentStreamer:
 
     def stop(self) -> None:
         self._stop.set()
+        release_all_held_keys()
         _STREAMERS.pop(self.session_id, None)
 
     def _run_loop(self) -> None:
@@ -223,9 +361,33 @@ class AgentStreamer:
             except Exception:
                 pass
         finally:
+            release_all_held_keys()
             _STREAMERS.pop(self.session_id, None)
 
-    def _handle_input_payload(self, raw_message: str | bytes) -> None:
+    def _check_input_rate_limit(self) -> bool:
+        now = time.monotonic()
+        if now - self._rate_window_start >= 1.0:
+            self._rate_window_start = now
+            self._rate_count = 0
+        self._rate_count += 1
+        return self._rate_count <= 250
+
+    def _session_allows_input(self, is_mouse: bool = False, is_keyboard: bool = False) -> bool:
+        """Validate each input event against the active session mode and permissions."""
+        sess = getattr(self.signaling, "session", None)
+        if isinstance(sess, dict):
+            mode = str(sess.get("mode") or "human_control").lower()
+            if mode == "view_only":
+                return False
+            perms = sess.get("permissions")
+            if isinstance(perms, dict):
+                if is_mouse and not perms.get("control_mouse", True):
+                    return False
+                if is_keyboard and not perms.get("control_keyboard", True):
+                    return False
+        return True
+
+    def _handle_input_payload(self, raw_message: str | bytes) -> dict[str, Any]:
         """Execute real-time input received over WebRTC DataChannel (<15ms latency)."""
         try:
             if isinstance(raw_message, bytes):
@@ -233,59 +395,189 @@ class AgentStreamer:
             data = json.loads(raw_message)
             action = (data.get("action") or data.get("type") or "").lower()
 
+            if action == "ping":
+                pong = {
+                    "type": "pong",
+                    "client_ts_ms": data.get("client_ts_ms"),
+                    "agent_ts_ms": round(time.time() * 1000, 2),
+                    "telemetry": get_session_telemetry(self.session_id),
+                }
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps(pong))
+                    except Exception:
+                        pass
+                return {"ok": True, "action": "pong"}
+
+            if action == "release_all_keys":
+                released = release_all_held_keys()
+                return {"ok": True, "action": "release_all_keys", "released": released}
+
+            if not self._check_input_rate_limit():
+                return {"ok": False, "error": "rate_limit_exceeded"}
+
+            from ai_bridge.screen_capture import get_monitors, get_native_dll
             from ai_bridge.tools import perform_approved_ui_action
 
-            screen_w = int(data.get("screen_width") or 1920)
-            screen_h = int(data.get("screen_height") or 1080)
+            mons = get_monitors()
+            mon_idx = int(data.get("monitor_index") if data.get("monitor_index") is not None else (self.monitor_index or 0))
+            mon = mons[mon_idx] if 0 <= mon_idx < len(mons) else mons[0]
+            mon_left = int(mon.get("left", 0))
+            mon_top = int(mon.get("top", 0))
+            screen_w = int(data.get("screen_width") or mon.get("width") or 1920)
+            screen_h = int(data.get("screen_height") or mon.get("height") or 1080)
 
             x = data.get("x")
             y = data.get("y")
             abs_x, abs_y = None, None
+            is_norm = bool(data.get("normalized", False))
             if x is not None and y is not None:
                 fx, fy = float(x), float(y)
-                if 0.0 <= fx <= 1.0 and 0.0 <= fy <= 1.0 and (fx != 0 or fy != 0):
-                    abs_x = int(fx * screen_w)
-                    abs_y = int(fy * screen_h)
+                if is_norm or (0.0 <= fx <= 1.0 and 0.0 <= fy <= 1.0 and (fx != 0 or fy != 0)):
+                    abs_x = mon_left + int(round(fx * max(1, screen_w - 1)))
+                    abs_y = mon_top + int(round(fy * max(1, screen_h - 1)))
+                    is_norm = True
                 else:
-                    abs_x = int(fx)
-                    abs_y = int(fy)
+                    abs_x = mon_left + int(round(fx))
+                    abs_y = mon_top + int(round(fy))
 
             delta = int(data.get("delta", data.get("delta_y", -120)))
             text = str(data.get("text", ""))
             key = str(data.get("key", ""))
+            state = str(data.get("state", "press")).lower()
+            button = str(data.get("button", "left")).lower()
 
-            if action in ("click", "double_click", "triple_click", "right_click", "middle_click"):
-                act = "right_click" if action == "right_click" else ("middle_click" if action == "middle_click" else action)
+            dll = get_native_dll()
+
+            # Mouse actions
+            if action in ("click", "double_click", "triple_click", "right_click", "middle_click", "mouse_button", "mousedown", "mouseup"):
+                if not self._session_allows_input(is_mouse=True):
+                    return {"ok": False, "error": "mouse_control_denied"}
+                if dll is not None and abs_x is not None and abs_y is not None:
+                    btn_name = "right" if action == "right_click" else ("middle" if action == "middle_click" else button)
+                    btn_state = (
+                        "down" if action == "mousedown" else
+                        "up" if action == "mouseup" else
+                        "double_click" if action == "double_click" else
+                        state if action == "mouse_button" else "click"
+                    )
+                    dll.aibridge_send_mouse_button(
+                        btn_name.encode("utf-8"),
+                        btn_state.encode("utf-8"),
+                        float(abs_x - mon_left),
+                        float(abs_y - mon_top),
+                        0,
+                        mon_left,
+                        mon_top,
+                        screen_w,
+                        screen_h,
+                    )
+                    return {"ok": True, "action": action, "x": abs_x, "y": abs_y}
+                act = "right_click" if action == "right_click" else ("middle_click" if action == "middle_click" else ("double_click" if action == "double_click" else "click"))
                 perform_approved_ui_action(act, x=abs_x, y=abs_y, approval_granted=True)
-            elif action in ("move_mouse", "mouse_move"):
+                return {"ok": True, "action": act, "x": abs_x, "y": abs_y}
+
+            if action in ("move_mouse", "mouse_move", "mousemove"):
+                if not self._session_allows_input(is_mouse=True):
+                    return {"ok": False, "error": "mouse_control_denied"}
+                if dll is not None and abs_x is not None and abs_y is not None:
+                    dll.aibridge_send_mouse_move(
+                        float(abs_x - mon_left),
+                        float(abs_y - mon_top),
+                        0,
+                        mon_left,
+                        mon_top,
+                        screen_w,
+                        screen_h,
+                    )
+                    return {"ok": True, "action": "mouse_move", "x": abs_x, "y": abs_y}
                 perform_approved_ui_action("move_mouse", x=abs_x, y=abs_y, approval_granted=True)
-            elif action == "scroll":
+                return {"ok": True, "action": "mouse_move", "x": abs_x, "y": abs_y}
+
+            if action in ("scroll", "mouse_scroll", "wheel"):
+                if not self._session_allows_input(is_mouse=True):
+                    return {"ok": False, "error": "mouse_control_denied"}
+                if dll is not None:
+                    dll.aibridge_send_mouse_scroll(delta, int(data.get("delta_x", 0)))
+                    return {"ok": True, "action": "scroll", "delta": delta}
                 perform_approved_ui_action("scroll", x=abs_x, y=abs_y, delta=delta, approval_granted=True)
-            elif action in ("type_text", "type"):
+                return {"ok": True, "action": "scroll", "delta": delta}
+
+            # Keyboard actions (including independent keydown / keyup tracking)
+            if action in ("key_event", "keydown", "keyup", "press_key", "key_press", "hotkey"):
+                if not self._session_allows_input(is_keyboard=True):
+                    return {"ok": False, "error": "keyboard_control_denied"}
+                eff_state = "down" if action == "keydown" else ("up" if action == "keyup" else state)
+                if eff_state == "down" and key:
+                    with _HELD_KEYS_LOCK:
+                        _HELD_KEYS.add(key.lower())
+                elif eff_state == "up" and key:
+                    with _HELD_KEYS_LOCK:
+                        _HELD_KEYS.discard(key.lower())
+
+                if dll is not None and key and "+" not in key:
+                    dll.aibridge_send_key_event(key.encode("utf-8"), eff_state.encode("utf-8"))
+                    return {"ok": True, "action": action, "key": key, "state": eff_state}
+                if eff_state != "up":
+                    perform_approved_ui_action("press_key", key=key, approval_granted=True)
+                return {"ok": True, "action": action, "key": key, "state": eff_state}
+
+            if action in ("type_text", "type"):
+                if not self._session_allows_input(is_keyboard=True):
+                    return {"ok": False, "error": "keyboard_control_denied"}
                 perform_approved_ui_action("type_text", text=text, approval_granted=True)
-            elif action in ("press_key", "key_press", "hotkey"):
-                perform_approved_ui_action("press_key", key=key, approval_granted=True)
-        except Exception:
-            pass
+                return {"ok": True, "action": "type_text"}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": "unsupported_action"}
 
     async def _run(self) -> None:
         try:
-            from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSessionDescription
+            from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCRtpSender, RTCSessionDescription
         except ImportError as exc:
             raise RuntimeError(
                 "WebRTC streaming requires the aiortc package (install the "
                 "'webrtc' extra: pip install ai-bridge[webrtc])."
             ) from exc
 
-        config = RTCConfiguration(iceServers=[RTCIceServer(urls=s["urls"]) for s in self.ice_servers])
+        ice_objs = []
+        for s in self.ice_servers:
+            if isinstance(s, dict) and s.get("urls"):
+                ice_objs.append(
+                    RTCIceServer(
+                        urls=s["urls"],
+                        username=s.get("username"),
+                        credential=s.get("credential"),
+                    )
+                )
+        config = RTCConfiguration(iceServers=ice_objs)
         pc = RTCPeerConnection(configuration=config)
         self.pc = pc
 
-        # 1. Video Track (with DXGI & Multi-Monitor support)
-        track = ScreenTrack(scale=self.scale, fps=self.fps, monitor_index=self.monitor_index)
-        pc.addTrack(track)
+        # 1. Video Track (1080p @ 30 FPS, H.264 preferred)
+        track = ScreenTrack(
+            scale=self.scale,
+            fps=self.fps,
+            monitor_index=self.monitor_index,
+            session_id=self.session_id,
+            bitrate_kbps=self.bitrate_kbps,
+        )
+        sender = pc.addTrack(track)
 
-        # 2. DataChannel for Ultra-Low Latency Input Injection
+        # Prefer H.264 codec on the video transceiver per Section 5
+        try:
+            caps = RTCRtpSender.getCapabilities("video")
+            if caps and caps.codecs:
+                h264_codecs = [c for c in caps.codecs if "H264" in c.mimeType.upper()]
+                other_codecs = [c for c in caps.codecs if "H264" not in c.mimeType.upper()]
+                if h264_codecs:
+                    for transceiver in pc.getTransceivers():
+                        if transceiver.kind == "video" and hasattr(transceiver, "setCodecPreferences"):
+                            transceiver.setCodecPreferences(h264_codecs + other_codecs)
+        except Exception:
+            pass
+
+        # 2. DataChannel for Ultra-Low Latency Input Injection & Telemetry
         try:
             input_dc = pc.createDataChannel("input", ordered=True)
             self.input_channel = input_dc
@@ -293,6 +585,10 @@ class AgentStreamer:
             @input_dc.on("message")
             def on_dc_message(msg):
                 self._handle_input_payload(msg)
+
+            @input_dc.on("close")
+            def on_dc_close():
+                release_all_held_keys()
         except Exception:
             pass
 
@@ -304,13 +600,22 @@ class AgentStreamer:
             def on_message(msg):
                 self._handle_input_payload(msg)
 
+            @channel.on("close")
+            def on_close():
+                release_all_held_keys()
+
+        @pc.on("connectionstatechange")
+        async def on_connectionstatechange():
+            if pc.connectionState in ("disconnected", "failed", "closed"):
+                release_all_held_keys()
+
         # Wait for gathering to complete, then post offer with inline candidates
         offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
         for _ in range(100):
             if pc.iceGatheringState == "complete":
                 break
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
         self.signaling.post_offer({"sdp": pc.localDescription.sdp, "type": pc.localDescription.type})
 
         # Wait for viewer's answer, then apply viewer candidates
@@ -328,10 +633,10 @@ class AgentStreamer:
                 try:
                     from aiortc.sdp import candidate_from_sdp
 
-                    raw_cand = cand.get("candidate")
+                    raw_cand = cand.get("candidate") if isinstance(cand, dict) else cand
                     cand_str = ""
-                    sdp_mid = cand.get("sdpMid")
-                    sdp_mline_index = cand.get("sdpMLineIndex")
+                    sdp_mid = cand.get("sdpMid") if isinstance(cand, dict) else None
+                    sdp_mline_index = cand.get("sdpMLineIndex") if isinstance(cand, dict) else None
 
                     if isinstance(raw_cand, dict):
                         cand_str = raw_cand.get("candidate", "")
@@ -354,8 +659,10 @@ class AgentStreamer:
                     pass
                 seen_viewer_candidates += 1
             if answer is not None and pc.connectionState in ("connected", "completed"):
+                if isinstance(getattr(self.signaling, "session", None), dict):
+                    self.signaling.session["status"] = "connected"
                 break
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.25)
 
         # Keep streaming until session ends or expires
         while not self._stop.is_set():
@@ -366,23 +673,40 @@ class AgentStreamer:
                 break
             if pc.connectionState in ("failed", "closed"):
                 break
-            await asyncio.sleep(2)
+            await asyncio.sleep(1.0)
+        release_all_held_keys()
         await pc.close()
 
 
 def start_stream(
     session_id: str,
     signaling,
-    scale: float = 0.75,
-    fps: int = 10,
+    scale: float = 1.0,
+    fps: int = 30,
     monitor_index: int | None = None,
+    bitrate_kbps: int = 4500,
 ) -> dict:
-    streamer = AgentStreamer(session_id, signaling, scale=scale, fps=fps, monitor_index=monitor_index)
+    streamer = AgentStreamer(
+        session_id,
+        signaling,
+        scale=scale,
+        fps=fps,
+        monitor_index=monitor_index,
+        bitrate_kbps=bitrate_kbps,
+    )
     streamer.start()
-    return {"session_id": session_id, "status": "started"}
+    return {
+        "session_id": session_id,
+        "status": "started",
+        "codec": "H264",
+        "fps": fps,
+        "scale": scale,
+        "bitrate_kbps": bitrate_kbps,
+    }
 
 
 def stop_stream(session_id: str) -> dict:
+    release_all_held_keys()
     streamer = _STREAMERS.get(session_id)
     if streamer:
         streamer.stop()

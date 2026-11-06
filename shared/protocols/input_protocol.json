@@ -1,0 +1,44 @@
+{
+  "protocol": "ai-bridge-webrtc-input",
+  "version": "1.0.0",
+  "channel_label": "input",
+  "ordered": true,
+  "rate_limit_events_per_second": 250,
+  "disconnect_safety": {
+    "release_held_keys_on_close": true,
+    "release_mouse_buttons_on_close": true
+  },
+  "events": {
+    "mouse_move": {
+      "required": ["type", "x", "y"],
+      "optional": ["normalized", "screen_width", "screen_height", "monitor_index", "timestamp_ms"]
+    },
+    "mouse_button": {
+      "required": ["type", "button", "state", "x", "y"],
+      "button_enum": ["left", "right", "middle"],
+      "state_enum": ["down", "up", "click", "double_click"]
+    },
+    "mouse_scroll": {
+      "required": ["type", "delta_y"],
+      "optional": ["delta_x", "x", "y"]
+    },
+    "key_event": {
+      "required": ["type", "key", "state"],
+      "state_enum": ["down", "up", "press"],
+      "optional": ["code", "vk", "scan_code", "modifiers"]
+    },
+    "release_all_keys": {
+      "required": ["type"],
+      "description": "Immediately releases all held keyboard keys and mouse buttons."
+    },
+    "clipboard_sync": {
+      "required": ["type", "direction"],
+      "direction_enum": ["to_agent", "from_agent"],
+      "optional": ["text"]
+    },
+    "ping": {
+      "required": ["type", "client_ts_ms"],
+      "description": "Echoed back as pong with agent capture/encode timestamps to measure glass-to-glass latency."
+    }
+  }
+}

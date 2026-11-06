@@ -1492,3 +1492,256 @@ def update_fleet_agent(
     }
 
 
+# ---------------------------------------------------------------------------
+# Canonical v1.0 MCP Computer-Use Toolset (Section 8)
+# ---------------------------------------------------------------------------
+
+def _require_no_human_takeover(device_id: str = "local") -> None:
+    """Enforce Section 12 & 13: Human takeover immediately revokes AI input until handed back."""
+    from .control.v1_routes import is_device_human_takeover_active
+
+    if is_device_human_takeover_active(device_id):
+        raise PermissionError(
+            "Human takeover is active on this desktop session; AI input and execution are suppressed until control is explicitly handed back."
+        )
+
+
+def desktop_get_screenshot(*, approval_granted: bool = False, policy: Policy | None = None) -> dict:
+    """Return a current desktop screenshot."""
+    eff_policy = policy or default_policy()
+    _check("desktop_get_screenshot", approval_granted=approval_granted, policy=eff_policy)
+    return capture_desktop_screenshot(approval_granted=approval_granted, policy=eff_policy)
+
+
+def desktop_get_status(*, device_id: str = "local") -> dict:
+    """Return desktop and session status, monitors, capture backend, and human takeover state."""
+    _check("desktop_get_status")
+    from .control.v1_routes import is_device_human_takeover_active
+    from .screen_capture import get_last_capture_metrics, get_monitors
+
+    base = get_desktop_status()
+    takeover = is_device_human_takeover_active(device_id)
+    return {
+        **base,
+        "device_id": device_id,
+        "mode": "human_control" if takeover else "ai_assisted",
+        "human_takeover_active": takeover,
+        "monitors": get_monitors(),
+        "capture_metrics": get_last_capture_metrics(),
+    }
+
+
+def desktop_mouse_move(
+    x: int,
+    y: int,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+    device_id: str = "local",
+) -> dict:
+    """Move the mouse to approved coordinates."""
+    _require_no_human_takeover(device_id)
+    eff_policy = policy or default_policy()
+    _check("desktop_mouse_move", approval_granted=approval_granted, policy=eff_policy)
+    return mouse_move(x=x, y=y, approval_granted=approval_granted, policy=eff_policy)
+
+
+def desktop_click(
+    x: int,
+    y: int,
+    button: str = "left",
+    clicks: int = 1,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+    device_id: str = "local",
+) -> dict:
+    """Click at approved coordinates."""
+    _require_no_human_takeover(device_id)
+    eff_policy = policy or default_policy()
+    _check("desktop_click", approval_granted=approval_granted, policy=eff_policy)
+    return mouse_click(x=x, y=y, button=button, clicks=clicks, approval_granted=approval_granted, policy=eff_policy)
+
+
+def desktop_keyboard(
+    text: str = "",
+    key: str = "",
+    action: str = "type",
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+    device_id: str = "local",
+) -> dict:
+    """Send approved keyboard input (text typing, key press, or hotkey shortcut)."""
+    _require_no_human_takeover(device_id)
+    eff_policy = policy or default_policy()
+    _check("desktop_keyboard", approval_granted=approval_granted, policy=eff_policy)
+    act = (action or ("press" if key and not text else "type")).strip().lower()
+    if act in ("press", "key", "hotkey") or (key and not text):
+        target_key = key or text
+        if "+" in target_key:
+            return press_hotkey(target_key, approval_granted=approval_granted, policy=eff_policy)
+        return keyboard_press(target_key, approval_granted=approval_granted, policy=eff_policy)
+    res = keyboard_type(text, approval_granted=approval_granted, policy=eff_policy)
+    if key:
+        res["key_result"] = keyboard_press(key, approval_granted=approval_granted, policy=eff_policy)
+    return res
+
+
+def desktop_scroll(
+    delta: int = -120,
+    x: int | None = None,
+    y: int | None = None,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+    device_id: str = "local",
+) -> dict:
+    """Scroll the active desktop."""
+    _require_no_human_takeover(device_id)
+    eff_policy = policy or default_policy()
+    _check("desktop_scroll", approval_granted=approval_granted, policy=eff_policy)
+    return mouse_scroll(delta=delta, x=x, y=y, approval_granted=approval_granted, policy=eff_policy)
+
+
+def desktop_execute_command(
+    command: str,
+    working_directory: str = "",
+    timeout: int = 60,
+    *,
+    approval_granted: bool = False,
+    is_admin: bool = False,
+    policy: Policy | None = None,
+    device_id: str = "local",
+) -> dict:
+    """Execute commands permitted by policy.
+
+    Security Architecture (Section 13):
+    A user who grants screen access (`desktop_enabled`) does NOT automatically
+    grant command execution. Command execution is checked independently against
+    `run_shell` / command allowlist policy.
+    """
+    _require_no_human_takeover(device_id)
+    eff_policy = policy or default_policy()
+    _check("desktop_execute_command", approval_granted=approval_granted, is_admin=is_admin, policy=eff_policy)
+    if "run_shell" in eff_policy.denied_tools:
+        raise PermissionError("Command execution is disabled by device policy (screen access does not grant command execution).")
+    return run_shell(
+        command=command,
+        working_directory=working_directory,
+        timeout=timeout,
+        approval_granted=approval_granted,
+        is_admin=is_admin,
+        policy=eff_policy,
+    )
+
+
+def desktop_open_application(
+    app_name: str,
+    url: str | None = None,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+    device_id: str = "local",
+) -> dict:
+    """Launch an approved application."""
+    _require_no_human_takeover(device_id)
+    eff_policy = policy or default_policy()
+    _check("desktop_open_application", approval_granted=approval_granted, policy=eff_policy)
+    return launch_approved_application(app_name, approval_granted=approval_granted, url=url, policy=eff_policy)
+
+
+def desktop_get_windows(
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """List visible application windows."""
+    eff_policy = policy or default_policy()
+    _check("desktop_get_windows", approval_granted=approval_granted, policy=eff_policy)
+    return list_desktop_windows(approval_granted=approval_granted, policy=eff_policy)
+
+
+def desktop_wait(
+    condition: str = "sleep",
+    text: str = "",
+    window_title: str = "",
+    seconds: float = 1.0,
+    timeout_seconds: float = 10.0,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Wait for a condition ('sleep', 'text', or 'window') or action to complete."""
+    eff_policy = policy or default_policy()
+    _check("desktop_wait", approval_granted=approval_granted, policy=eff_policy)
+    cond = (condition or "sleep").strip().lower()
+    if cond == "text" or (text and cond == "sleep"):
+        return wait_for_text(
+            text=text,
+            timeout_seconds=timeout_seconds,
+            poll_interval=0.5,
+            approval_granted=approval_granted,
+            policy=eff_policy,
+        )
+    if cond == "window" or window_title:
+        needle = (window_title or text).strip().lower()
+        deadline = time.time() + max(0.5, float(timeout_seconds))
+        while time.time() < deadline:
+            wins = list_desktop_windows(approval_granted=approval_granted, policy=eff_policy).get("windows", [])
+            for w in wins:
+                if needle in str(w.get("title", "")).lower():
+                    return {"ok": True, "condition": "window", "matched_window": w}
+            time.sleep(0.3)
+        return {"ok": False, "condition": "window", "error": f"Window matching '{needle}' did not appear within {timeout_seconds}s."}
+
+    wait_sec = max(0.0, min(float(seconds), 30.0))
+    time.sleep(wait_sec)
+    return {"ok": True, "condition": "sleep", "waited_seconds": wait_sec}
+
+
+def desktop_verify_action(
+    expected_text: str = "",
+    expected_window: str = "",
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Verify whether an action succeeded by checking visible windows and/or screen OCR text."""
+    eff_policy = policy or default_policy()
+    _check("desktop_verify_action", approval_granted=approval_granted, policy=eff_policy)
+    verified = True
+    evidence: dict = {}
+
+    if expected_window:
+        wins = list_desktop_windows(approval_granted=approval_granted, policy=eff_policy).get("windows", [])
+        needle = expected_window.strip().lower()
+        matched_win = next((w for w in wins if needle in str(w.get("title", "")).lower()), None)
+        evidence["window_matched"] = matched_win is not None
+        evidence["window"] = matched_win
+        if matched_win is None:
+            verified = False
+
+    if expected_text:
+        scr = verify_screen_contains(expected_text, approval_granted=approval_granted, policy=eff_policy)
+        evidence["text_matched"] = bool(scr.get("contains"))
+        evidence["text_details"] = scr
+        if not scr.get("contains"):
+            verified = False
+
+    if not expected_text and not expected_window:
+        shot = capture_desktop_screenshot(approval_granted=approval_granted, policy=eff_policy)
+        evidence["screenshot_available"] = bool(shot.get("available"))
+        evidence["active_window"] = shot.get("active_window", "")
+        verified = bool(shot.get("available"))
+
+    return {
+        "ok": True,
+        "verified": verified,
+        "expected_text": expected_text,
+        "expected_window": expected_window,
+        "evidence": evidence,
+    }
+
+
+

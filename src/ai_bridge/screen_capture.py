@@ -1,23 +1,183 @@
 """High-Performance Multi-Monitor & Hardware-Accelerated Screen Capture.
 
 Features:
-- Multi-Monitor Enumeration (identifies all displays, coordinates, primary monitor)
-- Hardware-Accelerated DXGI Desktop Duplication (via bettercam where supported)
+- Native C++ DXGI Desktop Duplication integration (`ai_bridge_native.dll`) with dirty-rect & cursor metadata
+- Multi-Monitor Enumeration (identifies all displays, coordinates, rotation, primary monitor)
+- Hardware-Accelerated DXGI Desktop Duplication via bettercam fallback
 - Ultra-Fast Direct Memory BitBlt Capture (<8ms per frame, 120 FPS capable)
 - Universal Cross-Platform Pillow Fallback (Linux / X11 / Wayland / macOS)
 - Automatic Dimension Normalization (even width/height for H.264/VP8 WebRTC video codecs)
+- Stage-by-stage capture timing & secure desktop / UAC detection
 """
 from __future__ import annotations
 
 import ctypes
 import platform
-import sys
+import time
+from pathlib import Path
 from typing import Any
 
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:
+    class _FallbackResampling:
+        BILINEAR = 2
+
+    class _FallbackImageInstance:
+        def __init__(self, width: int, height: int, raw: bytes, mode: str = "RGB"):
+            self.width = int(width)
+            self.height = int(height)
+            self._raw = raw
+            self.mode = mode
+
+        @property
+        def size(self) -> tuple[int, int]:
+            return (self.width, self.height)
+
+        def resize(self, size: tuple[int, int], _resample: Any = None) -> "_FallbackImageInstance":
+            return _FallbackImageInstance(size[0], size[1], self._raw, self.mode)
+
+        def convert(self, mode: str) -> "_FallbackImageInstance":
+            return _FallbackImageInstance(self.width, self.height, self._raw, mode)
+
+        def save(self, fp: Any, format: str | None = None, **_kwargs: Any) -> None:
+            if hasattr(fp, "write"):
+                fp.write(self._raw[:1024] or b"RAW")
+            else:
+                Path(fp).write_bytes(self._raw[:1024] or b"RAW")
+
+    class Image:  # type: ignore[no-redef]
+        Image = _FallbackImageInstance
+        Resampling = _FallbackResampling
+
+        @staticmethod
+        def frombuffer(
+            mode: str,
+            size: tuple[int, int],
+            data: bytes,
+            *_args: Any,
+        ) -> _FallbackImageInstance:
+            return _FallbackImageInstance(size[0], size[1], bytes(data), mode)
 
 _DXGI_CAMERA = None
 _DXGI_FAILED = False
+_NATIVE_DLL = None
+_NATIVE_DLL_LOADED = False
+_LAST_CAPTURE_METRICS: dict[str, Any] = {
+    "backend": "uninitialized",
+    "from_dxgi": False,
+    "secure_desktop": False,
+    "capture_time_ms": 0.0,
+    "encode_time_ms": 0.0,
+    "dirty_rect_count": 0,
+    "move_rect_count": 0,
+    "width": 1920,
+    "height": 1080,
+    "encoder_name": "H264",
+    "is_hardware_encoder": False,
+}
+
+
+class _AIBridgeCaptureMetrics(ctypes.Structure):
+    _fields_ = [
+        ("valid", ctypes.c_int),
+        ("from_dxgi", ctypes.c_int),
+        ("secure_desktop", ctypes.c_int),
+        ("width", ctypes.c_int),
+        ("height", ctypes.c_int),
+        ("stride", ctypes.c_int),
+        ("monitor_index", ctypes.c_int),
+        ("cursor_x", ctypes.c_int),
+        ("cursor_y", ctypes.c_int),
+        ("cursor_visible", ctypes.c_int),
+        ("dirty_rect_count", ctypes.c_int),
+        ("move_rect_count", ctypes.c_int),
+        ("capture_time_ms", ctypes.c_double),
+        ("encode_time_ms", ctypes.c_double),
+        ("encoded_bytes", ctypes.c_int),
+        ("is_hardware_encoder", ctypes.c_int),
+        ("encoder_name", ctypes.c_char * 128),
+    ]
+
+
+def get_native_dll():
+    """Load the compiled C++ `ai_bridge_native.dll` if available on Windows."""
+    global _NATIVE_DLL, _NATIVE_DLL_LOADED
+    if platform.system() != "Windows":
+        return None
+    if _NATIVE_DLL is not None:
+        return _NATIVE_DLL
+    if _NATIVE_DLL_LOADED:
+        return None
+
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        repo_root / "windows-agent" / "build" / "Release" / "ai_bridge_native.dll",
+        repo_root / "windows-agent" / "build" / "Debug" / "ai_bridge_native.dll",
+        repo_root / "windows-agent" / "build" / "ai_bridge_native.dll",
+    ]
+    for dll_path in candidates:
+        if dll_path.exists():
+            try:
+                dll = ctypes.CDLL(str(dll_path))
+                dll.aibridge_capture_frame.argtypes = [
+                    ctypes.c_int,
+                    ctypes.POINTER(ctypes.c_uint8),
+                    ctypes.c_int,
+                    ctypes.POINTER(_AIBridgeCaptureMetrics),
+                ]
+                dll.aibridge_capture_frame.restype = ctypes.c_int
+                dll.aibridge_encode_h264_frame.argtypes = [
+                    ctypes.POINTER(ctypes.c_uint8),
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.POINTER(ctypes.c_uint8),
+                    ctypes.c_int,
+                    ctypes.POINTER(_AIBridgeCaptureMetrics),
+                ]
+                dll.aibridge_encode_h264_frame.restype = ctypes.c_int
+                dll.aibridge_release_all_keys.argtypes = []
+                dll.aibridge_release_all_keys.restype = ctypes.c_int
+                dll.aibridge_send_mouse_move.argtypes = [
+                    ctypes.c_double,
+                    ctypes.c_double,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                ]
+                dll.aibridge_send_mouse_move.restype = ctypes.c_int
+                dll.aibridge_send_mouse_button.argtypes = [
+                    ctypes.c_char_p,
+                    ctypes.c_char_p,
+                    ctypes.c_double,
+                    ctypes.c_double,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                ]
+                dll.aibridge_send_mouse_button.restype = ctypes.c_int
+                dll.aibridge_send_mouse_scroll.argtypes = [ctypes.c_int, ctypes.c_int]
+                dll.aibridge_send_mouse_scroll.restype = ctypes.c_int
+                dll.aibridge_send_key_event.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+                dll.aibridge_send_key_event.restype = ctypes.c_int
+                _NATIVE_DLL = dll
+                _NATIVE_DLL_LOADED = True
+                return _NATIVE_DLL
+            except Exception:
+                continue
+    return None
+
+
+def get_last_capture_metrics() -> dict[str, Any]:
+    """Return telemetry from the most recent desktop capture/encode operation."""
+    return dict(_LAST_CAPTURE_METRICS)
 
 
 def get_monitors() -> list[dict[str, Any]]:
@@ -136,6 +296,49 @@ def get_monitors() -> list[dict[str, Any]]:
     return monitors
 
 
+def _capture_native_cpp(monitor_index: int = 0) -> Image.Image | None:
+    """Capture using the compiled C++ DXGI Desktop Duplication / Win32 library (`ai_bridge_native.dll`)."""
+    dll = get_native_dll()
+    if dll is None:
+        return None
+    try:
+        metrics = _AIBridgeCaptureMetrics()
+        # Probe dimensions first or allocate for primary display
+        mons = get_monitors()
+        mon = mons[monitor_index] if 0 <= monitor_index < len(mons) else mons[0]
+        est_w = max(1920, int(mon.get("width") or 1920))
+        est_h = max(1080, int(mon.get("height") or 1080))
+        buf_size = est_w * est_h * 4
+        buf = (ctypes.c_uint8 * buf_size)()
+
+        ok = dll.aibridge_capture_frame(monitor_index, buf, buf_size, ctypes.byref(metrics))
+        if ok and metrics.valid and metrics.width > 0 and metrics.height > 0:
+            actual_bytes = metrics.width * metrics.height * 4
+            if actual_bytes > buf_size:
+                buf = (ctypes.c_uint8 * actual_bytes)()
+                ok = dll.aibridge_capture_frame(monitor_index, buf, actual_bytes, ctypes.byref(metrics))
+                if not ok:
+                    return None
+            _LAST_CAPTURE_METRICS.update({
+                "backend": "dxgi_cpp_native" if metrics.from_dxgi else "win32_cpp_native",
+                "from_dxgi": bool(metrics.from_dxgi),
+                "secure_desktop": bool(metrics.secure_desktop),
+                "capture_time_ms": round(float(metrics.capture_time_ms), 2),
+                "dirty_rect_count": int(metrics.dirty_rect_count),
+                "move_rect_count": int(metrics.move_rect_count),
+                "cursor_x": int(metrics.cursor_x),
+                "cursor_y": int(metrics.cursor_y),
+                "cursor_visible": bool(metrics.cursor_visible),
+                "width": int(metrics.width),
+                "height": int(metrics.height),
+            })
+            raw = bytes(memoryview(buf)[:actual_bytes])
+            return Image.frombuffer("RGB", (metrics.width, metrics.height), raw, "raw", "BGRX", 0, 1)
+    except Exception:
+        return None
+    return None
+
+
 def _capture_win32_fast(bbox: tuple[int, int, int, int] | None = None) -> Image.Image:
     """Capture using direct Win32 GDI/DIB BitBlt (<8ms per frame, 120 FPS capable)."""
     from ctypes import wintypes
@@ -198,7 +401,9 @@ def capture_desktop(monitor_index: int | None = None, scale: float = 1.0) -> Ima
     """Capture the full screen or a specific monitor with optional scaling."""
     global _DXGI_CAMERA, _DXGI_FAILED
 
+    t0 = time.perf_counter()
     bbox = None
+    eff_mon = monitor_index if monitor_index is not None else 0
     if monitor_index is not None:
         mons = get_monitors()
         if 0 <= monitor_index < len(mons):
@@ -207,8 +412,12 @@ def capture_desktop(monitor_index: int | None = None, scale: float = 1.0) -> Ima
 
     img = None
 
-    # Attempt 1: DXGI Desktop Duplication on Windows (if monitor 0 and supported)
-    if platform.system() == "Windows" and not _DXGI_FAILED and (monitor_index is None or monitor_index == 0):
+    # Attempt 0: Native C++ DXGI Desktop Duplication (`ai_bridge_native.dll`)
+    if platform.system() == "Windows":
+        img = _capture_native_cpp(monitor_index=eff_mon)
+
+    # Attempt 1: DXGI Desktop Duplication via bettercam on Windows
+    if img is None and platform.system() == "Windows" and not _DXGI_FAILED and (monitor_index is None or monitor_index == 0):
         try:
             import bettercam
 
@@ -217,6 +426,11 @@ def capture_desktop(monitor_index: int | None = None, scale: float = 1.0) -> Ima
             frame = _DXGI_CAMERA.grab()
             if frame is not None:
                 img = Image.fromarray(frame, mode="RGB")
+                _LAST_CAPTURE_METRICS.update({
+                    "backend": "dxgi_bettercam",
+                    "from_dxgi": True,
+                    "capture_time_ms": round((time.perf_counter() - t0) * 1000.0, 2),
+                })
         except Exception:
             _DXGI_FAILED = True
 
@@ -224,6 +438,11 @@ def capture_desktop(monitor_index: int | None = None, scale: float = 1.0) -> Ima
     if img is None and platform.system() == "Windows":
         try:
             img = _capture_win32_fast(bbox=bbox)
+            _LAST_CAPTURE_METRICS.update({
+                "backend": "win32_bitblt",
+                "from_dxgi": False,
+                "capture_time_ms": round((time.perf_counter() - t0) * 1000.0, 2),
+            })
         except Exception:
             img = None
 
@@ -235,11 +454,16 @@ def capture_desktop(monitor_index: int | None = None, scale: float = 1.0) -> Ima
             img = ImageGrab.grab(bbox=bbox, all_screens=True)
         else:
             img = ImageGrab.grab(all_screens=True)
+        _LAST_CAPTURE_METRICS.update({
+            "backend": "pil_imagegrab",
+            "from_dxgi": False,
+            "capture_time_ms": round((time.perf_counter() - t0) * 1000.0, 2),
+        })
 
     if img is None:
         raise RuntimeError("Failed to capture screen through all available backends")
 
-    # Scaling & Even Dimension Normalization
+    # Scaling & Even Dimension Normalization (H.264 requires dimensions divisible by 2)
     scale = max(0.2, min(1.0, float(scale)))
     target_w = max(120, (int(img.width * scale) // 2) * 2)
     target_h = max(120, (int(img.height * scale) // 2) * 2)
@@ -250,5 +474,6 @@ def capture_desktop(monitor_index: int | None = None, scale: float = 1.0) -> Ima
     if img.mode != "RGB":
         img = img.convert("RGB")
 
+    _LAST_CAPTURE_METRICS["width"] = img.width
+    _LAST_CAPTURE_METRICS["height"] = img.height
     return img
-

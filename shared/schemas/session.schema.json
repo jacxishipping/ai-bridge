@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-bridge.local/schemas/session.schema.json",
+  "title": "AI Bridge Remote Desktop & Autonomous Session Schema",
+  "description": "Server-validated session model separating video transport, input transport, AI execution, and device management.",
+  "type": "object",
+  "required": [
+    "session_id",
+    "device_id",
+    "user_id",
+    "mode",
+    "video",
+    "permissions",
+    "status"
+  ],
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Unique session identifier issued by the AI Bridge Session Manager."
+    },
+    "device_id": {
+      "type": "string",
+      "description": "Target enrolled computer identifier."
+    },
+    "user_id": {
+      "type": "string",
+      "description": "Authenticated user or operator identity owning the session."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["view_only", "human_control", "ai_assisted"],
+      "description": "Active session control mode."
+    },
+    "video": {
+      "type": "object",
+      "required": ["codec", "width", "height", "fps"],
+      "properties": {
+        "codec": {
+          "type": "string",
+          "enum": ["H264", "VP8", "VP9", "AV1"],
+          "default": "H264"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 120,
+          "maximum": 7680,
+          "default": 1920
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 120,
+          "maximum": 4320,
+          "default": 1080
+        },
+        "fps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120,
+          "default": 30
+        },
+        "bitrate_kbps": {
+          "type": "integer",
+          "minimum": 250,
+          "maximum": 50000,
+          "default": 4500
+        },
+        "keyframe_interval_sec": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 10.0,
+          "default": 2.0
+        },
+        "hardware_encoding": {
+          "type": "boolean",
+          "default": true
+        },
+        "adaptive_bitrate": {
+          "type": "boolean",
+          "default": true
+        },
+        "monitor_index": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "description": "Server-derived permissions from the policy engine and session mode. Never trusted from browser input.",
+      "required": [
+        "view_screen",
+        "control_mouse",
+        "control_keyboard",
+        "execute_commands"
+      ],
+      "properties": {
+        "view_screen": { "type": "boolean" },
+        "control_mouse": { "type": "boolean" },
+        "control_keyboard": { "type": "boolean" },
+        "clipboard_sync": { "type": "boolean", "default": false },
+        "file_read": { "type": "boolean", "default": false },
+        "file_write": { "type": "boolean", "default": false },
+        "execute_commands": { "type": "boolean", "default": false }
+      }
+    },
+    "human_takeover_active": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, AI input and autonomous actions on this device are immediately suppressed until control is explicitly handed back."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["waiting", "offered", "answered", "connected", "reconnecting", "ended", "error"]
+    },
+    "telemetry": {
+      "type": "object",
+      "properties": {
+        "capture_time_ms": { "type": "number" },
+        "encoder_queue_time_ms": { "type": "number" },
+        "encode_time_ms": { "type": "number" },
+        "encoded_frame_size_bytes": { "type": "integer" },
+        "dropped_frames": { "type": "integer" },
+        "rtt_ms": { "type": "number" },
+        "fps_actual": { "type": "number" },
+        "bitrate_kbps_actual": { "type": "number" },
+        "encoder_backend": { "type": "string" }
+      }
+    }
+  }
+}

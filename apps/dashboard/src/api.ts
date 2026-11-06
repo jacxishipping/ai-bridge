@@ -1,4 +1,4 @@
-﻿const envBase = (import.meta as any).env?.VITE_API_URL || "";
+const envBase = (import.meta as any).env?.VITE_API_URL || "";
 const isProdOrigin =
   typeof window !== "undefined" &&
   window.location.port !== "5173" &&
@@ -235,6 +235,30 @@ export const api = {
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}/candidates`, "POST", { candidate }),
   endWebrtcSession: (deviceId: string, sessionId: string) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}`, "DELETE"),
+  createSessionV1: (body: {
+    device_id?: string;
+    mode?: "view_only" | "human_control" | "ai_assisted";
+    fps?: number;
+    scale?: number;
+    monitor_index?: number;
+  }) => call("/api/v1/sessions", "POST", body),
+  getSessionV1: (sessionId: string) =>
+    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}`),
+  setSessionModeV1: (
+    sessionId: string,
+    mode: "view_only" | "human_control" | "ai_assisted",
+    human_takeover?: boolean
+  ) => call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/mode`, "POST", { mode, human_takeover }),
+  terminateSessionV1: (sessionId: string) =>
+    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/terminate`, "POST", {}),
+  postAnswerV1: (sessionId: string, sdp: string, type = "answer") =>
+    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/answer`, "POST", { sdp, type }),
+  postIceV1: (sessionId: string, candidate: any) =>
+    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/ice`, "POST", { candidate }),
+  sessionWebSocketUrl: (sessionId: string) => {
+    const wsBase = BASE.replace(/^http/, "ws");
+    return `${wsBase}/api/v1/ws/sessions/${encodeURIComponent(sessionId)}`;
+  },
   sendDesktopInput: (deviceId: string, body: any) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/input`, "POST", body),
   fleetVersion: () => call("/api/fleet/version"),

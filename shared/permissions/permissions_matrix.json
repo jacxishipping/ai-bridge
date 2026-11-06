@@ -1,0 +1,52 @@
+{
+  "version": "1.0.0",
+  "principle": "A user who grants screen access must not automatically grant command execution. Every permission is evaluated independently by the server-side Policy Engine.",
+  "modes": {
+    "view_only": {
+      "description": "Live desktop streaming with zero input or execution permissions.",
+      "human_permissions": {
+        "view_screen": true,
+        "control_mouse": false,
+        "control_keyboard": false,
+        "clipboard_sync": false,
+        "file_read": false,
+        "file_write": false,
+        "execute_commands": false
+      },
+      "ai_allowed": false
+    },
+    "human_control": {
+      "description": "Human operator controls mouse and keyboard directly. AI input is suppressed.",
+      "human_permissions": {
+        "view_screen": true,
+        "control_mouse": true,
+        "control_keyboard": true,
+        "clipboard_sync": "policy.clipboard_enabled",
+        "file_read": "policy.allow_reads",
+        "file_write": "policy.allow_writes",
+        "execute_commands": "policy.allow_shell"
+      },
+      "ai_allowed": false
+    },
+    "ai_assisted": {
+      "description": "AI operates approved computer-use tools while the human watches live and can take over immediately.",
+      "human_permissions": {
+        "view_screen": true,
+        "control_mouse": true,
+        "control_keyboard": true,
+        "clipboard_sync": "policy.clipboard_enabled",
+        "file_read": "policy.allow_reads",
+        "file_write": "policy.allow_writes",
+        "execute_commands": "policy.allow_shell"
+      },
+      "ai_permissions": {
+        "view_screen": "policy.desktop_enabled",
+        "control_mouse": "policy.desktop_enabled and not session.human_takeover_active",
+        "control_keyboard": "policy.desktop_enabled and not session.human_takeover_active",
+        "open_application": "policy.desktop_enabled and app in policy.allowed_apps and not session.human_takeover_active",
+        "execute_commands": "policy.allow_shell and command in policy.allowed_commands and not session.human_takeover_active"
+      },
+      "ai_allowed": true
+    }
+  }
+}

@@ -2717,7 +2717,8 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     ):
         actor = require_role("viewer", x_admin_token, x_session_token)
         scale = max(0.2, min(1.0, float(body.get("scale", 0.75))))
-        fps = max(1, min(30, int(body.get("fps", 10))))
+        fps = max(1, min(60, int(body.get("fps", 30))))
+        mode = str(body.get("mode", "ai_assisted"))
         monitor_index = body.get("monitor_index")
         if monitor_index is not None:
             try:
@@ -2726,7 +2727,10 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 monitor_index = None
         session_id = uuid.uuid4().hex[:12]
         sess = {
-            "id": session_id, "device_id": device_id, "status": "waiting",
+            "id": session_id, "session_id": session_id, "device_id": device_id,
+            "user_id": actor, "mode": mode, "status": "waiting",
+            "video": {"codec": "H264", "width": int(1920 * scale) & ~1, "height": int(1080 * scale) & ~1, "fps": fps},
+            "permissions": {"view_screen": True, "control_mouse": mode != "view_only", "control_keyboard": mode != "view_only", "execute_commands": False},
             "offer": None, "answer": None, "agent_candidates": [], "viewer_candidates": [],
             "created_at": time.time(), "scale": scale, "fps": fps, "monitor_index": monitor_index, "error": None,
         }
@@ -2742,7 +2746,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 sess["error"] = str(exc)
         else:
             _queue_webrtc_task(device_id, session_id, scale, fps, monitor_index=monitor_index)
-        return {"session_id": session_id, "status": sess["status"], "scale": scale, "fps": fps, "monitor_index": monitor_index}
+        return {"session_id": session_id, "status": sess["status"], "scale": scale, "fps": fps, "monitor_index": monitor_index, "mode": mode, "video": sess["video"], "permissions": sess["permissions"]}
 
     @app.get("/api/devices/{device_id}/desktop/webrtc/{session_id}")
     def get_webrtc_session(
@@ -2752,7 +2756,11 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     ):
         require_role("viewer", x_admin_token, x_session_token)
         sess = _get_webrtc_session(device_id, session_id)
-        return {k: sess.get(k) for k in ("id", "device_id", "status", "offer", "answer", "agent_candidates", "viewer_candidates", "error", "scale", "fps", "monitor_index")}
+        from ai_bridge import webrtc_stream
+        out = {k: sess.get(k) for k in ("id", "session_id", "device_id", "user_id", "mode", "video", "permissions", "status", "offer", "answer", "agent_candidates", "viewer_candidates", "error", "scale", "fps", "monitor_index")}
+        out["telemetry"] = webrtc_stream.get_session_telemetry(session_id)
+        out["ice_servers"] = webrtc_stream.get_configured_ice_servers()
+        return out
 
     @app.post("/api/devices/{device_id}/desktop/webrtc/{session_id}/answer")
     def post_webrtc_answer(
@@ -3657,7 +3665,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
         return await call_next(request)
 
-    from . import ai_api
+    from . import ai_api, v1_routes
     ai_api.attach_ai_routes(
         app,
         conn,
@@ -3665,6 +3673,18 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         notify_tasks,
         auth_context,
         require_role,
+        get_effective_device_policy,
+        audit,
+    )
+    v1_routes.attach_v1_routes(
+        app,
+        conn,
+        task_cond,
+        notify_tasks,
+        auth_context,
+        require_role,
+        device_row,
+        get_current_policy,
         get_effective_device_policy,
         audit,
     )

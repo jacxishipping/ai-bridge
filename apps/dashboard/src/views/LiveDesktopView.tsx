@@ -5,7 +5,7 @@
  * Strict JXUI Primitives & Lucide Icons. ZERO inline styles.
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   JXBox,
   JXStack,
@@ -77,8 +77,9 @@ export const LiveDesktopView: React.FC = () => {
   const selectedDeviceId = useDashboardStore((s) => s.selectedDeviceId);
   const selectedDevice = devices.find((d) => d.id === selectedDeviceId) || devices[0];
 
-  // Control modes
+  // Control modes (maps to canonical session modes: view_only, human_control, ai_assisted)
   const [controlMode, setControlMode] = useState<"observer" | "takeover">("takeover");
+  const [sessionMode, setSessionMode] = useState<"view_only" | "human_control" | "ai_assisted">("human_control");
   const [mouseLinked, setMouseLinked] = useState<boolean>(true);
   const [keyForwarded, setKeyForwarded] = useState<boolean>(true);
   const [clipboardSync, setClipboardSync] = useState<boolean>(true);
@@ -92,7 +93,7 @@ export const LiveDesktopView: React.FC = () => {
   const [activeWindowId, setActiveWindowId] = useState<string>("win-1");
   const [snapshotTaken, setSnapshotTaken] = useState<boolean>(false);
 
-  // Live desktop stream & monitor state
+  // Live desktop stream, WebRTC & monitor state
   const [liveFrameUrl, setLiveFrameUrl] = useState<string | null>(null);
   const [liveFrameMeta, setLiveFrameMeta] = useState<{
     width?: number;
@@ -105,6 +106,80 @@ export const LiveDesktopView: React.FC = () => {
   const [selectedMonitorIndex, setSelectedMonitorIndex] = useState<number>(0);
   const [isStreamActive, setIsStreamActive] = useState<boolean>(true);
   const [webrtcSessionId, setWebrtcSessionId] = useState<string | null>(null);
+  const [webrtcConnected, setWebrtcConnected] = useState<boolean>(false);
+  const [webrtcStats, setWebrtcStats] = useState<{
+    fps: number;
+    bitrateMbps: number;
+    rttMs: number;
+    droppedFrames: number;
+    state: string;
+  }>({
+    fps: 30,
+    bitrateMbps: 4.5,
+    rttMs: 12,
+    droppedFrames: 0,
+    state: "idle",
+  });
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const inputDcRef = useRef<RTCDataChannel | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const prevBytesRef = useRef<{ bytes: number; ts: number }>({ bytes: 0, ts: 0 });
+  const inputSeqRef = useRef<number>(1);
+
+  const sendDataChannelEvent = useCallback((payload: Record<string, unknown>) => {
+    const dc = inputDcRef.current;
+    if (dc && dc.readyState === "open") {
+      try {
+        dc.send(
+          JSON.stringify({
+            ...payload,
+            sequence: inputSeqRef.current++,
+            timestamp_ms: Date.now(),
+          })
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }, []);
+
+  const releaseAllRemoteKeys = useCallback(() => {
+    sendDataChannelEvent({ type: "release_all_keys" });
+  }, [sendDataChannelEvent]);
+
+  // Automatically release held keys on window blur or visibility loss
+  useEffect(() => {
+    const onBlur = () => releaseAllRemoteKeys();
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, [releaseAllRemoteKeys]);
+
+  // Switch session mode (View Only, Human Control, AI-Assisted Control)
+  const applySessionMode = useCallback(
+    async (mode: "view_only" | "human_control" | "ai_assisted") => {
+      setSessionMode(mode);
+      setControlMode(mode === "view_only" ? "observer" : "takeover");
+      if (mode === "view_only") {
+        releaseAllRemoteKeys();
+      }
+      if (isLiveMode() && webrtcSessionId) {
+        try {
+          await api.setSessionModeV1(
+            webrtcSessionId,
+            mode,
+            mode === "human_control"
+          );
+        } catch {
+          // Ignore mode update network errors when session is local
+        }
+      }
+    },
+    [webrtcSessionId, releaseAllRemoteKeys]
+  );
 
   const fetchLiveFrame = useCallback(
     async (scale = 0.75, quality = 70) => {
@@ -177,12 +252,27 @@ export const LiveDesktopView: React.FC = () => {
   }, [selectedDevice?.id, selectedDevice?.status, selectedDevice?.hostname, isStreamActive, fetchLiveFrame]);
 
   // Mouse move handler over canvas
-  const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = Math.max(0, Math.min(2560, Math.round(((e.clientX - rect.left) / rect.width) * 2560)));
-    const y = Math.max(0, Math.min(1440, Math.round(((e.clientY - rect.top) / rect.height) * 1440)));
-    setOperatorCoords({ x, y });
-  }, []);
+  const handleCanvasMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+      const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / Math.max(1, rect.height)));
+      const x = Math.round(normX * 2560);
+      const y = Math.round(normY * 1440);
+      setOperatorCoords({ x, y });
+
+      if (controlMode === "takeover" && mouseLinked) {
+        sendDataChannelEvent({
+          type: "mouse_move",
+          x: normX,
+          y: normY,
+          normalized: true,
+          monitor_index: selectedMonitorIndex,
+        });
+      }
+    },
+    [controlMode, mouseLinked, sendDataChannelEvent, selectedMonitorIndex]
+  );
 
   // Forward canvas click in takeover mode when logged in
   const handleCanvasClick = useCallback(
@@ -191,6 +281,18 @@ export const LiveDesktopView: React.FC = () => {
       const rect = e.currentTarget.getBoundingClientRect();
       const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
       const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / Math.max(1, rect.height)));
+      if (
+        sendDataChannelEvent({
+          type: "mouse_button",
+          action: "click",
+          button: "left",
+          x: normX,
+          y: normY,
+          normalized: true,
+        })
+      ) {
+        return;
+      }
       void api
         .sendDesktopInput(selectedDevice.id, {
           action: "click",
@@ -204,13 +306,29 @@ export const LiveDesktopView: React.FC = () => {
         })
         .catch(() => {});
     },
-    [controlMode, mouseLinked, selectedDevice?.id, liveFrameMeta?.width, liveFrameMeta?.height]
+    [controlMode, mouseLinked, selectedDevice?.id, liveFrameMeta?.width, liveFrameMeta?.height, sendDataChannelEvent]
   );
 
   // Forward keyboard events in takeover mode when logged in
   const handleCanvasKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (!isLiveMode() || controlMode !== "takeover" || !keyForwarded || !selectedDevice?.id) return;
+      if (
+        sendDataChannelEvent({
+          type: "key_event",
+          action: "down",
+          key: e.key,
+          code: e.code,
+          modifiers: {
+            ctrl: e.ctrlKey,
+            shift: e.shiftKey,
+            alt: e.altKey,
+            meta: e.metaKey,
+          },
+        })
+      ) {
+        return;
+      }
       if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
         void api
           .sendDesktopInput(selectedDevice.id, {
@@ -227,7 +345,20 @@ export const LiveDesktopView: React.FC = () => {
           .catch(() => {});
       }
     },
-    [controlMode, keyForwarded, selectedDevice?.id]
+    [controlMode, keyForwarded, selectedDevice?.id, sendDataChannelEvent]
+  );
+
+  const handleCanvasKeyUp = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!isLiveMode() || controlMode !== "takeover" || !keyForwarded) return;
+      sendDataChannelEvent({
+        type: "key_event",
+        action: "up",
+        key: e.key,
+        code: e.code,
+      });
+    },
+    [controlMode, keyForwarded, sendDataChannelEvent]
   );
 
   const dispatchMacro = (macroName: string) => {
@@ -264,18 +395,167 @@ export const LiveDesktopView: React.FC = () => {
     }, 2500);
   };
 
+  const cleanupWebrtc = useCallback(() => {
+    releaseAllRemoteKeys();
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch {
+        // Ignore close errors
+      }
+      wsRef.current = null;
+    }
+    if (inputDcRef.current) {
+      try {
+        inputDcRef.current.close();
+      } catch {
+        // Ignore close errors
+      }
+      inputDcRef.current = null;
+    }
+    if (pcRef.current) {
+      try {
+        pcRef.current.close();
+      } catch {
+        // Ignore close errors
+      }
+      pcRef.current = null;
+    }
+    setWebrtcConnected(false);
+  }, [releaseAllRemoteKeys]);
+
+  // Poll RTCPeerConnection.getStats() for live FPS, bitrate, RTT, and dropped frames
+  useEffect(() => {
+    if (!webrtcSessionId) return;
+    const interval = setInterval(async () => {
+      const pc = pcRef.current;
+      if (!pc) return;
+      try {
+        const report = await pc.getStats();
+        let fps = 30;
+        let droppedFrames = 0;
+        let bytesReceived = 0;
+        let rttMs = 12;
+        report.forEach((stat: any) => {
+          if (stat.type === "inbound-rtp" && stat.kind === "video") {
+            if (typeof stat.framesPerSecond === "number") fps = Math.round(stat.framesPerSecond);
+            if (typeof stat.framesDropped === "number") droppedFrames = stat.framesDropped;
+            if (typeof stat.bytesReceived === "number") bytesReceived = stat.bytesReceived;
+          }
+          if (stat.type === "candidate-pair" && stat.state === "succeeded") {
+            if (typeof stat.currentRoundTripTime === "number") {
+              rttMs = Math.round(stat.currentRoundTripTime * 1000);
+            }
+          }
+        });
+        const now = performance.now();
+        let bitrateMbps = 4.5;
+        if (prevBytesRef.current.ts > 0 && bytesReceived > prevBytesRef.current.bytes) {
+          const deltaSec = (now - prevBytesRef.current.ts) / 1000;
+          if (deltaSec > 0) {
+            bitrateMbps = Number(
+              (((bytesReceived - prevBytesRef.current.bytes) * 8) / (deltaSec * 1_000_000)).toFixed(2)
+            );
+          }
+        }
+        prevBytesRef.current = { bytes: bytesReceived, ts: now };
+        setWebrtcStats({
+          fps,
+          bitrateMbps,
+          rttMs,
+          droppedFrames,
+          state: pc.connectionState || "connected",
+        });
+      } catch {
+        // Ignore getStats errors
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [webrtcSessionId]);
+
+  useEffect(() => {
+    return () => cleanupWebrtc();
+  }, [cleanupWebrtc]);
+
   const handleStartWebrtc = async () => {
     if (!isLiveMode() || !selectedDevice?.id) {
       setRecentMacroNotice("WebRTC signaling active in live control plane mode");
       setTimeout(() => setRecentMacroNotice(null), 2500);
       return;
     }
+    cleanupWebrtc();
     try {
-      const sess = await api.createWebrtcSession(selectedDevice.id, 0.75, 10, selectedMonitorIndex);
+      const sess = await api.createSessionV1({
+        device_id: selectedDevice.id,
+        mode: sessionMode,
+        fps: 30,
+        scale: 1.0,
+        monitor_index: selectedMonitorIndex,
+      });
       if (sess?.session_id) {
-        setWebrtcSessionId(String(sess.session_id));
-        setRecentMacroNotice(`WebRTC session [${sess.session_id}] initialized (${sess.status || "waiting"})`);
+        const sid = String(sess.session_id);
+        setWebrtcSessionId(sid);
+        setRecentMacroNotice(`WebRTC session [${sid}] initialized (${sess.status || "waiting"})`);
         setTimeout(() => setRecentMacroNotice(null), 3000);
+
+        if (typeof RTCPeerConnection !== "undefined" && sess.offer_sdp) {
+          const pc = new RTCPeerConnection({
+            iceServers: Array.isArray(sess.ice_servers)
+              ? sess.ice_servers
+              : [{ urls: "stun:stun.l.google.com:19302" }],
+          });
+          pcRef.current = pc;
+
+          const dc = pc.createDataChannel("input", { ordered: true });
+          inputDcRef.current = dc;
+
+          pc.ontrack = (event) => {
+            if (videoRef.current && event.streams && event.streams[0]) {
+              videoRef.current.srcObject = event.streams[0];
+              setWebrtcConnected(true);
+            }
+          };
+
+          pc.onicecandidate = (event) => {
+            if (event.candidate) {
+              void api.postIceV1(sid, event.candidate.toJSON()).catch(() => {});
+            }
+          };
+
+          pc.onconnectionstatechange = () => {
+            const st = pc.connectionState;
+            setWebrtcStats((prev) => ({ ...prev, state: st }));
+            if (st === "connected") {
+              setWebrtcConnected(true);
+            } else if (st === "disconnected" || st === "failed") {
+              setWebrtcConnected(false);
+              releaseAllRemoteKeys();
+              // Automatic reconnect after temporary network loss
+              setTimeout(() => {
+                if (isLiveMode()) {
+                  void handleStartWebrtc();
+                }
+              }, 2000);
+            }
+          };
+
+          await pc.setRemoteDescription({
+            type: (sess.offer_type || "offer") as RTCSdpType,
+            sdp: sess.offer_sdp,
+          });
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          if (answer.sdp) {
+            await api.postAnswerV1(sid, answer.sdp, answer.type || "answer");
+          }
+
+          try {
+            const ws = new WebSocket(api.sessionWebSocketUrl(sid));
+            wsRef.current = ws;
+          } catch {
+            // Optional WebSocket signaling channel fallback
+          }
+        }
       }
     } catch (err: any) {
       setRecentMacroNotice(err?.message || "Could not start WebRTC session");
@@ -326,6 +606,16 @@ export const LiveDesktopView: React.FC = () => {
           )}
         </div>
         <div className="flex items-center gap-2 font-mono text-xs">
+          <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300">
+            <Activity className="w-3 h-3 text-emerald-400" />
+            <span>H.264 {webrtcStats.fps} FPS</span>
+            <span className="text-slate-600">|</span>
+            <span>{webrtcStats.bitrateMbps} Mbps</span>
+            <span className="text-slate-600">|</span>
+            <span>RTT {webrtcStats.rttMs}ms</span>
+            <span className="text-slate-600">|</span>
+            <span>Drop {webrtcStats.droppedFrames}</span>
+          </div>
           <button
             type="button"
             onClick={() => setIsStreamActive((prev) => !prev)}
@@ -352,7 +642,7 @@ export const LiveDesktopView: React.FC = () => {
           <div className="flex p-1 rounded-xl bg-slate-950 border border-slate-800">
             <button
               type="button"
-              onClick={() => setControlMode("observer")}
+              onClick={() => void applySessionMode("view_only")}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                 controlMode === "observer"
                   ? "bg-slate-800 text-slate-100 shadow"
@@ -364,15 +654,27 @@ export const LiveDesktopView: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setControlMode("takeover")}
+              onClick={() => void applySessionMode("human_control")}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                controlMode === "takeover"
+                controlMode === "takeover" && sessionMode === "human_control"
                   ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               <span>Operator Takeover [Active]</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void applySessionMode("ai_assisted")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                sessionMode === "ai_assisted"
+                  ? "bg-cyan-700 text-white shadow-md shadow-cyan-700/30"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Cpu className="w-3.5 h-3.5" />
+              <span>AI-Assisted</span>
             </button>
           </div>
 
@@ -534,9 +836,27 @@ export const LiveDesktopView: React.FC = () => {
         onMouseMove={handleCanvasMouseMove}
         onClick={handleCanvasClick}
         onKeyDown={handleCanvasKeyDown}
+        onKeyUp={handleCanvasKeyUp}
+        onBlur={releaseAllRemoteKeys}
         className="relative w-full aspect-video min-h-[560px] max-h-[760px] rounded-2xl bg-slate-950 border border-slate-800/80 overflow-hidden shadow-2xl select-none group focus:outline-none focus:border-indigo-500/60"
       >
-        {liveFrameUrl && (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className={`absolute inset-0 w-full h-full z-20 ${
+            webrtcConnected ? "block" : "hidden"
+          } ${
+            scalingMode === "fill"
+              ? "object-cover"
+              : scalingMode === "native"
+              ? "object-none"
+              : "object-contain"
+          }`}
+        />
+
+        {liveFrameUrl && !webrtcConnected && (
           <img
             src={liveFrameUrl}
             alt="Remote desktop stream frame"

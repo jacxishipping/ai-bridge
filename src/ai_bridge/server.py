@@ -195,6 +195,17 @@ DESKTOP_ROUTING_TOOLS = {
     "press_hotkey",
     "get_clipboard",
     "set_clipboard",
+    "desktop_get_screenshot",
+    "desktop_get_status",
+    "desktop_mouse_move",
+    "desktop_click",
+    "desktop_keyboard",
+    "desktop_scroll",
+    "desktop_execute_command",
+    "desktop_open_application",
+    "desktop_get_windows",
+    "desktop_wait",
+    "desktop_verify_action",
 }
 
 
@@ -1106,6 +1117,140 @@ def broadcast_fleet_command(
         args=args,
         target_os=target_os,
         target_device_ids=target_device_ids,
+        approval_granted=approved,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Canonical v1.0 MCP Computer-Use Toolset (Section 8)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+@device_aware("desktop_get_screenshot")
+def desktop_get_screenshot(device: str | None = None) -> dict:
+    """Return a current desktop screenshot.
+    device (optional): Target Windows device name/ID, or 'local'."""
+    approved = _consume_local_approval("desktop_get_screenshot")
+    return tools.desktop_get_screenshot(approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("desktop_get_status")
+def desktop_get_status(device: str | None = None) -> dict:
+    """Return desktop and session status, monitors, and human takeover state.
+    device (optional): Target Windows device name/ID, or 'local'."""
+    return tools.desktop_get_status()
+
+
+@mcp.tool()
+@device_aware("desktop_mouse_move")
+def desktop_mouse_move(x: int, y: int, device: str | None = None) -> dict:
+    """Move the mouse to approved coordinates.
+    device (optional): Target Windows device name/ID, or 'local'."""
+    approved = _consume_local_approval("desktop_mouse_move")
+    return tools.desktop_mouse_move(x=x, y=y, approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("desktop_click")
+def desktop_click(x: int, y: int, button: str = "left", clicks: int = 1, device: str | None = None) -> dict:
+    """Click at approved coordinates.
+    device (optional): Target Windows device name/ID, or 'local'."""
+    approved = _consume_local_approval("desktop_click")
+    return tools.desktop_click(x=x, y=y, button=button, clicks=clicks, approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("desktop_keyboard")
+def desktop_keyboard(text: str = "", key: str = "", action: str = "type", device: str | None = None) -> dict:
+    """Send approved keyboard input (text typing, key press, or hotkey shortcut).
+    device (optional): Target Windows device name/ID, or 'local'."""
+    approved = _consume_local_approval("desktop_keyboard")
+    return tools.desktop_keyboard(text=text, key=key, action=action, approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("desktop_scroll")
+def desktop_scroll(delta: int = -120, x: int | None = None, y: int | None = None, device: str | None = None) -> dict:
+    """Scroll the active desktop.
+    device (optional): Target Windows device name/ID, or 'local'."""
+    approved = _consume_local_approval("desktop_scroll")
+    return tools.desktop_scroll(delta=delta, x=x, y=y, approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("desktop_execute_command")
+def desktop_execute_command(command: str, working_directory: str = "", timeout: int = 60, device: str | None = None) -> dict:
+    """Execute commands permitted by policy. Screen access does not automatically grant command execution.
+    device (optional): Target Windows device name/ID, or 'local'."""
+    admin_tok = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
+    bearer = _bearer_token()
+    is_admin = bool(admin_tok and bearer and hmac.compare_digest(bearer, admin_tok))
+    _require_host_tools_enabled(is_admin=is_admin)
+    approved = _consume_local_approval("desktop_execute_command")
+    return tools.desktop_execute_command(
+        command=command,
+        working_directory=working_directory,
+        timeout=timeout,
+        approval_granted=approved,
+        is_admin=is_admin,
+    )
+
+
+@mcp.tool()
+@device_aware("desktop_open_application")
+def desktop_open_application(app_name: str, url: str | None = None, device: str | None = None) -> dict:
+    """Launch an approved application.
+    device (optional): Target Windows device name/ID, or 'local'."""
+    approved = _consume_local_approval("desktop_open_application")
+    return tools.desktop_open_application(app_name=app_name, url=url, approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("desktop_get_windows")
+def desktop_get_windows(device: str | None = None) -> dict:
+    """List visible application windows.
+    device (optional): Target Windows device name/ID, or 'local'."""
+    approved = _consume_local_approval("desktop_get_windows")
+    return tools.desktop_get_windows(approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("desktop_wait")
+def desktop_wait(
+    condition: str = "sleep",
+    text: str = "",
+    window_title: str = "",
+    seconds: float = 1.0,
+    timeout_seconds: float = 10.0,
+    device: str | None = None,
+) -> dict:
+    """Wait for a condition ('sleep', 'text', or 'window') or action to complete.
+    device (optional): Target Windows device name/ID, or 'local'."""
+    approved = _consume_local_approval("desktop_wait")
+    return tools.desktop_wait(
+        condition=condition,
+        text=text,
+        window_title=window_title,
+        seconds=seconds,
+        timeout_seconds=timeout_seconds,
+        approval_granted=approved,
+    )
+
+
+@mcp.tool()
+@device_aware("desktop_verify_action")
+def desktop_verify_action(
+    expected_text: str = "",
+    expected_window: str = "",
+    device: str | None = None,
+) -> dict:
+    """Verify whether an action succeeded.
+    device (optional): Target Windows device name/ID, or 'local'."""
+    approved = _consume_local_approval("desktop_verify_action")
+    return tools.desktop_verify_action(
+        expected_text=expected_text,
+        expected_window=expected_window,
         approval_granted=approved,
     )
 

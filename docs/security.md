@@ -1,44 +1,36 @@
-# Security
-- Run agents as a dedicated unprivileged user (`ai-bridge`), never root/SYSTEM.
-- Workspace confinement: see `src/ai_bridge/security.py`. Keep secrets,
-  SSH keys, `.env`, and production data OUTSIDE the workspace.
-- Risk tiers: 1 read-only (unattended OK), 2 low-risk writes (unattended
-  if writes enabled), 3 sensitive (needs `AI_BRIDGE_ALLOW_TIER3=1` or an
-  approval), 4 high-risk (always needs a human approval record + admin).
-- Approvals: created by `request_approval`, decided only in the
-  dashboard or with the admin token. An AI asking for approval does not
-  grant it. A task cannot approve itself. Tier-3 tasks also need approval
-  unless the current versioned policy (`/api/policies`) allows Tier 3.
-  Control-plane approvals expire after one hour by default (configurable
-  with `AI_BRIDGE_APPROVAL_TTL_SECONDS`); expired tasks are cancelled and
-  cannot be re-queued without creating a fresh request.
-- Accounts (v0.3): local users with PBKDF2 hashes and 8-hour sessions;
-  roles viewer/operator/admin. Device tokens expire (7 days default) and
-  rotate via `/api/agent/rotate` (old token dies immediately).
-- Signed updates (v0.3): release manifests are Ed25519-signed
-  (`python -m ai_bridge.updates sign`); the agent's `--check-update`
-  verifies the signature before downloading anything. No silent auto-install.
-- Sandboxing (v0.3): tasks run with a minimal environment, workspace cwd,
-  and CPU/memory/file-size limits. Network egress control is opt-in via
-  AI_BRIDGE_TASK_NETNS=1, which runs bounded-runner tasks in a fresh
-  network namespace with only loopback (fail-closed if `unshare` is
-  unavailable). The ungated MCP shell is intentionally outside this sandbox.
-- OIDC is implemented (provider-gated: set AI_BRIDGE_OIDC_* to activate).
-  Plane-side mTLS is still not native; use a TLS reverse proxy with
-  client-cert verification for mTLS, as deployed in operations.
-- Audit: every control-plane decision is stored in `audit` (SQLite dev,
-  Postgres prod) and every local tool decision can be appended via
-  `ai_bridge.audit.audit_event` to a JSONL file. Results are redacted.
-  The control-plane API is append-only for audit events, offers an admin
-  JSONL export, and supports explicit retention pruning (30-day minimum).
-- Secrets: never committed, never in logs, never returned by tools.
-  `.env` is gitignored; use `chmod 600 .env`. Tokens are hashed at rest.
-- TLS: remote endpoints must sit behind a TLS reverse proxy with a
-  bearer/admin token; see docs/remote-access.md. Never expose :8000 or
-  :8001 directly to the internet.
-- Updates: verify a signed manifest first (`--check-update`), then install
-  the new code and restart the service (docs/operations.md). Do not
-  auto-update from an unsigned channel.
-- Incident response: revoke the device in the dashboard (token stops
-  working immediately), hit Emergency stop, review /api/audit, rotate the
-  admin token, restore from `.ai-bridge-backups/` if needed.
+# Security & Permissions Model (`docs/security.md`)
+
+## 1. Local Agent Security & Secret Storage
+- **DPAPI Secret Protection**: On Windows, device tokens and local secrets are encrypted at rest using Windows Data Protection API (`CryptProtectData` / `CryptUnprotectData` in `windows-agent/src/security/local_security.cpp`).
+- **ACL-Restricted Named Pipe IPC**: Communication between the Session 0 Windows Service (`ai_bridge_service.exe`) and the Interactive Desktop Agent (`ai_bridge_desktop.exe`) uses `\\.\pipe\AIBridgeDesktopPipe` with a strict SDDL security descriptor (`D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)`) and per-message HMAC-SHA256 authentication tags (`shared/protocols/named_pipe_protocol.json`).
+- **UIPI & Secure Desktop Compliance**: The agent respects Windows User Interface Privilege Isolation (UIPI) and never attempts to spoof or bypass UAC or Secure Desktop (`Winlogon`) prompts.
+
+## 2. Server-Side Session Permissions
+Session permissions are derived **exclusively on the backend** (`src/ai_bridge/control/v1_routes.py` and `shared/permissions/permissions_matrix.json`) from:
+1. Authenticated user role (`viewer`, `operator`, `admin`)
+2. Device policy (`desktop_enabled`, `allow_tier3`)
+3. Active session mode (`view_only`, `human_control`, `ai_assisted`)
+
+| Permission Flag | `view_only` | `human_control` | `ai_assisted` |
+| :--- | :---: | :---: | :---: |
+| `can_view_screen` | Yes | Yes | Yes |
+| `can_send_mouse` | No | Operator/Admin | Operator/Admin |
+| `can_send_keyboard` | No | Operator/Admin | Operator/Admin |
+| `can_let_ai_control` | No | No (Suppressed) | Operator/Admin |
+| `can_run_commands` | No | Admin + Tier3 Policy | Admin + Tier3 Policy |
+| `can_transfer_files` | No | Operator/Admin | Operator/Admin |
+
+**Critical Invariant**: Screen-view permission (`can_view_screen`) **never** automatically grants command execution (`can_run_commands`).
+
+## 3. Human Takeover & AI Action Safety
+- **Immediate Human Takeover**: Switching a session to `human_control` (or engaging Operator Takeover in the dashboard) sets `_HUMAN_TAKEOVER_STATE[device_id]["active"] = True`.
+- **AI Input Revocation**: All mutating `desktop_*` MCP tools (`desktop_mouse_move`, `desktop_click`, `desktop_keyboard`, `desktop_scroll`, `desktop_open_application`) check `_require_no_human_takeover()` before executing and immediately return `{ "ok": false, "error": "human_takeover_active" }` when a human operator has taken control.
+- **Disconnect Key-Release Safety**: Whenever a WebRTC session or input DataChannel disconnects, `release_all_held_keys()` immediately synthesizes `KEYEVENTF_KEYUP` / mouse-button-up events for all pressed keys so the remote machine is never left with stuck modifier keys.
+
+## 4. Risk Tiers, Approvals, and Audit Logging
+- **Risk Tiers**:
+  - Tier 1: Read-only (`desktop_get_screenshot`, `desktop_get_status`, `desktop_get_windows`, `desktop_wait`, `desktop_verify_action`).
+  - Tier 2: Low-risk confined workspace writes.
+  - Tier 3: Interactive desktop input & process launch (`desktop_mouse_move`, `desktop_click`, `desktop_keyboard`, `desktop_scroll`, `desktop_open_application`, `desktop_execute_command`).
+  - Tier 4: High-risk system mutations (always require explicit human approval).
+- **Append-Only Audit Trail**: Every session creation, mode transition, human takeover, policy change, and MCP tool execution is recorded in `/api/v1/audit` with redacted payloads.
