@@ -26,7 +26,7 @@ def resolve_binding(verify_url: str, bearer_token: str, timeout: int = 10) -> st
     session that was meant to be device-scoped."""
     try:
         with httpx.Client(timeout=timeout) as client:
-            resp = client.get(verify_url, headers={"Authorization": f"******"})
+            resp = client.get(verify_url, headers={"Authorization": f"Bearer {bearer_token}"})
             resp.raise_for_status()
             data = resp.json()
     except httpx.HTTPStatusError as exc:
