@@ -1,0 +1,13 @@
+# AI Bridge - Locked dependencies
+# Generated from pyproject.toml. Update with: pip-compile pyproject.toml
+# or: pip freeze > requirements.txt
+ai-bridge==0.3.0
+mcp>=1.6.0,<2.0.0
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.6
+psutil>=5.9
+httpx>=0.27
+cryptography>=42.0
+python-multipart>=0.0.9
+redis>=5.0

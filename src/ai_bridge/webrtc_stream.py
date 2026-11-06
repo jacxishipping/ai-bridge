@@ -23,9 +23,9 @@ import os
 import platform
 import threading
 import time
-import urllib.error
-import urllib.request
 from typing import Any
+
+import httpx
 
 SESSION_TTL_SECONDS = 600
 DEFAULT_ICE_SERVERS = [{"urls": "stun:stun.l.google.com:19302"}]
@@ -364,18 +364,18 @@ class HttpSignaling:
         self.session_id = session_id
 
     def _req(self, method: str, path: str, payload: dict | None = None, timeout: int = 15) -> dict:
-        data = json.dumps(payload).encode() if payload is not None else None
-        req = urllib.request.Request(
-            self.base + path,
-            data=data,
-            method=method,
-            headers={"X-Device-Token": self.token, "Content-Type": "application/json"},
-        )
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return json.loads(resp.read() or b"{}")
-        except urllib.error.HTTPError as exc:
-            raise RuntimeError(f"Signaling HTTP {exc.code} on {path}") from exc
+            with httpx.Client(timeout=timeout) as client:
+                resp = client.request(
+                    method,
+                    self.base + path,
+                    json=payload,
+                    headers={"X-Device-Token": self.token, "Content-Type": "application/json"},
+                )
+                resp.raise_for_status()
+                return resp.json()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"Signaling HTTP {exc.response.status_code} on {path}") from exc
 
     def post_offer(self, offer: dict) -> None:
         self._req("POST", f"/api/agent/webrtc/{self.session_id}/offer", {"sdp": offer["sdp"], "type": offer["type"]})

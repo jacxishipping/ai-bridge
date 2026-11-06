@@ -25,11 +25,11 @@ import os
 import secrets
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 import uuid
 from pathlib import Path
+from urllib.parse import urlencode, urlparse, parse_qs
+
+import httpx
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,9 +46,9 @@ from . import auth as authmod
 from . import metrics as metricsmod
 from . import db as dbmod
 from .dispatch import dispatch
+from .ratelimit import rate_limit, make_rate_limiter
+from .csrf import generate_csrf_token, validate_csrf_token
 
-_RATE: dict[str, list[float]] = {}
-_RATE_LOCK = threading.Lock()
 MAX_RESULT_CHARS = 512_000
 _DUMMY_SALT = "0" * 32
 _DUMMY_HASH = "0" * 64
@@ -57,7 +57,7 @@ _DUMMY_HASH = "0" * 64
 def _validate_webhook_url(url: str) -> None:
     if not url:
         return
-    parsed = urllib.parse.urlparse(url)
+    parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc or not parsed.hostname:
         raise HTTPException(status_code=400, detail="webhook_url must be an http(s) URL.")
     host = parsed.hostname.lower()
@@ -73,7 +73,7 @@ def _validate_webhook_url(url: str) -> None:
 
 def _valid_oauth_redirect_uri(uri: str) -> bool:
     try:
-        p = urllib.parse.urlparse(uri)
+        p = urlparse(uri)
     except Exception:
         return False
     if p.fragment or not p.netloc or not p.hostname:
@@ -86,12 +86,7 @@ def _valid_oauth_redirect_uri(uri: str) -> bool:
 
 
 def _rate_limit(key: str, limit: int = 120, window: int = 60) -> None:
-    now = time.time()
-    with _RATE_LOCK:
-        bucket = [t for t in _RATE.get(key, []) if now - t < window]
-        bucket.append(now); _RATE[key] = bucket
-        if len(bucket) > limit:
-            raise HTTPException(status_code=429, detail="Rate limit exceeded.")
+    rate_limit(key, limit, window)()
 
 
 def make_quick_sig(admin_token: str | None, approval_id: str, decision: str) -> str:
@@ -158,7 +153,7 @@ def send_webhook_notification(
         "quick_deny_url": deny_url,
     }
 
-    parsed = urllib.parse.urlparse(url)
+    parsed = urlparse(url)
     netloc = (parsed.netloc or "").lower()
 
     if "discord.com" in netloc:
@@ -179,7 +174,7 @@ def send_webhook_notification(
         else:
             payload["content"] = f"ℹ️ **[AI Bridge Notification]** `{evt_type}` on `{dev_name}`\nTool: `{tool}`\nTask: `{task_id}`"
     elif "api.telegram.org" in netloc:
-        qs = urllib.parse.parse_qs(parsed.query)
+        qs = parse_qs(parsed.query)
         chat_id = qs.get("chat_id", [""])[0]
         if chat_id:
             payload["chat_id"] = chat_id
@@ -232,20 +227,25 @@ def send_webhook_notification(
             })
         payload["blocks"] = blocks
 
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        method="POST",
-        headers={"Content-Type": "application/json", "User-Agent": "AI-Bridge-Control/0.3"},
-    )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            status = getattr(resp, "status", 200)
-            return {"ok": 200 <= status < 300, "status": status}
-    except urllib.error.HTTPError as exc:
-        return {"ok": False, "status": exc.code, "error": f"HTTP {exc.code}"}
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(url, json=payload, headers={"User-Agent": "AI-Bridge-Control/0.3"})
+            return {"ok": resp.is_success, "status": resp.status_code}
+    except httpx.HTTPStatusError as exc:
+        return {"ok": False, "status": exc.response.status_code, "error": f"HTTP {exc.response.status_code}"}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc)}
+
+
+async def send_webhook_notification_async(
+    webhook_url: str,
+    event: dict,
+    admin_token: str | None = None,
+    public_base_url: str | None = None,
+    timeout: int = 10,
+) -> dict:
+    """Async version of send_webhook_notification using httpx.AsyncClient."""
+    return await asyncio.to_thread(send_webhook_notification, webhook_url, event, admin_token, public_base_url, timeout)
 
 
 class EnrollIn(BaseModel):
@@ -769,16 +769,16 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     from .workspace import install_workspace_routes
     install_workspace_routes(app, conn, require_role, audit)
 
-    @app.get("/health")
+    @app.get("/health", summary="Health check", description="Returns basic health status of the control plane including version and emergency stop state.")
     def health():
         return {"status": "ok", "version": "0.3.0", "emergency_stop": app.state.emergency_stop}
 
-    @app.get("/health/live")
+    @app.get("/health/live", summary="Liveness probe", description="Verifies the process is alive and responsive.")
     def health_live():
         """Liveness probe: verifies process is alive and responsive."""
         return {"status": "live", "uptime": time.time() - getattr(app.state, "_start_time", time.time())}
 
-    @app.get("/health/ready")
+    @app.get("/health/ready", summary="Readiness probe", description="Verifies database connectivity and state.")
     def health_ready():
         """Readiness probe: verifies database connectivity and state."""
         try:
@@ -789,13 +789,13 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         except Exception as exc:
             raise HTTPException(status_code=503, detail=f"Database probe failed: {exc}")
 
-    @app.get("/metrics")
+    @app.get("/metrics", summary="Prometheus metrics", description="Exposes Prometheus-compatible metrics for monitoring and alerting.")
     def metrics_endpoint():
         """Prometheus metrics exposition endpoint."""
         payload, content_type = metricsmod.get_metrics_payload(conn)
         return Response(content=payload, media_type=content_type)
 
-    @app.post("/api/devices/enroll")
+    @app.post("/api/devices/enroll", summary="Enroll a new device", description="Registers a new device in the fleet and returns a one-time device token.")
     def enroll(body: EnrollIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         actor = require_admin(x_admin_token, x_session_token)
         device_id = uuid.uuid4().hex[:12]
@@ -867,7 +867,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 pass
         return meta
 
-    @app.get("/api/devices")
+    @app.get("/api/devices", summary="List devices", description="Lists all devices in the fleet with their status, metadata, and live telemetry.")
     def list_devices(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None), tenant: str = "default"):
         require_role("viewer", x_admin_token, x_session_token)
         rows = conn.execute(
@@ -1351,7 +1351,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                     "policy_version": policy_version,
                 }
                 pub_url = get_public_base_url(request)
-                threading.Thread(target=send_webhook_notification, args=(wh_url, evt, token, pub_url), daemon=True).start()
+                asyncio.create_task(asyncio.to_thread(send_webhook_notification, wh_url, evt, token, pub_url))
         return {"task_id": task_id, "status": status, "tier": tier.value, "approval_id": approval_id}
 
     @app.get("/api/tasks")
@@ -1526,7 +1526,10 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         return {"approval_id": approval_id, "status": body.decision, "decided_by": actor, "decided_at": now}
 
     @app.get("/api/approvals/quick/{approval_id}", response_class=HTMLResponse)
-    def quick_approval(approval_id: str, decision: str = "approved", sig: str = ""):
+    def quick_approval(approval_id: str, decision: str = "approved", sig: str = "", request: Request = None):
+        _rate_limit(f"quick_approval:{approval_id}", limit=10, window=60)
+        if request:
+            _rate_limit(f"quick_approval_ip:{request.client.host}", limit=30, window=60)
         expire_pending_approvals()
         decision = (decision or "").strip().lower()
         if decision not in {"approved", "denied"}:
@@ -2075,7 +2078,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                                     "timestamp": now_ts,
                                     "content": f"🚨 Alert: Trigger '{trig['name']}' fired on {dev_row['name']}: {metric_key}={val} (threshold {op} {thresh})"
                                 }
-                                threading.Thread(target=send_webhook_notification, args=(wh_url, evt, admin_token, get_public_base_url()), daemon=True).start()
+                                asyncio.run(send_webhook_notification_async(wh_url, evt, admin_token, get_public_base_url()))
                                 audit("trigger", dev_row["id"], f"trigger:{trig['name']}", {"metric": metric_key, "value": val, "webhook": bool(wh_url)}, "executed", tenant=dev_row["tenant"])
         except Exception:
             pass
@@ -3113,6 +3116,16 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         return res
 
     # --- Auth: local users / sessions ------------------------------------
+    @app.get("/api/auth/csrf-token")
+    def get_csrf_token(x_session_token: str | None = Header(default=None)):
+        if not x_session_token:
+            raise HTTPException(status_code=401, detail="Session token required.")
+        row = conn.execute("SELECT * FROM sessions WHERE token_hash=?", (dbmod.hash_token(x_session_token),)).fetchone()
+        if row is None or row["expires_at"] < dbmod.now():
+            raise HTTPException(status_code=401, detail="Invalid or expired session.")
+        token = generate_csrf_token(x_session_token)
+        return {"csrf_token": token, "expires_in": 86400}
+
     @app.post("/api/auth/login")
     def login(body: LoginIn):
         user = conn.execute("SELECT * FROM users WHERE username=? AND disabled=0", (body.username,)).fetchone()
@@ -3164,8 +3177,6 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
     @app.get("/api/auth/oidc/callback")
     def oidc_callback(code: str = "", state: str = ""):
-        from urllib.parse import urlencode
-
         import httpx
         from fastapi.responses import RedirectResponse
 
@@ -3676,9 +3687,6 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             token_val = admin_hdr or dev_hdr or sess_hdr or auth_hdr
             key = f"tok:{dbmod.hash_token(token_val)[:16]}" if token_val else f"ip:{client_ip}"
             limit = 1200 if token_val else 300
-        with _RATE_LOCK:
-            if len(_RATE) > 4096:
-                _RATE.clear()
         try:
             _rate_limit(key, limit=limit)
         except HTTPException as exc:

@@ -1,0 +1,27 @@
+# AI Bridge — Development Stack
+# Uses SQLite (no Postgres dependency), hot-reload, and sensible defaults.
+# Usage: docker compose -f docker-compose.dev.yml up
+services:
+  control-api:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile
+      target: dev
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - AI_BRIDGE_ADMIN_TOKEN=${AI_BRIDGE_ADMIN_TOKEN:-dev-admin-token}
+      - AI_BRIDGE_WORKSPACE=/workspace
+      - AI_BRIDGE_LOG_LEVEL=DEBUG
+      - AI_BRIDGE_JSON_LOGS=false
+      - AI_BRIDGE_DATA_DIR=/workspace/.ai-bridge
+      - AI_BRIDGE_ALLOW_BOOTSTRAP=1
+    volumes:
+      - "./src:/app/src:ro"
+      - "./ai-bridge-workspace:/workspace"
+    command: ["uvicorn", "ai_bridge.control.app:create_app()", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    develop:
+      watch:
+        - path: src
+          action: sync
+          target: /app/src

@@ -5,15 +5,14 @@ device binding or select_device), tool calls for that session are executed as
 control-plane tasks on the device instead of running on the droplet.
 Unbound sessions keep the previous behavior (droplet-local tools).
 
-Stdlib only (urllib), so this module is testable without the MCP SDK.
 Secrets are never logged; tokens travel only in request headers.
 """
 from __future__ import annotations
 
 import json
 import time
-import urllib.error
-import urllib.request
+
+import httpx
 
 
 class BindingError(RuntimeError):
@@ -25,14 +24,13 @@ def resolve_binding(verify_url: str, bearer_token: str, timeout: int = 10) -> st
     Raises BindingError when the binding cannot be resolved: callers
     must fail closed rather than silently run droplet tools for a
     session that was meant to be device-scoped."""
-    req = urllib.request.Request(
-        verify_url, headers={"Authorization": f"Bearer {bearer_token}"}
-    )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read() or b"{}")
-    except urllib.error.HTTPError as exc:
-        raise BindingError(f"gateway verify returned HTTP {exc.code}")
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.get(verify_url, headers={"Authorization": f"******"})
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPStatusError as exc:
+        raise BindingError(f"gateway verify returned HTTP {exc.response.status_code}")
     except Exception as exc:  # noqa: BLE001 - surfaced as a binding failure
         raise BindingError(f"gateway verify failed: {exc}")
     if not data.get("ok"):
@@ -41,16 +39,17 @@ def resolve_binding(verify_url: str, bearer_token: str, timeout: int = 10) -> st
 
 
 def _api(method: str, url: str, admin_token: str, payload: dict | None = None, timeout: int = 20) -> dict | list:
-    data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(
-        url, data=data, method=method,
-        headers={"X-Admin-Token": admin_token, "Content-Type": "application/json"},
-    )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read() or b"{}")
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"control plane returned HTTP {exc.code} for {method} {url}")
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.request(
+                method, url,
+                json=payload,
+                headers={"X-Admin-Token": admin_token, "Content-Type": "application/json"},
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(f"control plane returned HTTP {exc.response.status_code} for {method} {url}")
 
 
 def _parse_result(text: str):

@@ -13,10 +13,9 @@ import logging
 import os
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from typing import Any
+
+import httpx
 
 logger = logging.getLogger("ai_bridge.alerts")
 
@@ -38,12 +37,10 @@ def _send_http_json(url: str, payload: dict, headers: dict | None = None, timeou
     if headers:
         req_headers.update(headers)
 
-    data = json.dumps(payload, default=str).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=req_headers, method="POST")
-
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return 200 <= resp.status < 300
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(url, json=payload, headers=req_headers)
+            return resp.is_success
     except Exception as exc:
         logger.warning("Failed to dispatch alert to %s: %s", url, exc)
         return False

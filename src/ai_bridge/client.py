@@ -31,10 +31,9 @@ from __future__ import annotations
 
 import json
 import os
-import urllib.error
-import urllib.parse
-import urllib.request
 from typing import Any
+
+import httpx
 
 
 class AIBridgeError(RuntimeError):
@@ -328,4 +327,5 @@ class AIBridgeClient:
             "device": device,
         }
         return self._request("POST", "/v1/chat/completions", payload=payload, timeout=120)
+
 
