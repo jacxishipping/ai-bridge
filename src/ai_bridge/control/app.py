@@ -2485,6 +2485,34 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 return cached
             return {"available": False, "error": str(exc)}
 
+    @app.get("/api/devices/{device_id}/desktop/live.jpg")
+    def get_device_desktop_live_jpeg(
+        device_id: str,
+        scale: float = 0.75,
+        quality: int = 75,
+        token: str | None = None,
+        session_token: str | None = None,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        """Return the latest live desktop frame directly as an image/jpeg binary response."""
+        import base64
+        admin_tok = x_admin_token or token
+        sess_tok = x_session_token or session_token
+        require_role("viewer", admin_tok, sess_tok, authorization)
+        frame = get_device_desktop_frame(
+            device_id=device_id,
+            scale=scale,
+            quality=quality,
+            x_admin_token=admin_tok,
+            x_session_token=sess_tok,
+        )
+        if not isinstance(frame, dict) or not frame.get("base64_data"):
+            raise HTTPException(status_code=404, detail=frame.get("error") if isinstance(frame, dict) else "No desktop frame available.")
+        raw_bytes = base64.b64decode(frame["base64_data"])
+        return Response(content=raw_bytes, media_type=frame.get("mime_type") or "image/jpeg", headers={"Cache-Control": "no-store"})
+
     @app.get("/api/fleet/desktop/frames")
     def get_fleet_desktop_frames(
         os: str | None = None,

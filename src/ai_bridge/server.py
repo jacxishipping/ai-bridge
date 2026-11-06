@@ -27,6 +27,7 @@ import os
 import platform
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ImageContent, TextContent
 
 from . import diagnostics, git_ops, tools, workspace
 from .device_routing import (
@@ -171,6 +172,7 @@ DESKTOP_ROUTING_TOOLS = {
     "capture_desktop_screenshot",
     "take_screenshot",
     "capture_desktop_frame",
+    "view_live_screen",
     "launch_approved_application",
     "perform_approved_ui_action",
     "mouse_click",
@@ -542,6 +544,19 @@ def capture_desktop_screenshot(device: str | None = None) -> dict:
     return tools.capture_desktop_screenshot()
 
 
+def _to_vision_content(res: dict) -> list:
+    """Convert a frame/screenshot dict with base64_data into native MCP ImageContent + TextContent metadata."""
+    if not isinstance(res, dict) or not res.get("base64_data"):
+        return [TextContent(type="text", text=json.dumps(res))]
+    b64 = str(res["base64_data"])
+    mime = str(res.get("mime_type") or "image/jpeg")
+    meta = {k: v for k, v in res.items() if k != "base64_data"}
+    return [
+        ImageContent(type="image", data=b64, mimeType=mime),
+        TextContent(type="text", text=json.dumps(meta)),
+    ]
+
+
 @mcp.tool()
 @device_aware(dispatch_name="capture_desktop_frame")
 def capture_desktop_frame(scale: float = 0.75, quality: int = 70, device: str | None = None) -> dict:
@@ -551,6 +566,17 @@ def capture_desktop_frame(scale: float = 0.75, quality: int = 70, device: str | 
     device (optional): Target machine or 'local'."""
     approved = _consume_local_approval("capture_desktop_screenshot")
     return tools.capture_desktop_frame(scale=scale, quality=quality, approval_granted=approved)
+
+
+@mcp.tool()
+def view_live_screen(scale: float = 0.75, quality: int = 75, device: str | None = None) -> list:
+    """Stream/capture a live visual frame of the Windows desktop as a native MCP ImageContent block so ChatGPT, Claude, and Grok vision models can directly see the screen.
+    scale: Image scale factor between 0.2 and 1.0 (default 0.75).
+    quality: JPEG compression quality between 20 and 95 (default 75).
+    device (optional): Target Windows device name/ID, or automatically routes to the active Windows machine."""
+    res = capture_desktop_frame(scale=scale, quality=quality, device=device)
+    return _to_vision_content(res)
+
 
 @mcp.tool()
 @device_aware(dispatch_name="capture_desktop_screenshot")
