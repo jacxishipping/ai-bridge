@@ -121,6 +121,19 @@ export const LiveDesktopView: React.FC = () => {
     state: "idle",
   });
 
+  const BITRATE_LADDER_KBPS = [5000, 3500, 2200, 1200, 600];
+  const [abrMode, setAbrMode] = useState<"auto" | "5000" | "3500" | "2200" | "1200" | "600">("auto");
+  const [targetBitrateKbps, setTargetBitrateKbps] = useState<number>(4500);
+  const [pointerLockActive, setPointerLockActive] = useState<boolean>(false);
+  const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
+
+  const canvasContainerRef = useRef<HTMLDivElement | null>(null);
+  const isMouseDownRef = useRef<boolean>(false);
+  const virtualCursorRef = useRef<{ normX: number; normY: number }>({ normX: 0.5, normY: 0.5 });
+  const consecutiveBadRef = useRef<number>(0);
+  const consecutiveGoodRef = useRef<number>(0);
+  const currentBitrateRef = useRef<number>(4500);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const inputDcRef = useRef<RTCDataChannel | null>(null);
@@ -169,6 +182,91 @@ export const LiveDesktopView: React.FC = () => {
   const releaseAllRemoteKeys = useCallback(() => {
     sendDataChannelEvent({ type: "release_all_keys" });
   }, [sendDataChannelEvent]);
+
+  // Adaptive Bitrate dispatcher
+  const applyBitrate = useCallback(
+    (kbps: number, isAutoAdjust = false) => {
+      currentBitrateRef.current = kbps;
+      setTargetBitrateKbps(kbps);
+      sendDataChannelEvent({
+        action: "network_quality",
+        bitrate_kbps: kbps,
+      });
+      if (webrtcSessionId && isLiveMode()) {
+        void api.updateSessionQualityV1(webrtcSessionId, { bitrate_kbps: kbps }).catch(() => {});
+      }
+      if (isAutoAdjust) {
+        setRecentMacroNotice(`Adaptive Bitrate adjusted target: ${(kbps / 1000).toFixed(1)} Mbps`);
+        setTimeout(() => setRecentMacroNotice(null), 2500);
+      }
+    },
+    [sendDataChannelEvent, webrtcSessionId]
+  );
+
+  // Monitor browser pointer lock state
+  useEffect(() => {
+    const handleLockChange = () => {
+      const isLocked = document.pointerLockElement === canvasContainerRef.current;
+      setPointerLockActive(isLocked);
+    };
+    document.addEventListener("pointerlockchange", handleLockChange);
+    return () => document.removeEventListener("pointerlockchange", handleLockChange);
+  }, []);
+
+  // Global mouse handlers for continuous drag and pointer lock motion
+  useEffect(() => {
+    const handleGlobalMouseUp = (e: MouseEvent) => {
+      if (isMouseDownRef.current) {
+        isMouseDownRef.current = false;
+        if (controlMode === "takeover" && mouseLinked) {
+          sendDataChannelEvent({
+            type: "mouse_button",
+            action: "up",
+            button: e.button === 2 ? "right" : e.button === 1 ? "middle" : "left",
+            normalized: true,
+            x: virtualCursorRef.current.normX,
+            y: virtualCursorRef.current.normY,
+          });
+        }
+      }
+    };
+
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (document.pointerLockElement && document.pointerLockElement === canvasContainerRef.current) {
+        const sens = 0.0006;
+        let nx = virtualCursorRef.current.normX + e.movementX * sens;
+        let ny = virtualCursorRef.current.normY + e.movementY * sens;
+        nx = Math.max(0, Math.min(1, nx));
+        ny = Math.max(0, Math.min(1, ny));
+        virtualCursorRef.current = { normX: nx, normY: ny };
+
+        const x = Math.round(nx * 2560);
+        const y = Math.round(ny * 1440);
+        const now = performance.now();
+        if (now - lastCoordUpdateRef.current > 66) {
+          lastCoordUpdateRef.current = now;
+          setOperatorCoords({ x, y });
+        }
+
+        if (controlMode === "takeover" && mouseLinked) {
+          sendDataChannelEvent({
+            type: "mouse_move",
+            x: nx,
+            y: ny,
+            normalized: true,
+            monitor_index: selectedMonitorIndex,
+          });
+        }
+      }
+    };
+
+    window.addEventListener("mouseup", handleGlobalMouseUp);
+    window.addEventListener("mousemove", handleGlobalMouseMove);
+    return () => {
+      window.removeEventListener("mouseup", handleGlobalMouseUp);
+      window.removeEventListener("mousemove", handleGlobalMouseMove);
+    };
+  }, [controlMode, mouseLinked, sendDataChannelEvent, selectedMonitorIndex]);
 
   // Automatically release held keys on window blur or visibility loss
   useEffect(() => {
@@ -274,12 +372,14 @@ export const LiveDesktopView: React.FC = () => {
     };
   }, [selectedDevice?.id, selectedDevice?.status, selectedDevice?.hostname, isStreamActive, webrtcConnected, fetchLiveFrame]);
 
-  // Mouse move handler over canvas
+  // Mouse move handler over canvas (when not pointer-locked)
   const handleCanvasMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (document.pointerLockElement === canvasContainerRef.current) return;
       const rect = e.currentTarget.getBoundingClientRect();
       const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
       const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / Math.max(1, rect.height)));
+      virtualCursorRef.current = { normX, normY };
       const x = Math.round(normX * 2560);
       const y = Math.round(normY * 1440);
 
@@ -302,6 +402,56 @@ export const LiveDesktopView: React.FC = () => {
     },
     [controlMode, mouseLinked, sendDataChannelEvent, selectedMonitorIndex]
   );
+
+  const handleCanvasMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!isLiveMode() || controlMode !== "takeover" || !mouseLinked) return;
+      isMouseDownRef.current = true;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+      const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / Math.max(1, rect.height)));
+      virtualCursorRef.current = { normX, normY };
+
+      sendDataChannelEvent({
+        type: "mouse_button",
+        action: "down",
+        button: e.button === 2 ? "right" : e.button === 1 ? "middle" : "left",
+        x: normX,
+        y: normY,
+        normalized: true,
+      });
+    },
+    [controlMode, mouseLinked, sendDataChannelEvent]
+  );
+
+  const handleCanvasMouseUp = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!isLiveMode() || controlMode !== "takeover" || !mouseLinked) return;
+      isMouseDownRef.current = false;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+      const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / Math.max(1, rect.height)));
+      virtualCursorRef.current = { normX, normY };
+
+      sendDataChannelEvent({
+        type: "mouse_button",
+        action: "up",
+        button: e.button === 2 ? "right" : e.button === 1 ? "middle" : "left",
+        x: normX,
+        y: normY,
+        normalized: true,
+      });
+    },
+    [controlMode, mouseLinked, sendDataChannelEvent]
+  );
+
+  const togglePointerLock = useCallback(() => {
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    } else if (canvasContainerRef.current) {
+      canvasContainerRef.current.requestPointerLock();
+    }
+  }, []);
 
   // Forward canvas click in takeover mode when logged in
   const handleCanvasClick = useCallback(
@@ -499,6 +649,40 @@ export const LiveDesktopView: React.FC = () => {
           }
         }
         prevBytesRef.current = { bytes: bytesReceived, ts: now };
+
+        // Closed-loop Adaptive Bitrate (ABR) algorithm
+        if (abrMode === "auto") {
+          const curr = currentBitrateRef.current;
+          const isCongested = rttMs > 160 || droppedFrames > 5;
+          const isClear = rttMs < 90 && droppedFrames === 0;
+
+          if (isCongested) {
+            consecutiveGoodRef.current = 0;
+            consecutiveBadRef.current += 1;
+            if (consecutiveBadRef.current >= 2) {
+              consecutiveBadRef.current = 0;
+              const nextLower = BITRATE_LADDER_KBPS.find((r) => r < curr);
+              if (nextLower) {
+                applyBitrate(nextLower, true);
+              }
+            }
+          } else if (isClear) {
+            consecutiveBadRef.current = 0;
+            consecutiveGoodRef.current += 1;
+            if (consecutiveGoodRef.current >= 8) {
+              consecutiveGoodRef.current = 0;
+              const reversed = [...BITRATE_LADDER_KBPS].reverse();
+              const nextHigher = reversed.find((r) => r > curr);
+              if (nextHigher) {
+                applyBitrate(nextHigher, true);
+              }
+            }
+          } else {
+            consecutiveBadRef.current = 0;
+            consecutiveGoodRef.current = 0;
+          }
+        }
+
         if (inputDcRef.current?.readyState === "open" && (rttMs > 160 || droppedFrames > 5)) {
           sendDataChannelEvent({
             action: "network_quality",
@@ -518,7 +702,7 @@ export const LiveDesktopView: React.FC = () => {
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [webrtcSessionId]);
+  }, [webrtcSessionId, abrMode, applyBitrate]);
 
   // Only teardown WebRTC when LiveDesktopView component actually unmounts
   useEffect(() => {
@@ -619,18 +803,34 @@ export const LiveDesktopView: React.FC = () => {
             const st = pc.connectionState;
             setWebrtcStats((prev) => ({ ...prev, state: st }));
             if (st === "connected") {
+              setIsReconnecting(false);
               setWebrtcConnected(true);
               setRecentMacroNotice(`WebRTC live H.264 stream connected [${sid.slice(0, 8)}]`);
               setTimeout(() => setRecentMacroNotice(null), 3000);
-            } else if (st === "disconnected" || st === "failed") {
+            } else if (st === "disconnected") {
+              // Graceful network jitter handling: give ICE 2.5s to self-heal
+              setIsReconnecting(true);
+              setTimeout(() => {
+                if (pcRef.current?.connectionState === "disconnected" || pcRef.current?.connectionState === "failed") {
+                  setIsReconnecting(false);
+                  setWebrtcConnected(false);
+                  releaseAllRemoteKeys();
+                  if (isLiveMode()) {
+                    void handleStartWebrtc();
+                  }
+                } else if (pcRef.current?.connectionState === "connected") {
+                  setIsReconnecting(false);
+                }
+              }, 2500);
+            } else if (st === "failed") {
+              setIsReconnecting(false);
               setWebrtcConnected(false);
               releaseAllRemoteKeys();
-              // Automatic reconnect after temporary network loss
               setTimeout(() => {
                 if (isLiveMode()) {
                   void handleStartWebrtc();
                 }
-              }, 2000);
+              }, 1500);
             }
           };
 
@@ -735,7 +935,33 @@ export const LiveDesktopView: React.FC = () => {
             <Activity className="w-3 h-3 text-emerald-400" />
             <span>H.264 {webrtcStats.fps} FPS</span>
             <span className="text-slate-600">|</span>
-            <span>{webrtcStats.bitrateMbps} Mbps</span>
+            <button
+              type="button"
+              onClick={() => {
+                const modes: Array<"auto" | "5000" | "3500" | "2200" | "1200" | "600"> = [
+                  "auto",
+                  "5000",
+                  "3500",
+                  "2200",
+                  "1200",
+                  "600",
+                ];
+                const nextIdx = (modes.indexOf(abrMode) + 1) % modes.length;
+                const nextMode = modes[nextIdx];
+                setAbrMode(nextMode);
+                if (nextMode !== "auto") {
+                  applyBitrate(parseInt(nextMode, 10));
+                }
+              }}
+              className="hover:text-indigo-300 transition-colors flex items-center gap-1 underline underline-offset-2"
+              title="Toggle Adaptive Bitrate Ladder mode"
+            >
+              <span>
+                {abrMode === "auto"
+                  ? `ABR ${(targetBitrateKbps / 1000).toFixed(1)}M [AUTO]`
+                  : `ABR ${(parseInt(abrMode, 10) / 1000).toFixed(1)}M [FIXED]`}
+              </span>
+            </button>
             <span className="text-slate-600">|</span>
             <span>RTT {webrtcStats.rttMs}ms</span>
             <span className="text-slate-600">|</span>
@@ -848,6 +1074,21 @@ export const LiveDesktopView: React.FC = () => {
               <span>Clipboard Sync</span>
               <span className={`w-1.5 h-1.5 rounded-full ${clipboardSync ? "bg-indigo-400" : "bg-slate-600"}`}></span>
             </button>
+
+            <button
+              type="button"
+              onClick={togglePointerLock}
+              className={`px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-1.5 border transition-all ${
+                pointerLockActive
+                  ? "bg-indigo-600/20 text-indigo-300 border-indigo-500/40"
+                  : "bg-slate-950 text-slate-500 border-slate-800"
+              }`}
+              title="Lock mouse cursor inside stream canvas for direct precision control (Press Esc to unlock)"
+            >
+              <Crosshair className="w-3.5 h-3.5" />
+              <span>Pointer Lock</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${pointerLockActive ? "bg-indigo-400 animate-pulse" : "bg-slate-600"}`}></span>
+            </button>
           </div>
         </div>
 
@@ -957,8 +1198,11 @@ export const LiveDesktopView: React.FC = () => {
 
       {/* Desktop Stream Viewport Canvas */}
       <div
+        ref={canvasContainerRef}
         tabIndex={0}
         onMouseMove={handleCanvasMouseMove}
+        onMouseDown={handleCanvasMouseDown}
+        onMouseUp={handleCanvasMouseUp}
         onClick={handleCanvasClick}
         onKeyDown={handleCanvasKeyDown}
         onKeyUp={handleCanvasKeyUp}
@@ -1180,6 +1424,26 @@ export const LiveDesktopView: React.FC = () => {
             <div className="px-4 py-1.5 rounded-full bg-slate-950/90 backdrop-blur-md border border-indigo-500/60 shadow-xl flex items-center gap-2 font-mono text-xs text-indigo-300">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               <span className="font-semibold">Operator Takeover Active — Agent Input Suppressed</span>
+            </div>
+          </div>
+        )}
+
+        {/* Pointer Lock Status Badge */}
+        {pointerLockActive && (
+          <div className="absolute top-3 right-3 pointer-events-none z-30">
+            <div className="px-3 py-1.5 rounded-xl bg-slate-950/95 border border-indigo-500/60 text-xs font-mono text-indigo-300 shadow-xl flex items-center gap-2">
+              <Crosshair className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Pointer Locked · Press [ESC] to unlock</span>
+            </div>
+          </div>
+        )}
+
+        {/* WebRTC Auto-Healing Reconnect Banner */}
+        {isReconnecting && (
+          <div className="absolute top-12 left-1/2 -translate-x-1/2 pointer-events-none z-30">
+            <div className="px-4 py-1.5 rounded-full bg-amber-950/90 border border-amber-500/60 text-xs font-mono text-amber-300 shadow-xl flex items-center gap-2">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+              <span>WebRTC Reconnecting (Auto-healing stream)...</span>
             </div>
           </div>
         )}
