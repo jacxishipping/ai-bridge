@@ -1,0 +1,292 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Website Investigation Audit Manifest",
+  "type": "object",
+  "required": [
+    "audit_id",
+    "target_url",
+    "created_at",
+    "status",
+    "capabilities",
+    "pages",
+    "tests",
+    "evidence",
+    "issues",
+    "gemini_tasks",
+    "limitations"
+  ],
+  "properties": {
+    "audit_id": {
+      "type": "string"
+    },
+    "target_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "not_started",
+        "in_progress",
+        "completed",
+        "blocked",
+        "partial"
+      ]
+    },
+    "scope": {
+      "type": "string"
+    },
+    "depth": {
+      "enum": [
+        "standard",
+        "comprehensive"
+      ]
+    },
+    "capabilities": {
+      "type": "object"
+    },
+    "pages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "url",
+          "status"
+        ],
+        "properties": {
+          "page_id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "discovered",
+              "queued",
+              "in_progress",
+              "inspected",
+              "blocked",
+              "inaccessible",
+              "skipped"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "test_id",
+          "status"
+        ],
+        "properties": {
+          "test_id": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "component": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "pass",
+              "fail",
+              "blocked",
+              "not_tested"
+            ]
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "evidence_id",
+          "kind"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "artifact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "page_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "viewport": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "captured_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "issue_id",
+          "severity",
+          "evidence_class",
+          "status"
+        ],
+        "properties": {
+          "issue_id": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low",
+              "informational"
+            ]
+          },
+          "evidence_class": {
+            "enum": [
+              "VERIFIED",
+              "OBSERVED",
+              "INFERRED",
+              "UNVERIFIED",
+              "NOT_ACCESSIBLE"
+            ]
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "needs_confirmation",
+              "rejected"
+            ]
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "gemini_tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "task_id",
+          "route",
+          "status"
+        ],
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "route": {
+            "enum": [
+              "mcp",
+              "api",
+              "configured_endpoint",
+              "manual",
+              "unavailable"
+            ]
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "sent",
+              "completed",
+              "failed",
+              "validated"
+            ]
+          },
+          "request_file": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "response_file": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "progress": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}
