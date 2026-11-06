@@ -44,6 +44,45 @@ services:
     networks:
       - aibridge-network
 
+  mcp-http:
+    image: ai-bridge-control:production
+    container_name: aibridge-mcp
+    restart: always
+    command: ["python", "-m", "ai_bridge.server", "--http", "--host", "0.0.0.0", "--port", "8001"]
+    environment:
+      - AI_BRIDGE_ADMIN_TOKEN=${AI_BRIDGE_ADMIN_TOKEN:?Set AI_BRIDGE_ADMIN_TOKEN in .env}
+      - AI_BRIDGE_CONTROL_URL=http://control-api:8000
+      - AI_BRIDGE_DATA_DIR=/var/lib/ai-bridge
+      - AI_BRIDGE_WORKSPACE=/var/lib/ai-bridge/workspace
+      - AI_BRIDGE_DISABLE_HOST_TOOLS=1
+      - AI_BRIDGE_GATEWAY_VERIFY_URL=http://oauth-gateway:8002/internal/verify
+    depends_on:
+      - control-api
+      - oauth-gateway
+    volumes:
+      - aibridge-data:/var/lib/ai-bridge
+    networks:
+      - aibridge-network
+
+  oauth-gateway:
+    image: ai-bridge-control:production
+    container_name: aibridge-oauth
+    restart: always
+    working_dir: /gateway
+    command: ["python", "-m", "uvicorn", "gateway:app", "--host", "0.0.0.0", "--port", "8002"]
+    environment:
+      - AI_BRIDGE_ADMIN_TOKEN=${AI_BRIDGE_ADMIN_TOKEN:?Set AI_BRIDGE_ADMIN_TOKEN in .env}
+      - AI_BRIDGE_OAUTH_ISSUER=${AI_BRIDGE_OAUTH_ISSUER:-https://jxiptvplayer.app}
+      - AI_BRIDGE_OAUTH_DB=/var/lib/ai-bridge/oauth/oauth.db
+      - AI_BRIDGE_CONTROL_URL=http://control-api:8000
+    depends_on:
+      - control-api
+    volumes:
+      - ./deployment/oauth:/gateway:ro
+      - aibridge-data:/var/lib/ai-bridge
+    networks:
+      - aibridge-network
+
   postgres:
     image: postgres:16-alpine
     container_name: aibridge-postgres
@@ -86,6 +125,7 @@ services:
       - certbot-challenge:/var/www/certbot
     depends_on:
       - control-api
+      - mcp-http
     networks:
       - aibridge-network
 
