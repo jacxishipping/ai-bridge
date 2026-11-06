@@ -724,7 +724,7 @@ class DashboardStore {
 
     try {
       const startTime = performance.now();
-      const [identRes, healthRes, rawDevs, rawTele, rawTasks, rawApprovals, rawAudit] = await Promise.all([
+      const [identRes, healthRes, rawDevs, rawTele, rawTasks, rawApprovals, rawAudit, rawConn, rawWf] = await Promise.all([
         api.me().catch(() => null),
         api.health().catch(() => null),
         api.devices().catch(() => null),
@@ -732,6 +732,8 @@ class DashboardStore {
         api.tasks().catch(() => null),
         api.approvals().catch(() => null),
         api.audit().catch(() => null),
+        api.connections().catch(() => null),
+        api.workflows().catch(() => null),
       ]);
       const latency = Math.round(performance.now() - startTime);
 
@@ -874,6 +876,102 @@ class DashboardStore {
           prevHash: ev.prev_hash ? `sha256:${ev.prev_hash}` : "not recorded",
           payloadSummary: typeof ev.args_json === "string" ? ev.args_json : JSON.stringify(ev.args_json || {}),
         }));
+        nextState.logs = rawAudit.map((ev: any, idx: number) => {
+          const decision = String(ev.decision || "allowed").toLowerCase();
+          const level = decision === "denied" || decision === "failed" ? "ERROR" : decision === "needs_approval" ? "WARN" : "INFO";
+          const toolName = String(ev.tool || "system");
+          const service = toolName.includes("oauth") ? "ai-bridge-oauth" : toolName.includes("mcp") ? "ai-bridge-mcp" : "ai-bridge-control";
+          const argsStr = typeof ev.args_json === "string" ? ev.args_json : JSON.stringify(ev.args_json || {});
+          return {
+            id: `log-${ev.id || idx}`,
+            timestamp: ev.ts ? new Date(ev.ts * 1000).toISOString() : new Date().toISOString(),
+            service,
+            moduleTag: toolName,
+            workerThread: ev.actor || "operator",
+            level: level as "DEBUG" | "INFO" | "WARN" | "ERROR" | "FATAL",
+            message: `[${decision.toUpperCase()}] ${toolName} on ${ev.device_id || "gateway"} — ${argsStr.slice(0, 140)}`,
+            pid: Number(ev.id || idx + 1000),
+            traceId: ev.hash ? String(ev.hash).slice(0, 16) : undefined,
+            details: { actor: ev.actor, device_id: ev.device_id, decision, result: ev.result },
+          };
+        });
+      }
+
+      if (rawConn && typeof rawConn === "object") {
+        const mcpUp = Boolean(rawConn.mcp?.up);
+        const oauthUp = Boolean(rawConn.oauth_gateway?.up);
+        const cg = rawConn.chatgpt || {};
+        const rawClients: any[] = Array.isArray(cg.clients) ? cg.clients : [];
+        nextState.mcpConnections = [
+          {
+            id: "mcp-streamable-http",
+            name: "Streamable HTTP MCP Server",
+            route: "/mcp",
+            specVersion: "2025-03-26",
+            transport: "sse",
+            connectedClients: Number(cg.active_access_tokens || 0),
+            throughputReqMin: Number(cg.total_tokens || 0),
+            latencyP99Ms: latency,
+            status: mcpUp ? "online" : "offline",
+            exportedSchemas: ["system_info", "run_shell", "read_file", "write_file", "list_devices", "dispatch_task"],
+          },
+          {
+            id: "oauth-21-gateway",
+            name: "OAuth 2.1 Authorization Gateway",
+            route: "/oauth/authorize",
+            specVersion: "RFC 9728 / PKCE S256",
+            transport: "sse",
+            connectedClients: rawClients.length,
+            throughputReqMin: Number(cg.active_refresh_tokens || 0),
+            latencyP99Ms: latency,
+            status: oauthUp ? "online" : "offline",
+            exportedSchemas: ["oauth-protected-resource", "oauth-authorization-server", "dynamic-client-registration"],
+          },
+        ];
+        nextState.oauthClients = rawClients.map((c: any) => ({
+          id: String(c.client_id || ""),
+          clientName: String(c.client_name || c.client_id_prefix || "OAuth Client"),
+          pkceType: "S256",
+          scopes: ["mcp", "openid", "offline_access"],
+          createdAt: c.created_at ? new Date(c.created_at * 1000).toISOString() : new Date().toISOString(),
+          expiresAt: "",
+          status: "active",
+          tokenSecretMasked: `${String(c.client_id_prefix || c.client_id || "").slice(0, 12)}••••••••`,
+        }));
+      }
+
+      if (Array.isArray(rawWf)) {
+        nextState.workflows = rawWf.map((w: any) => {
+          const stepsArr: any[] = Array.isArray(w.steps) ? w.steps : [];
+          const resultsArr: any[] = Array.isArray(w.results) ? w.results : [];
+          const st = String(w.status || "pending");
+          const mappedStatus = (st === "running" || st === "completed" || st === "failed" ? st : st === "cancelled" ? "aborted" : "draft") as WorkflowPlan["status"];
+          return {
+            id: String(w.id),
+            title: String(w.name || w.id),
+            description: `Target: ${w.device_id || "local"} (${stepsArr.length} steps)`,
+            targetDeviceId: String(w.device_id || "local"),
+            status: mappedStatus,
+            currentStepIndex: Number(w.current_step || 0),
+            totalSteps: Number(w.total_steps || stepsArr.length),
+            steps: stepsArr.map((s: any, idx: number) => {
+              const r = resultsArr[idx];
+              const stepSt = r ? (r.status === "completed" ? "completed" : r.status === "failed" ? "failed" : "running") : (idx < Number(w.current_step || 0) ? "completed" : "pending");
+              return {
+                id: `${w.id}-step-${idx + 1}`,
+                stepNumber: idx + 1,
+                name: String(s.name || s.action || s.tool || `Step ${idx + 1}`),
+                tool: String(s.action || s.tool || "system_info"),
+                args: (s.args && typeof s.args === "object") ? s.args : {},
+                status: stepSt,
+                output: r?.result,
+                error: r?.error,
+              };
+            }),
+            startedAt: w.created_at ? new Date(w.created_at * 1000).toISOString() : new Date().toISOString(),
+            completedAt: w.completed_at ? new Date(w.completed_at * 1000).toISOString() : undefined,
+          };
+        });
       }
 
       this.state = { ...this.state, ...nextState };

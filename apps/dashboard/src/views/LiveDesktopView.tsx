@@ -5,7 +5,7 @@
  * Strict JXUI Primitives & Lucide Icons. ZERO inline styles.
  */
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   JXBox,
   JXStack,
@@ -42,6 +42,19 @@ import {
   Zap,
 } from "lucide-react";
 import { useDashboardStore } from "../state/dashboardStore";
+import { api, token, sessionToken } from "../api";
+
+function isLiveMode(): boolean {
+  return typeof window !== "undefined" && Boolean(token() || sessionToken());
+}
+
+interface MonitorInfo {
+  index: number;
+  name: string;
+  width: number;
+  height: number;
+  is_primary?: boolean;
+}
 
 interface WindowItem {
   id: string;
@@ -79,6 +92,90 @@ export const LiveDesktopView: React.FC = () => {
   const [activeWindowId, setActiveWindowId] = useState<string>("win-1");
   const [snapshotTaken, setSnapshotTaken] = useState<boolean>(false);
 
+  // Live desktop stream & monitor state
+  const [liveFrameUrl, setLiveFrameUrl] = useState<string | null>(null);
+  const [liveFrameMeta, setLiveFrameMeta] = useState<{
+    width?: number;
+    height?: number;
+    timestamp?: number;
+    error?: string;
+    note?: string;
+  } | null>(null);
+  const [liveMonitors, setLiveMonitors] = useState<MonitorInfo[]>([]);
+  const [selectedMonitorIndex, setSelectedMonitorIndex] = useState<number>(0);
+  const [isStreamActive, setIsStreamActive] = useState<boolean>(true);
+  const [webrtcSessionId, setWebrtcSessionId] = useState<string | null>(null);
+
+  const fetchLiveFrame = useCallback(
+    async (scale = 0.75, quality = 70) => {
+      if (!isLiveMode() || !selectedDevice?.id) return;
+      try {
+        const res = await api.desktopFrame(selectedDevice.id, scale, quality);
+        if (res && typeof res === "object" && res.base64_data) {
+          const fmt = String(res.format || "jpeg").toLowerCase();
+          setLiveFrameUrl(`data:image/${fmt};base64,${res.base64_data}`);
+          setLiveFrameMeta({
+            width: Number(res.width || 1920),
+            height: Number(res.height || 1080),
+            timestamp: Number(res.timestamp || Date.now() / 1000),
+          });
+        } else {
+          setLiveFrameMeta({
+            error: String(res?.error || ""),
+            note: String(res?.note || "Desktop session not currently active or headless node."),
+          });
+        }
+      } catch (err: any) {
+        setLiveFrameMeta({
+          error: err?.message || "Unable to fetch desktop frame",
+          note: "Check that the target device is online and desktop capture is enabled.",
+        });
+      }
+    },
+    [selectedDevice?.id]
+  );
+
+  // Load device monitors & poll desktop frames in live mode
+  useEffect(() => {
+    if (!isLiveMode() || !selectedDevice?.id) return;
+
+    let cancelled = false;
+    api
+      .deviceMonitors(selectedDevice.id)
+      .then((res) => {
+        if (!cancelled && Array.isArray(res?.monitors)) {
+          setLiveMonitors(res.monitors);
+        }
+      })
+      .catch(() => {});
+
+    if (selectedDevice.status === "online" || selectedDevice.id === "local") {
+      void fetchLiveFrame(0.75, 70);
+    } else {
+      setLiveFrameUrl(null);
+      setLiveFrameMeta({
+        note: `Device ${selectedDevice.hostname || selectedDevice.id} is currently ${selectedDevice.status}.`,
+      });
+    }
+
+    if (!isStreamActive || (selectedDevice.status !== "online" && selectedDevice.id !== "local")) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const timer = setInterval(() => {
+      if (!cancelled && isLiveMode()) {
+        void fetchLiveFrame(0.75, 70);
+      }
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [selectedDevice?.id, selectedDevice?.status, selectedDevice?.hostname, isStreamActive, fetchLiveFrame]);
+
   // Mouse move handler over canvas
   const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -87,18 +184,103 @@ export const LiveDesktopView: React.FC = () => {
     setOperatorCoords({ x, y });
   }, []);
 
+  // Forward canvas click in takeover mode when logged in
+  const handleCanvasClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!isLiveMode() || controlMode !== "takeover" || !mouseLinked || !selectedDevice?.id) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+      const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / Math.max(1, rect.height)));
+      void api
+        .sendDesktopInput(selectedDevice.id, {
+          action: "click",
+          x: normX,
+          y: normY,
+          normalized: true,
+          button: "left",
+          clicks: 1,
+          screen_width: liveFrameMeta?.width || 1920,
+          screen_height: liveFrameMeta?.height || 1080,
+        })
+        .catch(() => {});
+    },
+    [controlMode, mouseLinked, selectedDevice?.id, liveFrameMeta?.width, liveFrameMeta?.height]
+  );
+
+  // Forward keyboard events in takeover mode when logged in
+  const handleCanvasKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!isLiveMode() || controlMode !== "takeover" || !keyForwarded || !selectedDevice?.id) return;
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        void api
+          .sendDesktopInput(selectedDevice.id, {
+            action: "type",
+            text: e.key,
+          })
+          .catch(() => {});
+      } else {
+        void api
+          .sendDesktopInput(selectedDevice.id, {
+            action: "press",
+            key: e.key.toLowerCase(),
+          })
+          .catch(() => {});
+      }
+    },
+    [controlMode, keyForwarded, selectedDevice?.id]
+  );
+
   const dispatchMacro = (macroName: string) => {
     setRecentMacroNotice(`Dispatched macro [${macroName}] to target node ${selectedDevice?.hostname || "srv-us-east-412"}`);
     setTimeout(() => setRecentMacroNotice(null), 3000);
+
+    if (isLiveMode() && selectedDevice?.id) {
+      const macroKeyMap: Record<string, string> = {
+        "Ctrl+Alt+Del": "ctrl+alt+delete",
+        "Win / Super": "win",
+        "Alt+Tab": "alt+tab",
+        "Ctrl+Shift+Esc": "ctrl+shift+esc",
+        "Unlock Screen": "enter",
+      };
+      const combo = macroKeyMap[macroName] || macroName.toLowerCase();
+      void api
+        .sendDesktopInput(selectedDevice.id, {
+          action: "hotkey",
+          key: combo,
+        })
+        .catch(() => {});
+    }
   };
 
   const handleCaptureSnapshot = () => {
     setSnapshotTaken(true);
     setRecentMacroNotice("High-res desktop frame buffer captured (3840×2160 PNG)");
+    if (isLiveMode() && selectedDevice?.id) {
+      void fetchLiveFrame(1.0, 85);
+    }
     setTimeout(() => {
       setSnapshotTaken(false);
       setRecentMacroNotice(null);
     }, 2500);
+  };
+
+  const handleStartWebrtc = async () => {
+    if (!isLiveMode() || !selectedDevice?.id) {
+      setRecentMacroNotice("WebRTC signaling active in live control plane mode");
+      setTimeout(() => setRecentMacroNotice(null), 2500);
+      return;
+    }
+    try {
+      const sess = await api.createWebrtcSession(selectedDevice.id, 0.75, 10, selectedMonitorIndex);
+      if (sess?.session_id) {
+        setWebrtcSessionId(String(sess.session_id));
+        setRecentMacroNotice(`WebRTC session [${sess.session_id}] initialized (${sess.status || "waiting"})`);
+        setTimeout(() => setRecentMacroNotice(null), 3000);
+      }
+    } catch (err: any) {
+      setRecentMacroNotice(err?.message || "Could not start WebRTC session");
+      setTimeout(() => setRecentMacroNotice(null), 3000);
+    }
   };
 
   const focusWindow = (id: string) => {
@@ -122,7 +304,45 @@ export const LiveDesktopView: React.FC = () => {
     <div className="space-y-5">
       {/* Top Header & Breadcrumb Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
-        <p className="text-sm text-slate-400">{selectedDevice?.hostname || "No device selected"}</p>
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-slate-400">{selectedDevice?.hostname || "No device selected"}</p>
+          {liveMonitors.length > 0 && (
+            <div className="flex items-center gap-1.5 font-mono text-xs">
+              {liveMonitors.map((mon) => (
+                <button
+                  key={mon.index}
+                  type="button"
+                  onClick={() => setSelectedMonitorIndex(mon.index)}
+                  className={`px-2 py-0.5 rounded-lg border transition-colors ${
+                    selectedMonitorIndex === mon.index
+                      ? "bg-indigo-950/60 border-indigo-500/60 text-indigo-300"
+                      : "bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {mon.name || `Display ${mon.index}`} ({mon.width}×{mon.height})
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 font-mono text-xs">
+          <button
+            type="button"
+            onClick={() => setIsStreamActive((prev) => !prev)}
+            className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700 flex items-center gap-1.5"
+          >
+            <RefreshCw className={`w-3 h-3 ${isStreamActive ? "text-emerald-400" : "text-slate-500"}`} />
+            <span>{isStreamActive ? "Stream Polling [ON]" : "Stream Polling [PAUSED]"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleStartWebrtc()}
+            className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-indigo-300 hover:border-indigo-500/50 flex items-center gap-1.5"
+          >
+            <Radio className="w-3 h-3 text-indigo-400" />
+            <span>{webrtcSessionId ? `WebRTC #${webrtcSessionId.slice(0, 6)}` : "WebRTC Session"}</span>
+          </button>
+        </div>
       </div>
 
       {/* Floating Dual-Control Takeover Bar */}
@@ -310,9 +530,32 @@ export const LiveDesktopView: React.FC = () => {
 
       {/* Desktop Stream Viewport Canvas */}
       <div
+        tabIndex={0}
         onMouseMove={handleCanvasMouseMove}
-        className="relative w-full aspect-video min-h-[560px] max-h-[760px] rounded-2xl bg-slate-950 border border-slate-800/80 overflow-hidden shadow-2xl select-none group"
+        onClick={handleCanvasClick}
+        onKeyDown={handleCanvasKeyDown}
+        className="relative w-full aspect-video min-h-[560px] max-h-[760px] rounded-2xl bg-slate-950 border border-slate-800/80 overflow-hidden shadow-2xl select-none group focus:outline-none focus:border-indigo-500/60"
       >
+        {liveFrameUrl && (
+          <img
+            src={liveFrameUrl}
+            alt="Remote desktop stream frame"
+            className={`absolute inset-0 w-full h-full z-10 ${
+              scalingMode === "fill"
+                ? "object-cover"
+                : scalingMode === "native"
+                ? "object-none"
+                : "object-contain"
+            }`}
+          />
+        )}
+
+        {!liveFrameUrl && liveFrameMeta?.note && (
+          <div className="absolute bottom-3 left-3 z-20 px-3 py-1.5 rounded-lg bg-slate-950/90 border border-slate-800 text-xs font-mono text-slate-300">
+            {liveFrameMeta.note}
+          </div>
+        )}
+
         {/* Remote Operating System Canvas Simulation */}
         <div className="absolute inset-0 flex flex-col bg-[#0b0f19]">
           {/* OS Window Chrome Header */}

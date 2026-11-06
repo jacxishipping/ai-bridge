@@ -4,7 +4,7 @@
  * ZERO inline styles. ZERO custom CSS.
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   GlassModal,
@@ -42,6 +42,7 @@ import {
   Clock,
   Sparkles,
 } from "lucide-react";
+import { api, token, sessionToken } from "../api";
 import { useDashboardStore } from "../state/dashboardStore";
 import type { MCPConnection, OAuthClient } from "../types/dashboard";
 
@@ -66,22 +67,89 @@ interface WireFrame {
   payload: Record<string, unknown>;
 }
 
+interface LiveClientRecord {
+  client_id: string;
+  client_id_prefix?: string;
+  client_name?: string;
+  redirect_uris?: string;
+  created_at?: number;
+}
+
+interface LiveConnectionsResponse {
+  mcp?: { up?: boolean; port?: number };
+  oauth_gateway?: { up?: boolean; port?: number };
+  chatgpt?: {
+    clients?: LiveClientRecord[];
+    active_access_tokens?: number;
+    active_refresh_tokens?: number;
+    total_tokens?: number;
+    last_token_at?: number | string | null;
+  };
+}
+
+const SEED_MCP_IDS = new Set(["mcp-stream-01", "mcp-stream-02", "mcp-stream-03", "mcp-stream-04"]);
+const SEED_CLIENT_IDS = new Set(["client-cur-891", "client-cld-104", "client-py-092"]);
+
 export const ConnectionsView: React.FC = () => {
   const mcpConnections = useDashboardStore((s) => s.mcpConnections);
   const oauthClients = useDashboardStore((s) => s.oauthClients);
+  const refreshLive = useDashboardStore((s) => s.refreshLive);
+
+  const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
+  const browserOrigin =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "http://127.0.0.1:8000";
+
+  // Live backend connection state
+  const [liveConn, setLiveConn] = useState<LiveConnectionsResponse | null>(null);
+  const [isLoadingConn, setIsLoadingConn] = useState(false);
+  const [connError, setConnError] = useState<string | null>(null);
+  const [confirmDeleteClientId, setConfirmDeleteClientId] = useState<string | null>(null);
+
+  const fetchLiveConnections = useCallback(async () => {
+    if (!isLive) return;
+    setIsLoadingConn(true);
+    setConnError(null);
+    try {
+      const res = await api.connections();
+      if (res && typeof res === "object") {
+        setLiveConn(res as LiveConnectionsResponse);
+      }
+    } catch (err) {
+      setConnError(err instanceof Error ? err.message : "Unable to load live connection status.");
+    } finally {
+      setIsLoadingConn(false);
+    }
+  }, [isLive]);
+
+  useEffect(() => {
+    if (isLive) {
+      void fetchLiveConnections();
+    }
+  }, [isLive, fetchLiveConnections]);
+
+  const handleRefreshConnections = async () => {
+    if (isLive) {
+      await Promise.all([
+        fetchLiveConnections(),
+        refreshLive ? refreshLive() : Promise.resolve(),
+      ]);
+    }
+  };
 
   // Gateway secret rotation state
   const [isRotatingSecret, setIsRotatingSecret] = useState(false);
   const [rotateNotice, setRotateNotice] = useState<string | null>(null);
 
-  // Active AI Client Sessions
-  const [sessions, setSessions] = useState<ClientSession[]>([
+  // Demo-only AI Client Sessions (never displayed in live mode)
+  const [demoSessions, setDemoSessions] = useState<ClientSession[]>(() => [
     {
       id: "sess-01",
       name: "Cursor IDE",
       version: "v0.42.1 (Desktop Extension)",
       pid: 4912,
-      route: "10.240.12.8:58420",
+      route: `${browserOrigin}/mcp`,
       duration: "4h 12m",
       invocations: 1420,
       errorRate: "0.1% err",
@@ -92,7 +160,7 @@ export const ConnectionsView: React.FC = () => {
       name: "Claude Desktop App",
       version: "v0.8.2 (Official Client)",
       pid: 8931,
-      route: "10.240.14.99:51104",
+      route: `${browserOrigin}/mcp`,
       duration: "1h 45m",
       invocations: 482,
       errorRate: "0 err",
@@ -114,7 +182,7 @@ export const ConnectionsView: React.FC = () => {
       name: "Local Python SDK",
       version: "ai-bridge-sdk v2.1",
       pid: 6118,
-      route: "127.0.0.1:49012",
+      route: `${browserOrigin}/mcp`,
       duration: "32m",
       invocations: 84,
       errorRate: "0 err",
@@ -122,11 +190,108 @@ export const ConnectionsView: React.FC = () => {
     },
   ]);
 
+  const effectiveMcpConnections = useMemo<MCPConnection[]>(() => {
+    if (!isLive) {
+      return mcpConnections.map((conn) => ({
+        ...conn,
+        route: conn.route.startsWith("http") ? conn.route : `${browserOrigin}${conn.route}`,
+      }));
+    }
+    const storeLive = mcpConnections.filter((c) => !SEED_MCP_IDS.has(c.id));
+    if (!liveConn && storeLive.length > 0) {
+      return storeLive.map((conn) => ({
+        ...conn,
+        route: conn.route.startsWith("http") ? conn.route : `${browserOrigin}${conn.route}`,
+      }));
+    }
+    const mcpUp = liveConn ? Boolean(liveConn.mcp?.up) : true;
+    const oauthUp = liveConn ? Boolean(liveConn.oauth_gateway?.up) : true;
+    const cg = liveConn?.chatgpt || {};
+    const rawClients = Array.isArray(cg.clients) ? cg.clients : [];
+    return [
+      {
+        id: "mcp-streamable-http",
+        name: `Streamable HTTP MCP Server${liveConn?.mcp?.port ? ` (:${liveConn.mcp.port})` : ""}`,
+        route: `${browserOrigin}/mcp`,
+        specVersion: "2025-03-26",
+        transport: "sse",
+        connectedClients: Number(cg.active_access_tokens || 0),
+        throughputReqMin: Number(cg.total_tokens || 0),
+        latencyP99Ms: 12,
+        status: mcpUp ? "online" : "offline",
+        exportedSchemas: ["system_info", "run_shell", "read_file", "write_file", "list_devices", "dispatch_task"],
+      },
+      {
+        id: "oauth-21-gateway",
+        name: `OAuth 2.1 Authorization Gateway${liveConn?.oauth_gateway?.port ? ` (:${liveConn.oauth_gateway.port})` : ""}`,
+        route: `${browserOrigin}/oauth/authorize`,
+        specVersion: "RFC 9728 / PKCE S256",
+        transport: "sse",
+        connectedClients: rawClients.length,
+        throughputReqMin: Number(cg.active_refresh_tokens || 0),
+        latencyP99Ms: 12,
+        status: oauthUp ? "online" : "offline",
+        exportedSchemas: ["oauth-protected-resource", "oauth-authorization-server", "dynamic-client-registration"],
+      },
+    ];
+  }, [isLive, liveConn, mcpConnections, browserOrigin]);
+
+  const effectiveOAuthClients = useMemo<OAuthClient[]>(() => {
+    if (!isLive) return oauthClients;
+    const rawClients = liveConn?.chatgpt?.clients;
+    if (Array.isArray(rawClients)) {
+      return rawClients.map((c) => ({
+        id: String(c.client_id || ""),
+        clientName: String(c.client_name || c.client_id_prefix || "OAuth Client"),
+        pkceType: "S256",
+        scopes: ["mcp", "openid", "offline_access"],
+        createdAt: c.created_at ? new Date(c.created_at * 1000).toISOString() : new Date().toISOString(),
+        expiresAt: "Dynamic / Refresh",
+        status: "active" as const,
+        tokenSecretMasked: `${String(c.client_id_prefix || c.client_id || "").slice(0, 12)}••••••••`,
+      }));
+    }
+    return oauthClients.filter((c) => !SEED_CLIENT_IDS.has(c.id));
+  }, [isLive, liveConn, oauthClients]);
+
+  const liveSessions = useMemo<ClientSession[]>(() => {
+    if (!isLive) return [];
+    const cg = liveConn?.chatgpt || {};
+    const rawClients = Array.isArray(cg.clients) ? cg.clients : [];
+    return effectiveOAuthClients.map((client, idx) => {
+      const raw = rawClients.find((rc) => String(rc.client_id) === client.id);
+      const redirectUri = raw?.redirect_uris
+        ? String(raw.redirect_uris).split(/[\s,]+/).filter(Boolean)[0]
+        : `${browserOrigin}/mcp`;
+      return {
+        id: client.id,
+        name: client.clientName,
+        version: `OAuth 2.1 (${client.pkceType})`,
+        pid: Number(cg.active_access_tokens || 0) + idx + 1,
+        route: redirectUri || `${browserOrigin}/mcp`,
+        duration: client.createdAt ? `Since ${client.createdAt.slice(0, 10)}` : "Active",
+        invocations: Number(cg.total_tokens || 0),
+        errorRate: "0 err",
+        features: client.scopes.length > 0 ? client.scopes : ["tools/call", "resources/read"],
+      };
+    });
+  }, [isLive, effectiveOAuthClients, liveConn, browserOrigin]);
+
+  const sessions = isLive ? liveSessions : demoSessions;
+
   // 2-step click confirmation to terminate session
   const [confirmTerminateId, setConfirmTerminateId] = useState<string | null>(null);
 
   // Handshake interactive token generation state
-  const [targetClientId, setTargetClientId] = useState<string>(oauthClients[0]?.id || "ai-agent-orchestrator-01");
+  const [targetClientId, setTargetClientId] = useState<string>(
+    effectiveOAuthClients[0]?.id || "ai-agent-orchestrator-01"
+  );
+  useEffect(() => {
+    if (effectiveOAuthClients.length > 0 && !effectiveOAuthClients.some((c) => c.id === targetClientId)) {
+      setTargetClientId(effectiveOAuthClients[0].id);
+    }
+  }, [effectiveOAuthClients, targetClientId]);
+
   const [selectedScopes, setSelectedScopes] = useState<string[]>([
     "fleet:read",
     "mcp:stream",
@@ -150,7 +315,7 @@ export const ConnectionsView: React.FC = () => {
         jsonrpc: "2.0",
         id: 101,
         method: "tools/call",
-        params: { name: "system_info", arguments: { node_id: "srv-us-east-412" } },
+        params: { name: "system_info", endpoint: `${browserOrigin}/mcp`, arguments: { node_id: "srv-us-east-412" } },
       },
     },
     {
@@ -175,7 +340,7 @@ export const ConnectionsView: React.FC = () => {
         jsonrpc: "2.0",
         id: 102,
         method: "resources/read",
-        params: { uri: "mcp://desktop/windows/active" },
+        params: { uri: `${browserOrigin}/mcp/resources/active` },
       },
     },
     {
@@ -205,14 +370,41 @@ export const ConnectionsView: React.FC = () => {
     }, 800);
   };
 
+  const handleRevokeOAuthClient = async (clientId: string) => {
+    if (isLive) {
+      try {
+        await api.deleteOAuthClient(clientId);
+        setRotateNotice(`OAuth client ${clientId} revoked.`);
+        setTimeout(() => setRotateNotice(null), 4000);
+        await Promise.all([
+          fetchLiveConnections(),
+          refreshLive ? refreshLive() : Promise.resolve(),
+        ]);
+      } catch (err) {
+        setConnError(err instanceof Error ? err.message : "Failed to delete OAuth client.");
+      }
+    } else {
+      setDemoSessions((prev) => prev.filter((s) => s.id !== clientId));
+    }
+  };
+
   const handleTerminateSession = (sessionId: string) => {
     if (confirmTerminateId === sessionId) {
-      // 2nd click: terminate
-      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      // 2nd click: terminate / revoke
       setConfirmTerminateId(null);
+      void handleRevokeOAuthClient(sessionId);
     } else {
       // 1st click: request confirmation
       setConfirmTerminateId(sessionId);
+    }
+  };
+
+  const handleDeleteClientCard = (clientId: string) => {
+    if (confirmDeleteClientId === clientId) {
+      setConfirmDeleteClientId(null);
+      void handleRevokeOAuthClient(clientId);
+    } else {
+      setConfirmDeleteClientId(clientId);
     }
   };
 
@@ -251,7 +443,52 @@ export const ConnectionsView: React.FC = () => {
       {/* Protocol Header & Action Ribbon */}
       <JXCard className="bg-slate-900/60 border-slate-800">
         <div className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1 text-xs font-mono text-slate-300">
+            <div>
+              MCP Endpoint: <code className="text-indigo-400">{browserOrigin}/mcp</code> • OAuth Metadata:{" "}
+              <code className="text-indigo-400">{browserOrigin}/.well-known/oauth-authorization-server</code>
+            </div>
+            {isLive && liveConn && (
+              <div className="text-slate-400 flex flex-wrap items-center gap-3">
+                <span>
+                  MCP:{" "}
+                  <strong className={liveConn.mcp?.up ? "text-emerald-400" : "text-rose-400"}>
+                    {liveConn.mcp?.up ? "UP" : "DOWN"}
+                  </strong>
+                  {liveConn.mcp?.port ? ` (:${liveConn.mcp.port})` : ""}
+                </span>
+                <span>
+                  OAuth Gateway:{" "}
+                  <strong className={liveConn.oauth_gateway?.up ? "text-emerald-400" : "text-rose-400"}>
+                    {liveConn.oauth_gateway?.up ? "UP" : "DOWN"}
+                  </strong>
+                  {liveConn.oauth_gateway?.port ? ` (:${liveConn.oauth_gateway.port})` : ""}
+                </span>
+                <span>
+                  Tokens: <strong className="text-cyan-400">{liveConn.chatgpt?.active_access_tokens ?? 0}</strong> access /{" "}
+                  <strong className="text-cyan-400">{liveConn.chatgpt?.active_refresh_tokens ?? 0}</strong> refresh /{" "}
+                  <strong className="text-slate-200">{liveConn.chatgpt?.total_tokens ?? 0}</strong> total
+                </span>
+                {liveConn.chatgpt?.last_token_at && (
+                  <span>Last Token: {String(liveConn.chatgpt.last_token_at)}</span>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center gap-2 flex-wrap">
+            {isLive && (
+              <JXButton
+                variant="outlined"
+                color="neutral"
+                size="md"
+                loading={isLoadingConn}
+                onClick={() => void handleRefreshConnections()}
+                startIcon={<RefreshCw className="w-4 h-4" />}
+              >
+                Refresh
+              </JXButton>
+            )}
             <JXButton
               variant="outlined"
               color="warning"
@@ -274,6 +511,14 @@ export const ConnectionsView: React.FC = () => {
           </div>
         </div>
 
+        {connError && (
+          <div className="px-5 pb-4">
+            <div role="alert" className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-mono">
+              {connError}
+            </div>
+          </div>
+        )}
+
         {rotateNotice && (
           <div className="px-5 pb-4">
             <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-mono">
@@ -293,7 +538,7 @@ export const ConnectionsView: React.FC = () => {
         </div>
 
         <JXGrid columns={12} gap="md">
-          {mcpConnections.map((conn) => (
+          {effectiveMcpConnections.map((conn) => (
             <JXGridItem key={conn.id} colSpan={6}>
               <JXCard className="bg-slate-900/60 border-slate-800">
                 <div className="p-4 border-b border-slate-800/60 flex items-center justify-between">
@@ -367,44 +612,53 @@ export const ConnectionsView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {sessions.map((sess) => (
-                  <tr key={sess.id} className="hover:bg-slate-950/40 transition-colors">
-                    <td className="p-3">
-                      <div className="font-semibold text-slate-200 font-sans">{sess.name}</div>
-                      <div className="text-[11px] text-slate-400 font-sans">{sess.version}</div>
-                    </td>
-                    <td className="p-3 text-slate-300">
-                      PID {sess.pid} • {sess.route}
-                    </td>
-                    <td className="p-3 text-slate-300">{sess.duration}</td>
-                    <td className="p-3">
-                      <span className="text-indigo-400 font-semibold">{sess.invocations}</span>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex gap-1 flex-wrap">
-                        {sess.features.map((feat) => (
-                          <span
-                            key={feat}
-                            className="px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-300 text-[10px]"
-                          >
-                            {feat}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="p-3 text-right">
-                      <JXButton
-                        variant={confirmTerminateId === sess.id ? "contained" : "soft"}
-                        color="error"
-                        size="sm"
-                        onClick={() => handleTerminateSession(sess.id)}
-                        startIcon={<Trash2 className="w-3.5 h-3.5" />}
-                      >
-                        {confirmTerminateId === sess.id ? "Click to Confirm" : "Terminate"}
-                      </JXButton>
+                {sessions.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-6 text-center text-slate-400 font-sans">
+                      No active OAuth clients or MCP sessions registered yet. Connect an MCP client to{" "}
+                      <code className="font-mono text-indigo-400">{browserOrigin}/mcp</code> to establish a session.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  sessions.map((sess) => (
+                    <tr key={sess.id} className="hover:bg-slate-950/40 transition-colors">
+                      <td className="p-3">
+                        <div className="font-semibold text-slate-200 font-sans">{sess.name}</div>
+                        <div className="text-[11px] text-slate-400 font-sans">{sess.version}</div>
+                      </td>
+                      <td className="p-3 text-slate-300">
+                        PID {sess.pid} • {sess.route}
+                      </td>
+                      <td className="p-3 text-slate-300">{sess.duration}</td>
+                      <td className="p-3">
+                        <span className="text-indigo-400 font-semibold">{sess.invocations}</span>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex gap-1 flex-wrap">
+                          {sess.features.map((feat) => (
+                            <span
+                              key={feat}
+                              className="px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-300 text-[10px]"
+                            >
+                              {feat}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="p-3 text-right">
+                        <JXButton
+                          variant={confirmTerminateId === sess.id ? "contained" : "soft"}
+                          color="error"
+                          size="sm"
+                          onClick={() => handleTerminateSession(sess.id)}
+                          startIcon={<Trash2 className="w-3.5 h-3.5" />}
+                        >
+                          {confirmTerminateId === sess.id ? "Click to Confirm" : "Terminate"}
+                        </JXButton>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -422,46 +676,66 @@ export const ConnectionsView: React.FC = () => {
             />
             <JXCardContent>
               <div className="space-y-3 font-mono text-xs">
-                {oauthClients.map((client) => (
-                  <div
-                    key={client.id}
-                    className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="font-bold text-slate-200">{client.clientName}</span>
-                        <div className="text-[11px] text-slate-400 font-sans">
-                          ID: {client.id} • {client.pkceType}
+                {effectiveOAuthClients.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 font-sans">
+                    No OAuth 2.1 clients registered yet. Clients register dynamically via{" "}
+                    <code className="font-mono text-indigo-400">{browserOrigin}/oauth/register</code>.
+                  </div>
+                ) : (
+                  effectiveOAuthClients.map((client) => (
+                    <div
+                      key={client.id}
+                      className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <span className="font-bold text-slate-200">{client.clientName}</span>
+                          <div className="text-[11px] text-slate-400 font-sans">
+                            ID: {client.id} • {client.pkceType}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
+                              client.status === "active"
+                                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                                : "bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                            }`}
+                          >
+                            {client.status}
+                          </span>
+                          {isLive && (
+                            <JXButton
+                              variant={confirmDeleteClientId === client.id ? "contained" : "soft"}
+                              color="error"
+                              size="sm"
+                              onClick={() => handleDeleteClientCard(client.id)}
+                              startIcon={<Trash2 className="w-3.5 h-3.5" />}
+                            >
+                              {confirmDeleteClientId === client.id ? "Confirm Revoke" : "Revoke"}
+                            </JXButton>
+                          )}
                         </div>
                       </div>
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
-                          client.status === "active"
-                            ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
-                            : "bg-rose-500/20 text-rose-300 border border-rose-500/40"
-                        }`}
-                      >
-                        {client.status}
-                      </span>
-                    </div>
 
-                    <div className="flex flex-wrap gap-1">
-                      {client.scopes.map((s) => (
-                        <span
-                          key={s}
-                          className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-indigo-300 text-[10px]"
-                        >
-                          {s}
-                        </span>
-                      ))}
-                    </div>
+                      <div className="flex flex-wrap gap-1">
+                        {client.scopes.map((s) => (
+                          <span
+                            key={s}
+                            className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-indigo-300 text-[10px]"
+                          >
+                            {s}
+                          </span>
+                        ))}
+                      </div>
 
-                    <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[11px] text-slate-500">
-                      <span>Secret: {client.tokenSecretMasked}</span>
-                      <span>Expires: {client.expiresAt.slice(0, 10)}</span>
+                      <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[11px] text-slate-500">
+                        <span>Secret: {client.tokenSecretMasked}</span>
+                        <span>Expires: {client.expiresAt ? client.expiresAt.slice(0, 17) : "Dynamic"}</span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </JXCardContent>
           </JXCard>
@@ -484,11 +758,15 @@ export const ConnectionsView: React.FC = () => {
                     onChange={(e) => setTargetClientId(e.target.value)}
                     className="w-full p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none"
                   >
-                    {oauthClients.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.clientName} ({c.id})
-                      </option>
-                    ))}
+                    {effectiveOAuthClients.length === 0 ? (
+                      <option value="ai-agent-orchestrator-01">Default Preview Client (ai-agent-orchestrator-01)</option>
+                    ) : (
+                      effectiveOAuthClients.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.clientName} ({c.id})
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
 

@@ -4,7 +4,7 @@
  * ZERO inline styles. ZERO custom CSS.
  */
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   JXCard,
@@ -40,7 +40,9 @@ import {
   HardDrive,
   Cpu,
   FileCode,
+  RefreshCw,
 } from "lucide-react";
+import { api, token, sessionToken } from "../api";
 import { useDashboardStore } from "../state/dashboardStore";
 import type { LogRecord } from "../types/dashboard";
 
@@ -57,9 +59,82 @@ interface StructuredLogEntry {
   details: Record<string, unknown>;
 }
 
+type BackendLogService = "control" | "mcp" | "oauth" | "nginx";
+
+const SEED_STORE_LOG_IDS = new Set(["log-1", "log-2", "log-3", "log-4"]);
+
+function mapToBackendService(targetService: string): BackendLogService {
+  const lower = targetService.toLowerCase();
+  if (lower.includes("mcp")) return "mcp";
+  if (lower.includes("nginx")) return "nginx";
+  if (lower.includes("oauth") || lower.includes("edge") || lower.includes("journal")) return "oauth";
+  return "control";
+}
+
+function parseRawLogLine(
+  raw: unknown,
+  idx: number,
+  backendService: BackendLogService,
+  serviceLabel: string
+): StructuredLogEntry {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    const lvlRaw = String(obj.level || "INFO").toUpperCase();
+    const level: StructuredLogEntry["level"] =
+      lvlRaw === "DEBUG" || lvlRaw === "WARN" || lvlRaw === "ERROR" || lvlRaw === "FATAL"
+        ? lvlRaw
+        : "INFO";
+    return {
+      id: String(obj.id || `live-${backendService}-${idx}`),
+      timestamp: String(obj.timestamp || new Date().toISOString()),
+      service: String(obj.service || serviceLabel),
+      moduleTag: String(obj.moduleTag || `${backendService}::service`),
+      workerThread: String(obj.workerThread || `${backendService}-worker`),
+      level,
+      message: String(obj.message || JSON.stringify(obj)),
+      pid: Number(obj.pid || 1000 + idx),
+      traceId: String(obj.traceId || `trc-${backendService}-${idx + 1}`),
+      details: (obj.details && typeof obj.details === "object" ? obj.details : obj) as Record<string, unknown>,
+    };
+  }
+
+  const line = String(raw ?? "");
+  const isoMatch = line.match(/^(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)/);
+  const timestamp = isoMatch ? isoMatch[1].replace(" ", "T") : new Date().toISOString();
+  const lvlMatch = line.match(/\b(FATAL|ERROR|WARN|WARNING|DEBUG|INFO)\b/i);
+  const matchedUpper = lvlMatch ? lvlMatch[1].toUpperCase() : "INFO";
+  const level: StructuredLogEntry["level"] =
+    matchedUpper === "WARNING"
+      ? "WARN"
+      : matchedUpper === "DEBUG" || matchedUpper === "WARN" || matchedUpper === "ERROR" || matchedUpper === "FATAL"
+      ? matchedUpper
+      : "INFO";
+
+  return {
+    id: `live-${backendService}-${idx}`,
+    timestamp: timestamp.length >= 23 ? timestamp : new Date().toISOString(),
+    service: serviceLabel,
+    moduleTag: `${backendService}::journal`,
+    workerThread: `${backendService}-01`,
+    level,
+    message: line,
+    pid: 1000 + idx,
+    traceId: `trc-${backendService}-${String(idx + 1).padStart(4, "0")}`,
+    details: {
+      service: backendService,
+      unit: serviceLabel,
+      line: idx + 1,
+      raw: line,
+    },
+  };
+}
+
 export const DiagnosticsLogsView: React.FC = () => {
   const storeLogs = useDashboardStore((s) => s.logs);
   const setCurrentView = useDashboardStore((s) => s.setCurrentView);
+  const refreshLive = useDashboardStore((s) => s.refreshLive);
+
+  const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
 
   // Stream state
   const [isPaused, setIsPaused] = useState<boolean>(false);
@@ -70,6 +145,52 @@ export const DiagnosticsLogsView: React.FC = () => {
   const [regexQuery, setRegexQuery] = useState<string>("");
   const [copiedBuffer, setCopiedBuffer] = useState<boolean>(false);
   const [activeTraceFilter, setActiveTraceFilter] = useState<string | null>(null);
+
+  // Live service logs fetched from api.logs(service, bufferSize)
+  const [liveServiceLogs, setLiveServiceLogs] = useState<StructuredLogEntry[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState<boolean>(false);
+  const [logFetchError, setLogFetchError] = useState<string | null>(null);
+
+  const backendService = useMemo(() => mapToBackendService(targetService), [targetService]);
+
+  const fetchServiceLogs = useCallback(async () => {
+    if (!isLive) return;
+    setIsLoadingLogs(true);
+    setLogFetchError(null);
+    try {
+      const res = await api.logs(backendService, bufferSize);
+      const rawLines: unknown[] = Array.isArray(res?.lines)
+        ? res.lines
+        : Array.isArray(res?.logs)
+        ? res.logs
+        : Array.isArray(res)
+        ? res
+        : [];
+      const parsed = rawLines
+        .filter((l) => l !== null && l !== undefined && String(l).trim() !== "")
+        .map((l, idx) => parseRawLogLine(l, idx, backendService, targetService));
+      setLiveServiceLogs(parsed);
+    } catch (err) {
+      setLogFetchError(err instanceof Error ? err.message : "Failed to load service logs.");
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  }, [isLive, backendService, bufferSize, targetService]);
+
+  useEffect(() => {
+    if (isLive && !isPaused) {
+      void fetchServiceLogs();
+    }
+  }, [isLive, isPaused, fetchServiceLogs]);
+
+  const handleRefreshLogs = useCallback(async () => {
+    if (isLive) {
+      await Promise.all([
+        fetchServiceLogs(),
+        refreshLive ? refreshLive() : Promise.resolve(),
+      ]);
+    }
+  }, [isLive, fetchServiceLogs, refreshLive]);
 
   // Selected entry for structured JSON drawer
   const [selectedEntry, setSelectedEntry] = useState<StructuredLogEntry | null>(null);
@@ -189,12 +310,35 @@ export const DiagnosticsLogsView: React.FC = () => {
     []
   );
 
+  const mappedStoreLogs: StructuredLogEntry[] = useMemo(
+    () =>
+      storeLogs.map((l, idx) => ({
+        id: l.id || `store-log-${idx}`,
+        timestamp: l.timestamp || new Date().toISOString(),
+        service: l.service || "ai-bridge-control",
+        moduleTag: l.moduleTag || "core::audit",
+        workerThread: l.workerThread || "operator",
+        level: l.level || "INFO",
+        message: l.message || "",
+        pid: l.pid || 1000 + idx,
+        traceId: l.traceId || `trc-audit-${idx + 1}`,
+        details: (l.details || {}) as Record<string, unknown>,
+      })),
+    [storeLogs]
+  );
+
+  const activeLogs: StructuredLogEntry[] = useMemo(() => {
+    if (!isLive) return defaultLogs;
+    const realStoreLogs = mappedStoreLogs.filter((l) => !SEED_STORE_LOG_IDS.has(l.id));
+    return [...liveServiceLogs, ...realStoreLogs];
+  }, [isLive, defaultLogs, liveServiceLogs, mappedStoreLogs]);
+
   // Initialize selected entry
   useEffect(() => {
-    if (!selectedEntry && defaultLogs.length > 0) {
-      setSelectedEntry(defaultLogs[0]);
+    if (activeLogs.length > 0 && (!selectedEntry || !activeLogs.some((l) => l.id === selectedEntry.id))) {
+      setSelectedEntry(activeLogs[0]);
     }
-  }, [defaultLogs, selectedEntry]);
+  }, [activeLogs, selectedEntry]);
 
   // Ring Buffer calculations (F30)
   const ringBufferUsedMb = 30.72;
@@ -209,7 +353,7 @@ export const DiagnosticsLogsView: React.FC = () => {
 
   // Filtered logs
   const filteredLogs = useMemo(() => {
-    return defaultLogs.filter((entry) => {
+    return activeLogs.filter((entry) => {
       if (logLevelFilter !== "ALL" && entry.level !== logLevelFilter) return false;
       if (activeTraceFilter && entry.traceId !== activeTraceFilter) return false;
       if (regexQuery) {
@@ -223,7 +367,7 @@ export const DiagnosticsLogsView: React.FC = () => {
       }
       return true;
     });
-  }, [defaultLogs, logLevelFilter, activeTraceFilter, regexQuery]);
+  }, [activeLogs, logLevelFilter, activeTraceFilter, regexQuery]);
 
   const handleCopyBuffer = () => {
     const raw = filteredLogs.map((l) => `${l.timestamp} [${l.workerThread}] [${l.moduleTag}] ${l.level} ${l.message}`).join("\n");
@@ -269,6 +413,17 @@ export const DiagnosticsLogsView: React.FC = () => {
               variant="outlined"
               color="neutral"
               size="sm"
+              loading={isLoadingLogs}
+              onClick={() => void handleRefreshLogs()}
+              startIcon={<RefreshCw className="w-3.5 h-3.5" />}
+            >
+              Refresh
+            </JXButton>
+
+            <JXButton
+              variant="outlined"
+              color="neutral"
+              size="sm"
               onClick={handleCopyBuffer}
               startIcon={copiedBuffer ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
             >
@@ -296,6 +451,14 @@ export const DiagnosticsLogsView: React.FC = () => {
             </JXButton>
           </div>
         </div>
+
+        {logFetchError && (
+          <div className="px-4 pb-3">
+            <div role="alert" className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-mono">
+              {logFetchError}
+            </div>
+          </div>
+        )}
       </JXCard>
 
       {/* Filter Ribbon */}
@@ -309,11 +472,15 @@ export const DiagnosticsLogsView: React.FC = () => {
               onChange={(e) => setTargetService(e.target.value)}
               className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none"
             >
-              <option value="ai-bridge-core.service">ai-bridge-core.service</option>
-              <option value="ai-bridge-mcp-gateway">ai-bridge-mcp-gateway</option>
-              <option value="ai-bridge-edge-daemon">ai-bridge-edge-daemon</option>
-              <option value="systemd-journald">systemd-journald</option>
-              <option value="nginx-tls-proxy">nginx-tls-proxy</option>
+              <option value="ai-bridge-core.service">ai-bridge-core.service (control)</option>
+              <option value="ai-bridge-mcp-gateway">ai-bridge-mcp-gateway (mcp)</option>
+              <option value="ai-bridge-edge-daemon">ai-bridge-edge-daemon (oauth)</option>
+              <option value="systemd-journald">systemd-journald (oauth)</option>
+              <option value="nginx-tls-proxy">nginx-tls-proxy (nginx)</option>
+              <option value="control">control</option>
+              <option value="mcp">mcp</option>
+              <option value="oauth">oauth</option>
+              <option value="nginx">nginx</option>
             </select>
 
             {/* Buffer Size Selector */}
@@ -404,43 +571,51 @@ export const DiagnosticsLogsView: React.FC = () => {
 
             <JXCardContent>
               <div className="p-3 space-y-1 font-mono text-xs max-h-[520px] overflow-y-auto leading-relaxed">
-                {filteredLogs.map((log) => {
-                  const isSelected = selectedEntry?.id === log.id;
-                  return (
-                    <div
-                      key={log.id}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedEntry(log); }
-                      }}
-                      onClick={() => setSelectedEntry(log)}
-                      className={`p-2 rounded-lg cursor-pointer transition-colors flex flex-wrap items-start gap-3 ${
-                        isSelected
-                          ? "bg-indigo-950/60 border border-indigo-500/60 text-slate-100"
-                          : "hover:bg-slate-950/60 text-slate-300"
-                      }`}
-                    >
-                      <span className="text-slate-400 text-[11px] shrink-0">{log.timestamp.slice(11, 23)}</span>
-                      <span className="text-indigo-400 font-semibold shrink-0">[{log.workerThread}]</span>
-                      <span className="text-cyan-400 font-semibold shrink-0">[{log.moduleTag}]</span>
-                      <span
-                        className={`px-1.5 py-0.2 rounded text-[10px] font-bold uppercase shrink-0 ${
-                          log.level === "INFO"
-                            ? "bg-emerald-500/20 text-emerald-300"
-                            : log.level === "DEBUG"
-                            ? "bg-slate-800 text-slate-400"
-                            : log.level === "WARN"
-                            ? "bg-amber-500/20 text-amber-300"
-                            : "bg-rose-500/20 text-rose-300"
+                {filteredLogs.length === 0 ? (
+                  <div className="p-6 text-center text-slate-400">
+                    {isLoadingLogs
+                      ? `Loading ${backendService} service logs...`
+                      : `No log records match the current filter (${backendService}).`}
+                  </div>
+                ) : (
+                  filteredLogs.map((log) => {
+                    const isSelected = selectedEntry?.id === log.id;
+                    return (
+                      <div
+                        key={log.id}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedEntry(log); }
+                        }}
+                        onClick={() => setSelectedEntry(log)}
+                        className={`p-2 rounded-lg cursor-pointer transition-colors flex flex-wrap items-start gap-3 ${
+                          isSelected
+                            ? "bg-indigo-950/60 border border-indigo-500/60 text-slate-100"
+                            : "hover:bg-slate-950/60 text-slate-300"
                         }`}
                       >
-                        {log.level}
-                      </span>
-                      <span className="break-all">{log.message}</span>
-                    </div>
-                  );
-                })}
+                        <span className="text-slate-400 text-[11px] shrink-0">{log.timestamp.slice(11, 23)}</span>
+                        <span className="text-indigo-400 font-semibold shrink-0">[{log.workerThread}]</span>
+                        <span className="text-cyan-400 font-semibold shrink-0">[{log.moduleTag}]</span>
+                        <span
+                          className={`px-1.5 py-0.2 rounded text-[10px] font-bold uppercase shrink-0 ${
+                            log.level === "INFO"
+                              ? "bg-emerald-500/20 text-emerald-300"
+                              : log.level === "DEBUG"
+                              ? "bg-slate-800 text-slate-400"
+                              : log.level === "WARN"
+                              ? "bg-amber-500/20 text-amber-300"
+                              : "bg-rose-500/20 text-rose-300"
+                          }`}
+                        >
+                          {log.level}
+                        </span>
+                        <span className="break-all">{log.message}</span>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </JXCardContent>
           </JXCard>

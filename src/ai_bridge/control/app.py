@@ -1660,12 +1660,23 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
     @app.get("/api/audit")
     def list_audit(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None), tenant: str = "default", tool: str | None = None):
+        import hashlib
         require_role("viewer", x_admin_token, x_session_token)
         if tool:
-            rows = conn.execute("SELECT * FROM audit WHERE tenant=? AND tool=? ORDER BY ts DESC LIMIT 500", (tenant, tool)).fetchall()
+            rows = conn.execute("SELECT * FROM audit WHERE tenant=? AND tool=? ORDER BY id ASC LIMIT 500", (tenant, tool)).fetchall()
         else:
-            rows = conn.execute("SELECT * FROM audit WHERE tenant=? ORDER BY ts DESC LIMIT 500", (tenant,)).fetchall()
-        return [dict(r) for r in rows]
+            rows = conn.execute("SELECT * FROM audit WHERE tenant=? ORDER BY id ASC LIMIT 500", (tenant,)).fetchall()
+        prev_h = "0" * 64
+        enriched = []
+        for r in rows:
+            d = dict(r)
+            payload = f"{prev_h}|{d.get('id')}|{d.get('ts')}|{d.get('actor')}|{d.get('device_id')}|{d.get('tool')}|{d.get('args_json')}|{d.get('decision')}"
+            cur_h = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            d["prev_hash"] = prev_h
+            d["hash"] = cur_h
+            prev_h = cur_h
+            enriched.append(d)
+        return list(reversed(enriched))
 
     @app.api_route("/api/audit/{audit_id}", methods=["PUT", "DELETE"])
     def immutable_audit(audit_id: int):
@@ -3174,13 +3185,15 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
         require_role("viewer", x_admin_token, x_session_token)
 
-        def tcp_up(port: int) -> bool:
-            try:
-                sock = socket.create_connection(("127.0.0.1", port), timeout=2)
-                sock.close()
-                return True
-            except OSError:
-                return False
+        def tcp_up(host: str, port: int) -> bool:
+            for h in (host, "127.0.0.1"):
+                try:
+                    sock = socket.create_connection((h, port), timeout=2)
+                    sock.close()
+                    return True
+                except OSError:
+                    continue
+            return False
 
         clients: list[dict] = []
         active_access = 0
@@ -3213,9 +3226,11 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             odb.close()
         except Exception:
             pass
+        mcp_host = os.environ.get("AI_BRIDGE_MCP_HOST", "127.0.0.1")
+        oauth_host = os.environ.get("AI_BRIDGE_OAUTH_HOST", "127.0.0.1")
         return {
-            "mcp": {"up": tcp_up(8001), "port": 8001},
-            "oauth_gateway": {"up": tcp_up(8002), "port": 8002},
+            "mcp": {"up": tcp_up(mcp_host, 8001), "port": 8001},
+            "oauth_gateway": {"up": tcp_up(oauth_host, 8002), "port": 8002},
             "chatgpt": {
                 "clients": clients,
                 "active_access_tokens": active_access,
@@ -3290,11 +3305,18 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         units = {"control": "ai-bridge-control", "mcp": "ai-bridge-mcp", "oauth": "ai-bridge-oauth"}
         if service in units:
             journal = shutil.which("journalctl")
-            if journal is None:
-                return {"service": service, "lines": ["journalctl not available on this host."]}
-            proc = subprocess.run([journal, "-u", units[service], "-n", str(lines), "--no-pager"],
-                                  capture_output=True, text=True, timeout=15)
-            return {"service": service, "lines": [redact(line) for line in (proc.stdout or "").splitlines()[-lines:]]}
+            if journal is not None:
+                proc = subprocess.run([journal, "-u", units[service], "-n", str(lines), "--no-pager"],
+                                      capture_output=True, text=True, timeout=15)
+                if proc.stdout and proc.stdout.strip():
+                    return {"service": service, "lines": [redact(line) for line in proc.stdout.splitlines()[-lines:]]}
+            # Fallback to structured audit log stream in containerized environments without journald
+            rows = conn.execute("SELECT ts, actor, device_id, tool, decision, args_json FROM audit ORDER BY id DESC LIMIT ?", (lines,)).fetchall()
+            formatted = [
+                f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(r['ts'] or 0))} [{service.upper()}] actor={r['actor']} device={r['device_id'] or 'gateway'} tool={r['tool']} decision={r['decision']} args={redact(str(r['args_json'] or '{}'))[:160]}"
+                for r in reversed(rows)
+            ]
+            return {"service": service, "lines": formatted or [f"[{service}] Service online; no audit events recorded yet."]}
         if service == "nginx":
             try:
                 with open("/var/log/nginx/access.log", errors="replace") as handle:

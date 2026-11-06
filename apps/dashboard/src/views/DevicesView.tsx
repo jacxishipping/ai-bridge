@@ -35,6 +35,7 @@ import {
   PlusCircle,
   KeyRound,
   RotateCcw,
+  RefreshCw,
   Check,
   Copy,
   ArrowRight,
@@ -45,7 +46,10 @@ import {
   Play,
   HardDrive,
   Cpu,
+  Ban,
+  Trash2,
 } from "lucide-react";
+import { api, token, sessionToken } from "../api";
 import { useDashboardStore } from "../state/dashboardStore";
 import type { EnrolledDevice, PlatformType, DeviceStatus } from "../types/dashboard";
 
@@ -55,6 +59,8 @@ export const DevicesView: React.FC = () => {
   const setSelectedDeviceId = useDashboardStore((s) => s.setSelectedDeviceId);
   const setCurrentView = useDashboardStore((s) => s.setCurrentView);
   const dispatchTask = useDashboardStore((s) => s.dispatchTask);
+  const refreshLive = useDashboardStore((s) => s.refreshLive);
+  const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
 
   // Filter toolbar state
   const [statusFilter, setStatusFilter] = useState<"all" | "online" | "offline" | "unresponsive">("all");
@@ -68,10 +74,16 @@ export const DevicesView: React.FC = () => {
   const [enrollPlatformTab, setEnrollPlatformTab] = useState<string>("linux");
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [clipboardError, setClipboardError] = useState("");
+  const [enrollDeviceName, setEnrollDeviceName] = useState<string>("edge-worker-node");
   const [enrollArchRole, setEnrollArchRole] = useState<string>("Standard Worker (Linux x86_64 / arm64)");
   const [sandboxDir, setSandboxDir] = useState<string>("/opt/ai-bridge/workspace");
   const [tokenExpiry, setTokenExpiry] = useState<string>("24h");
   const [tokenProvisioned, setTokenProvisioned] = useState<boolean>(false);
+  const [enrolledToken, setEnrolledToken] = useState<string>("");
+  const [enrolledDeviceId, setEnrolledDeviceId] = useState<string>("");
+  const [enrollError, setEnrollError] = useState<string>("");
+  const [isEnrolling, setIsEnrolling] = useState<boolean>(false);
+  const [deviceActionNotice, setDeviceActionNotice] = useState<string | null>(null);
 
   // Quick Dispatch Modal state
   const [dispatchModalDevice, setDispatchModalDevice] = useState<EnrolledDevice | null>(null);
@@ -142,10 +154,13 @@ export const DevicesView: React.FC = () => {
     return list;
   }, [devices, statusFilter, platformFilter, searchQuery, sortField, sortOrder]);
 
-  const linuxEnrollCommand =
-    "curl -sSL https://bridge.internal.ai/install.sh | bash -s -- --token=brg_enroll_99a8b172f3e84ac91b4 --gateway=gateway.internal.ai:8443 --env=production";
-  const windowsEnrollCommand =
-    'irm https://bridge.internal.ai/install.ps1 | iex -ArgumentList "-Token brg_enroll_99a8b172f3e84ac91b4 -Gateway gateway.internal.ai:8443 -Env production"';
+  const originUrl =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "http://127.0.0.1:8000";
+  const activeEnrollToken = enrolledToken || "brg_enroll_99a8b172f3e84ac91b4";
+  const linuxEnrollCommand = `curl -sSL ${originUrl}/install.sh | bash -s -- --token=${activeEnrollToken} --gateway=${originUrl} --env=production`;
+  const windowsEnrollCommand = `irm ${originUrl}/install.ps1 | iex -ArgumentList "-Token ${activeEnrollToken} -Gateway ${originUrl} -Env production"`;
 
   const handleCopyEnrollCommand = useCallback(async () => {
     const text = enrollPlatformTab === "linux" ? linuxEnrollCommand : windowsEnrollCommand;
@@ -159,6 +174,68 @@ export const DevicesView: React.FC = () => {
     }
   }, [enrollPlatformTab, linuxEnrollCommand, windowsEnrollCommand]);
 
+  const handleEnrollDevice = useCallback(async () => {
+    setEnrollError("");
+    if (Boolean(token() || sessionToken())) {
+      setIsEnrolling(true);
+      try {
+        const res = await api.enroll(enrollDeviceName.trim() || "edge-worker-node");
+        setEnrolledToken(res?.device_token || "");
+        setEnrolledDeviceId(res?.device_id || "");
+        setTokenProvisioned(true);
+        await refreshLive?.();
+      } catch (err: any) {
+        setEnrollError(err?.message || "Failed to enroll device.");
+      } finally {
+        setIsEnrolling(false);
+      }
+      return;
+    }
+    setTokenProvisioned(true);
+    setTimeout(() => {
+      setTokenProvisioned(false);
+      setEnrollModalOpen(false);
+    }, 800);
+  }, [enrollDeviceName, refreshLive]);
+
+  const handleRevokeDevice = useCallback(
+    async (device: EnrolledDevice) => {
+      if (Boolean(token() || sessionToken())) {
+        try {
+          await api.revoke(device.id);
+          await refreshLive?.();
+          setDeviceActionNotice(`Revoked credentials for ${device.hostname}.`);
+          setTimeout(() => setDeviceActionNotice(null), 3000);
+        } catch (err: any) {
+          setDeviceActionNotice(`Revoke failed: ${err?.message || "Unknown error"}`);
+        }
+        return;
+      }
+      setDeviceActionNotice(`Simulated revocation for ${device.hostname}.`);
+      setTimeout(() => setDeviceActionNotice(null), 3000);
+    },
+    [refreshLive]
+  );
+
+  const handleDeleteDevice = useCallback(
+    async (device: EnrolledDevice) => {
+      if (Boolean(token() || sessionToken())) {
+        try {
+          await api.deleteDevice(device.id);
+          await refreshLive?.();
+          setDeviceActionNotice(`Deleted device ${device.hostname}.`);
+          setTimeout(() => setDeviceActionNotice(null), 3000);
+        } catch (err: any) {
+          setDeviceActionNotice(`Delete failed: ${err?.message || "Unknown error"}`);
+        }
+        return;
+      }
+      setDeviceActionNotice(`Simulated deletion for ${device.hostname}.`);
+      setTimeout(() => setDeviceActionNotice(null), 3000);
+    },
+    [refreshLive]
+  );
+
   const handleQuickDispatch = useCallback(
     async (device: EnrolledDevice) => {
       try {
@@ -168,8 +245,9 @@ export const DevicesView: React.FC = () => {
           args: { format: "png", quality: 90 },
           riskTier: "tier1_safe",
         });
+        const taskId = newTask?.id || (newTask as any)?.task_id || "queued";
         setDispatchSuccessMsg(
-          `Dispatched ${dispatchTool} to ${device.hostname} (#${newTask.id}).`
+          `Dispatched ${dispatchTool} to ${device.hostname} (#${taskId}).`
         );
         setTimeout(() => {
           setDispatchModalDevice(null);
@@ -197,11 +275,26 @@ export const DevicesView: React.FC = () => {
             variant="contained"
             color="primary"
             size="sm"
-            onClick={() => setEnrollModalOpen(true)}
+            onClick={() => {
+              setEnrollError("");
+              setEnrollModalOpen(true);
+            }}
             startIcon={<PlusCircle className="w-3.5 h-3.5" />}
             className="bg-indigo-600 hover:bg-indigo-500 font-semibold"
           >
             <span>Add device</span>
+          </JXButton>
+
+          <JXButton
+            variant="outlined"
+            color="neutral"
+            size="sm"
+            onClick={() => {
+              void refreshLive?.();
+            }}
+            startIcon={<RefreshCw className="w-3.5 h-3.5" />}
+          >
+            Refresh
           </JXButton>
 
           <JXButton
@@ -219,6 +312,12 @@ export const DevicesView: React.FC = () => {
           </JXButton>
         </JXStack>
       </div>
+
+      {deviceActionNotice && (
+        <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-xs font-mono text-indigo-300">
+          {deviceActionNotice}
+        </div>
+      )}
 
       {/* Filter Toolbar: Status Chips, Platform Segmented Controls, Search */}
       <JXCard className="bg-slate-900/60 border-slate-800">
@@ -481,6 +580,28 @@ export const DevicesView: React.FC = () => {
                               >
                                 Run task
                               </JXButton>
+
+                              <JXButton
+                                variant="soft"
+                                color="warning"
+                                size="sm"
+                                onClick={() => handleRevokeDevice(device)}
+                                startIcon={<Ban className="w-3 h-3 text-amber-400" />}
+                                className="text-[11px] bg-slate-800 hover:bg-slate-700 text-amber-300"
+                              >
+                                Revoke
+                              </JXButton>
+
+                              <JXButton
+                                variant="soft"
+                                color="error"
+                                size="sm"
+                                onClick={() => handleDeleteDevice(device)}
+                                startIcon={<Trash2 className="w-3 h-3 text-rose-400" />}
+                                className="text-[11px] bg-slate-800 hover:bg-slate-700 text-rose-300"
+                              >
+                                Delete
+                              </JXButton>
                             </div>
                           </td>
                         </tr>
@@ -499,13 +620,40 @@ export const DevicesView: React.FC = () => {
         <GlassModal
           open={enrollModalOpen}
           onClose={() => setEnrollModalOpen(false)}
-          title="Preview device enrollment"
+          title={isLive ? "Enroll new device" : "Preview device enrollment"}
         >
           <div className="space-y-4 max-w-xl w-full text-xs font-mono">
             <p className="text-slate-400 text-xs">
-              This is an enrollment preview. The token and commands are examples, not valid credentials. Do not run these sample commands.
+              {isLive
+                ? "Generate a live enrollment token from the control plane and run the provisioning command on the target host."
+                : "This is an enrollment preview. The token and commands are examples, not valid credentials. Do not run these sample commands."}
             </p>
             {clipboardError && <p role="alert" className="text-rose-300">{clipboardError}</p>}
+            {enrollError && <p role="alert" className="text-rose-300">{enrollError}</p>}
+
+            {/* Device Name */}
+            <div className="space-y-1">
+              <label className="text-slate-300 font-semibold text-xs block">
+                Device Name
+              </label>
+              <JXTextField
+                value={enrollDeviceName}
+                onChange={(val) => setEnrollDeviceName(val)}
+                placeholder="edge-worker-node"
+                size="md"
+              />
+            </div>
+
+            {enrolledToken && (
+              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-1">
+                <div className="text-emerald-300 font-semibold">
+                  Enrolled Device ID: {enrolledDeviceId}
+                </div>
+                <div className="text-slate-300 break-all">
+                  Device Token: <span className="text-emerald-400">{enrolledToken}</span>
+                </div>
+              </div>
+            )}
 
             {/* Target Architecture & Role selector */}
             <div className="space-y-1">
@@ -630,7 +778,11 @@ export const DevicesView: React.FC = () => {
             {/* Modal Actions */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
               <span className="text-[11px] text-slate-400">
-                Preview only · no key is issued
+                {enrolledToken
+                  ? `Token issued for ${enrolledDeviceId}`
+                  : isLive
+                  ? "Live control plane enrollment"
+                  : "Preview only · no key is issued"}
               </span>
               <div className="flex items-center gap-2">
                 <JXButton
@@ -639,22 +791,23 @@ export const DevicesView: React.FC = () => {
                   size="sm"
                   onClick={() => setEnrollModalOpen(false)}
                 >
-                  Cancel
+                  {enrolledToken ? "Close" : "Cancel"}
                 </JXButton>
                 <JXButton
                   variant="contained"
                   color="primary"
                   size="sm"
-                  onClick={() => {
-                    setTokenProvisioned(true);
-                    setTimeout(() => {
-                      setTokenProvisioned(false);
-                      setEnrollModalOpen(false);
-                    }, 800);
-                  }}
+                  loading={isEnrolling}
+                  onClick={handleEnrollDevice}
                   className="bg-indigo-600 hover:bg-indigo-500"
                 >
-                  {tokenProvisioned ? "Preview complete" : "Simulate key generation"}
+                  {isLive
+                    ? enrolledToken
+                      ? "Issue another token"
+                      : "Generate enrollment token"
+                    : tokenProvisioned
+                    ? "Preview complete"
+                    : "Simulate key generation"}
                 </JXButton>
               </div>
             </div>

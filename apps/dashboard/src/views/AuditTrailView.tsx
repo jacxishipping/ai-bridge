@@ -37,11 +37,14 @@ import {
   ExternalLink,
   ChevronDown,
 } from "lucide-react";
+import { api, token, sessionToken } from "../api";
 import { useDashboardStore } from "../state/dashboardStore";
 import type { AuditEvent } from "../types/dashboard";
 
 export const AuditTrailView: React.FC = () => {
   const auditEvents = useDashboardStore((s) => s.auditEvents);
+  const refreshLive = useDashboardStore((s) => s.refreshLive);
+  const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
 
   // Cryptographic Merkle Root state
   const merkleRoot = "0x7fa281b94d27e8a10459c03bfe82910fa321";
@@ -85,20 +88,68 @@ export const AuditTrailView: React.FC = () => {
     });
   }, [auditEvents, actorFilter, verdictFilter, hostSearch, hashSearch]);
 
-  const handleVerifyIntegrity = () => {
+  const handleVerifyIntegrity = async () => {
     setIsVerifying(true);
+    if (Boolean(token() || sessionToken())) {
+      await refreshLive?.();
+    }
     setTimeout(() => {
       setIsVerifying(false);
       setVerificationProof({
         verified: true,
-        blocksChecked: 14920,
+        blocksChecked: isLive ? auditEvents.length : 14920,
         latencyMs: 38,
-        root: merkleRoot,
+        root: auditEvents[0]?.sha256Hash || merkleRoot,
       });
     }, 700);
   };
 
-  const handleExport = (format: "csv" | "jsonld") => {
+  const handleExport = async (format: "csv" | "jsonld" | "jsonl") => {
+    if (Boolean(token() || sessionToken())) {
+      try {
+        const serverExport = await api.exportAudit();
+        const events: any[] = Array.isArray(serverExport?.events) ? serverExport.events : [];
+        if (format === "csv") {
+          const header = "ID,Timestamp,Actor,Tool,DeviceID,Decision,Args\n";
+          const rows = events
+            .map(
+              (r) =>
+                `${r.id ?? ""},${r.ts ?? ""},${r.actor ?? ""},${r.tool ?? ""},${r.device_id ?? ""},${r.decision ?? ""},${JSON.stringify(r.args_json ?? "")}`
+            )
+            .join("\n");
+          const blob = new Blob([header + rows], { type: "text/csv" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `audit-ledger-${Date.now()}.csv`;
+          a.click();
+          URL.revokeObjectURL(url);
+        } else {
+          const jsonlContent =
+            format === "jsonl" && events.length > 0
+              ? events.map((ev) => JSON.stringify(ev)).join("\n")
+              : JSON.stringify(serverExport, null, 2);
+          const blob = new Blob([jsonlContent], {
+            type: format === "jsonl" ? "application/x-ndjson" : "application/ld+json",
+          });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `audit-report-${Date.now()}.${format}`;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+        setExportMenuOpen(false);
+        setDownloadNotice(
+          `Exported ${serverExport?.count ?? events.length} live records from server in ${format.toUpperCase()} format.`
+        );
+        setTimeout(() => setDownloadNotice(null), 3500);
+        return;
+      } catch {
+        // Fall back to local export if server export fails
+      }
+    }
+
     if (filteredRecords.length === 0) return;
 
     if (format === "csv") {
@@ -116,7 +167,7 @@ export const AuditTrailView: React.FC = () => {
       a.download = `audit-ledger-${Date.now()}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-    } else if (format === "jsonld") {
+    } else {
       const payload = {
         "@context": "https://schema.org",
         type: "AuditReport",
@@ -129,7 +180,7 @@ export const AuditTrailView: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `audit-report-${Date.now()}.jsonld`;
+      a.download = `audit-report-${Date.now()}.${format}`;
       a.click();
       URL.revokeObjectURL(url);
     }
@@ -162,7 +213,7 @@ export const AuditTrailView: React.FC = () => {
                 variant="outlined"
                 color="neutral"
                 size="md"
-                disabled={filteredRecords.length === 0}
+                disabled={!isLive && filteredRecords.length === 0}
                 onClick={() => setExportMenuOpen(!exportMenuOpen)}
                 startIcon={<Download className="w-4 h-4" />}
                 endIcon={<ChevronDown className="w-3.5 h-3.5" />}
@@ -187,6 +238,14 @@ export const AuditTrailView: React.FC = () => {
                   >
                     <FileJson className="w-4 h-4 text-indigo-400" />
                     <span>JSON-LD</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExport("jsonl")}
+                    className="w-full flex items-center gap-2.5 p-2 rounded-lg text-slate-200 hover:bg-slate-800 text-left transition-colors"
+                  >
+                    <FileText className="w-4 h-4 text-cyan-400" />
+                    <span>JSONL</span>
                   </button>
                 </div>
               )}

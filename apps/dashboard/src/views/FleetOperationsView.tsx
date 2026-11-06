@@ -4,7 +4,7 @@
  * ZERO inline styles. ZERO custom CSS.
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   GlassModal,
@@ -43,8 +43,16 @@ import {
   Eye,
   Pause,
   Filter,
+  Plus,
+  Trash2,
+  RefreshCw,
 } from "lucide-react";
 import { useDashboardStore } from "../state/dashboardStore";
+import { api, token, sessionToken } from "../api";
+
+function isLiveMode(): boolean {
+  return typeof window !== "undefined" && Boolean(token() || sessionToken());
+}
 
 interface SelfHealingRule {
   id: string;
@@ -56,6 +64,7 @@ interface SelfHealingRule {
   firedCount: number;
   lastFired: string;
   category: "service" | "memory" | "mtls" | "disk";
+  isBackend?: boolean;
 }
 
 interface CronJob {
@@ -68,6 +77,7 @@ interface CronJob {
   lastDuration: string;
   nextRun: string;
   enabled: boolean;
+  isBackend?: boolean;
 }
 
 const PRESET_SCRIPTS = {
@@ -94,6 +104,7 @@ print(json.dumps(status))`,
 export const FleetOperationsView: React.FC = () => {
   const devices = useDashboardStore((s) => s.devices);
   const tasks = useDashboardStore((s) => s.tasks);
+  const refreshLive = useDashboardStore((s) => s.refreshLive);
 
   // Target fleet selection
   const [targetScope, setTargetScope] = useState<"all" | "production-east" | "gpu-runners" | "custom">("all");
@@ -119,6 +130,30 @@ export const FleetOperationsView: React.FC = () => {
     exitCode: number;
     stderr: string;
   } | null>(null);
+  const [lastFailedNode, setLastFailedNode] = useState<{
+    nodeId: string;
+    exitCode: number;
+    stderr: string;
+  } | null>(null);
+
+  // Fleet version & update state
+  const [fleetVersionInfo, setFleetVersionInfo] = useState<{
+    control_plane_version?: string;
+    git_commit?: string;
+    git_branch?: string;
+  } | null>(null);
+  const [isUpdatingFleet, setIsUpdatingFleet] = useState<boolean>(false);
+  const [fleetNotice, setFleetNotice] = useState<string | null>(null);
+
+  // Live creation inputs
+  const [newRuleName, setNewRuleName] = useState<string>("");
+  const [newRuleMetric, setNewRuleMetric] = useState<string>("memory_percent");
+  const [newRuleThreshold, setNewRuleThreshold] = useState<number>(85);
+  const [newRuleActionTarget, setNewRuleActionTarget] = useState<string>("get_system_info");
+
+  const [newSchedName, setNewSchedName] = useState<string>("");
+  const [newSchedInterval, setNewSchedInterval] = useState<number>(300);
+  const [newSchedTool, setNewSchedTool] = useState<string>("get_system_info");
 
   // Self-healing rules engine state
   const [rules, setRules] = useState<SelfHealingRule[]>([
@@ -216,6 +251,73 @@ export const FleetOperationsView: React.FC = () => {
     },
   ]);
 
+  const loadLiveFleetConfig = useCallback(async () => {
+    if (!isLiveMode()) return;
+    try {
+      const [trigRes, schedRes, verRes] = await Promise.all([
+        api.triggers().catch(() => null),
+        api.schedules().catch(() => null),
+        api.fleetVersion().catch(() => null),
+      ]);
+
+      if (verRes && typeof verRes === "object") {
+        setFleetVersionInfo(verRes);
+      }
+
+      if (Array.isArray(trigRes) && trigRes.length > 0) {
+        const mappedRules: SelfHealingRule[] = trigRes.map((t: any) => {
+          const metric = String(t.metric || "cpu_percent");
+          const cat: SelfHealingRule["category"] = metric.includes("mem")
+            ? "memory"
+            : metric.includes("disk")
+            ? "disk"
+            : metric.includes("tls")
+            ? "mtls"
+            : "service";
+          return {
+            id: String(t.id),
+            name: String(t.name || "Telemetry Sentinel"),
+            trigger: metric,
+            condition: `${metric} ${t.operator || ">"} ${t.threshold ?? 85}${t.device_id ? ` (${t.device_id})` : " (fleet)"}`,
+            action: `${t.action_type || "tool"}: ${t.action_target || "get_system_info"}`,
+            enabled: Boolean(t.enabled),
+            firedCount: t.last_triggered_at ? 1 : 0,
+            lastFired: t.last_triggered_at
+              ? new Date(Number(t.last_triggered_at) * 1000).toLocaleTimeString()
+              : "Never",
+            category: cat,
+            isBackend: true,
+          };
+        });
+        setRules(mappedRules);
+      }
+
+      if (Array.isArray(schedRes) && schedRes.length > 0) {
+        const mappedJobs: CronJob[] = schedRes.map((s: any) => ({
+          id: String(s.id),
+          name: String(s.name || s.tool || "Scheduled Job"),
+          description: `Tool: ${s.tool || "get_system_info"}`,
+          cronExpr: `every ${s.interval_seconds || 300}s`,
+          targets: String(s.device_id || "local"),
+          lastStatus: "success",
+          lastDuration: s.last_run_at ? "completed" : "pending",
+          nextRun: s.next_run_at
+            ? new Date(Number(s.next_run_at) * 1000).toLocaleTimeString()
+            : `Every ${s.interval_seconds || 300}s`,
+          enabled: Boolean(s.enabled),
+          isBackend: true,
+        }));
+        setCronJobs(mappedJobs);
+      }
+    } catch {
+      // Keep existing state if fetch fails
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLiveFleetConfig();
+  }, [loadLiveFleetConfig]);
+
   const targetCount =
     targetScope === "all"
       ? devices.length
@@ -225,7 +327,7 @@ export const FleetOperationsView: React.FC = () => {
       ? 6
       : 8;
 
-  const handleBroadcast = () => {
+  const handleBroadcast = async () => {
     if (!scriptPayload.trim()) return;
     setIsBroadcasting(true);
     setBroadcastProgress({
@@ -234,6 +336,89 @@ export const FleetOperationsView: React.FC = () => {
       failed: 0,
       total: targetCount,
     });
+
+    if (isLiveMode()) {
+      try {
+        const targetDeviceIds =
+          targetScope === "all"
+            ? undefined
+            : targetScope === "production-east"
+            ? devices.filter((d) => d.tags.includes("production-east")).map((d) => d.id)
+            : devices.slice(0, targetCount).map((d) => d.id);
+
+        const res = await api.fleetBroadcast({
+          tool: "run_shell",
+          args: { command: scriptPayload },
+          target_device_ids: targetDeviceIds && targetDeviceIds.length > 0 ? targetDeviceIds : undefined,
+        });
+
+        const totalTasks = Number(res?.device_count || targetCount || 1);
+        setBroadcastProgress({
+          succeeded: 0,
+          inProgress: totalTasks,
+          failed: 0,
+          total: totalTasks,
+        });
+        void refreshLive?.();
+
+        if (res?.batch_id) {
+          const batchId = String(res.batch_id);
+          let attempts = 0;
+          const pollBatch = async () => {
+            attempts += 1;
+            try {
+              const statusRes = await api.broadcastStatus(batchId);
+              const total = Number(statusRes?.total_tasks || totalTasks);
+              const succeeded = Number(statusRes?.completed || 0);
+              const failed = Number(statusRes?.failed || 0);
+              const inProgress = Math.max(0, total - succeeded - failed);
+              setBroadcastProgress({
+                succeeded,
+                inProgress,
+                failed,
+                total,
+              });
+              if (Array.isArray(statusRes?.tasks)) {
+                const failedTask = statusRes.tasks.find((t: any) => t.status === "failed");
+                if (failedTask) {
+                  setLastFailedNode({
+                    nodeId: String(failedTask.device_name || failedTask.device_id || "unknown"),
+                    exitCode: Number(failedTask.result?.returncode ?? 1),
+                    stderr: String(failedTask.result?.stderr || failedTask.result?.error || "Task execution failed"),
+                  });
+                }
+              }
+              if (statusRes?.status === "completed" || attempts >= 8) {
+                setIsBroadcasting(false);
+                void refreshLive?.();
+              } else {
+                setTimeout(() => void pollBatch(), 1500);
+              }
+            } catch {
+              setIsBroadcasting(false);
+            }
+          };
+          setTimeout(() => void pollBatch(), 1000);
+          return;
+        }
+        setIsBroadcasting(false);
+        return;
+      } catch (err: any) {
+        setLastFailedNode({
+          nodeId: "control-plane-broadcast",
+          exitCode: 1,
+          stderr: err?.message || "Failed to dispatch fleet broadcast",
+        });
+        setBroadcastProgress({
+          succeeded: 0,
+          inProgress: 0,
+          failed: Math.max(1, targetCount),
+          total: Math.max(1, targetCount),
+        });
+        setIsBroadcasting(false);
+        return;
+      }
+    }
 
     setTimeout(() => {
       setBroadcastProgress({
@@ -246,13 +431,97 @@ export const FleetOperationsView: React.FC = () => {
     }, 1200);
   };
 
-  const handleToggleRule = (id: string) => {
+  const handleUpdateFleetAgents = async (targetOs?: string) => {
+    setIsUpdatingFleet(true);
+    if (isLiveMode()) {
+      try {
+        const res = await api.updateFleet(targetOs);
+        setFleetNotice(
+          `Dispatched fleet agent update batch ${res?.batch_id || "ok"} (${res?.device_count ?? devices.length} nodes)`
+        );
+        void refreshLive?.();
+      } catch (err: any) {
+        setFleetNotice(err?.message || "Fleet update request dispatched");
+      } finally {
+        setIsUpdatingFleet(false);
+      }
+      return;
+    }
+    setTimeout(() => {
+      setFleetNotice(`Simulated fleet agent rolling update across ${devices.length} nodes`);
+      setIsUpdatingFleet(false);
+    }, 600);
+  };
+
+  const handleCreateLiveTrigger = async () => {
+    if (!newRuleName.trim()) return;
+    if (isLiveMode()) {
+      try {
+        await api.createTrigger({
+          name: newRuleName.trim(),
+          metric: newRuleMetric,
+          operator: ">",
+          threshold: newRuleThreshold,
+          action_type: "tool",
+          action_target: newRuleActionTarget || "get_system_info",
+          action_args: {},
+          cooldown_seconds: 300,
+          enabled: true,
+        });
+        setNewRuleName("");
+        await loadLiveFleetConfig();
+        return;
+      } catch {
+        // Fallback to local state append
+      }
+    }
+    setRules((prev) => [
+      {
+        id: `SH-USR-${Date.now().toString().slice(-3)}`,
+        name: newRuleName.trim(),
+        trigger: newRuleMetric,
+        condition: `${newRuleMetric} > ${newRuleThreshold}%`,
+        action: `tool: ${newRuleActionTarget || "get_system_info"}`,
+        enabled: true,
+        firedCount: 0,
+        lastFired: "Never",
+        category: newRuleMetric.includes("mem") ? "memory" : newRuleMetric.includes("disk") ? "disk" : "service",
+      },
+      ...prev,
+    ]);
+    setNewRuleName("");
+  };
+
+  const handleDeleteRule = async (id: string, isBackend?: boolean) => {
+    if (isLiveMode() && isBackend) {
+      try {
+        await api.deleteTrigger(id);
+        await loadLiveFleetConfig();
+        return;
+      } catch {
+        // Fallback to local filter
+      }
+    }
+    setRules((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const handleToggleRule = async (id: string) => {
+    const target = rules.find((r) => r.id === id);
     setRules((prev) =>
       prev.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r))
     );
+    if (isLiveMode() && target?.isBackend) {
+      try {
+        await api.toggleTrigger(id);
+        await loadLiveFleetConfig();
+      } catch {
+        // Keep optimistic state
+      }
+    }
   };
 
-  const handleSimulateRuleTrigger = (id: string) => {
+  const handleSimulateRuleTrigger = async (id: string) => {
+    const target = rules.find((r) => r.id === id);
     setRules((prev) =>
       prev.map((r) =>
         r.id === id
@@ -264,14 +533,131 @@ export const FleetOperationsView: React.FC = () => {
           : r
       )
     );
+    if (isLiveMode()) {
+      try {
+        if (target?.isBackend) {
+          await api.testTrigger(id);
+          void refreshLive?.();
+        } else if (target) {
+          const created = await api.createTrigger({
+            name: target.name,
+            metric: "memory_percent",
+            operator: ">",
+            threshold: 85,
+            action_type: "tool",
+            action_target: "get_system_info",
+            action_args: {},
+            cooldown_seconds: 300,
+            enabled: target.enabled,
+          });
+          if (created?.trigger_id) {
+            await api.testTrigger(String(created.trigger_id));
+            await loadLiveFleetConfig();
+            void refreshLive?.();
+          }
+        }
+      } catch {
+        // Keep optimistic state
+      }
+    }
   };
 
-  const handleRunCronNow = (jobId: string) => {
+  const handleCreateLiveSchedule = async () => {
+    if (!newSchedName.trim()) return;
+    if (isLiveMode()) {
+      try {
+        await api.createSchedule({
+          name: newSchedName.trim(),
+          device_id: devices[0]?.id || "local",
+          interval_seconds: Math.max(10, Number(newSchedInterval) || 300),
+          tool: newSchedTool || "get_system_info",
+          args: {},
+          enabled: true,
+        });
+        setNewSchedName("");
+        await loadLiveFleetConfig();
+        return;
+      } catch {
+        // Fallback to local state append
+      }
+    }
+    setCronJobs((prev) => [
+      {
+        id: `CRN-${Date.now().toString().slice(-3)}`,
+        name: newSchedName.trim(),
+        description: `Tool: ${newSchedTool || "get_system_info"}`,
+        cronExpr: `every ${newSchedInterval}s`,
+        targets: devices[0]?.hostname || "All Nodes",
+        lastStatus: "success",
+        lastDuration: "0s",
+        nextRun: `In ${newSchedInterval}s`,
+        enabled: true,
+      },
+      ...prev,
+    ]);
+    setNewSchedName("");
+  };
+
+  const handleDeleteSchedule = async (jobId: string, isBackend?: boolean) => {
+    if (isLiveMode() && isBackend) {
+      try {
+        await api.deleteSchedule(jobId);
+        await loadLiveFleetConfig();
+        return;
+      } catch {
+        // Fallback to local filter
+      }
+    }
+    setCronJobs((prev) => prev.filter((j) => j.id !== jobId));
+  };
+
+  const handleRunCronNow = async (jobId: string) => {
+    const targetJob = cronJobs.find((j) => j.id === jobId);
     setCronJobs((prev) =>
       prev.map((j) =>
         j.id === jobId ? { ...j, lastStatus: "running" as const } : j
       )
     );
+
+    if (isLiveMode()) {
+      try {
+        if (targetJob?.isBackend) {
+          await api.runScheduleNow(jobId);
+        } else if (targetJob) {
+          const created = await api.createSchedule({
+            name: targetJob.name,
+            device_id: devices[0]?.id || "local",
+            interval_seconds: 300,
+            tool: "get_system_info",
+            args: {},
+            enabled: true,
+          });
+          if (created?.schedule_id) {
+            await api.runScheduleNow(String(created.schedule_id));
+            await loadLiveFleetConfig();
+          }
+        }
+        setCronJobs((prev) =>
+          prev.map((j) =>
+            j.id === jobId
+              ? { ...j, lastStatus: "success" as const, lastDuration: "live" }
+              : j
+          )
+        );
+        void refreshLive?.();
+        return;
+      } catch {
+        setCronJobs((prev) =>
+          prev.map((j) =>
+            j.id === jobId
+              ? { ...j, lastStatus: "failed" as const, lastDuration: "err" }
+              : j
+          )
+        );
+        return;
+      }
+    }
+
     setTimeout(() => {
       setCronJobs((prev) =>
         prev.map((j) =>
@@ -499,16 +885,38 @@ export const FleetOperationsView: React.FC = () => {
                       color="neutral"
                       size="sm"
                       onClick={() =>
-                        setSelectedFailedNode({
-                          nodeId: "srv-us-east-412",
-                          exitCode: 1,
-                          stderr: "Permission denied: access to enclave socket restricted",
-                        })
+                        setSelectedFailedNode(
+                          lastFailedNode || {
+                            nodeId: "srv-us-east-412",
+                            exitCode: 1,
+                            stderr: "Permission denied: access to enclave socket restricted",
+                          }
+                        )
                       }
                       startIcon={<Eye className="w-3.5 h-3.5" />}
                     >
                       Failure Drill-Down
                     </JXButton>
+                    <JXButton
+                      variant="soft"
+                      color="neutral"
+                      size="sm"
+                      loading={isUpdatingFleet}
+                      onClick={() => void handleUpdateFleetAgents()}
+                      startIcon={<RefreshCw className="w-3.5 h-3.5" />}
+                    >
+                      Update Fleet Agents
+                    </JXButton>
+                    {fleetVersionInfo?.control_plane_version && (
+                      <span className="text-[11px] font-mono text-slate-400">
+                        v{fleetVersionInfo.control_plane_version} ({fleetVersionInfo.git_commit || "main"})
+                      </span>
+                    )}
+                    {fleetNotice && (
+                      <span className="text-[11px] font-mono text-emerald-400">
+                        {fleetNotice}
+                      </span>
+                    )}
                   </div>
 
                   <JXButton
@@ -516,7 +924,7 @@ export const FleetOperationsView: React.FC = () => {
                     color="primary"
                     size="md"
                     loading={isBroadcasting}
-                    onClick={handleBroadcast}
+                    onClick={() => void handleBroadcast()}
                     startIcon={<Send className="w-4 h-4" />}
                     disabled={targetCount === 0 || !scriptPayload.trim()}
                   >
@@ -531,14 +939,44 @@ export const FleetOperationsView: React.FC = () => {
 
       {/* SECTION 2: Reactive Self-Healing Rules Engine */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <HeartPulse className="w-5 h-5 text-emerald-400" />
             <h2 className="text-base font-semibold text-slate-100">Automation rules</h2>
           </div>
-          <span className="text-xs font-mono text-slate-400">
-            Autonomous closed-loop remediation sentinels
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              aria-label="New rule name"
+              placeholder="New rule name..."
+              value={newRuleName}
+              onChange={(e) => setNewRuleName(e.target.value)}
+              className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-200 focus:outline-none"
+            />
+            <select
+              aria-label="Rule metric"
+              value={newRuleMetric}
+              onChange={(e) => setNewRuleMetric(e.target.value)}
+              className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-300 focus:outline-none"
+            >
+              <option value="memory_percent">memory_percent</option>
+              <option value="cpu_percent">cpu_percent</option>
+              <option value="disk_percent">disk_percent</option>
+            </select>
+            <JXButton
+              variant="soft"
+              color="primary"
+              size="sm"
+              onClick={() => void handleCreateLiveTrigger()}
+              disabled={!newRuleName.trim()}
+              startIcon={<Plus className="w-3.5 h-3.5" />}
+            >
+              Add Rule
+            </JXButton>
+            <span className="text-xs font-mono text-slate-400">
+              Autonomous closed-loop remediation sentinels
+            </span>
+          </div>
         </div>
 
         <JXGrid columns={12} gap="md">
@@ -571,7 +1009,7 @@ export const FleetOperationsView: React.FC = () => {
                       label={`Enable ${rule.name}`}
                       cardMode={false}
                       checked={rule.enabled}
-                      onChange={() => handleToggleRule(rule.id)}
+                      onChange={() => void handleToggleRule(rule.id)}
                     />
                   </div>
                 </div>
@@ -595,15 +1033,28 @@ export const FleetOperationsView: React.FC = () => {
                       <span className="font-mono text-slate-400">
                         Triggered: <strong className="text-slate-200">{rule.firedCount} times</strong>
                       </span>
-                      <JXButton
-                        variant="soft"
-                        color="primary"
-                        size="sm"
-                        onClick={() => handleSimulateRuleTrigger(rule.id)}
-                        startIcon={<Zap className="w-3.5 h-3.5" />}
-                      >
-                        Simulate Trigger
-                      </JXButton>
+                      <div className="flex items-center gap-1.5">
+                        {rule.isBackend && (
+                          <JXButton
+                            variant="soft"
+                            color="neutral"
+                            size="sm"
+                            onClick={() => void handleDeleteRule(rule.id, rule.isBackend)}
+                            startIcon={<Trash2 className="w-3.5 h-3.5 text-rose-400" />}
+                          >
+                            Delete
+                          </JXButton>
+                        )}
+                        <JXButton
+                          variant="soft"
+                          color="primary"
+                          size="sm"
+                          onClick={() => void handleSimulateRuleTrigger(rule.id)}
+                          startIcon={<Zap className="w-3.5 h-3.5" />}
+                        >
+                          Simulate Trigger
+                        </JXButton>
+                      </div>
                     </div>
                   </div>
                 </JXCardContent>
@@ -620,6 +1071,26 @@ export const FleetOperationsView: React.FC = () => {
           icon={<Calendar className="w-5 h-5 text-indigo-400" />}
         />
         <JXCardContent>
+          <div className="flex items-center justify-end gap-2 pb-3">
+            <input
+              type="text"
+              aria-label="New schedule name"
+              placeholder="Schedule name..."
+              value={newSchedName}
+              onChange={(e) => setNewSchedName(e.target.value)}
+              className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-200 focus:outline-none"
+            />
+            <JXButton
+              variant="soft"
+              color="primary"
+              size="sm"
+              onClick={() => void handleCreateLiveSchedule()}
+              disabled={!newSchedName.trim()}
+              startIcon={<Plus className="w-3.5 h-3.5" />}
+            >
+              Add Schedule
+            </JXButton>
+          </div>
           <div className="overflow-x-auto rounded-xl border border-slate-800">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
@@ -662,15 +1133,28 @@ export const FleetOperationsView: React.FC = () => {
                     </td>
                     <td className="p-3 text-slate-300">{job.nextRun}</td>
                     <td className="p-3 text-right">
-                      <JXButton
-                        variant="soft"
-                        color="primary"
-                        size="sm"
-                        onClick={() => handleRunCronNow(job.id)}
-                        startIcon={<Play className="w-3.5 h-3.5" />}
-                      >
-                        Run Now
-                      </JXButton>
+                      <div className="flex items-center justify-end gap-1.5">
+                        {job.isBackend && (
+                          <JXButton
+                            variant="soft"
+                            color="neutral"
+                            size="sm"
+                            onClick={() => void handleDeleteSchedule(job.id, job.isBackend)}
+                            startIcon={<Trash2 className="w-3.5 h-3.5 text-rose-400" />}
+                          >
+                            Delete
+                          </JXButton>
+                        )}
+                        <JXButton
+                          variant="soft"
+                          color="primary"
+                          size="sm"
+                          onClick={() => void handleRunCronNow(job.id)}
+                          startIcon={<Play className="w-3.5 h-3.5" />}
+                        >
+                          Run Now
+                        </JXButton>
+                      </div>
                     </td>
                   </tr>
                 ))}

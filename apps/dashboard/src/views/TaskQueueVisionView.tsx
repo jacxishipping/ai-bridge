@@ -43,7 +43,11 @@ import {
   Eye,
   Crosshair,
   Sparkles,
+  Trash2,
+  Ban,
+  Camera,
 } from "lucide-react";
+import { api, token, sessionToken } from "../api";
 import { useDashboardStore } from "../state/dashboardStore";
 import type { TaskInvocation, TaskRiskTier, TaskStatus } from "../types/dashboard";
 
@@ -149,6 +153,8 @@ export const TaskQueueVisionView: React.FC = () => {
   const selectedDeviceId = useDashboardStore((s) => s.selectedDeviceId);
   const tasks = useDashboardStore((s) => s.tasks);
   const dispatchTask = useDashboardStore((s) => s.dispatchTask);
+  const refreshLive = useDashboardStore((s) => s.refreshLive);
+  const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
 
   // Studio form states
   const [targetHost, setTargetHost] = useState<string>(selectedDeviceId || "srv-us-east-412");
@@ -168,6 +174,8 @@ export const TaskQueueVisionView: React.FC = () => {
   const [somEnabled, setSomEnabled] = useState<boolean>(true);
   const [selectedMarkId, setSelectedMarkId] = useState<number | null>(null);
   const [copiedPayload, setCopiedPayload] = useState<boolean>(false);
+  const [liveCapturedBase64, setLiveCapturedBase64] = useState<string>("");
+  const [taskActionNotice, setTaskActionNotice] = useState<string | null>(null);
 
   // Sync risk tier when tool changes
   useEffect(() => {
@@ -232,7 +240,9 @@ export const TaskQueueVisionView: React.FC = () => {
         args: parsedArgs,
         riskTier: activeRiskTier,
       });
-      setSelectedTaskId(newTask.id);
+      const createdId = newTask?.id || (newTask as any)?.task_id;
+      if (createdId) setSelectedTaskId(createdId);
+      await refreshLive?.();
     } catch (err: any) {
       setJsonError(err.message || "Task dispatch rejected");
     } finally {
@@ -240,7 +250,93 @@ export const TaskQueueVisionView: React.FC = () => {
         setIsSubmitting(false);
       }, 600);
     }
-  }, [isSubmitting, argsJson, dispatchTask, targetHost, selectedTool, activeRiskTier]);
+  }, [isSubmitting, argsJson, dispatchTask, targetHost, selectedTool, activeRiskTier, refreshLive]);
+
+  const handleCancelTask = useCallback(
+    async (taskId: string, e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      if (Boolean(token() || sessionToken())) {
+        try {
+          await api.cancelTask(taskId);
+          await refreshLive?.();
+          setTaskActionNotice(`Cancelled task #${taskId}.`);
+          setTimeout(() => setTaskActionNotice(null), 3000);
+        } catch (err: any) {
+          setTaskActionNotice(`Cancel failed: ${err?.message || "Unknown error"}`);
+        }
+        return;
+      }
+      setTaskActionNotice(`Simulated cancellation for #${taskId}.`);
+      setTimeout(() => setTaskActionNotice(null), 3000);
+    },
+    [refreshLive]
+  );
+
+  const handleDeleteTask = useCallback(
+    async (taskId: string, e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      if (Boolean(token() || sessionToken())) {
+        try {
+          await api.deleteTask(taskId);
+          await refreshLive?.();
+          setTaskActionNotice(`Deleted task #${taskId}.`);
+          setTimeout(() => setTaskActionNotice(null), 3000);
+        } catch (err: any) {
+          setTaskActionNotice(`Delete failed: ${err?.message || "Unknown error"}`);
+        }
+        return;
+      }
+      setTaskActionNotice(`Simulated deletion for #${taskId}.`);
+      setTimeout(() => setTaskActionNotice(null), 3000);
+    },
+    [refreshLive]
+  );
+
+  const handleClearTasks = useCallback(async () => {
+    if (Boolean(token() || sessionToken())) {
+      try {
+        const res = await api.clearTasks(statusFilter !== "all" ? statusFilter : undefined);
+        await refreshLive?.();
+        setTaskActionNotice(`Cleared ${res?.deleted_count ?? 0} tasks.`);
+        setTimeout(() => setTaskActionNotice(null), 3000);
+      } catch (err: any) {
+        setTaskActionNotice(`Clear tasks failed: ${err?.message || "Unknown error"}`);
+      }
+      return;
+    }
+    setTaskActionNotice("Simulated clearing finished tasks.");
+    setTimeout(() => setTaskActionNotice(null), 3000);
+  }, [statusFilter, refreshLive]);
+
+  // Filtered task list
+  const filteredTasks = useMemo(() => {
+    if (statusFilter === "all") return tasks;
+    return tasks.filter((t) => t.status === statusFilter);
+  }, [tasks, statusFilter]);
+
+  // Active inspected task
+  const activeTask = useMemo(() => {
+    return tasks.find((t) => t.id === selectedTaskId) || tasks[0];
+  }, [tasks, selectedTaskId]);
+
+  const handleCaptureLiveScreenshot = useCallback(async () => {
+    if (Boolean(token() || sessionToken())) {
+      const devId = activeTask?.deviceId || targetHost;
+      try {
+        const frame = await api.desktopFrame(devId);
+        if (frame?.base64_data) {
+          setLiveCapturedBase64(frame.base64_data);
+          setTaskActionNotice(`Captured live frame from ${devId}.`);
+          setTimeout(() => setTaskActionNotice(null), 3000);
+        } else {
+          setTaskActionNotice(frame?.error || "No live frame available from device.");
+          setTimeout(() => setTaskActionNotice(null), 3000);
+        }
+      } catch (err: any) {
+        setTaskActionNotice(`Screenshot capture failed: ${err?.message || "Unknown error"}`);
+      }
+    }
+  }, [activeTask, targetHost]);
 
   // Keyboard shortcut listener (⌘/Ctrl + Enter)
   useEffect(() => {
@@ -254,16 +350,28 @@ export const TaskQueueVisionView: React.FC = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleDispatch]);
 
-  // Filtered task list
-  const filteredTasks = useMemo(() => {
-    if (statusFilter === "all") return tasks;
-    return tasks.filter((t) => t.status === statusFilter);
-  }, [tasks, statusFilter]);
-
-  // Active inspected task
-  const activeTask = useMemo(() => {
-    return tasks.find((t) => t.id === selectedTaskId) || tasks[0];
-  }, [tasks, selectedTaskId]);
+  const liveScreenshotDataUrl = useMemo(() => {
+    const res: any = activeTask?.result;
+    let rawB64 =
+      res?.screenshotBase64 ||
+      res?.base64_data ||
+      res?.outputJson?.base64_data ||
+      res?.outputJson?.screenshotBase64 ||
+      "";
+    if (!rawB64 && typeof res?.stdout === "string") {
+      try {
+        const parsed = JSON.parse(res.stdout);
+        rawB64 = parsed?.base64_data || parsed?.screenshotBase64 || parsed?.image_base64 || "";
+      } catch {
+        // Not JSON stdout
+      }
+    }
+    if (!rawB64 && liveCapturedBase64) {
+      rawB64 = liveCapturedBase64;
+    }
+    if (!rawB64 || typeof rawB64 !== "string") return "";
+    return rawB64.startsWith("data:image/") ? rawB64 : `data:image/jpeg;base64,${rawB64}`;
+  }, [activeTask, liveCapturedBase64]);
 
   const copyToClipboard = () => {
     const payload = JSON.stringify(activeTask?.result || { status: "queued", task: activeTask }, null, 2);
