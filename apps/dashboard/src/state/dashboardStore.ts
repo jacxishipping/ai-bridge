@@ -766,15 +766,15 @@ class DashboardStore {
         liveDevices = rawDevs.map((d: any, idx: number) => {
           const isOnline = Boolean(d.status === "online" && !d.revoked);
           const osStr = (d.os || "").toLowerCase();
-          const platform: PlatformType = osStr.includes("win")
+          const platform: PlatformType = (osStr.includes("win") || (d.name || "").toLowerCase().includes("win"))
             ? "windows"
             : osStr.includes("darwin") || osStr.includes("mac")
             ? "darwin"
             : "linux";
           const tele = teleMap.get(d.id) || {};
-          const cpuPercent = typeof tele.cpu_percent === "number" ? Math.round(tele.cpu_percent * 10) / 10 : (isOnline ? 5.6 : 0);
-          const memPercent = typeof tele.memory_percent === "number" ? Math.round(tele.memory_percent * 10) / 10 : (isOnline ? 16.8 : 0);
-          const diskPercent = typeof tele.disk_percent === "number" ? Math.round(tele.disk_percent * 10) / 10 : (isOnline ? 7.4 : 0);
+          const cpuPercent = isOnline && typeof tele.cpu_percent === "number" ? Math.round(tele.cpu_percent * 10) / 10 : (isOnline ? 5.6 : 0);
+          const memPercent = isOnline && typeof tele.memory_percent === "number" ? Math.round(tele.memory_percent * 10) / 10 : (isOnline ? 16.8 : 0);
+          const diskPercent = isOnline && typeof tele.disk_percent === "number" ? Math.round(tele.disk_percent * 10) / 10 : (isOnline ? 7.4 : 0);
           const memTotalGb = platform === "windows" ? 32 : 16;
           const diskTotalGb = 500;
 
@@ -783,42 +783,46 @@ class DashboardStore {
             name: d.name || d.id,
             hostname: d.hostname || d.name || d.id,
             platform,
-            osRelease: d.os || "Linux 7.0.0-1014-aws",
+            osRelease: d.os || (isOnline ? "Linux 7.0.0-1014-aws" : (platform === "windows" ? "Windows (Not connected)" : "Linux (Not connected)")),
             arch: (d.os?.toLowerCase().includes("arm") || d.os?.toLowerCase().includes("aarch64")) ? "aarch64" : "x86_64",
             status: isOnline ? "online" : "offline",
-            lastHeartbeat: d.last_seen ? new Date(d.last_seen * 1000).toISOString() : new Date().toISOString(),
+            lastHeartbeat: d.last_seen ? new Date(d.last_seen * 1000).toISOString() : "",
             pollIntervalSec: 10,
-            latencyMs: isOnline ? Math.max(8, latency) : 999,
+            latencyMs: isOnline ? Math.max(8, latency) : 0,
             workspacePath: platform === "windows" ? "C:\\ai-bridge\\workspace" : "/var/lib/ai-bridge/workspace",
             assignedModels: ["Claude 3.5 Sonnet", "GPT-4o"],
             tags: Array.isArray(d.tags) && d.tags.length ? d.tags : ["production", platform],
             telemetry: {
-              cpuPercent,
-              cpuCores: [cpuPercent + 1.2, Math.max(0, cpuPercent - 0.8), cpuPercent + 0.4, cpuPercent],
-              cpuClockGhz: 2.5,
-              memoryUsedGb: Math.round((memTotalGb * memPercent / 100) * 10) / 10,
-              memoryTotalGb: memTotalGb,
-              swapUsedGb: 0.1,
-              swapTotalGb: 2.0,
-              diskUsedGb: Math.round(diskTotalGb * diskPercent / 100),
-              diskTotalGb,
-              diskPercent,
+              cpuPercent: isOnline ? cpuPercent : 0,
+              cpuCores: isOnline ? [cpuPercent + 1.2, Math.max(0, cpuPercent - 0.8), cpuPercent + 0.4, cpuPercent] : [0, 0, 0, 0],
+              cpuClockGhz: isOnline ? 2.5 : 0,
+              memoryUsedGb: isOnline ? Math.round((memTotalGb * memPercent / 100) * 10) / 10 : 0,
+              memoryTotalGb: isOnline ? memTotalGb : 0,
+              swapUsedGb: 0,
+              swapTotalGb: 0,
+              diskUsedGb: isOnline ? Math.round(diskTotalGb * diskPercent / 100) : 0,
+              diskTotalGb: isOnline ? diskTotalGb : 0,
+              diskPercent: isOnline ? diskPercent : 0,
               networkRxMbps: isOnline ? 1.8 : 0,
               networkTxMbps: isOnline ? 0.6 : 0,
-              ipAddress: d.ip_address || (platform === "linux" ? "18.188.153.166" : "192.168.1.100"),
+              ipAddress: d.ip_address || (isOnline ? (platform === "linux" ? "18.188.153.166" : "192.168.1.100") : "Not reported"),
               uptimeSeconds: isOnline ? 120400 : 0,
-              tpmStatus: "active",
-              certExpiryDays: 45,
-              fingerprintSha256: `sha256:${d.id.padEnd(64, "0")}`,
+              tpmStatus: isOnline ? "active" : "inactive",
+              certExpiryDays: isOnline ? 45 : 0,
+              fingerprintSha256: d.id ? `sha256:${d.id.padEnd(64, "0")}` : "unknown",
             },
             revoked: Boolean(d.revoked),
           };
         });
 
         nextState.devices = liveDevices;
-        if (!liveDevices.some((d) => d.id === this.state.selectedDeviceId)) {
-          nextState.selectedDeviceId = liveDevices[0]?.id || "";
-        }
+        const currentRoute = readRoute();
+        const routeTarget = (currentRoute.device && liveDevices.some((d) => d.id === currentRoute.device))
+          ? currentRoute.device
+          : (liveDevices.some((d) => d.id === this.state.selectedDeviceId)
+              ? this.state.selectedDeviceId
+              : (liveDevices[0]?.id || ""));
+        nextState.selectedDeviceId = routeTarget;
       }
 
       if (Array.isArray(rawTasks)) {
@@ -905,9 +909,7 @@ class DashboardStore {
 
   public syncRoute = (): void => {
     const route = readRoute();
-    const selectedDeviceId = this.state.devices.some((d) => d.id === route.device)
-      ? route.device!
-      : this.state.devices[0]?.id || this.state.selectedDeviceId;
+    const selectedDeviceId = route.device || this.state.selectedDeviceId;
     this.state = { ...this.state, currentView: route.view, selectedDeviceId };
     this.notify();
     void this.syncWithBackend();
