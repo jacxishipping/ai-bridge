@@ -1,0 +1,8 @@
+# View live logs
+sudo docker compose --env-file /opt/ai-bridge/.env.production -f /opt/ai-bridge/docker-compose.prod.yml logs -f
+
+# Restart stack
+sudo docker compose --env-file /opt/ai-bridge/.env.production -f /opt/ai-bridge/docker-compose.prod.yml restart
+
+# Stop stack
+sudo docker compose --env-file /opt/ai-bridge/.env.production -f /opt/ai-bridge/docker-compose.prod.yml down
