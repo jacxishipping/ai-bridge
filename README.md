@@ -108,6 +108,33 @@ irm https://raw.githubusercontent.com/jacxishipping/ai-bridge/main/magic-install
 
 ---
 
+### ☁️ AWS Production Deployment
+
+Deploy the full production stack (EC2 + RDS + Redis + ALB) on AWS via CloudFormation:
+
+```bash
+cd deployment/aws
+chmod +x deploy.sh
+./deploy.sh
+```
+
+See [deployment/aws/README.md](deployment/aws/README.md) for prerequisites and detailed instructions.
+
+To update the application code on an existing EC2 instance:
+
+```bash
+# SSH-based
+set AI_BRIDGE_SSH_KEY=C:\path\to\aws-key.pem
+set AI_BRIDGE_SSH_HOST=ubuntu@ec2-instance
+python deploy_to_aws.py
+
+# AWS SSM (no public IP needed)
+set AI_BRIDGE_SSM_INSTANCE_ID=i-1234567890abcdef0
+python deploy_to_aws.py
+```
+
+---
+
 ### 1. Local MCP Server (Stdio)
 
 Run AI Bridge locally for Claude Desktop, Cursor, or Gemini CLI:

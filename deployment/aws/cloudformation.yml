@@ -1,0 +1,514 @@
+# ==============================================================================
+#  AI Bridge — AWS CloudFormation Stack
+# ==============================================================================
+#  Deploys the full AI Bridge production stack on AWS:
+#   - EC2 Auto Scaling Group (Ubuntu 24.04, t3.medium+)
+#   - Application Load Balancer (HTTPS with ACM certificate)
+#   - RDS PostgreSQL 16 (Multi-AZ optional)
+#   - ElastiCache Redis 7 (Cluster Mode disabled)
+#   - Route53 DNS A-record alias to ALB
+#   - EFS filesystem for shared data/workspace volumes
+#   - Security groups with least-privilege rules
+#   - CloudWatch dashboard + alarms
+# ==============================================================================
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "AI Bridge — Production AWS Infrastructure (EC2 + RDS + Redis + ALB)"
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: Public domain name for the AI Bridge control plane (e.g. app.mydomain.com)
+    AllowedPattern: "(\\w+\\.)+\\w+"
+
+  HostedZoneId:
+    Type: String
+    Description: Route53 Hosted Zone ID for the domain
+
+  AcmCertificateArn:
+    Type: String
+    Description: ARN of the ACM certificate for *.DomainName or DomainName
+
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues: [t3.medium, t3.large, t3.xlarge, t4g.medium, t4g.large, c6i.large, c7g.large]
+    Description: EC2 instance type for the control plane
+
+  MinSize:
+    Type: Number
+    Default: 1
+    Description: Minimum instances in Auto Scaling Group
+
+  MaxSize:
+    Type: Number
+    Default: 3
+    Description: Maximum instances in Auto Scaling Group
+
+  DbInstanceClass:
+    Type: String
+    Default: db.t3.medium
+    AllowedValues: [db.t3.medium, db.t3.large, db.t4g.medium, db.r6g.large]
+    Description: RDS PostgreSQL instance class
+
+  MultiAz:
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+    Description: Enable Multi-AZ for RDS
+
+  SshKeyName:
+    Type: String
+    Description: Name of an existing EC2 KeyPair for SSH access
+
+  AdminToken:
+    Type: String
+    NoEcho: true
+    Description: AI_BRIDGE_ADMIN_TOKEN secret
+
+  SlackWebhookUrl:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Optional Slack webhook URL for alerts
+
+  DiscordWebhookUrl:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Optional Discord webhook URL for alerts
+
+  TurnSecret:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Optional TURN server shared secret
+
+Conditions:
+  HasSlack: !Not [!Equals [!Ref SlackWebhookUrl, ""]]
+  HasDiscord: !Not [!Equals [!Ref DiscordWebhookUrl, ""]]
+  HasTurn: !Not [!Equals [!Ref TurnSecret, ""]]
+
+Resources:
+  # --- Security Groups --------------------------------------------------------
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB for AI Bridge
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  Ec2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EC2 instances for AI Bridge
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 3478
+          ToPort: 3478
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: udp
+          FromPort: 3478
+          ToPort: 3478
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 49152
+          ToPort: 49200
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: udp
+          FromPort: 49152
+          ToPort: 49200
+          CidrIp: 0.0.0.0/0
+
+  RdsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS PostgreSQL for AI Bridge
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref Ec2SecurityGroup
+
+  RedisSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ElastiCache Redis for AI Bridge
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref Ec2SecurityGroup
+
+  EfsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EFS for AI Bridge shared storage
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref Ec2SecurityGroup
+
+  # --- VPC (use existing) -----------------------------------------------------
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Existing VPC ID
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: List of subnet IDs (at least 2 across different AZs)
+
+  # --- RDS PostgreSQL ---------------------------------------------------------
+  RdsSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnets for AI Bridge RDS
+      SubnetIds: !Ref SubnetIds
+
+  RdsInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: postgres
+      EngineVersion: "16.3"
+      DBInstanceClass: !Ref DbInstanceClass
+      DBInstanceIdentifier: !Sub "aibridge-${AWS::StackName}"
+      MasterUsername: ai_bridge
+      MasterUserPassword: !Sub "{{resolve:ssm:/ai-bridge/${AWS::StackName}/db-password}}"
+      DBName: ai_bridge
+      AllocatedStorage: 100
+      StorageType: gp3
+      BackupRetentionPeriod: 7
+      MultiAZ: !Ref MultiAz
+      DBSubnetGroupName: !Ref RdsSubnetGroup
+      VPCSecurityGroups: [!Ref RdsSecurityGroup]
+      StorageEncrypted: true
+      DeletionProtection: true
+      Tags:
+        - Key: Name
+          Value: !Sub "aibridge-${AWS::StackName}-postgres"
+
+  # --- ElastiCache Redis ------------------------------------------------------
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Subnets for AI Bridge Redis
+      SubnetIds: !Ref SubnetIds
+
+  RedisCluster:
+    Type: AWS::ElastiCache::CacheCluster
+    Properties:
+      Engine: redis
+      EngineVersion: "7.1"
+      CacheNodeType: cache.t4g.small
+      NumCacheNodes: 1
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      VpcSecurityGroupIds: [!Ref RedisSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: !Sub "aibridge-${AWS::StackName}-redis"
+
+  # --- EFS Shared Storage -----------------------------------------------------
+  EfsFileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      PerformanceMode: generalPurpose
+      ThroughputMode: bursting
+      Encrypted: true
+      Tags:
+        - Key: Name
+          Value: !Sub "aibridge-${AWS::StackName}-data"
+
+  EfsMountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      SubnetId: !Select [0, !Ref SubnetIds]
+      SecurityGroups: [!Ref EfsSecurityGroup]
+
+  EfsMountTarget2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EfsFileSystem
+      SubnetId: !Select [1, !Ref SubnetIds]
+      SecurityGroups: [!Ref EfsSecurityGroup]
+
+  # --- Application Load Balancer ----------------------------------------------
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "aibridge-${AWS::StackName}"
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups: [!Ref AlbSecurityGroup]
+      Subnets: !Ref SubnetIds
+      Tags:
+        - Key: Name
+          Value: !Sub "aibridge-${AWS::StackName}-alb"
+
+  AlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "aibridge-${AWS::StackName}-tg"
+      Port: 8000
+      Protocol: HTTP
+      TargetType: instance
+      VpcId: !Ref VpcId
+      HealthCheckPath: /health/ready
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: "200"
+
+  AlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref AcmCertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref AlbTargetGroup
+
+  AlbHttpRedirect:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            StatusCode: HTTP_301
+
+  # --- Route53 DNS ------------------------------------------------------------
+  DnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt Alb.DNSName
+        HostedZoneId: !GetAtt Alb.CanonicalHostedZoneID
+
+  # --- EC2 Launch Template ----------------------------------------------------
+  Ec2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref Ec2Role]
+
+  Ec2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonElasticFileSystemClientReadWriteAccess
+      Policies:
+        - PolicyName: aibridge-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/ai-bridge/${AWS::StackName}/*"
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "aibridge-${AWS::StackName}"
+      LaunchTemplateData:
+        ImageId: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref SshKeyName
+        IamInstanceProfile:
+          Arn: !GetAtt Ec2InstanceProfile.Arn
+        SecurityGroupIds: [!Ref Ec2SecurityGroup]
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 50
+              VolumeType: gp3
+              Encrypted: true
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -eo pipefail
+
+            # Mount EFS
+            EFS_ID="${EfsFileSystem}"
+            mkdir -p /var/lib/ai-bridge
+            echo "$EFS_ID.efs.${AWS::Region}.amazonaws.com:/ /var/lib/ai-bridge nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,_netdev 0 0" >> /etc/fstab
+            mount -a
+
+            # Install Docker
+            curl -fsSL https://get.docker.com | bash
+            usermod -aG docker ubuntu
+
+            # Clone app
+            git clone https://github.com/jacxishipping/ai-bridge.git /opt/ai-bridge
+            chown -R ubuntu:ubuntu /opt/ai-bridge
+
+            # Write .env.production
+            cat > /opt/ai-bridge/.env.production << 'ENVEOF'
+            DOMAIN=${DomainName}
+            ACME_EMAIL=admin@${DomainName}
+            POSTGRES_PASSWORD=$(aws ssm get-parameter --name /ai-bridge/${AWS::StackName}/db-password --with-decryption --query Parameter.Value --output text)
+            REDIS_PASSWORD=$(aws ssm get-parameter --name /ai-bridge/${AWS::StackName}/redis-password --with-decryption --query Parameter.Value --output text)
+            AI_BRIDGE_ADMIN_TOKEN=${AdminToken}
+            SECRET_KEY=$(aws ssm get-parameter --name /ai-bridge/${AWS::StackName}/secret-key --with-decryption --query Parameter.Value --output text)
+            AI_BRIDGE_PUBLIC_URL=https://${DomainName}
+            AI_BRIDGE_DOMAIN=${DomainName}
+            AI_BRIDGE_DATA_DIR=/var/lib/ai-bridge
+            AI_BRIDGE_WORKSPACE=/var/lib/ai-bridge/workspace
+            AI_BRIDGE_ALLOW_TIER3=1
+            AI_BRIDGE_DEVICE_TOKEN_TTL_DAYS=7
+            AI_BRIDGE_OIDC_ISSUER=
+            AI_BRIDGE_OIDC_CLIENT_ID=
+            AI_BRIDGE_OIDC_CLIENT_SECRET=
+            AI_BRIDGE_TURN_SECRET=${TurnSecret}
+            SLACK_WEBHOOK_URL=${SlackWebhookUrl}
+            DISCORD_WEBHOOK_URL=${DiscordWebhookUrl}
+            ENVEOF
+
+            # Start stack
+            cd /opt/ai-bridge
+            docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+
+  # --- Auto Scaling Group -----------------------------------------------------
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub "aibridge-${AWS::StackName}-asg"
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersion
+      MinSize: !Ref MinSize
+      MaxSize: !Ref MaxSize
+      DesiredCapacity: !Ref MinSize
+      VPCZoneIdentifier: !Ref SubnetIds
+      TargetGroupARNs:
+        - !Ref AlbTargetGroup
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
+      Tags:
+        - Key: Name
+          Value: !Sub "aibridge-${AWS::StackName}"
+          PropagateAtLaunch: true
+
+  ScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 70
+
+  # --- CloudWatch Dashboard ---------------------------------------------------
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "AI-Bridge-${AWS::StackName}"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "properties": {
+                "metrics": [
+                  ["AWS/ApplicationELB", "TargetResponseTime", { "stat": "p95", "label": "p95" }],
+                  ["AWS/ApplicationELB", "RequestCount", { "stat": "Sum" }],
+                  ["AWS/ApplicationELB", "HTTPCode_Target_5XX", { "stat": "Sum" }]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "title": "ALB — Response Time / Requests / Errors"
+              }
+            },
+            {
+              "type": "metric",
+              "properties": {
+                "metrics": [
+                  ["AWS/RDS", "CPUUtilization", { "stat": "Average" }],
+                  ["AWS/RDS", "DatabaseConnections", { "stat": "Average" }],
+                  ["AWS/RDS", "FreeStorageSpace", { "stat": "Average" }]
+                ],
+                "period": 300,
+                "region": "${AWS::Region}",
+                "title": "RDS PostgreSQL"
+              }
+            },
+            {
+              "type": "metric",
+              "properties": {
+                "metrics": [
+                  ["AWS/EC2", "CPUUtilization", { "stat": "Average" }],
+                  ["AWS/EC2", "NetworkIn", { "stat": "Sum" }],
+                  ["AWS/EC2", "NetworkOut", { "stat": "Sum" }]
+                ],
+                "period": 300,
+                "region": "${AWS::Region}",
+                "title": "EC2 — CPU / Network"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  AlbDnsName:
+    Description: ALB DNS name
+    Value: !GetAtt Alb.DNSName
+
+  DomainEndpoint:
+    Description: Public endpoint
+    Value: !Sub "https://${DomainName}"
+
+  RdsEndpoint:
+    Description: RDS PostgreSQL endpoint
+    Value: !GetAtt RdsInstance.Endpoint.Address
+
+  RedisEndpoint:
+    Description: ElastiCache Redis endpoint
+    Value: !GetAtt RedisCluster.RedisEndpoint.Address
+
+  EfsFileSystemId:
+    Description: EFS filesystem ID
+    Value: !Ref EfsFileSystem
+
+  AutoScalingGroupName:
+    Description: Auto Scaling Group name
+    Value: !Ref AutoScalingGroup

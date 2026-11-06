@@ -78,8 +78,8 @@ if [ ! -f "$ENV_FILE" ]; then
 # ==============================================================================
 
 # Domain & Edge Routing
-DOMAIN=jxiptvplayer.app
-ACME_EMAIL=admin@jxiptvplayer.app
+DOMAIN="${DOMAIN:-jxiptvplayer.app}"
+ACME_EMAIL="${ACME_EMAIL:-admin@jxiptvplayer.app}"
 
 # Database & Cache Credentials
 POSTGRES_DB=ai_bridge
@@ -117,6 +117,7 @@ set +a
 
 # 4. SSL / TLS Certificate Validation
 DOMAIN="${DOMAIN:-jxiptvplayer.app}"
+ACME_EMAIL="${ACME_EMAIL:-admin@jxiptvplayer.app}"
 CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
 
 if [ ! -f "$CERT_DIR/fullchain.pem" ] || [ ! -f "$CERT_DIR/privkey.pem" ]; then

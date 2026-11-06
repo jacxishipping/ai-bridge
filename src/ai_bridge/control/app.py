@@ -588,7 +588,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     app = FastAPI(title="AI Bridge Control Plane", version="0.3.0")
     allowed_origins = [
         "http://127.0.0.1:5173", "http://localhost:5173", "http://201.79.36.129",
-        "https://jxiptvplayer.app", "http://18.188.153.166", "https://18.188.153.166"
+        "https://jxiptvplayer.app", os.environ.get("AI_BRIDGE_PUBLIC_URL", "https://your-aws-domain.com")
     ]
     app.add_middleware(CORSMiddleware, allow_origins=allowed_origins,
                        allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
