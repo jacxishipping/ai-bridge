@@ -37,6 +37,7 @@ import {
   Lock,
 } from "lucide-react";
 import { useDashboardStore } from "../state/dashboardStore";
+import { token, sessionToken } from "../api";
 import type { ApprovalRequest } from "../types/dashboard";
 
 interface DecisionRecord {
@@ -49,8 +50,10 @@ interface DecisionRecord {
 }
 
 export const HumanApprovalsView: React.FC = () => {
+  const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
   const approvals = useDashboardStore((s) => s.approvals);
   const resolveApproval = useDashboardStore((s) => s.resolveApproval);
+  const operatorProfile = useDashboardStore((s) => s.operatorProfile);
 
   // Active selected approval for inspection
   const [selectedId, setSelectedId] = useState<string>(
@@ -119,6 +122,19 @@ export const HumanApprovalsView: React.FC = () => {
 
   const activeApproval = approvals.find((a) => a.id === selectedId) || approvals[0];
 
+  const effectiveHistoryRecords: DecisionRecord[] = isLive
+    ? approvals
+        .filter((a): a is ApprovalRequest & { status: "approved" | "denied" } => a.status === "approved" || a.status === "denied")
+        .map((a) => ({
+          id: a.id,
+          command: a.command,
+          decidedBy: a.decidedBy || operatorProfile.name || "Operator",
+          verdict: a.status,
+          timestamp: a.decidedAt || a.requestedAt,
+          justification: a.decisionReason || a.reason || "Operator decision recorded on control plane.",
+        }))
+    : historyRecords;
+
   const allChecklistSatisfied =
     checklist.scopeConfirmed &&
     checklist.networkChecked &&
@@ -136,7 +152,7 @@ export const HumanApprovalsView: React.FC = () => {
       {
         id: activeApproval.id,
         command: activeApproval.command,
-        decidedBy: "Sarah J.",
+        decidedBy: isLive ? (operatorProfile.name || "Operator") : "Sarah J.",
         verdict: "approved",
         timestamp: new Date().toISOString(),
         justification: "Operator authorized execution following safety verification.",
@@ -160,7 +176,7 @@ export const HumanApprovalsView: React.FC = () => {
       {
         id: activeApproval.id,
         command: activeApproval.command,
-        decidedBy: "Sarah J.",
+        decidedBy: isLive ? (operatorProfile.name || "Operator") : "Sarah J.",
         verdict: "denied",
         timestamp: new Date().toISOString(),
         justification: rejectionReason,
@@ -538,28 +554,36 @@ export const HumanApprovalsView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-mono">
-                {historyRecords.map((rec) => (
-                  <tr key={rec.id} className="hover:bg-slate-950/40 transition-colors">
-                    <td className="p-3 font-semibold text-slate-200">{rec.id}</td>
-                    <td className="p-3 text-slate-300">
-                      <code>{rec.command}</code>
+                {effectiveHistoryRecords.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-6 text-center text-slate-400 font-sans">
+                      No approval decisions recorded yet.
                     </td>
-                    <td className="p-3 text-slate-400">{rec.decidedBy}</td>
-                    <td className="p-3">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
-                          rec.verdict === "approved"
-                            ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
-                            : "bg-rose-500/20 text-rose-300 border border-rose-500/40"
-                        }`}
-                      >
-                        {rec.verdict}
-                      </span>
-                    </td>
-                    <td className="p-3 text-slate-400">{rec.timestamp}</td>
-                    <td className="p-3 text-slate-300 font-sans">{rec.justification}</td>
                   </tr>
-                ))}
+                ) : (
+                  effectiveHistoryRecords.map((rec) => (
+                    <tr key={rec.id} className="hover:bg-slate-950/40 transition-colors">
+                      <td className="p-3 font-semibold text-slate-200">{rec.id}</td>
+                      <td className="p-3 text-slate-300">
+                        <code>{rec.command}</code>
+                      </td>
+                      <td className="p-3 text-slate-400">{rec.decidedBy}</td>
+                      <td className="p-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
+                            rec.verdict === "approved"
+                              ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                              : "bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                          }`}
+                        >
+                          {rec.verdict}
+                        </span>
+                      </td>
+                      <td className="p-3 text-slate-400">{rec.timestamp}</td>
+                      <td className="p-3 text-slate-300 font-sans">{rec.justification}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -569,7 +593,7 @@ export const HumanApprovalsView: React.FC = () => {
       {/* Mandatory Deny Reason Modal */}
       <AnimatePresence>
         {showDenyModal && (
-          <GlassModal onClose={() => setShowDenyModal(false)} title="Deny sample request">
+          <GlassModal onClose={() => setShowDenyModal(false)} title={isLive ? "Deny approval request" : "Deny sample request"}>
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}

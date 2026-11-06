@@ -5,8 +5,10 @@ import { Brand } from "../Brand";
 import { DensityControl } from "../DensityControl";
 import { LanguageControl } from "../LanguageControl";
 import { useDashboardStore } from "../state/dashboardStore";
+import { token, sessionToken } from "../api";
 
 export const TopHeader: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
+  const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
   const stopped = useDashboardStore((s) => s.isEmergencyStopActive);
   const stop = useDashboardStore((s) => s.triggerEmergencyStop);
   const resume = useDashboardStore((s) => s.resumeFleet);
@@ -35,27 +37,29 @@ export const TopHeader: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
       <div className="hidden md:block"><DensityControl /></div>
       <JXButton variant="outlined" color={stopped ? "success" : "error"} size="sm"
         onClick={() => setConfirmOpen(true)}
-        aria-label={stopped ? "Resume demo fleet" : "Emergency All-Stop"}
+        aria-label={stopped ? (isLive ? "Resume Fleet" : "Resume demo fleet") : "Emergency All-Stop"}
         startIcon={stopped ? <Play className="h-4 w-4" /> : <Square className="h-4 w-4" />}>
-        <span className="hidden sm:inline">{stopped ? "Resume demo" : "Emergency stop"}</span>
+        <span className="hidden sm:inline">{stopped ? (isLive ? "Resume fleet" : "Resume demo") : "Emergency stop"}</span>
         <span className="sm:hidden">{stopped ? "Resume" : "Stop"}</span>
       </JXButton>
-      <GlassModal open={confirmOpen} onClose={() => setConfirmOpen(false)} title={stopped ? "Resume demo fleet?" : "Stop demo fleet?"}>
+      <GlassModal open={confirmOpen} onClose={() => setConfirmOpen(false)} title={stopped ? (isLive ? "Resume live fleet?" : "Resume demo fleet?") : (isLive ? "Activate Emergency All-Stop?" : "Stop demo fleet?")}>
         <div className="space-y-5">
           <p className="flex items-start gap-3 text-sm leading-relaxed text-slate-300">
             <AlertTriangle className="h-5 w-5 shrink-0 text-amber-300" />
-            {stopped ? "Resume the simulated fleet. Cancelled tasks will not restart." : "Cancel pending and running sample tasks. This affects only this browser, not real computers."}
+            {isLive
+              ? (stopped ? "Clear the global Emergency All-Stop on the control plane and allow enrolled devices to resume picking up queued tasks." : "Immediately halt all autonomous agent execution across every enrolled device connected to the control plane.")
+              : (stopped ? "Resume the simulated fleet. Cancelled tasks will not restart." : "Cancel pending and running sample tasks. This affects only this browser, not real computers.")}
           </p>
           <div className="flex flex-wrap justify-end gap-3">
             <JXButton variant="outlined" color="neutral" onClick={() => setConfirmOpen(false)}>Cancel</JXButton>
             <JXButton color={stopped ? "success" : "error"} onClick={async () => {
               if (stopped) await resume(); else await stop();
               setConfirmOpen(false);
-            }}>{stopped ? "Resume demo fleet" : "Stop demo fleet"}</JXButton>
+            }}>{stopped ? (isLive ? "Resume fleet" : "Resume demo fleet") : (isLive ? "Emergency All-Stop" : "Stop demo fleet")}</JXButton>
           </div>
         </div>
       </GlassModal>
-      <span role="status" className="sr-only">{stopped ? "Demo fleet stopped" : "Demo fleet running"}</span>
+      <span role="status" className="sr-only">{stopped ? (isLive ? "EMERGENCY ALL-STOP ACTIVE — FLEET SUSPENDED" : "Demo fleet stopped") : (isLive ? "Live fleet running" : "Demo fleet running")}</span>
     </header>
   );
 };
