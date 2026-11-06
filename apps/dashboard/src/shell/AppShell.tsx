@@ -53,9 +53,26 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
         Skip to content
       </a>
       <aside className="hidden lg:block shrink-0"><SidebarNav /></aside>
-      <GlassModal open={menuOpen} onClose={() => setMenuOpen(false)} title="Navigation">
-        <div className="h-[65dvh]"><SidebarNav onNavigate={() => setMenuOpen(false)} /></div>
-      </GlassModal>
+      {/* Mobile slide-out drawer */}
+      {menuOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+            onClick={() => setMenuOpen(false)}
+            aria-hidden="true"
+          />
+          <motion.aside
+            initial={{ x: "-100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "-100%" }}
+            transition={{ type: "spring", damping: 25, stiffness: 200 }}
+            className="fixed left-0 top-0 z-50 h-dvh w-72 max-w-[85vw] shadow-2xl"
+            style={{ backgroundColor: "var(--product-sidebar-bg)" }}
+          >
+            <SidebarNav onNavigate={() => setMenuOpen(false)} />
+          </motion.aside>
+        </>
+      )}
       <GlassModal open={helpOpen} onClose={() => setHelpOpen(false)} title="Keyboard shortcuts">
         <div className="space-y-3 text-sm" style={{ color: "var(--product-text-secondary)" }}>
           <div className="flex items-center justify-between gap-4"><span>Search / Command palette</span><kbd className="rounded border px-1.5 py-0.5 text-xs" style={{ borderColor: "var(--product-line)", color: "var(--product-text-tertiary)" }}>Ctrl K</kbd></div>
