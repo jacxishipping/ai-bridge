@@ -84,6 +84,14 @@ Parameters:
     NoEcho: true
     Description: Optional TURN server shared secret
 
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Existing VPC ID
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: List of subnet IDs (at least 2 across different AZs)
+
 Conditions:
   HasSlack: !Not [!Equals [!Ref SlackWebhookUrl, ""]]
   HasDiscord: !Not [!Equals [!Ref DiscordWebhookUrl, ""]]
@@ -166,14 +174,7 @@ Resources:
           ToPort: 2049
           SourceSecurityGroupId: !Ref Ec2SecurityGroup
 
-  # --- VPC (use existing) -----------------------------------------------------
-  VpcId:
-    Type: AWS::EC2::VPC::Id
-    Description: Existing VPC ID
-
-  SubnetIds:
-    Type: List<AWS::EC2::Subnet::Id>
-    Description: List of subnet IDs (at least 2 across different AZs)
+  # --- VPC (use existing via parameters) -------------------------------------
 
   # --- RDS PostgreSQL ---------------------------------------------------------
   RdsSubnetGroup:
