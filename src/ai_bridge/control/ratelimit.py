@@ -32,6 +32,7 @@ def _get_redis():
                 _redis_available = True
                 return _redis_client
             except Exception:
+                _redis_client = None
                 _redis_available = False
                 return None
     return None
@@ -84,6 +85,10 @@ def rate_limit(key: str, limit: int = 120, window: int = 60) -> Callable[[], Non
                 loop = asyncio.new_event_loop()
                 try:
                     loop.run_until_complete(_check())
+                except HTTPException:
+                    raise
+                except Exception:
+                    _memory_rate_limit(key, limit, window)
                 finally:
                     loop.close()
             except HTTPException:
