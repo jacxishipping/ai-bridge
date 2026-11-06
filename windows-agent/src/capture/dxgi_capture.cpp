@@ -250,7 +250,7 @@ bool DxgiDesktopCapturer::CaptureViaGdiFallbackLocked(int monitor_index, Capture
     out_frame.from_dxgi = false;
     out_frame.bgra_pixels.resize(static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
 
-    if (blt_ok) {
+    if (bmp) {
         GetDIBits(mem_dc, bmp, 0, static_cast<UINT>(height), out_frame.bgra_pixels.data(),
                   reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
     }
@@ -268,7 +268,7 @@ bool DxgiDesktopCapturer::CaptureViaGdiFallbackLocked(int monitor_index, Capture
     DeleteDC(mem_dc);
     ReleaseDC(nullptr, screen_dc);
 
-    out_frame.valid = blt_ok == TRUE;
+    out_frame.valid = (bmp != nullptr);
     return out_frame.valid;
 }
 

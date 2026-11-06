@@ -94,7 +94,7 @@ int main(int argc, char* argv[]) {
     bool console_once = false;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--once" || arg == "--console" || arg == "--status") {
+        if (arg == "--once" || arg == "--console" || arg == "--console-once" || arg == "--status") {
             console_once = true;
         }
     }

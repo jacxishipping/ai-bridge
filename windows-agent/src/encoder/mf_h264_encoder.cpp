@@ -275,8 +275,12 @@ bool MediaFoundationH264Encoder::EncodeBgraFrame(
     if (!initialized_ || even_w != config_.width || even_h != config_.height) {
         config_.width = even_w;
         config_.height = even_h;
-        Shutdown();
-        // Re-init outside recursive lock by calling internal steps
+        if (encoder_mft_) {
+            encoder_mft_->ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
+            encoder_mft_->ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, 0);
+            encoder_mft_.Reset();
+        }
+        initialized_ = false;
         if (!mf_started_) {
             CoInitializeEx(nullptr, COINIT_MULTITHREADED);
             MFStartup(MF_VERSION);
