@@ -1,900 +1,503 @@
-import { SimulatedNotice } from "../shell/SimulatedNotice";
 /**
- * AI Bridge Enterprise Dashboard — Autonomous Workflows & Multi-Turn Plans (Screen 7)
- * Multi-turn DAG pipeline stepper with AI reasoning thought trace, OCR verification,
- * step inspection, workflow controls (Pause/Resume/Re-Plan/Abort), and workflow builder modal.
- * Strict JXUI Primitives & Lucide Icons. ZERO inline styles.
+ * Autonomous Workflows — live mode talks to the real control plane
+ * (/api/workflows*, /api/ai/tools). Demo mode (not signed in) renders the seeded
+ * preview from WorkflowsDemoView, which is the only place fixtures live.
  */
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Workflow, Plus, Search, RefreshCw, StopCircle, X, AlertTriangle, Copy, Check, Trash2 } from "lucide-react";
+import { api, token, sessionToken } from "../api";
+import WorkflowsDemoView from "./WorkflowsDemoView";
 
-import React, { useState, useMemo } from "react";
-import {
-  JXBox,
-  JXStack,
-  JXGrid,
-  JXGridItem,
-  JXCard,
-  JXCardHeader,
-  JXCardContent,
-  JXBadge,
-  JXButton,
-  GlassModal,
-} from "../ui";
-import {
-  Workflow,
-  CheckCircle2,
-  Clock,
-  Play,
-  Pause,
-  RotateCcw,
-  StopCircle,
-  Plus,
-  Search,
-  Filter,
-  FileCode,
-  Copy,
-  Check,
-  Shield,
-  Eye,
-  Crosshair,
-  Bot,
-  Terminal,
-  Activity,
-  Layers,
-  Sparkles,
-  AlertTriangle,
-  Lock,
-  ArrowRight,
-  RefreshCw,
-  X,
-} from "lucide-react";
-import { useDashboardStore } from "../state/dashboardStore";
-import type { WorkflowPlan, WorkflowStep } from "../types/dashboard";
-
-interface PlanItem {
-  id: string;
-  title: string;
-  code: string;
-  cadence: string;
-  targetFleet: string;
-  status: "running" | "succeeded" | "idle" | "awaiting_gate";
-  currentStep: number;
-  totalSteps: number;
-  description: string;
-  successRate: string;
-  lastRan: string;
-  steps: {
-    number: number;
-    name: string;
-    tool: string;
-    status: "completed" | "running" | "pending" | "failed";
-    duration: string;
-    reasoning: string;
-    boundsDesc: string;
-    payload: Record<string, unknown>;
-  }[];
+interface WfStepDef { name?: string; action: string; args?: Record<string, unknown>; verify?: { text: string; timeout_seconds?: number }; retries?: number }
+interface WfStepResult {
+  index: number; name: string; action: string; args?: Record<string, unknown>;
+  status: "running" | "completed" | "failed"; duration_seconds?: number;
+  result?: unknown; error?: string | null; verification?: unknown;
 }
+interface Wf {
+  id: string; name: string; device_id?: string | null; status: string;
+  current_step: number; total_steps: number; steps: WfStepDef[]; results: WfStepResult[];
+  error?: string | null; created_at?: number; updated_at?: number; completed_at?: number | null;
+}
+interface Template { id: string; name: string; description?: string; steps: WfStepDef[] }
+interface ToolSpec { name: string; description?: string; category?: string; tier?: number; parameters?: any }
+interface DraftStep { name: string; action: string; args: string; verifyText: string }
 
-const PLANS_DATA: PlanItem[] = [
-  {
-    id: "WF-9841",
-    title: "Fleet-wide Zero-Trust Enclave Attestation",
-    code: "Multi-Node DAG",
-    cadence: "Every 6 hours",
-    targetFleet: "#edge-enclaves (12 nodes)",
-    status: "running",
-    currentStep: 3,
-    totalSteps: 4,
-    description: "Performs TPM 2.0 PCR-7 visual window detection via Claude Vision, validates token cryptographically across edge fleet.",
-    successRate: "99.8%",
-    lastRan: "Running now • 840ms",
-    steps: [
-      {
-        number: 1,
-        name: "Baseline Capture",
-        tool: "desktop.capture_screen",
-        status: "completed",
-        duration: "420ms",
-        reasoning: "Captured high-res desktop frame buffer at 3840x2160 native resolution with active window metadata.",
-        boundsDesc: "[X: 0, Y: 0, W: 3840, H: 2160]",
-        payload: { display_index: 0, format: "png", include_som: true },
-      },
-      {
-        number: 2,
-        name: "Vision AI OCR Checkpoint",
-        tool: "claude-3-5-sonnet.vision",
-        status: "completed",
-        duration: "1,120ms",
-        reasoning: "OCR Pass: Scanning display buffer. Pattern matching TPM security policy dialog. Result: String match 'TPM 2.0 PCR-7 Status: ACTIVE' detected at coords (1420, 840). Confidence 99.8%. Checkpoint satisfied.",
-        boundsDesc: "[X: 1420, Y: 840, W: 310, H: 95]",
-        payload: {
-          target_surface: "system_security_enclave",
-          expected_pcr_register: 7,
-          min_confidence_score: 0.95,
-          capture_mode: "lossless_rgb_rect",
-        },
-      },
-      {
-        number: 3,
-        name: "Cryptographic Exchange",
-        tool: "enclave.verify_token",
-        status: "running",
-        duration: "840ms...",
-        reasoning: "Performing ephemeral ECDSA signature exchange with hardware TPM enclave on 12 distributed edge nodes.",
-        boundsDesc: "[X: 800, Y: 600, W: 400, H: 120]",
-        payload: { algorithm: "ECDSA_P256", token_nonce: "7f83b1657ff1709bcfa4" },
-      },
-      {
-        number: 4,
-        name: "Audit Ledger Commit",
-        tool: "ledger.append_hash",
-        status: "pending",
-        duration: "--",
-        reasoning: "Awaiting turn 3 signature quorum before appending cryptographic block to Merkle root tree.",
-        boundsDesc: "[X: 0, Y: 0, W: 0, H: 0]",
-        payload: { tree: "merkle-core-2026", auto_sync: true },
-      },
-    ],
-  },
-  {
-    id: "WF-1092",
-    title: "Automated Checkout Flow Remediation",
-    code: "Multi-Turn Plan",
-    cadence: "Continuous Watch",
-    targetFleet: "srv-us-east-412",
-    status: "running",
-    currentStep: 3,
-    totalSteps: 4,
-    description: "Multi-turn visual plan inspecting checkout form, OCR validation, and clicking submit button.",
-    successRate: "99.4%",
-    lastRan: "Running now • 320ms",
-    steps: [
-      {
-        number: 1,
-        name: "Observation Phase",
-        tool: "desktop.capture_screen",
-        status: "completed",
-        duration: "320ms",
-        reasoning: "Captured high-res viewport to locate payment confirmation button.",
-        boundsDesc: "[X: 100, Y: 100, W: 1200, H: 800]",
-        payload: { resolution: "native" },
-      },
-      {
-        number: 2,
-        name: "Verification Checkpoint",
-        tool: "vision.ocr_screen",
-        status: "completed",
-        duration: "410ms",
-        reasoning: "Identified OCR text 'Confirm Order' at coordinate bounding box [740, 480, 880, 520] with 98.4% confidence.",
-        boundsDesc: "[X: 740, Y: 480, W: 140, H: 40]",
-        payload: { pattern: "Confirm Order" },
-      },
-      {
-        number: 3,
-        name: "Conditional Branch Execution",
-        tool: "desktop.click_coordinate",
-        status: "running",
-        duration: "180ms...",
-        reasoning: "Targeting center coordinate of verified confirmation button [X: 810, Y: 500].",
-        boundsDesc: "[X: 810, Y: 500, W: 20, H: 20]",
-        payload: { x: 810, y: 500, button: "left" },
-      },
-      {
-        number: 4,
-        name: "Ledger Commitment",
-        tool: "audit.commit_transaction",
-        status: "pending",
-        duration: "--",
-        reasoning: "Awaiting step 3 completion before signing transaction hash into immutable ledger.",
-        boundsDesc: "[X: 0, Y: 0, W: 0, H: 0]",
-        payload: { ledger: "merkle-core" },
-      },
-    ],
-  },
-  {
-    id: "WF-9838",
-    title: "Automated UI Regression & Visual Checkpoint",
-    code: "6 Steps",
-    cadence: "Git-Push Trigger",
-    targetFleet: "#studio-mac (4 nodes)",
-    status: "succeeded",
-    currentStep: 6,
-    totalSteps: 6,
-    description: "Runs full visual snapshot comparison against baseline golden images on macOS builder cluster.",
-    successRate: "98.9%",
-    lastRan: "Ran 12m ago",
-    steps: [
-      {
-        number: 1,
-        name: "Git Fetch & Clean",
-        tool: "shell.exec",
-        status: "completed",
-        duration: "840ms",
-        reasoning: "Checked out latest release commit on builder cluster.",
-        boundsDesc: "[X: 0, Y: 0, W: 0, H: 0]",
-        payload: { branch: "main", depth: 1 },
-      },
-      {
-        number: 2,
-        name: "Launch Test Shell",
-        tool: "desktop.launch_app",
-        status: "completed",
-        duration: "1,200ms",
-        reasoning: "Bootstrapped dashboard Electron harness in headless mode.",
-        boundsDesc: "[X: 0, Y: 0, W: 1920, H: 1080]",
-        payload: { app: "ai-bridge-dashboard" },
-      },
-    ],
-  },
-  {
-    id: "WF-9830",
-    title: "Incident Self-Healing: Service Auto-Recovery",
-    code: "3 Steps",
-    cadence: "Event: watchdog.sigkill",
-    targetFleet: "#all-nodes (40 nodes)",
-    status: "idle",
-    currentStep: 0,
-    totalSteps: 3,
-    description: "Monitors agent daemon heartbeats; automatically restarts systemd units upon panic or SIGSEGV.",
-    successRate: "100%",
-    lastRan: "Last: 2d ago",
-    steps: [
-      {
-        number: 1,
-        name: "Process Check",
-        tool: "process.list",
-        status: "pending",
-        duration: "--",
-        reasoning: "Awaiting panic watchdog trigger event.",
-        boundsDesc: "[X: 0, Y: 0, W: 0, H: 0]",
-        payload: { filter: "ai-bridge-agent" },
-      },
-    ],
-  },
-  {
-    id: "WF-9824",
-    title: "Secure Host Key Rotation & CA Verification",
-    code: "5 Steps • Tier-3 Human Gate",
-    cadence: "Bi-weekly",
-    targetFleet: "#core-gateways (2 nodes)",
-    status: "awaiting_gate",
-    currentStep: 4,
-    totalSteps: 5,
-    description: "Rotates mTLS TLS 1.3 certificate authorities and generates new ephemeral token secret.",
-    successRate: "Paused at Step 4",
-    lastRan: "Expires in 42m",
-    steps: [
-      {
-        number: 1,
-        name: "Generate Keypair",
-        tool: "crypto.gen_key",
-        status: "completed",
-        duration: "210ms",
-        reasoning: "Generated Ed25519 root keypair in TPM.",
-        boundsDesc: "[X: 0, Y: 0, W: 0, H: 0]",
-        payload: { key_type: "ed25519" },
-      },
-      {
-        number: 4,
-        name: "Human Gate Approval",
-        tool: "human.gate_approve",
-        status: "running",
-        duration: "Awaiting review",
-        reasoning: "Tier-3 sensitive operation requires mandatory SecOps review before rotating CA root.",
-        boundsDesc: "[X: 0, Y: 0, W: 0, H: 0]",
-        payload: { approver_role: "Lead SecOps" },
-      },
-    ],
-  },
-];
+const TERMINAL = new Set(["completed", "failed", "cancelled"]);
+const FILTERS = ["all", "running", "completed", "failed", "cancelled"] as const;
 
-export const WorkflowsView: React.FC = () => {
-  const devices = useDashboardStore((s) => s.devices);
-  const [selectedPlanId, setSelectedPlanId] = useState<string>("WF-9841");
-  const [selectedStepNumber, setSelectedStepNumber] = useState<number>(2);
-  const [filterCategory, setFilterCategory] = useState<string>("all");
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [isPaused, setIsPaused] = useState<boolean>(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [copiedPayload, setCopiedPayload] = useState<boolean>(false);
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : "Request failed.";
+}
+function normalize(raw: any): Wf {
+  return {
+    ...raw,
+    id: raw.id ?? raw.workflow_id,
+    name: raw.name || raw.id,
+    steps: Array.isArray(raw.steps) ? raw.steps : [],
+    results: Array.isArray(raw.results) ? raw.results : [],
+    current_step: Number(raw.current_step || 0),
+    total_steps: Number(raw.total_steps || (raw.steps?.length ?? 0)),
+  };
+}
+function fmtTime(ts?: number | null) {
+  if (!ts) return "—";
+  return new Date(ts * (ts < 1e12 ? 1000 : 1)).toLocaleString();
+}
+function statusClass(s: string) {
+  if (s === "running") return "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40";
+  if (s === "completed") return "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40";
+  if (s === "failed") return "bg-rose-500/20 text-rose-300 border border-rose-500/40";
+  return "bg-slate-800 text-slate-400 border border-slate-700";
+}
+const draftFromDef = (s: WfStepDef): DraftStep => ({
+  name: s.name || "",
+  action: s.action,
+  args: JSON.stringify(s.args || {}, null, 2),
+  verifyText: s.verify?.text || "",
+});
 
-  // Workflow builder modal state
-  const [builderOpen, setBuilderOpen] = useState<boolean>(false);
-  const [newTitle, setNewTitle] = useState<string>("");
-  const [newDescription, setNewDescription] = useState<string>("");
-  const [newTargetNode, setNewTargetNode] = useState<string>("srv-us-east-412");
-  const [newFallback, setNewFallback] = useState<string>("stop");
-  const [newRequireGate, setNewRequireGate] = useState<boolean>(false);
-  const [builderSteps, setBuilderSteps] = useState<Array<{ name: string; tool: string }>>([
-    { name: "Observation Phase", tool: "desktop.capture_screen" },
-    { name: "OCR Verification", tool: "vision.ocr_screen" },
-  ]);
+function WorkflowsLive() {
+  const [workflows, setWorkflows] = useState<Wf[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [tools, setTools] = useState<ToolSpec[]>([]);
+  const [devices, setDevices] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedStep, setSelectedStep] = useState(1);
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
+  const [query, setQuery] = useState("");
+  const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [streamMode, setStreamMode] = useState<"stream" | "polling" | "idle">("idle");
+  const [copied, setCopied] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
-  const activePlan = useMemo(() => {
-    return PLANS_DATA.find((p) => p.id === selectedPlanId) || PLANS_DATA[0];
-  }, [selectedPlanId]);
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [deviceId, setDeviceId] = useState("local");
+  const [stopOnFailure, setStopOnFailure] = useState(true);
+  const [maxRetries, setMaxRetries] = useState(1);
+  const [draft, setDraft] = useState<DraftStep[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [builderError, setBuilderError] = useState<string | null>(null);
 
-  const activeStep = useMemo(() => {
-    return activePlan.steps.find((s) => s.number === selectedStepNumber) || activePlan.steps[0] || {
-      number: 1,
-      name: "Step",
-      tool: "tool",
-      status: "completed" as const,
-      duration: "0ms",
-      reasoning: "No step data available.",
-      boundsDesc: "N/A",
-      payload: {},
-    };
-  }, [activePlan, selectedStepNumber]);
-
-  // Filter plans list
-  const filteredPlans = useMemo(() => {
-    return PLANS_DATA.filter((p) => {
-      const matchCat =
-        filterCategory === "all" ||
-        (filterCategory === "active" && p.status === "running") ||
-        (filterCategory === "scheduled" && p.cadence.includes("Every")) ||
-        (filterCategory === "drafts" && p.status === "idle");
-      const matchQuery =
-        !searchQuery ||
-        p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.targetFleet.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchCat && matchQuery;
+  const upsert = useCallback((wf: Wf) => {
+    setWorkflows((prev) => {
+      const i = prev.findIndex((w) => w.id === wf.id);
+      if (i < 0) return [wf, ...prev];
+      const next = prev.slice();
+      next[i] = { ...prev[i], ...wf };
+      return next;
     });
-  }, [filterCategory, searchQuery]);
+  }, []);
 
-  const togglePauseWorkflow = () => {
-    setIsPaused(!isPaused);
-    setNotice(!isPaused ? `Paused workflow execution for ${activePlan.id}` : `Resumed workflow execution for ${activePlan.id}`);
-    setTimeout(() => setNotice(null), 3000);
-  };
-
-  const forceReplan = () => {
-    setNotice(`Triggered forced re-planning for ${activePlan.id}. Regenerating multi-turn DAG...`);
-    setTimeout(() => setNotice(null), 3500);
-  };
-
-  const abortPlan = () => {
-    setNotice(`Aborted workflow ${activePlan.id}. Transaction rolled back and audited.`);
-    setTimeout(() => setNotice(null), 3500);
-  };
-
-  const copyStepPayload = () => {
-    navigator.clipboard?.writeText(JSON.stringify(activeStep.payload, null, 2));
-    setCopiedPayload(true);
-    setTimeout(() => setCopiedPayload(false), 2000);
-  };
-
-  const handleAddBuilderStep = () => {
-    setBuilderSteps((prev) => [
-      ...prev,
-      { name: `Step ${prev.length + 1}`, tool: "desktop.click_coordinate" },
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    const [wfs, tpls, tl, devs] = await Promise.allSettled([
+      api.workflows(), api.workflowTemplates(), api.aiTools("raw"), api.devices(),
     ]);
+    if (wfs.status === "fulfilled") {
+      const list = (Array.isArray(wfs.value) ? wfs.value : []).map(normalize);
+      setWorkflows(list);
+      setSelectedId((cur) => (cur && list.some((w) => w.id === cur) ? cur : list[0]?.id ?? null));
+    } else {
+      setLoadError(errMsg(wfs.reason));
+    }
+    if (tpls.status === "fulfilled") setTemplates(tpls.value?.templates || []);
+    if (tl.status === "fulfilled") setTools(Array.isArray(tl.value?.tools) ? tl.value.tools : []);
+    if (devs.status === "fulfilled") setDevices(Array.isArray(devs.value) ? devs.value : devs.value?.devices || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const selected = useMemo(() => workflows.find((w) => w.id === selectedId) || null, [workflows, selectedId]);
+  const selectedActive = !!selected && !TERMINAL.has(selected.status);
+
+  // Live progress: authenticated fetch stream (EventSource cannot send auth headers), polling fallback.
+  const activeId = selectedActive ? selected!.id : null;
+  useEffect(() => {
+    if (!activeId) { setStreamMode("idle"); return; }
+    let stopped = false;
+    const ctrl = new AbortController();
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = () => {
+      if (stopped || pollTimer) return;
+      setStreamMode("polling");
+      pollTimer = setInterval(async () => {
+        try {
+          const wf = normalize(await api.workflowDetail(activeId));
+          if (!stopped) upsert(wf);
+          if (TERMINAL.has(wf.status) && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        } catch { /* keep polling */ }
+      }, 2000);
+    };
+
+    (async () => {
+      try {
+        const headers: Record<string, string> = { Accept: "text/event-stream" };
+        const st = sessionToken(); const at = token();
+        if (st) headers["X-Session-Token"] = st; else if (at) headers["X-Admin-Token"] = at;
+        const res = await fetch(api.streamWorkflowUrl(activeId), { headers, signal: ctrl.signal });
+        if (!res.ok || !res.body) throw new Error(`stream ${res.status}`);
+        setStreamMode("stream");
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let idx: number;
+          while ((idx = buf.indexOf("\n\n")) >= 0) {
+            const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
+            const line = frame.split("\n").find((l) => l.startsWith("data:"));
+            if (!line) continue;
+            try {
+              const p = JSON.parse(line.slice(5).trim());
+              upsert({
+                id: p.workflow_id, status: p.status, current_step: p.current_step,
+                total_steps: p.total_steps, results: p.results || [], error: p.error,
+              } as Wf);
+            } catch { /* ignore malformed frame */ }
+          }
+        }
+        if (!stopped) {
+          // Stream ended: confirm final state from the server (falls back to polling if still active).
+          const wf = normalize(await api.workflowDetail(activeId));
+          upsert(wf);
+          if (!TERMINAL.has(wf.status)) startPolling(); else setStreamMode("idle");
+        }
+      } catch {
+        if (!stopped) startPolling();
+      }
+    })();
+
+    return () => { stopped = true; ctrl.abort(); if (pollTimer) clearInterval(pollTimer); };
+  }, [activeId, upsert]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return workflows.filter((w) =>
+      (filter === "all" || w.status === filter) &&
+      (!q || w.name.toLowerCase().includes(q) || w.id.toLowerCase().includes(q) ||
+        (w.device_id || "").toLowerCase().includes(q) ||
+        w.steps.some((s) => s.action.toLowerCase().includes(q))));
+  }, [workflows, filter, query]);
+
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { all: workflows.length };
+    for (const w of workflows) c[w.status] = (c[w.status] || 0) + 1;
+    return c;
+  }, [workflows]);
+
+  const toolMap = useMemo(() => new Map(tools.map((t) => [t.name, t])), [tools]);
+
+  const stepRows = useMemo(() => {
+    if (!selected) return [];
+    const n = Math.max(selected.total_steps, selected.steps.length);
+    return Array.from({ length: n }, (_, i) => {
+      const def = selected.steps[i];
+      const res = selected.results.find((r) => r.index === i + 1);
+      const status = res?.status || (selected.status === "cancelled" ? "cancelled" : selected.current_step === i + 1 && selectedActive ? "running" : "pending");
+      return {
+        number: i + 1,
+        name: res?.name || def?.name || `Step ${i + 1}`,
+        action: res?.action || def?.action || "",
+        args: res?.args || def?.args || {},
+        status, res,
+      };
+    });
+  }, [selected, selectedActive]);
+  const activeStep = stepRows.find((s) => s.number === selectedStep) || stepRows[0];
+
+  const cancel = async () => {
+    if (!selected) return;
+    setCancelling(true);
+    try {
+      await api.cancelWorkflow(selected.id);
+      upsert(normalize(await api.workflowDetail(selected.id)));
+      setNotice({ kind: "ok", text: `Workflow ${selected.id} cancelled.` });
+    } catch (e) {
+      setNotice({ kind: "error", text: errMsg(e) });
+    } finally { setCancelling(false); }
   };
 
-  const handleSaveNewWorkflow = () => {
-    if (!newTitle.trim()) return;
-    setBuilderOpen(false);
-    setNotice(`Created new workflow: ${newTitle} (${builderSteps.length} steps)`);
-    setTimeout(() => setNotice(null), 3500);
+  const openBuilder = (tpl?: Template) => {
+    setName(tpl ? tpl.name : "");
+    setDraft(tpl ? tpl.steps.map(draftFromDef) : [{ name: "", action: tools[0]?.name || "", args: "{}", verifyText: "" }]);
+    setBuilderError(null);
+    setBuilderOpen(true);
   };
+
+  const highTier = draft.filter((s) => (toolMap.get(s.action)?.tier ?? 0) >= 3);
+
+  const submit = async () => {
+    setBuilderError(null);
+    if (!name.trim()) return setBuilderError("Give the workflow a name.");
+    if (!draft.length) return setBuilderError("Add at least one step.");
+    const steps: WfStepDef[] = [];
+    for (let i = 0; i < draft.length; i++) {
+      const d = draft[i];
+      if (!d.action) return setBuilderError(`Step ${i + 1}: choose a tool.`);
+      if (tools.length && !toolMap.has(d.action)) return setBuilderError(`Step ${i + 1}: unknown tool "${d.action}".`);
+      let args: Record<string, unknown> = {};
+      try {
+        const parsed = d.args.trim() ? JSON.parse(d.args) : {};
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+        args = parsed;
+      } catch { return setBuilderError(`Step ${i + 1}: arguments must be a JSON object.`); }
+      const step: WfStepDef = { name: d.name.trim() || `Step ${i + 1}`, action: d.action, args };
+      if (d.verifyText.trim()) step.verify = { text: d.verifyText.trim(), timeout_seconds: 8 };
+      steps.push(step);
+    }
+    setSubmitting(true);
+    try {
+      const out = await api.submitWorkflow({
+        name: name.trim(), device_id: deviceId || "local", steps,
+        stop_on_failure: stopOnFailure, max_retries: Math.max(0, maxRetries),
+      });
+      const wf = normalize(await api.workflowDetail(out.workflow_id).catch(() => ({ ...out, id: out.workflow_id, steps, results: [] })));
+      upsert(wf);
+      setSelectedId(wf.id); setSelectedStep(1);
+      setBuilderOpen(false);
+      setNotice({ kind: "ok", text: `Workflow ${wf.id} submitted (${steps.length} steps).` });
+    } catch (e: any) {
+      const m = errMsg(e);
+      setBuilderError(/40[13]/.test(m) ? `Not permitted / approval required: ${m}` : m);
+    } finally { setSubmitting(false); }
+  };
+
+  const copy = (v: unknown) => {
+    navigator.clipboard?.writeText(JSON.stringify(v, null, 2));
+    setCopied(true); setTimeout(() => setCopied(false), 1500);
+  };
+
+  const inputCls = "w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs font-mono outline-none focus:border-indigo-500";
 
   return (
-    <div className="space-y-4">
-      <SimulatedNotice feature="The workflow planner" />
-      {/* Top Header & Breadcrumb Ribbon */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
-        {/* Action Controls */}
+    <div className="space-y-4" data-testid="workflows-live">
+      <div className="flex items-center justify-between gap-3 pb-2 border-b border-slate-800/60">
+        <div className="flex items-center gap-2 text-slate-100 font-semibold text-sm"><Workflow className="w-4 h-4 text-indigo-400" /> Workflows</div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setBuilderOpen(true)}
-            className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center gap-2 transition-all shadow-md shadow-indigo-600/25 active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>New workflow</span>
+          <button type="button" onClick={() => void refresh()} className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs flex items-center gap-2">
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+          </button>
+          <button type="button" onClick={() => openBuilder()} className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center gap-2">
+            <Plus className="w-4 h-4" /> New workflow
           </button>
         </div>
       </div>
 
       {notice && (
-        <div role="status" className="p-3 rounded-xl bg-indigo-950/70 border border-indigo-500/40 text-xs font-mono text-indigo-300 flex items-center justify-between">
-          <span>{notice}</span>
-          <button type="button" aria-label="Dismiss notification" onClick={() => setNotice(null)} className="text-slate-400 hover:text-slate-200">
-            <X className="w-3.5 h-3.5" />
-          </button>
+        <div role={notice.kind === "error" ? "alert" : "status"} className={`p-3 rounded-xl border text-xs font-mono flex items-center justify-between ${notice.kind === "error" ? "bg-rose-950/50 border-rose-500/40 text-rose-300" : "bg-indigo-950/70 border-indigo-500/40 text-indigo-300"}`}>
+          <span>{notice.text}</span>
+          <button type="button" aria-label="Dismiss notification" onClick={() => setNotice(null)}><X className="w-3.5 h-3.5" /></button>
+        </div>
+      )}
+      {loadError && (
+        <div role="alert" className="p-3 rounded-xl border border-rose-500/40 bg-rose-950/40 text-xs text-rose-300 flex items-center justify-between gap-3">
+          <span>Could not load workflows: {loadError}</span>
+          <button type="button" onClick={() => void refresh()} className="underline">Retry</button>
         </div>
       )}
 
-      {/* Main 2-Column Split: Directory on Left (4 cols), Stepper & Details on Right (8 cols) */}
-      <JXGrid columns={12} gap="lg">
-        {/* LEFT COLUMN: Workflow Directory (4 cols) */}
-        <JXGridItem colSpan={4}>
-          <JXCard className="bg-slate-900/70 border-slate-800 shadow-xl">
-            <JXCardHeader
-              title="Workflows"
-              icon={<Layers className="w-4 h-4 text-indigo-400" />}
-            />
-            <JXCardContent>
-              <div className="space-y-3">
-                {/* Search Input */}
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search plans, tools, tags..."
-                    className="w-full min-h-[38px] pl-8 pr-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs font-mono placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
-                  />
-                </div>
-
-                {/* Filter Tabs */}
-                <div className="flex p-1 rounded-xl bg-slate-950 border border-slate-800 font-mono text-[11px]">
-                  {[
-                    { id: "all", label: "All (14)" },
-                    { id: "active", label: "Active (8)" },
-                    { id: "scheduled", label: "Scheduled (4)" },
-                    { id: "drafts", label: "Drafts (2)" },
-                  ].map((tab) => {
-                    const isSelected = filterCategory === tab.id;
-                    return (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => setFilterCategory(tab.id)}
-                        className={`flex-1 py-1 rounded-lg text-center transition-all ${
-                          isSelected
-                            ? "bg-slate-800 text-slate-100 font-semibold shadow"
-                            : "text-slate-400 hover:text-slate-200"
-                        }`}
-                      >
-                        {tab.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Workflow Cards Stack */}
-                <div tabIndex={0} aria-label="Workflow plans" className="space-y-2 max-h-[580px] overflow-y-auto pr-1">
-                  {filteredPlans.map((plan) => {
-                    const isSelected = plan.id === selectedPlanId;
-                    return (
-                      <div
-                        key={plan.id}
-                        onClick={() => {
-                          setSelectedPlanId(plan.id);
-                          setSelectedStepNumber(plan.steps[0]?.number || 1);
-                        }}
-                        className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
-                          isSelected
-                            ? "bg-indigo-950/50 border-indigo-500/60 shadow-lg shadow-indigo-600/10"
-                            : "bg-slate-950/70 border-slate-800 hover:border-slate-700"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex flex-col min-w-0">
-                            <span className="font-bold text-slate-100 truncate">{plan.title}</span>
-                            <span className="font-mono text-[10px] text-indigo-400 mt-0.5">
-                              {plan.id} • {plan.code}
-                            </span>
-                          </div>
-
-                          <span
-                            className={`font-mono text-[10px] px-2 py-0.5 rounded font-semibold uppercase shrink-0 ${
-                              plan.status === "running"
-                                ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40"
-                                : plan.status === "succeeded"
-                                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
-                                : plan.status === "awaiting_gate"
-                                ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
-                                : "bg-slate-800 text-slate-400"
-                            }`}
-                          >
-                            {plan.status === "running" ? `Step ${plan.currentStep}/${plan.totalSteps}` : plan.status}
-                          </span>
-                        </div>
-
-                        <p className="text-[11px] text-slate-400 mt-1.5 line-clamp-2">
-                          {plan.description}
-                        </p>
-
-                        <div className="mt-2 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] font-mono text-slate-400">
-                          <span className="text-emerald-400 font-semibold">{plan.successRate}</span>
-                          <span>{plan.lastRan}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </JXCardContent>
-          </JXCard>
-        </JXGridItem>
-
-        {/* RIGHT COLUMN: Stepper & Step Deep Inspection (8 cols) */}
-        <JXGridItem colSpan={8}>
-          <div className="space-y-5">
-            {/* Upper: Workflow Execution Stepper Card */}
-            <JXCard className="bg-slate-900/70 border-slate-800 shadow-xl">
-              <JXCardHeader
-                title={activePlan.title}
-                subheader={activePlan.targetFleet}
-                icon={<Workflow className="w-4 h-4 text-indigo-400" />}
-              />
-              <JXCardContent>
-                <div className="space-y-4">
-                  {/* Turn State Ribbon */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
-                    <div className="flex items-center gap-2">
-                      <span className="relative flex h-2.5 w-2.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-400"></span>
-                      </span>
-                      <span className="font-mono text-xs font-bold text-slate-100">
-                        Turn {activePlan.currentStep} of {activePlan.totalSteps} {isPaused ? "[PAUSED]" : "Running"}
-                      </span>
-                      <span className="text-slate-600 font-mono text-xs">|</span>
-                      <span className="font-mono text-xs text-indigo-300">
-                        Active Step: {activeStep.tool}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2 font-mono text-[11px] text-slate-400">
-                      <span>Telemetry: 80ms ping</span>
-                      <span className="px-2 py-0.5 rounded bg-slate-900 text-emerald-400 font-semibold">
-                        Zero-Trust Enclave
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Visual Step Pipeline DAG Stepper */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs font-mono">
-                      <span className="text-slate-400 uppercase tracking-wider">Multi-Turn Execution Pipeline DAG</span>
-                      <span className="text-emerald-400 font-semibold">Real-Time Telemetry Stream</span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
-                      {activePlan.steps.map((step) => {
-                        const isInspected = step.number === selectedStepNumber;
-                        return (
-                          <div
-                            key={step.number}
-                            onClick={() => setSelectedStepNumber(step.number)}
-                            className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex flex-col justify-between min-h-[110px] ${
-                              isInspected
-                                ? "bg-indigo-950/60 border-indigo-500 shadow-md shadow-indigo-600/10 ring-1 ring-indigo-500/50"
-                                : "bg-slate-950/80 border-slate-800 hover:border-slate-700"
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span
-                                className={`w-6 h-6 rounded-full flex items-center justify-center font-mono text-xs font-bold ${
-                                  step.status === "completed"
-                                    ? "bg-emerald-600 text-white"
-                                    : step.status === "running"
-                                    ? "bg-indigo-600 text-white"
-                                    : "bg-slate-800 text-slate-400"
-                                }`}
-                              >
-                                {step.status === "completed" ? (
-                                  <Check className="w-3.5 h-3.5 text-white" />
-                                ) : (
-                                  step.number
-                                )}
-                              </span>
-                              <span className="font-mono text-[10px] text-slate-400">{step.duration}</span>
-                            </div>
-
-                            <div className="mt-2">
-                              <span className="font-semibold text-slate-200 block truncate">{step.name}</span>
-                              <span className="font-mono text-[10px] text-slate-400 block truncate">{step.tool}</span>
-                            </div>
-
-                            <div className="flex items-center justify-between mt-2 pt-1 border-t border-slate-800/40 text-[10px] font-mono">
-                              <span
-                                className={
-                                  step.status === "completed"
-                                    ? "text-emerald-400"
-                                    : step.status === "running"
-                                    ? "text-indigo-400 font-bold"
-                                    : "text-slate-400"
-                                }
-                              >
-                                {step.status}
-                              </span>
-                              {isInspected && <span className="text-indigo-400 font-bold">Inspecting</span>}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </JXCardContent>
-            </JXCard>
-
-            {/* Lower: Step Deep Inspection Sub-Panel */}
-            <JXCard className="bg-slate-900/70 border-slate-800 shadow-xl">
-              <JXCardHeader
-                title={`Step ${activeStep.number}: ${activeStep.name}`}
-                subheader={activeStep.tool}
-                icon={<Eye className="w-4 h-4 text-emerald-400" />}
-              />
-              <JXCardContent>
-                <div className="space-y-4">
-                  {/* Inspection Header Badge */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-800/60">
-                    <button
-                      type="button"
-                      onClick={copyStepPayload}
-                      className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:bg-slate-800 text-slate-200 font-mono text-[11px] flex items-center gap-1.5 transition-colors"
-                    >
-                      {copiedPayload ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Copied</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5 text-slate-400" />
-                          <span>Copy Step JSON</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* 2-Pane Inspection Content */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Left Pane: Visual Verification Checkpoint with SoM overlay */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs font-mono text-slate-400">
-                        <span className="uppercase tracking-wider">Visual Verification Checkpoint</span>
-                        <span className="text-indigo-400">Set-of-Marks Marker #04</span>
-                      </div>
-
-                      {/* Screen preview container */}
-                      <div className="relative w-full h-52 rounded-xl bg-slate-950 border border-slate-800 overflow-hidden flex flex-col justify-between p-3 select-none">
-                        <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
-                          <span>Ubuntu 24.04 Enclave</span>
-                          <span>3840×2160 native</span>
-                        </div>
-
-                        {/* Simulated Canvas Graphic & Reticle */}
-                        <div className="flex items-center justify-center relative my-auto">
-                          <div className="w-32 h-16 rounded-lg border-2 border-dashed border-emerald-400/80 bg-emerald-500/10 flex items-center justify-center p-2 text-center">
-                            <span className="font-mono text-[10px] text-emerald-300 font-bold">
-                              [04] PCR-7 ACTIVE
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Bottom Tag */}
-                        <div className="p-2 rounded-lg bg-slate-900/90 border border-slate-800 flex items-center justify-between font-mono text-[10px] text-slate-300">
-                          <span className="text-emerald-400 font-bold">SOM Mark [04]: Enclave TPM Status</span>
-                          <span className="text-slate-400">{activeStep.boundsDesc}</span>
-                        </div>
-                      </div>
-
-                    </div>
-
-                    {/* Right Pane: AI Reasoning Trace & Tool Payload */}
-                    <div className="space-y-2 font-mono text-xs">
-                      <span className="text-slate-400 uppercase tracking-wider block">
-                        AI Reasoning Trace & Payload
-                      </span>
-
-                      {/* Reasoning Trace Log */}
-                      <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
-                        <div className="flex items-center gap-2 text-indigo-400 font-bold">
-                          <Bot className="w-4 h-4" />
-                          <span>Claude 3.5 Sonnet Reasoning Thought Trace</span>
-                        </div>
-                        <p className="p-2 rounded-lg bg-slate-900/80 border border-slate-800/80 text-[11px] leading-relaxed text-slate-300">
-                          &gt; {activeStep.reasoning}
-                        </p>
-                      </div>
-
-                      {/* Input JSON Parameters Payload */}
-                      <div className="space-y-1">
-                        <span className="text-xs text-slate-400 block">
-                          Arguments
-                        </span>
-                        <pre className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 overflow-x-auto max-h-32">
-                          <code>{JSON.stringify(activeStep.payload, null, 2)}</code>
-                        </pre>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Workflow Execution Controls Toolbar */}
-                  <div className="pt-2 border-t border-slate-800/60 flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 font-mono text-xs text-slate-400">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                      <span>Execution Stream: LIVE (Turn {activePlan.currentStep}/{activePlan.totalSteps})</span>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={togglePauseWorkflow}
-                        className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-800 text-slate-200 font-mono text-xs flex items-center gap-1.5 transition-all"
-                      >
-                        {isPaused ? <Play className="w-3.5 h-3.5 text-emerald-400" /> : <Pause className="w-3.5 h-3.5 text-amber-400" />}
-                        <span>{isPaused ? "Resume Workflow" : "Pause Workflow"}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={forceReplan}
-                        className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-800 text-indigo-300 font-mono text-xs flex items-center gap-1.5 transition-all"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span>Force Re-Plan</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={abortPlan}
-                        className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-rose-300 font-mono text-xs flex items-center gap-1.5 transition-all"
-                      >
-                        <StopCircle className="w-3.5 h-3.5 text-rose-400" />
-                        <span>Abort Plan</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </JXCardContent>
-            </JXCard>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <section className="lg:col-span-4 rounded-2xl bg-slate-900/70 border border-slate-800 p-4 space-y-3" aria-label="Workflow directory">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3 pointer-events-none" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, id, device, tool..." aria-label="Search workflows" className={`${inputCls} pl-8`} />
           </div>
-        </JXGridItem>
-      </JXGrid>
-
-      {/* Workflow Builder Modal */}
-      {builderOpen && (
-        <GlassModal onClose={() => setBuilderOpen(false)} title="Create sample workflow">
-          <div className="space-y-4 font-mono text-xs text-slate-200">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <Workflow className="w-5 h-5 text-indigo-400" />
-                <h3 className="text-base font-bold text-slate-100">Workflow DAG Builder</h3>
-              </div>
-              <button
-                type="button"
-                aria-label="Close workflow builder"
-                onClick={() => setBuilderOpen(false)}
-                className="text-slate-400 hover:text-slate-200 p-1"
-              >
-                <X className="w-5 h-5" />
+          <div className="flex flex-wrap gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800 font-mono text-[11px]">
+            {FILTERS.map((f) => (
+              <button key={f} type="button" onClick={() => setFilter(f)} className={`flex-1 py-1 px-1.5 rounded-lg capitalize ${filter === f ? "bg-slate-800 text-slate-100 font-semibold" : "text-slate-400 hover:text-slate-200"}`}>
+                {f} ({counts[f] || 0})
               </button>
+            ))}
+          </div>
+          <div tabIndex={0} aria-label="Workflow plans" className="space-y-2 max-h-[580px] overflow-y-auto pr-1">
+            {loading && !workflows.length && <p className="text-xs text-slate-500">Loading workflows…</p>}
+            {!loading && !loadError && !workflows.length && <p className="text-xs text-slate-500">No workflows yet. Create one or start from a template.</p>}
+            {!loading && workflows.length > 0 && !filtered.length && <p className="text-xs text-slate-500">No workflows match this filter.</p>}
+            {filtered.map((w) => (
+              <button key={w.id} type="button" onClick={() => { setSelectedId(w.id); setSelectedStep(1); }}
+                className={`w-full text-left p-3 rounded-xl border text-xs ${w.id === selectedId ? "bg-indigo-950/50 border-indigo-500/60" : "bg-slate-950/70 border-slate-800 hover:border-slate-700"}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="font-bold text-slate-100 block truncate">{w.name}</span>
+                    <span className="font-mono text-[10px] text-indigo-400">{w.id} • {w.device_id || "local"}</span>
+                  </div>
+                  <span className={`font-mono text-[10px] px-2 py-0.5 rounded font-semibold uppercase shrink-0 ${statusClass(w.status)}`}>
+                    {w.status === "running" ? `Step ${w.current_step}/${w.total_steps}` : w.status}
+                  </span>
+                </div>
+                <div className="mt-2 text-[10px] font-mono text-slate-500">{w.total_steps} steps • {fmtTime(w.created_at)}</div>
+              </button>
+            ))}
+          </div>
+
+          <div className="pt-3 border-t border-slate-800 space-y-1.5">
+            <span className="text-[10px] uppercase text-slate-500 font-mono">Templates</span>
+            {!templates.length && <p className="text-xs text-slate-500">No templates available.</p>}
+            {templates.map((t) => (
+              <button key={t.id} type="button" onClick={() => openBuilder(t)} className="w-full text-left p-2 rounded-lg bg-slate-950 border border-slate-800 hover:border-indigo-500/50 text-xs">
+                <span className="text-slate-200 font-semibold block">{t.name}</span>
+                <span className="text-[10px] text-slate-500">{t.description} ({t.steps.length} steps)</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="lg:col-span-8 space-y-5" aria-label="Workflow detail">
+          {!selected ? (
+            <div className="rounded-2xl bg-slate-900/70 border border-slate-800 p-8 text-center text-xs text-slate-500">
+              {loading ? "Loading…" : "Select a workflow to inspect its steps and results."}
             </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="text-slate-400 uppercase text-[10px] block mb-1">Workflow Title</label>
-                <input
-                  type="text"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="e.g. Automated Kubernetes Pod Self-Healing"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-slate-400 uppercase text-[10px] block mb-1">Description</label>
-                <textarea
-                  rows={2}
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  placeholder="Describe goal and verification checkpoints..."
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 outline-none focus:border-indigo-500 resize-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-400 uppercase text-[10px] block mb-1">Target Host</label>
-                  <select
-                    aria-label="Workflow target host"
-                    value={newTargetNode}
-                    onChange={(e) => setNewTargetNode(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 outline-none focus:border-indigo-500"
-                  >
-                    {devices.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.hostname}
-                      </option>
-                    ))}
-                  </select>
+          ) : (
+            <>
+              <div className="rounded-2xl bg-slate-900/70 border border-slate-800 p-4 space-y-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-100">{selected.name}</h2>
+                    <p className="text-[11px] font-mono text-slate-500">{selected.id} • device {selected.device_id || "local"} • started {fmtTime(selected.created_at)}{selected.completed_at ? ` • finished ${fmtTime(selected.completed_at)}` : ""}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`font-mono text-[10px] px-2 py-0.5 rounded font-semibold uppercase ${statusClass(selected.status)}`}>{selected.status}</span>
+                    {selectedActive && (
+                      <button type="button" disabled={cancelling} onClick={() => void cancel()} className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-rose-300 font-mono text-xs flex items-center gap-1.5 disabled:opacity-50">
+                        <StopCircle className="w-3.5 h-3.5" /> {cancelling ? "Cancelling…" : "Cancel"}
+                      </button>
+                    )}
+                  </div>
                 </div>
-
-                <div>
-                  <label className="text-slate-400 uppercase text-[10px] block mb-1">Failure Fallback</label>
-                  <select
-                    aria-label="Workflow failure fallback"
-                    value={newFallback}
-                    onChange={(e) => setNewFallback(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 outline-none focus:border-indigo-500"
-                  >
-                    <option value="stop">Halt & Rollback</option>
-                    <option value="retry">Retry 3x on Transient</option>
-                    <option value="skip">Skip & Proceed</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Step Sequence Manager */}
-              <div className="space-y-1.5 pt-2 border-t border-slate-800">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400 uppercase text-[10px]">Sequenced Steps ({builderSteps.length})</span>
-                  <button
-                    type="button"
-                    onClick={handleAddBuilderStep}
-                    className="text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Add Step
-                  </button>
-                </div>
-
-                <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                  {builderSteps.map((st, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800"
-                    >
-                      <span className="font-bold text-indigo-400">{idx + 1}.</span>
-                      <input
-                        type="text"
-                        value={st.name}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setBuilderSteps((prev) =>
-                            prev.map((s, i) => (i === idx ? { ...s, name: val } : s))
-                          );
-                        }}
-                        className="bg-transparent border-none outline-none text-slate-200 flex-1 px-2"
-                      />
-                      <span className="text-[10px] text-slate-500 px-2">{st.tool}</span>
-                    </div>
+                {selectedActive && (
+                  <div className="font-mono text-[11px] text-slate-400" role="status">
+                    Step {selected.current_step} of {selected.total_steps} • progress via {streamMode === "stream" ? "live stream" : streamMode === "polling" ? "polling (stream unavailable)" : "connecting…"}
+                  </div>
+                )}
+                {selected.error && <div role="alert" className="p-2 rounded-lg bg-rose-950/40 border border-rose-500/30 text-xs text-rose-300 font-mono">{selected.error}</div>}
+                {!stepRows.length && <p className="text-xs text-slate-500">This workflow has no recorded steps.</p>}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                  {stepRows.map((s) => (
+                    <button key={s.number} type="button" onClick={() => setSelectedStep(s.number)}
+                      className={`text-left p-3 rounded-xl border text-xs min-h-[96px] ${activeStep?.number === s.number ? "bg-indigo-950/60 border-indigo-500 ring-1 ring-indigo-500/50" : "bg-slate-950/80 border-slate-800 hover:border-slate-700"}`}>
+                      <div className="flex items-center justify-between">
+                        <span className={`w-6 h-6 rounded-full flex items-center justify-center font-mono text-xs font-bold ${s.status === "completed" ? "bg-emerald-600 text-white" : s.status === "running" ? "bg-indigo-600 text-white" : s.status === "failed" ? "bg-rose-600 text-white" : "bg-slate-800 text-slate-400"}`}>{s.status === "completed" ? <Check className="w-3.5 h-3.5" /> : s.number}</span>
+                        <span className="font-mono text-[10px] text-slate-400">{s.res?.duration_seconds != null ? `${s.res.duration_seconds}s` : "--"}</span>
+                      </div>
+                      <span className="font-semibold text-slate-200 block truncate mt-2">{s.name}</span>
+                      <span className="font-mono text-[10px] text-slate-400 block truncate">{s.action}</span>
+                      <span className="font-mono text-[10px] text-slate-500">{s.status}</span>
+                    </button>
                   ))}
                 </div>
               </div>
 
-              {/* Human Approval Gate */}
-              <label className="flex items-center gap-2 cursor-pointer pt-1 text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={newRequireGate}
-                  onChange={(e) => setNewRequireGate(e.target.checked)}
-                  className="rounded bg-slate-950 border-slate-800 text-indigo-600 focus:ring-0"
-                />
-                <span>Require Human-in-the-Loop Approval Gate before execution</span>
-              </label>
+              {activeStep && (
+                <div className="rounded-2xl bg-slate-900/70 border border-slate-800 p-4 space-y-3 font-mono text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-200 font-bold">Step {activeStep.number}: {activeStep.name} <span className="text-slate-500">({activeStep.action})</span></span>
+                    <button type="button" onClick={() => copy({ action: activeStep.action, args: activeStep.args, result: activeStep.res?.result })} className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 text-[11px] flex items-center gap-1.5">
+                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />} {copied ? "Copied" : "Copy step JSON"}
+                    </button>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block mb-1">Arguments</span>
+                    <pre className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 overflow-x-auto max-h-32"><code>{JSON.stringify(activeStep.args, null, 2)}</code></pre>
+                  </div>
+                  {activeStep.res?.error && <div role="alert" className="p-2 rounded-lg bg-rose-950/40 border border-rose-500/30 text-rose-300">{activeStep.res.error}</div>}
+                  <div>
+                    <span className="text-slate-400 block mb-1">Result</span>
+                    {activeStep.res?.result !== undefined && activeStep.res?.result !== null ? (
+                      <pre className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 overflow-auto max-h-64"><code>{JSON.stringify(activeStep.res.result, null, 2)}</code></pre>
+                    ) : <p className="text-slate-500">{activeStep.status === "running" ? "Running…" : activeStep.status === "pending" ? "Not run yet." : "No result recorded."}</p>}
+                  </div>
+                  {activeStep.res?.verification !== undefined && (
+                    <div>
+                      <span className="text-slate-400 block mb-1">Verification</span>
+                      <pre className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 overflow-auto max-h-32"><code>{JSON.stringify(activeStep.res.verification, null, 2)}</code></pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      </div>
+
+      {builderOpen && (
+        <div role="dialog" aria-modal="true" aria-label="New workflow" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-4 text-xs font-mono text-slate-200">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <h3 className="text-base font-bold text-slate-100">New workflow</h3>
+              <button type="button" aria-label="Close workflow builder" onClick={() => setBuilderOpen(false)}><X className="w-5 h-5 text-slate-400" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="col-span-2 block"><span className="text-slate-400 uppercase text-[10px] block mb-1">Name</span>
+                <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} /></label>
+              <label className="block"><span className="text-slate-400 uppercase text-[10px] block mb-1">Target device</span>
+                <select aria-label="Workflow target device" value={deviceId} onChange={(e) => setDeviceId(e.target.value)} className={inputCls}>
+                  <option value="local">local (control plane host)</option>
+                  {devices.map((d) => <option key={d.id} value={d.id}>{d.name || d.hostname || d.id}</option>)}
+                </select></label>
+              <label className="block"><span className="text-slate-400 uppercase text-[10px] block mb-1">Default retries per step</span>
+                <input type="number" min={0} max={5} value={maxRetries} onChange={(e) => setMaxRetries(Number(e.target.value))} className={inputCls} /></label>
+              <label className="col-span-2 flex items-center gap-2"><input type="checkbox" checked={stopOnFailure} onChange={(e) => setStopOnFailure(e.target.checked)} /> Stop on first failed step</label>
             </div>
 
-            <div className="pt-3 border-t border-slate-800 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setBuilderOpen(false)}
-                className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveNewWorkflow}
-                className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold shadow-md shadow-indigo-600/30"
-              >
-                Save & Deploy Workflow
-              </button>
+            <div className="space-y-2 pt-2 border-t border-slate-800">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 uppercase text-[10px]">Steps ({draft.length})</span>
+                <button type="button" onClick={() => setDraft((p) => [...p, { name: "", action: tools[0]?.name || "", args: "{}", verifyText: "" }])} className="text-indigo-400 font-bold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Add step</button>
+              </div>
+              {!tools.length && <p className="text-amber-400">Tool catalog unavailable; step tools can only come from templates.</p>}
+              {draft.map((d, i) => {
+                const t = toolMap.get(d.action);
+                const upd = (patch: Partial<DraftStep>) => setDraft((p) => p.map((s, j) => (j === i ? { ...s, ...patch } : s)));
+                return (
+                  <div key={i} className="p-2 rounded-lg bg-slate-950 border border-slate-800 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-indigo-400">{i + 1}.</span>
+                      <input aria-label={`Step ${i + 1} name`} placeholder={`Step ${i + 1}`} value={d.name} onChange={(e) => upd({ name: e.target.value })} className={inputCls} />
+                      <select aria-label={`Step ${i + 1} tool`} value={d.action} onChange={(e) => upd({ action: e.target.value })} className={inputCls}>
+                        {d.action && !t && <option value={d.action}>{d.action}</option>}
+                        {tools.map((tl) => <option key={tl.name} value={tl.name}>{tl.name} (tier {tl.tier ?? "?"})</option>)}
+                      </select>
+                      <button type="button" aria-label={`Remove step ${i + 1}`} onClick={() => setDraft((p) => p.filter((_, j) => j !== i))}><Trash2 className="w-4 h-4 text-slate-500 hover:text-rose-400" /></button>
+                    </div>
+                    {t?.description && <p className="text-[10px] text-slate-500">{t.description}</p>}
+                    <textarea aria-label={`Step ${i + 1} arguments`} rows={2} value={d.args} onChange={(e) => upd({ args: e.target.value })} className={inputCls} />
+                    {t?.parameters?.properties && <p className="text-[10px] text-slate-600">Params: {Object.keys(t.parameters.properties).join(", ") || "none"}{t.parameters.required?.length ? ` (required: ${t.parameters.required.join(", ")})` : ""}</p>}
+                    <input aria-label={`Step ${i + 1} verify text`} placeholder="Optional: verify this text appears on screen after the step" value={d.verifyText} onChange={(e) => upd({ verifyText: e.target.value })} className={inputCls} />
+                  </div>
+                );
+              })}
+            </div>
+
+            {highTier.length > 0 && (
+              <div role="alert" className="p-2 rounded-lg bg-amber-950/40 border border-amber-600/40 text-amber-300 flex gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{highTier.length} step(s) use tier 3+ (sensitive) tools. Workflows run with approvals pre-granted by the operator who submits them; review carefully before submitting.</span>
+              </div>
+            )}
+            {builderError && <div role="alert" className="p-2 rounded-lg bg-rose-950/40 border border-rose-500/30 text-rose-300">{builderError}</div>}
+            <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
+              <button type="button" onClick={() => setBuilderOpen(false)} className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-400">Cancel</button>
+              <button type="button" disabled={submitting} onClick={() => void submit()} className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold disabled:opacity-50">{submitting ? "Submitting…" : "Submit workflow"}</button>
             </div>
           </div>
-        </GlassModal>
+        </div>
       )}
     </div>
   );
+}
+
+export const WorkflowsView: React.FC = () => {
+  const live = !!(token() || sessionToken());
+  return live ? <WorkflowsLive /> : <WorkflowsDemoView />;
 };
 
 export default WorkflowsView;

@@ -1,4 +1,4 @@
-const envBase = (import.meta as any).env?.VITE_API_URL || "";
+﻿const envBase = (import.meta as any).env?.VITE_API_URL || "";
 const isProdOrigin =
   typeof window !== "undefined" &&
   window.location.port !== "5173" &&
@@ -140,6 +140,8 @@ export const api = {
   logout: () => call("/api/auth/logout", "POST", {}),
   policies: () => call("/api/policies"),
   policyHistory: () => call("/api/policies/history"),
+  simulatePolicy: (p: { allow_tier3: boolean; desktop_enabled: boolean; allowed_apps: string[]; allowed_services: string[]; note?: string }) =>
+    call("/api/policies/simulate", "POST", p),
   updatePolicyVersion: (version: number, p: { allow_tier3: boolean; desktop_enabled: boolean; allowed_apps: string[]; allowed_services: string[]; note?: string }) =>
     call(`/api/policies/${version}`, "PUT", p),
   deletePolicyVersion: (version: number) => call(`/api/policies/${version}`, "DELETE"),
@@ -240,4 +242,7 @@ export const api = {
     call(`/api/fleet/update${targetOs ? `?target_os=${encodeURIComponent(targetOs)}` : ""}`, "POST", {}),
   updateDeviceAgent: (deviceId: string) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/update`, "POST", {}),
+  resizeTerminal: (deviceId: string, sessionId: string, cols: number, rows: number) =>
+    call(`/api/devices/${encodeURIComponent(deviceId)}/terminal/${encodeURIComponent(sessionId)}/resize`, "POST", { cols, rows }),
 };
+
