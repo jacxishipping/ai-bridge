@@ -115,6 +115,28 @@ services:
     networks:
       - aibridge-network
 
+  coturn:
+    image: coturn/coturn:4.6.2-alpine
+    container_name: aibridge-coturn
+    restart: always
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+    command:
+      - turnserver
+      - -n
+      - --log-file=stdout
+      - --realm=jxiptvplayer.app
+      - --lt-cred-mech
+      - --use-auth-secret
+      - --static-auth-secret=${AI_BRIDGE_TURN_SECRET:-aibridge_turn_shared_secret_2026}
+      - --listening-port=3478
+      - --min-port=49152
+      - --max-port=49200
+      - --fingerprint
+    networks:
+      - aibridge-network
+
   nginx:
     image: nginx:alpine
     container_name: aibridge-nginx

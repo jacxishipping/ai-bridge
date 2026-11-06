@@ -794,6 +794,50 @@ def attach_v1_routes(
             await _broadcast_ws(session_id, {"type": "ice", "from": from_side, "candidate": cand})
         return {"ok": True, "session_id": session_id}
 
+    @app.get("/api/v1/sessions/ice-servers")
+    def v1_get_ice_servers(
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        return {"ice_servers": webrtc_stream.get_configured_ice_servers()}
+
+    @app.get("/api/v1/sessions/{session_id}/recording")
+    def v1_get_session_recording(
+        session_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        from .. import tools
+        return tools.desktop_get_session_recording(session_id)
+
+    @app.post("/api/v1/sessions/{session_id}/recording/seal")
+    def v1_seal_session_recording(
+        session_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        actor, _role = auth_context(x_admin_token, x_session_token, authorization)
+        from .. import tools
+        res = tools.desktop_seal_session_recording(session_id)
+        if res.get("ok"):
+            audit(
+                actor,
+                "local",
+                "SESSION_RECORDING_SEALED",
+                {
+                    "session_id": session_id,
+                    "merkle_leaf": res.get("merkle_leaf"),
+                    "sha256": res.get("sha256_hash"),
+                },
+                "allowed",
+            )
+        return res
+
     @app.websocket("/api/v1/ws/sessions/{session_id}")
     async def v1_session_websocket(websocket: WebSocket, session_id: str):
         await websocket.accept()

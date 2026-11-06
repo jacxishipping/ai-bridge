@@ -274,6 +274,11 @@ export const api = {
     }),
   downloadDeviceFileV1: (deviceId: string, path: string) =>
     call(`/api/v1/devices/${encodeURIComponent(deviceId)}/files/download?path=${encodeURIComponent(path)}`),
+  getSessionRecordingV1: (sessionId: string) =>
+    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/recording`),
+  sealSessionRecordingV1: (sessionId: string) =>
+    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/recording/seal`, "POST", {}),
+  getIceServersV1: () => call("/api/v1/sessions/ice-servers"),
   updateSessionQualityV1: (
     sessionId: string,
     quality: { bitrate_kbps?: number; fps?: number; monitor_index?: number }

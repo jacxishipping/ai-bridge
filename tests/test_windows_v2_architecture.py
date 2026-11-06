@@ -148,3 +148,50 @@ def test_v3_file_transfer_chunking_and_sha256():
     except Exception:
         pass
 
+
+def test_v4_ephemeral_coturn_credentials_rfc5766():
+    """Verify Phase 4 ephemeral TURN credentials generation for enterprise symmetric NAT traversal."""
+    ice_servers = webrtc_stream.generate_ephemeral_turn_credentials(
+        username_prefix="operator_test",
+        ttl_seconds=3600,
+        turn_host="turn.enterprise.internal",
+        secret="test_secret_key_123",
+    )
+    assert len(ice_servers) >= 2
+    stun = ice_servers[0]
+    turn = ice_servers[1]
+
+    assert any("turn.enterprise.internal" in u for u in stun["urls"])
+    assert any("turn:turn.enterprise.internal:3478" in u for u in turn["urls"])
+    assert "username" in turn and "operator_test" in turn["username"]
+    assert "credential" in turn and len(turn["credential"]) > 10
+
+
+def test_v4_encrypted_session_recording_and_merkle_seal():
+    """Verify Phase 4 session recording lifecycle, event manifest, and Merkle leaf sealing."""
+    sid = "sess_audit_test_phase4"
+    init_res = tools.desktop_start_session_recording(sid, device_id="node-alpha")
+    assert init_res["ok"] is True
+    assert init_res["status"] == "recording"
+
+    # Record audit events
+    tools.desktop_record_session_event(sid, "HUMAN_TAKEOVER_ENGAGED", {"actor": "operator_alice"})
+    tools.desktop_record_session_event(sid, "OPERATOR_VETO_DISPATCHED", {"intent_id": "intent_42", "reason": "High risk"})
+    tools.desktop_record_session_event(sid, "FILE_TRANSFER_COMPLETED", {"file": "update.bin", "size": 65536})
+
+    # Seal recording manifest
+    seal_res = tools.desktop_seal_session_recording(sid)
+    assert seal_res["ok"] is True
+    assert seal_res["status"] == "sealed"
+    assert seal_res["merkle_leaf"].startswith("0x")
+    assert len(seal_res["sha256_hash"]) == 64
+    assert seal_res["total_events"] >= 4
+
+    # Verify retrieval
+    rec_manifest = tools.desktop_get_session_recording(sid)
+    assert rec_manifest["ok"] is True
+    assert rec_manifest["sealed"] is True
+    assert len(rec_manifest["events"]) >= 4
+    assert rec_manifest["sha256_hash"] == seal_res["sha256_hash"]
+
+

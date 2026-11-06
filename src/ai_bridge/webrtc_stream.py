@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
+import hmac
 import json
 import os
 import platform
@@ -35,15 +37,40 @@ _HELD_KEYS_LOCK = threading.Lock()
 _HELD_KEYS: set[str] = set()
 
 
+def generate_ephemeral_turn_credentials(
+    username_prefix: str = "aibridge_client",
+    ttl_seconds: int = 86400,
+    turn_host: str | None = None,
+    secret: str | None = None,
+) -> list[dict[str, Any]]:
+    """Generate RFC 5766 / REST API ephemeral TURN credentials using HMAC-SHA1 for symmetric NAT traversal."""
+    turn_secret = secret or os.environ.get("AI_BRIDGE_TURN_SECRET", "aibridge_turn_shared_secret_2026")
+    host = turn_host or os.environ.get("AI_BRIDGE_TURN_HOST", "jxiptvplayer.app")
+    expiry = int(time.time()) + ttl_seconds
+    username = f"{expiry}:{username_prefix}"
+
+    key = turn_secret.encode("utf-8")
+    msg = username.encode("utf-8")
+    credential = base64.b64encode(hmac.new(key, msg, hashlib.sha1).digest()).decode("ascii")
+
+    return [
+        {"urls": ["stun:stun.l.google.com:19302", f"stun:{host}:3478"]},
+        {
+            "urls": [f"turn:{host}:3478?transport=udp", f"turn:{host}:3478?transport=tcp"],
+            "username": username,
+            "credential": credential,
+        },
+    ]
+
+
 def get_configured_ice_servers() -> list[dict[str, Any]]:
-    """Build STUN + TURN ICE server list from environment variables."""
-    servers: list[dict[str, Any]] = list(DEFAULT_ICE_SERVERS)
+    """Build STUN + TURN ICE server list from environment variables or ephemeral credentials."""
     custom_json = os.environ.get("AI_BRIDGE_ICE_SERVERS", "").strip()
     if custom_json:
         try:
             parsed = json.loads(custom_json)
             if isinstance(parsed, list) and parsed:
-                servers = parsed
+                return parsed
         except Exception:
             pass
 
@@ -56,8 +83,12 @@ def get_configured_ice_servers() -> list[dict[str, Any]]:
             turn_entry["username"] = turn_user
         if turn_cred:
             turn_entry["credential"] = turn_cred
-        servers.append(turn_entry)
-    return servers
+        return [{"urls": "stun:stun.l.google.com:19302"}, turn_entry]
+
+    try:
+        return generate_ephemeral_turn_credentials()
+    except Exception:
+        return list(DEFAULT_ICE_SERVERS)
 
 
 def set_agent_context(control_url: str, device_token: str) -> None:
