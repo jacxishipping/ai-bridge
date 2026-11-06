@@ -5,12 +5,12 @@
  */
 
 import { useSyncExternalStore } from "react";
+import { readRoute, writeRoute } from "./navigation";
 import { api, token, sessionToken } from "../api";
 
 function isLiveAuthenticated(): boolean {
   return typeof window !== "undefined" && Boolean(token() || sessionToken());
 }
-import { readRoute, writeRoute } from "./navigation";
 import type {
   EnrolledDevice,
   DeviceTelemetry,
@@ -27,6 +27,7 @@ import type {
   TaskDispatchParams,
   DashboardStoreState,
   OperatorProfile,
+  PlatformType,
 } from "../types/dashboard";
 
 // Helper to generate deterministic telemetry
@@ -706,15 +707,178 @@ class DashboardStore {
 
     if (typeof window !== "undefined") {
       setTimeout(() => {
-        if (isLiveAuthenticated()) void this.refreshLive();
-      }, 0);
+        if (isLiveAuthenticated()) void this.syncWithBackend();
+      }, 50);
       setInterval(() => {
         if (this.state.autoPollEnabled && isLiveAuthenticated()) {
-          void this.refreshLive();
+          void this.syncWithBackend();
         }
       }, 10000);
     }
   }
+
+  public syncWithBackend = async (): Promise<void> => {
+    const adminTok = token();
+    const sessTok = sessionToken();
+    if (!adminTok && !sessTok) return;
+
+    try {
+      const startTime = performance.now();
+      const [identRes, healthRes, rawDevs, rawTele, rawTasks, rawApprovals, rawAudit] = await Promise.all([
+        api.me().catch(() => null),
+        api.health().catch(() => null),
+        api.devices().catch(() => null),
+        api.fleetTelemetry().catch(() => null),
+        api.tasks().catch(() => null),
+        api.approvals().catch(() => null),
+        api.audit().catch(() => null),
+      ]);
+      const latency = Math.round(performance.now() - startTime);
+
+      const nextState: Partial<DashboardStoreState> = {
+        gatewayLatencyMs: latency,
+        gatewayStatus: "online",
+      };
+
+      if (identRes) {
+        const username = identRes.actor || identRes.username || "admin";
+        nextState.operatorProfile = {
+          name: username === "admin-token" ? "Fleet Administrator" : username,
+          role: identRes.role === "admin" ? "Lead SecOps Engineer" : (identRes.role || "Operator"),
+          email: username === "admin-token" ? "admin@18.188.153.166" : `${username}@ai-bridge`,
+          workstationMtlsPinned: true,
+        };
+      }
+
+      if (healthRes) {
+        nextState.isEmergencyStopActive = Boolean(healthRes.emergency_stop);
+      }
+
+      const teleMap = new Map<string, any>();
+      if (rawTele?.devices && Array.isArray(rawTele.devices)) {
+        for (const td of rawTele.devices) {
+          if (td.id && td.telemetry) teleMap.set(td.id, td.telemetry);
+        }
+      }
+
+      let liveDevices: EnrolledDevice[] = [];
+      if (Array.isArray(rawDevs)) {
+        liveDevices = rawDevs.map((d: any, idx: number) => {
+          const isOnline = Boolean(d.status === "online" && !d.revoked);
+          const osStr = (d.os || "").toLowerCase();
+          const platform: PlatformType = osStr.includes("win")
+            ? "windows"
+            : osStr.includes("darwin") || osStr.includes("mac")
+            ? "darwin"
+            : "linux";
+          const tele = teleMap.get(d.id) || {};
+          const cpuPercent = typeof tele.cpu_percent === "number" ? Math.round(tele.cpu_percent * 10) / 10 : (isOnline ? 5.6 : 0);
+          const memPercent = typeof tele.memory_percent === "number" ? Math.round(tele.memory_percent * 10) / 10 : (isOnline ? 16.8 : 0);
+          const diskPercent = typeof tele.disk_percent === "number" ? Math.round(tele.disk_percent * 10) / 10 : (isOnline ? 7.4 : 0);
+          const memTotalGb = platform === "windows" ? 32 : 16;
+          const diskTotalGb = 500;
+
+          return {
+            id: d.id,
+            name: d.name || d.id,
+            hostname: d.hostname || d.name || d.id,
+            platform,
+            osRelease: d.os || "Linux 7.0.0-1014-aws",
+            arch: (d.os?.toLowerCase().includes("arm") || d.os?.toLowerCase().includes("aarch64")) ? "aarch64" : "x86_64",
+            status: isOnline ? "online" : "offline",
+            lastHeartbeat: d.last_seen ? new Date(d.last_seen * 1000).toISOString() : new Date().toISOString(),
+            pollIntervalSec: 10,
+            latencyMs: isOnline ? Math.max(8, latency) : 999,
+            workspacePath: platform === "windows" ? "C:\\ai-bridge\\workspace" : "/var/lib/ai-bridge/workspace",
+            assignedModels: ["Claude 3.5 Sonnet", "GPT-4o"],
+            tags: Array.isArray(d.tags) && d.tags.length ? d.tags : ["production", platform],
+            telemetry: {
+              cpuPercent,
+              cpuCores: [cpuPercent + 1.2, Math.max(0, cpuPercent - 0.8), cpuPercent + 0.4, cpuPercent],
+              cpuClockGhz: 2.5,
+              memoryUsedGb: Math.round((memTotalGb * memPercent / 100) * 10) / 10,
+              memoryTotalGb: memTotalGb,
+              swapUsedGb: 0.1,
+              swapTotalGb: 2.0,
+              diskUsedGb: Math.round(diskTotalGb * diskPercent / 100),
+              diskTotalGb,
+              diskPercent,
+              networkRxMbps: isOnline ? 1.8 : 0,
+              networkTxMbps: isOnline ? 0.6 : 0,
+              ipAddress: d.ip_address || (platform === "linux" ? "18.188.153.166" : "192.168.1.100"),
+              uptimeSeconds: isOnline ? 120400 : 0,
+              tpmStatus: "active",
+              certExpiryDays: 45,
+              fingerprintSha256: `sha256:${d.id.padEnd(64, "0")}`,
+            },
+            revoked: Boolean(d.revoked),
+          };
+        });
+
+        nextState.devices = liveDevices;
+        if (!liveDevices.some((d) => d.id === this.state.selectedDeviceId)) {
+          nextState.selectedDeviceId = liveDevices[0]?.id || "";
+        }
+      }
+
+      if (Array.isArray(rawTasks)) {
+        nextState.tasks = rawTasks.map((t: any) => ({
+          id: t.id,
+          deviceId: t.device_id,
+          deviceHostname: liveDevices.find((d) => d.id === t.device_id)?.hostname || t.device_name || t.device_id,
+          tool: t.tool,
+          args: typeof t.args_json === "string" ? JSON.parse(t.args_json || "{}") : (t.args || {}),
+          riskTier: (t.tier === 1 ? "tier1_safe" : t.tier === 2 ? "tier2_workspace" : t.tier === 3 ? "tier3_shell" : "tier4_kernel") as TaskRiskTier,
+          status: (t.status || "pending") as TaskStatus,
+          invoker: t.tenant ? `tenant:${t.tenant}` : "operator:admin",
+          createdAt: t.created_at ? new Date(t.created_at * 1000).toISOString() : new Date().toISOString(),
+          startedAt: t.created_at ? new Date(t.created_at * 1000).toISOString() : undefined,
+          completedAt: t.updated_at ? new Date(t.updated_at * 1000).toISOString() : undefined,
+          result: t.result ? (typeof t.result === "string" ? { stdout: t.result } : t.result) : undefined,
+        }));
+      }
+
+      if (Array.isArray(rawApprovals)) {
+        nextState.approvals = rawApprovals.map((a: any) => ({
+          id: a.id,
+          taskId: a.task_id || a.id,
+          deviceId: a.device_id || "srv-core",
+          deviceHostname: liveDevices.find((d) => d.id === a.device_id)?.hostname || a.device_name || a.device_id || "srv-core",
+          command: a.args?.command || a.tool || "system_command",
+          riskTier: (a.tier === 1 ? "tier1_safe" : a.tier === 2 ? "tier2_workspace" : a.tier === 3 ? "tier3_shell" : "tier4_kernel") as TaskRiskTier,
+          reason: a.reason || "Operation requires operator approval.",
+          requester: a.tenant ? `tenant:${a.tenant}` : "agent:fleet-controller",
+          requestedAt: a.created_at ? new Date(a.created_at * 1000).toISOString() : new Date().toISOString(),
+          expiresAt: a.expires_at ? new Date(a.expires_at * 1000).toISOString() : new Date(Date.now() + 3600000).toISOString(),
+          status: (a.status || "pending") as "pending" | "approved" | "denied",
+          decidedBy: a.decided_by,
+          decidedAt: a.decided_at ? new Date(a.decided_at * 1000).toISOString() : undefined,
+        }));
+      }
+
+      if (Array.isArray(rawAudit)) {
+        nextState.auditEvents = rawAudit.map((ev: any, idx: number) => ({
+          blockNumber: ev.id || (rawAudit.length - idx),
+          timestamp: ev.ts ? new Date(ev.ts * 1000).toISOString() : new Date().toISOString(),
+          actor: ev.actor || "operator",
+          action: ev.tool || "system",
+          targetHost: liveDevices.find((d) => d.id === ev.device_id)?.hostname || ev.device_id || "fleet-gateway",
+          governanceVerdict: (ev.decision === "allowed" ? "auto_allowed" : ev.decision === "approved" ? "human_approved" : "denied") as "auto_allowed" | "human_approved" | "denied",
+          sha256Hash: `sha256:${(ev.id || idx).toString(16).padStart(64, "0")}`,
+          prevHash: `sha256:${((ev.id || idx) - 1).toString(16).padStart(64, "0")}`,
+          payloadSummary: typeof ev.args_json === "string" ? ev.args_json : JSON.stringify(ev.args_json || {}),
+        }));
+      }
+
+      this.state = { ...this.state, ...nextState };
+      this.notify();
+    } catch {
+      this.state = { ...this.state, gatewayStatus: "degraded" };
+      this.notify();
+    }
+  };
+
+  public refreshLive = async (): Promise<void> => this.syncWithBackend();
 
   public getState = (): DashboardStoreState => this.state;
 
@@ -736,13 +900,17 @@ class DashboardStore {
     writeRoute(currentView, currentView === "device-360-system" ? this.state.selectedDeviceId : undefined);
     this.state = { ...this.state, currentView };
     this.notify();
+    void this.syncWithBackend();
   };
 
   public syncRoute = (): void => {
     const route = readRoute();
-    const selectedDeviceId = SEED_DEVICES.some((d) => d.id === route.device) ? route.device! : this.state.selectedDeviceId;
+    const selectedDeviceId = this.state.devices.some((d) => d.id === route.device)
+      ? route.device!
+      : this.state.devices[0]?.id || this.state.selectedDeviceId;
     this.state = { ...this.state, currentView: route.view, selectedDeviceId };
     this.notify();
+    void this.syncWithBackend();
   };
 
   public setSelectedDeviceId = (selectedDeviceId: string): void => {
@@ -759,193 +927,6 @@ class DashboardStore {
   };
 
 
-  private isRefreshing = false;
-
-  public refreshLive = async (): Promise<void> => {
-    if (!isLiveAuthenticated() || this.isRefreshing) return;
-    this.isRefreshing = true;
-    try {
-      const [meRes, devRes, teleRes, tasksRes, apprsRes, healthRes, auditRes] = await Promise.allSettled([
-        api.me(),
-        api.devices(),
-        api.fleetTelemetry(),
-        api.tasks(),
-        api.approvals(),
-        api.health(),
-        api.audit(),
-      ]);
-
-      const updates: Partial<DashboardStoreState> = {};
-
-      if (meRes.status === "fulfilled" && meRes.value) {
-        const username = meRes.value.username || "admin";
-        const role = meRes.value.role || "admin";
-        updates.operatorProfile = {
-          name: username === "admin" ? "Fleet Administrator" : username,
-          role: role === "admin" ? "Lead SecOps Engineer" : role,
-          email: `${username}@jxiptvplayer.app`,
-          workstationMtlsPinned: true,
-        };
-      }
-
-      const teleMap = new Map<string, any>();
-      if (teleRes.status === "fulfilled" && teleRes.value?.devices) {
-        for (const d of teleRes.value.devices) {
-          if (d.id && d.telemetry) teleMap.set(d.id, d.telemetry);
-        }
-      }
-
-      let liveDevices: EnrolledDevice[] = [];
-      if (devRes.status === "fulfilled" && Array.isArray(devRes.value) && devRes.value.length > 0) {
-        liveDevices = devRes.value.map((d: any, idx: number) => {
-          const platform = (d.os?.toLowerCase().includes("win")
-            ? "windows"
-            : (d.os?.toLowerCase().includes("mac") || d.os?.toLowerCase().includes("darwin") ? "darwin" : "linux")) as any;
-          const isOnline = Boolean(d.status === "online" && !d.revoked);
-          const tele = teleMap.get(d.id) || {};
-          const cpuPercent = typeof tele.cpu_percent === "number" ? Math.round(tele.cpu_percent * 10) / 10 : (isOnline ? 14.2 : 0);
-          const memPercent = typeof tele.memory_percent === "number" ? Math.round(tele.memory_percent * 10) / 10 : (isOnline ? 32.5 : 0);
-          const diskPercent = typeof tele.disk_percent === "number" ? Math.round(tele.disk_percent * 10) / 10 : (isOnline ? 48.0 : 0);
-          const memTotalGb = platform === "windows" ? 32 : 16;
-          const diskTotalGb = 500;
-
-          return {
-            id: d.id,
-            hostname: d.hostname || d.name || d.id,
-            name: d.name || d.hostname || d.id,
-            platform,
-            osRelease: d.os || (platform === "windows" ? "Windows Server 2025" : "Ubuntu 24.04 LTS"),
-            arch: (d.os?.toLowerCase().includes("arm") || d.os?.toLowerCase().includes("aarch64")) ? "aarch64" : "x86_64",
-            status: d.revoked ? "offline" : (isOnline ? "online" : "offline"),
-            lastHeartbeat: d.last_seen ? new Date(d.last_seen * 1000).toISOString() : new Date().toISOString(),
-            pollIntervalSec: 10,
-            latencyMs: d.latency_ms || 14,
-            workspacePath: platform === "windows" ? "C:\\ai-bridge\\workspace" : "/opt/ai-bridge/workspace",
-            assignedModels: ["Claude 3.5 Sonnet", "GPT-4o"],
-            tags: Array.isArray(d.tags) && d.tags.length ? d.tags : [platform, d.group || "default-fleet"],
-            revoked: Boolean(d.revoked),
-            telemetry: {
-              cpuPercent,
-              cpuCores: [cpuPercent + 2, Math.max(0, cpuPercent - 1), cpuPercent + 1, cpuPercent],
-              cpuClockGhz: 3.4,
-              memoryUsedGb: Math.round((memTotalGb * memPercent / 100) * 10) / 10,
-              memoryTotalGb: memTotalGb,
-              swapUsedGb: 0.2,
-              swapTotalGb: 4.0,
-              diskUsedGb: Math.round(diskTotalGb * diskPercent / 100),
-              diskTotalGb,
-              diskPercent,
-              networkRxMbps: isOnline ? 2.4 : 0,
-              networkTxMbps: isOnline ? 0.8 : 0,
-              ipAddress: d.ip_address || `10.244.10.${idx + 10}`,
-              uptimeSeconds: isOnline ? 184200 : 0,
-              tpmStatus: "active",
-              certExpiryDays: 45,
-              fingerprintSha256: `sha256:${d.id.padEnd(64, "0")}`,
-            },
-          };
-        });
-        updates.devices = liveDevices;
-        if (!liveDevices.some((d) => d.id === this.state.selectedDeviceId)) {
-          updates.selectedDeviceId = liveDevices[0]?.id || this.state.selectedDeviceId;
-        }
-      }
-
-      if (tasksRes.status === "fulfilled" && Array.isArray(tasksRes.value)) {
-        const liveTasks = tasksRes.value.map((t: any) => {
-          let parsedArgs: Record<string, unknown> = {};
-          try {
-            if (typeof t.args_json === "string") parsedArgs = JSON.parse(t.args_json);
-            else if (t.args_json && typeof t.args_json === "object") parsedArgs = t.args_json;
-          } catch {}
-
-          let parsedResult: any = undefined;
-          try {
-            if (typeof t.result === "string" && t.result.startsWith("{")) parsedResult = JSON.parse(t.result);
-            else if (t.result) parsedResult = { stdout: String(t.result) };
-          } catch {}
-
-          const dev = (liveDevices.length ? liveDevices : this.state.devices).find((d) => d.id === t.device_id);
-          const tierName: TaskRiskTier = (t.tier === 1 ? "tier1_safe" : t.tier === 2 ? "tier2_workspace" : t.tier === 3 ? "tier3_shell" : "tier4_kernel") as TaskRiskTier;
-          const taskStatus = t.status === "completed" ? "completed"
-            : t.status === "running" ? "running"
-            : t.status === "failed" ? "failed"
-            : t.status === "needs_approval" ? "needs_approval"
-            : t.status === "denied" ? "denied"
-            : t.status === "cancelled" ? "cancelled" : "pending";
-
-          return {
-            id: t.id,
-            deviceId: t.device_id,
-            deviceHostname: dev?.hostname || t.device_id,
-            tool: t.tool,
-            args: parsedArgs,
-            riskTier: tierName,
-            status: taskStatus as TaskStatus,
-            invoker: t.tenant ? `tenant:${t.tenant}` : "operator:admin",
-            createdAt: t.created_at ? new Date(t.created_at * 1000).toISOString() : new Date().toISOString(),
-            startedAt: t.created_at ? new Date(t.created_at * 1000).toISOString() : undefined,
-            completedAt: t.updated_at ? new Date(t.updated_at * 1000).toISOString() : undefined,
-            result: parsedResult,
-          };
-        });
-        if (liveTasks.length > 0) {
-          updates.tasks = liveTasks;
-        }
-      }
-
-      if (apprsRes.status === "fulfilled" && Array.isArray(apprsRes.value)) {
-        const liveApprovals = apprsRes.value.map((a: any) => {
-          const tierName: TaskRiskTier = (a.tier === 1 ? "tier1_safe" : a.tier === 2 ? "tier2_workspace" : a.tier === 3 ? "tier3_shell" : "tier4_kernel") as TaskRiskTier;
-          return {
-            id: a.id,
-            taskId: a.task_id,
-            deviceId: a.device_id || "srv-core",
-            deviceHostname: a.device_name || a.device_id || "srv-core",
-            command: a.args?.command || a.tool,
-            riskTier: tierName,
-            reason: a.reason || "Tier-3 operation requires human approval.",
-            requester: "agent:fleet-controller",
-            requestedAt: a.created_at ? new Date(a.created_at * 1000).toISOString() : new Date().toISOString(),
-            expiresAt: a.expires_at ? new Date(a.expires_at * 1000).toISOString() : new Date(Date.now() + 3600000).toISOString(),
-            status: (a.status === "approved" ? "approved" : a.status === "denied" ? "denied" : "pending") as "pending" | "approved" | "denied",
-            decidedBy: a.decided_by,
-            decidedAt: a.decided_at ? new Date(a.decided_at * 1000).toISOString() : undefined,
-          };
-        });
-        updates.approvals = liveApprovals;
-      }
-
-      if (healthRes.status === "fulfilled" && healthRes.value) {
-        updates.isEmergencyStopActive = Boolean(healthRes.value.emergency_stop);
-      }
-
-      if (auditRes.status === "fulfilled" && Array.isArray(auditRes.value) && auditRes.value.length > 0) {
-        const liveAudit = auditRes.value.slice(0, 50).map((ev: any, idx: number) => ({
-          blockNumber: ev.id || (auditRes.value.length - idx),
-          timestamp: ev.ts ? new Date(ev.ts * 1000).toISOString() : new Date().toISOString(),
-          actor: ev.actor || "operator",
-          action: ev.tool || "system",
-          targetHost: ev.device_id || "fleet-gateway",
-          governanceVerdict: (ev.decision === "allowed" ? "auto_allowed" : ev.decision === "approved" ? "human_approved" : "denied") as "auto_allowed" | "human_approved" | "denied",
-          sha256Hash: `sha256:${(ev.id || idx).toString(16).padStart(64, "0")}`,
-          prevHash: `sha256:${((ev.id || idx) - 1).toString(16).padStart(64, "0")}`,
-          payloadSummary: typeof ev.args_json === "string" ? ev.args_json : JSON.stringify(ev.args_json || {}),
-        }));
-        updates.auditEvents = liveAudit;
-      }
-
-      if (Object.keys(updates).length > 0) {
-        this.state = { ...this.state, ...updates };
-        this.notify();
-      }
-    } catch {
-      // Gracefully handle live fetch error
-    } finally {
-      this.isRefreshing = false;
-    }
-  };
-
   public setAutoPollEnabled = (autoPollEnabled: boolean): void => {
     if (this.state.autoPollEnabled === autoPollEnabled) return;
     this.state = { ...this.state, autoPollEnabled };
@@ -954,7 +935,12 @@ class DashboardStore {
 
   public triggerEmergencyStop = async (): Promise<void> => {
     if (isLiveAuthenticated()) {
-      try { await api.emergencyStop(); } catch {}
+      try {
+        await api.emergencyStop();
+        void this.syncWithBackend();
+      } catch (err) {
+        console.warn("Live emergency stop failed:", err);
+      }
     }
     this.state = {
       ...this.state,
@@ -968,7 +954,7 @@ class DashboardStore {
         {
           blockNumber: this.state.auditEvents[0] ? this.state.auditEvents[0].blockNumber + 1 : 1,
           timestamp: new Date().toISOString(),
-          actor: "operator:sarah.j",
+          actor: "operator:admin",
           action: "fleet.emergency_all_stop",
           targetHost: "all-fleet-nodes",
           governanceVerdict: "human_approved",
@@ -984,7 +970,12 @@ class DashboardStore {
 
   public resumeFleet = async (): Promise<void> => {
     if (isLiveAuthenticated()) {
-      try { await api.emergencyClear(); } catch {}
+      try {
+        await api.emergencyClear();
+        void this.syncWithBackend();
+      } catch (err) {
+        console.warn("Live emergency clear failed:", err);
+      }
     }
     this.state = {
       ...this.state,
@@ -993,7 +984,7 @@ class DashboardStore {
         {
           blockNumber: this.state.auditEvents[0] ? this.state.auditEvents[0].blockNumber + 1 : 1,
           timestamp: new Date().toISOString(),
-          actor: "operator:sarah.j",
+          actor: "operator:admin",
           action: "fleet.resume_operations",
           targetHost: "all-fleet-nodes",
           governanceVerdict: "human_approved",
@@ -1013,7 +1004,12 @@ class DashboardStore {
     reason?: string
   ): Promise<void> => {
     if (isLiveAuthenticated()) {
-      try { await api.decide(id, verdict, reason); } catch {}
+      try {
+        await api.decide(id, verdict, reason || "");
+        void this.syncWithBackend();
+      } catch (err) {
+        console.warn("Live approval resolution failed:", err);
+      }
     }
     const approval = this.state.approvals.find((a) => a.id === id);
     if (!approval || approval.status !== "pending") return;
@@ -1024,7 +1020,7 @@ class DashboardStore {
         ? {
             ...a,
             status: verdict,
-            decidedBy: "operator:sarah.j",
+            decidedBy: "operator:admin",
             decidedAt: now,
             decisionReason: reason,
           }
@@ -1045,7 +1041,7 @@ class DashboardStore {
     const newAuditEvent: AuditEvent = {
       blockNumber: this.state.auditEvents[0] ? this.state.auditEvents[0].blockNumber + 1 : 1,
       timestamp: now,
-      actor: "operator:sarah.j",
+      actor: "operator:admin",
       action: `approval.${verdict}`,
       targetHost: approval.deviceHostname,
       governanceVerdict: verdict === "approved" ? "human_approved" : "denied",
@@ -1064,16 +1060,18 @@ class DashboardStore {
   };
 
   public dispatchTask = async (params: TaskDispatchParams): Promise<TaskInvocation> => {
-    let remoteTaskId: string | null = null;
     if (isLiveAuthenticated()) {
       try {
         const res = await api.submitTask(params.deviceId, params.tool, params.args);
-        if (res?.id) remoteTaskId = res.id;
-      } catch {}
+        void this.syncWithBackend();
+        return res;
+      } catch (err) {
+        console.warn("Live task dispatch failed, fallback to local registration:", err);
+      }
     }
     const device = this.state.devices.find((d) => d.id === params.deviceId);
     const now = new Date().toISOString();
-    const taskId = remoteTaskId || `TSK-${this.nextTaskSequence++}`;
+    const taskId = `TSK-${this.nextTaskSequence++}`;
     const initialStatus = this.state.isEmergencyStopActive ? "cancelled" : "running";
 
     const newTask: TaskInvocation = {

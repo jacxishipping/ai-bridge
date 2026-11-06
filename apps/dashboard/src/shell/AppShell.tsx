@@ -10,6 +10,7 @@ import { motion } from "motion/react";
 import { SidebarNav } from "./SidebarNav";
 import { TopHeader } from "./TopHeader";
 import { CommandPaletteModal } from "./CommandPaletteModal";
+import { token, sessionToken, clearCredentials } from "../api";
 import type { ViewId } from "../types/dashboard";
 
 export interface ViewMetadata {
@@ -47,9 +48,22 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* Sticky Control Plane Top Header */}
         <TopHeader onMenu={() => setMenuOpen(true)} />
-        <div role="note" className="shrink-0 border-b border-slate-800 bg-slate-900/40 px-4 py-2 text-xs text-slate-400 sm:px-6">
-          <strong className="font-medium text-slate-300">Demo workspace</strong> · Sample data. Actions stay in this browser.
-        </div>
+        {Boolean(token() || sessionToken()) ? (
+          <div role="note" className="shrink-0 border-b border-emerald-800/40 bg-emerald-950/20 px-4 py-2 text-xs text-emerald-400 sm:px-6 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              <strong className="font-medium text-emerald-300">Live Control Plane</strong> · Connected to {typeof window !== "undefined" ? window.location.host : "18.188.153.166"}
+            </div>
+            <button type="button" onClick={() => { clearCredentials(); window.location.hash = "#/login"; window.location.reload(); }} className="text-xs text-slate-400 hover:text-slate-200 underline">Sign out</button>
+          </div>
+        ) : (
+          <div role="note" className="shrink-0 border-b border-slate-800 bg-slate-900/40 px-4 py-2 text-xs text-slate-400 sm:px-6 flex items-center justify-between">
+            <div>
+              <strong className="font-medium text-slate-300">Demo workspace</strong> · Sample data. Actions stay in this browser.
+            </div>
+            <button type="button" onClick={() => { window.location.hash = "#/login"; }} className="text-xs text-indigo-400 hover:text-indigo-200 underline">Connect server</button>
+          </div>
+        )}
 
         {/* Scrollable Viewport Canvas with subtle entrance motion */}
         <motion.main

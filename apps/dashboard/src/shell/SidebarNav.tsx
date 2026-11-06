@@ -1,9 +1,9 @@
 import React from "react";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, Server } from "lucide-react";
 import { Brand } from "../Brand";
 import { useDashboardStore } from "../state/dashboardStore";
-import { token, sessionToken, clearCredentials, api } from "../api";
 import { navigationItems } from "./navigation";
+import { token, sessionToken, clearCredentials, api } from "../api";
 import type { ViewId } from "../types/dashboard";
 
 export const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }) => {
@@ -12,6 +12,7 @@ export const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }
   const approvals = useDashboardStore((s) => s.approvals);
   const pending = approvals.filter((approval) => approval.status === "pending").length;
   const navigate = (view: ViewId) => { setCurrentView(view); onNavigate?.(); };
+  const isAuth = Boolean(token() || sessionToken());
 
   return <nav aria-label="Main navigation" className="product-sidebar flex h-full w-full shrink-0 flex-col border-r lg:w-52">
     <div className="flex h-14 shrink-0 items-center px-4">
@@ -36,25 +37,28 @@ export const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }
         </ul>
       </div>)}
     </div>
-    <div className="border-t border-slate-800 p-3">
-      {Boolean(token() || sessionToken()) ? (
-        <button
-          type="button"
-          onClick={async () => {
-            try { await api.logout(); } catch {}
-            clearCredentials();
-            navigate("login");
-          }}
-          className="product-nav-link text-slate-300 hover:text-rose-300"
-        >
-          Sign out
-          <ArrowUpRight className="ms-auto h-4 w-4" aria-hidden="true" />
-        </button>
+    <div className="border-t border-slate-800 p-3 space-y-1">
+      {isAuth ? (
+        <>
+          <button type="button" onClick={() => navigate("live")} className={`product-nav-link ${currentView === "live" ? "text-indigo-400" : "text-emerald-400"}`}>
+            <Server className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span className="flex-1 text-left">Live Workspace</span>
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              try { await api.logout(); } catch {}
+              clearCredentials();
+              navigate("login");
+            }}
+            className="product-nav-link text-slate-400 hover:text-rose-400"
+          >
+            <span className="flex-1 text-left">Sign Out</span>
+          </button>
+        </>
       ) : (
         <button type="button" onClick={() => navigate("login")} className="product-nav-link">
-          Connect to server
-          <ArrowUpRight className="ms-auto h-4 w-4" aria-hidden="true" />
-        </button>
+          Connect to server<ArrowUpRight className="ms-auto h-4 w-4" aria-hidden="true" /></button>
       )}
     </div>
   </nav>;

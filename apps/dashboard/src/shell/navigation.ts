@@ -6,6 +6,7 @@ import type { ViewId } from "../types/dashboard";
 
 export const navigationItems = [
   { id: "overview", label: "Overview", group: "Workspace", icon: LayoutDashboard },
+  { id: "live", label: "Live workspace", group: "Workspace", icon: Server },
   { id: "devices", label: "Devices", group: "Workspace", icon: Server },
   { id: "device-360-system", label: "Device details", group: "Workspace", icon: Cpu },
   { id: "task-queue-and-vision", label: "Tasks", group: "Workspace", icon: ListChecks },

@@ -8,13 +8,19 @@ const BASE =
   envBase || (isProdOrigin ? window.location.origin : "http://127.0.0.1:8000");
 export const apiOrigin = BASE;
 
-export function token() { return sessionStorage.getItem("ai_bridge_admin_token") || ""; }
-export function sessionToken() { return sessionStorage.getItem("ai_bridge_session_token") || ""; }
+export function token() {
+  if (typeof window === "undefined") return "";
+  return sessionStorage.getItem("ai_bridge_admin_token") || localStorage.getItem("ai_bridge_admin_token") || "";
+}
+export function sessionToken() {
+  if (typeof window === "undefined") return "";
+  return sessionStorage.getItem("ai_bridge_session_token") || localStorage.getItem("ai_bridge_session_token") || "";
+}
 
 export function clearCredentials() {
+  if (typeof window === "undefined") return;
   sessionStorage.removeItem("ai_bridge_admin_token");
   sessionStorage.removeItem("ai_bridge_session_token");
-  // Remove credentials persisted by older dashboard versions too.
   localStorage.removeItem("ai_bridge_admin_token");
   localStorage.removeItem("ai_bridge_session_token");
 }
@@ -28,7 +34,10 @@ export function consumeIdentityRedirect() {
   const session = params.get("session_token");
   window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/live`);
   clearCredentials();
-  if (session) sessionStorage.setItem("ai_bridge_session_token", session);
+  if (session) {
+    sessionStorage.setItem("ai_bridge_session_token", session);
+    localStorage.setItem("ai_bridge_session_token", session);
+  }
   return true;
 }
 
@@ -43,10 +52,12 @@ export async function authenticate(credentials: { token: string } | { username: 
       if (!response.ok) throw new Error("Token rejected. Check your server's admin token.");
       const identity = await response.json();
       sessionStorage.setItem("ai_bridge_admin_token", credentials.token);
+      localStorage.setItem("ai_bridge_admin_token", credentials.token);
       return identity;
     }
     const response = await api.login(credentials.username, credentials.password);
     sessionStorage.setItem("ai_bridge_session_token", response.session_token);
+    localStorage.setItem("ai_bridge_session_token", response.session_token);
     return response;
   } catch (error) {
     clearCredentials();
