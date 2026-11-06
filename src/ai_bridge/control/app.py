@@ -590,7 +590,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         "http://127.0.0.1:5173", "http://localhost:5173", "http://201.79.36.129",
         "https://jxiptvplayer.app", "http://18.188.153.166", "https://18.188.153.166"
     ]
-    app.add_middleware(CORSMiddleware, allow_origins=allowed_origins, allow_origin_regex=".*",
+    app.add_middleware(CORSMiddleware, allow_origins=allowed_origins,
                        allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     app.state.conn = conn
     app.state.admin_token = token
@@ -622,13 +622,15 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 return f"{proto}://{host}".rstrip("/")
         return "https://jxiptvplayer.app"
 
-    def auth_context(x_admin_token: str | None = None, x_session_token: str | None = None, authorization: str | None = None):
+    def auth_context(x_admin_token: str | None = None, x_session_token: str | None = None,
+                     authorization: str | None = None, admin_token: str | None = None):
         """Return (actor, role). Session tokens outrank the legacy admin token."""
         bearer = None
         if authorization and authorization.strip().lower().startswith("bearer "):
             bearer = authorization.strip()[7:].strip()
         eff_session = x_session_token or bearer
         eff_admin = x_admin_token or bearer
+        eff_admin_token = admin_token if admin_token is not None else token
 
         if eff_session:
             row = conn.execute("SELECT * FROM sessions WHERE token_hash=?", (dbmod.hash_token(eff_session),)).fetchone()
@@ -636,18 +638,20 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 user = conn.execute("SELECT * FROM users WHERE username=? AND disabled=0", (row["username"],)).fetchone()
                 if user is not None:
                     return user["username"], user["role"]
-        if token and authmod.legacy_admin_enabled() and eff_admin and hmac.compare_digest(eff_admin, token):
+        if eff_admin_token and authmod.legacy_admin_enabled() and eff_admin and hmac.compare_digest(eff_admin, eff_admin_token):
             return "admin-token", "admin"
         raise HTTPException(status_code=401, detail="Authentication required.")
 
-    def require_role(min_role: str, x_admin_token: str | None = None, x_session_token: str | None = None, authorization: str | None = None):
-        actor, role = auth_context(x_admin_token, x_session_token, authorization)
+    def require_role(min_role: str, x_admin_token: str | None = None, x_session_token: str | None = None,
+                     authorization: str | None = None, admin_token: str | None = None):
+        actor, role = auth_context(x_admin_token, x_session_token, authorization, admin_token=admin_token)
         if authmod.ROLES.get(role, 0) < authmod.ROLES[min_role]:
             raise HTTPException(status_code=403, detail=f"Role '{role}' cannot perform this action (requires {min_role}).")
         return actor
 
-    def require_admin(x_admin_token: str | None = None, x_session_token: str | None = None, authorization: str | None = None):
-        return require_role("admin", x_admin_token, x_session_token, authorization)
+    def require_admin(x_admin_token: str | None = None, x_session_token: str | None = None,
+                      authorization: str | None = None, admin_token: str | None = None):
+        return require_role("admin", x_admin_token, x_session_token, authorization, admin_token=admin_token)
 
     def get_current_policy() -> dict:
         row = conn.execute("SELECT policy_json FROM policies ORDER BY version DESC LIMIT 1").fetchone()

@@ -1,7 +1,7 @@
 # AI Bridge — Universal AI-to-Computer Control Platform (v0.3.0)
 
-[![CI](https://github.com/ai-bridge/ai-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/ai-bridge/ai-bridge/actions/workflows/ci.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![CI](https://github.com/jacxishipping/ai-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/jacxishipping/ai-bridge/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Security: Hardened](https://img.shields.io/badge/Security-Hardened%20(P0%2FP1)-green.svg)](docs/security.md)
 
@@ -89,7 +89,7 @@ curl -sSL https://raw.githubusercontent.com/jacxishipping/ai-bridge/main/magic-i
 
 > **Automated Magic Capabilities:**
 > - Detects Linux distribution & hardware architecture (x86_64, aarch64/ARM64).
-> - Checks and installs all missing system packages, build toolchains (`gcc`, `make`), and Python 3.10+.
+> - Checks and installs all missing system packages, build toolchains (`gcc`, `make`), and Python 3.11+.
 > - Auto-provisions a swapfile if the cloud instance has low RAM (<1GB) so package compilation never crashes from OOM.
 > - Clones or updates AI Bridge in `/opt/ai-bridge` and provisions an isolated virtual environment (`.venv`).
 > - Installs Xvfb & headless GUI automation packages for visual verification and screen capture.
@@ -114,7 +114,7 @@ Run AI Bridge locally for Claude Desktop, Cursor, or Gemini CLI:
 
 ```bash
 # Clone and prepare virtual environment
-git clone https://github.com/ai-bridge/ai-bridge.git
+git clone https://github.com/jacxishipping/ai-bridge.git
 cd ai-bridge
 python -m venv .venv
 

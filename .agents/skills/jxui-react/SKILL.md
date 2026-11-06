@@ -1,16 +1,16 @@
 ---
 name: jxui-react
-description: Comprehensive development and design system guide for JXUI React (@jacxishippingorg/jx-ui-react) — Next-Generation React 19 component library, 361 tactile spring & specular glassmorphic components across 18 categories, Tailwind CSS v4 zero-shift architecture, and enterprise UI/UX patterns.
+description: Comprehensive development and design system guide for JXUI React (@jacxishippingorg/jx-ui-react) — Next-Generation React 18/19 component library, 361 tactile spring & specular glassmorphic components across 18 categories, Tailwind CSS v4 zero-shift architecture, and enterprise UI/UX patterns.
 ---
 
 # JXUI React Design System & Component Engineering Skill
 
 ## 🌟 Executive Overview
-**JXUI** (`@jacxishippingorg/jx-ui-react`) is a next-generation React 19 component library and interactive design system workbench designed for high-performance enterprise dashboards, autonomous agent clouds, and modern creative workflows.
+**JXUI** (`@jacxishippingorg/jx-ui-react`) is a next-generation React 18/19 component library and interactive design system workbench designed for high-performance enterprise dashboards, autonomous agent clouds, and modern creative workflows.
 
 - **Total Suite**: **361 components across 18 categories** (61 production showcase state machines + 300 modular primitives).
 - **Architecture**: Zero-runtime layout shift, true 3D perspective pitch/yaw tilt physics, specular glass ambient highlights, tactile audio cues, and seamless Tailwind CSS v4 compilation.
-- **Engine**: React 19 + TypeScript + Tailwind CSS v4 + Motion (`motion/react`) + Lucide Icons.
+- **Engine**: React 18/19 + TypeScript + Tailwind CSS v4 + Motion (`motion/react`) + Lucide Icons.
 
 ---
 

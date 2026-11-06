@@ -32,8 +32,8 @@ Dynamic: license-file
 
 # AI Bridge — Universal AI-to-Computer Control Platform (v0.3.0)
 
-[![CI](https://github.com/ai-bridge/ai-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/ai-bridge/ai-bridge/actions/workflows/ci.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![CI](https://github.com/jacxishipping/ai-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/jacxishipping/ai-bridge/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Security: Hardened](https://img.shields.io/badge/Security-Hardened%20(P0%2FP1)-green.svg)](docs/security.md)
 
@@ -117,7 +117,7 @@ Run AI Bridge locally for Claude Desktop, Cursor, or Gemini CLI:
 
 ```bash
 # Clone and prepare virtual environment
-git clone https://github.com/ai-bridge/ai-bridge.git
+git clone https://github.com/jacxishipping/ai-bridge.git
 cd ai-bridge
 python -m venv .venv
 
