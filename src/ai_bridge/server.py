@@ -27,6 +27,7 @@ import os
 import platform
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ImageContent, TextContent
 
 from . import diagnostics, git_ops, tools, workspace
@@ -68,10 +69,23 @@ def _require_host_tools_enabled(is_admin: bool = False) -> None:
         raise PermissionError("Unconfined host tools are disabled (AI_BRIDGE_DISABLE_HOST_TOOLS=1).")
 
 
+_mcp_transport_security = None
+if os.environ.get("AI_BRIDGE_MCP_ALLOWED_HOSTS"):
+    _mcp_transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=os.environ.get("AI_BRIDGE_MCP_ALLOWED_HOSTS", "").split(","),
+        allowed_origins=os.environ.get("AI_BRIDGE_MCP_ALLOWED_ORIGINS", "").split(",") if os.environ.get("AI_BRIDGE_MCP_ALLOWED_ORIGINS") else [],
+    )
+elif os.environ.get("AI_BRIDGE_MCP_DISABLE_DNS_PROTECTION") == "1":
+    _mcp_transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=False,
+    )
+
 mcp = FastMCP(
     "ai-bridge",
     stateless_http=True,
     json_response=True,
+    transport_security=_mcp_transport_security,
 )
 
 VERIFY_URL = os.environ.get("AI_BRIDGE_GATEWAY_VERIFY_URL", "http://127.0.0.1:8002/internal/verify")

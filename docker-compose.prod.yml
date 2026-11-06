@@ -59,6 +59,8 @@ services:
       - AI_BRIDGE_WORKSPACE=/var/lib/ai-bridge/workspace
       - AI_BRIDGE_DISABLE_HOST_TOOLS=1
       - AI_BRIDGE_GATEWAY_VERIFY_URL=http://oauth-gateway:8002/internal/verify
+      - AI_BRIDGE_MCP_ALLOWED_HOSTS=${AI_BRIDGE_MCP_ALLOWED_HOSTS:-localhost:*,127.0.0.1:*,mcp-http:8001,jxiptvplayer.app:*,www.jxiptvplayer.app:*}
+      - AI_BRIDGE_MCP_ALLOWED_ORIGINS=${AI_BRIDGE_MCP_ALLOWED_ORIGINS:-https://jxiptvplayer.app,https://www.jxiptvplayer.app}
     depends_on:
       - control-api
       - oauth-gateway
