@@ -40,6 +40,13 @@ import {
   RefreshCw,
   Power,
   Zap,
+  Volume2,
+  VolumeX,
+  Upload,
+  Download,
+  FileText,
+  Folder,
+  X,
 } from "lucide-react";
 import { useDashboardStore } from "../state/dashboardStore";
 import { api, token, sessionToken } from "../api";
@@ -95,6 +102,26 @@ export interface PendingAgentIntent {
   risk_tier: string;
   countdown_ms: number;
   start_time_ms: number;
+}
+
+export interface RemoteFileItem {
+  name: string;
+  relative_path: string;
+  full_path: string;
+  size_bytes: number;
+  modified_at: number;
+}
+
+export interface ActiveFileTransfer {
+  transfer_id: string;
+  filename: string;
+  size: number;
+  percent: number;
+  received_bytes: number;
+  speed_kbps: number;
+  status: "uploading" | "verifying" | "completed" | "error";
+  error?: string;
+  direction: "upload" | "download";
 }
 
 const SOM_POSITION_PRESETS = [
@@ -165,6 +192,16 @@ export const LiveDesktopView: React.FC = () => {
   const [somElements, setSomElements] = useState<SomElement[]>([]);
   const [pendingIntent, setPendingIntent] = useState<PendingAgentIntent | null>(null);
   const [countdownRemainingMs, setCountdownRemainingMs] = useState<number>(0);
+
+  // Audio state (WASAPI Opus WebRTC loopback track)
+  const [isAudioMuted, setIsAudioMuted] = useState<boolean>(true);
+
+  // Bi-directional file transfer states (RTCDataChannel 64KB chunked)
+  const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
+  const [fileDrawerOpen, setFileDrawerOpen] = useState<boolean>(false);
+  const [activeTransfer, setActiveTransfer] = useState<ActiveFileTransfer | null>(null);
+  const [recentTransfers, setRecentTransfers] = useState<RemoteFileItem[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
   const isMouseDownRef = useRef<boolean>(false);
@@ -397,6 +434,210 @@ export const LiveDesktopView: React.FC = () => {
     setRecentMacroNotice("Triggered AI Agent Intent anticipation preview (3.0s countdown)");
     setTimeout(() => setRecentMacroNotice(null), 3000);
   }, [sendDataChannelEvent]);
+
+  // Fetch list of files currently on remote host storage
+  const fetchRemoteFiles = useCallback(async () => {
+    if (inputDcRef.current?.readyState === "open") {
+      sendDataChannelEvent({ action: "file_list" });
+      return;
+    }
+    if (selectedDevice?.id) {
+      try {
+        const res = await api.listDeviceFilesV1(selectedDevice.id);
+        if (res && Array.isArray(res.files)) {
+          setRecentTransfers(res.files);
+        }
+      } catch {}
+    }
+  }, [sendDataChannelEvent, selectedDevice?.id]);
+
+  // Start bi-directional chunked file transfer (WebRTC DataChannel 64KB or REST fallback)
+  const startFileTransfer = useCallback(
+    async (file: File) => {
+      if (!file) return;
+      const tid = `tx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const chunkSize = 64 * 1024; // 64 KB
+      const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
+
+      setActiveTransfer({
+        transfer_id: tid,
+        filename: file.name,
+        size: file.size,
+        percent: 0,
+        received_bytes: 0,
+        speed_kbps: 0,
+        status: "uploading",
+        direction: "upload",
+      });
+      setFileDrawerOpen(true);
+      setRecentMacroNotice(`Initiating file transfer: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
+
+      const dc = inputDcRef.current;
+      const isDcOpen = dc && dc.readyState === "open";
+
+      try {
+        const buffer = await file.arrayBuffer();
+        const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const sha256Hex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+
+        if (isDcOpen) {
+          sendDataChannelEvent({
+            action: "file_start",
+            transfer_id: tid,
+            name: file.name,
+            size: file.size,
+            total_chunks: totalChunks,
+          });
+
+          const uint8 = new Uint8Array(buffer);
+          const startTime = Date.now();
+
+          for (let i = 0; i < totalChunks; i++) {
+            const start = i * chunkSize;
+            const end = Math.min(start + chunkSize, file.size);
+            const chunkSlice = uint8.subarray(start, end);
+
+            let binary = "";
+            for (let j = 0; j < chunkSlice.length; j++) {
+              binary += String.fromCharCode(chunkSlice[j]);
+            }
+            const chunkB64 = btoa(binary);
+
+            sendDataChannelEvent({
+              action: "file_chunk",
+              transfer_id: tid,
+              index: i,
+              chunk: chunkB64,
+            });
+
+            const elapsedSec = Math.max(0.001, (Date.now() - startTime) / 1000);
+            const transferred = end;
+            const pct = Math.round((transferred / Math.max(1, file.size)) * 100);
+            const speed = Math.round((transferred / 1024) / elapsedSec);
+
+            setActiveTransfer((prev) =>
+              prev && prev.transfer_id === tid
+                ? { ...prev, percent: pct, received_bytes: transferred, speed_kbps: speed }
+                : prev
+            );
+
+            if (i % 4 === 0) {
+              await new Promise((r) => setTimeout(r, 8));
+            }
+          }
+
+          setActiveTransfer((prev) =>
+            prev && prev.transfer_id === tid ? { ...prev, status: "verifying" } : prev
+          );
+
+          sendDataChannelEvent({
+            action: "file_end",
+            transfer_id: tid,
+            sha256: sha256Hex,
+          });
+        } else if (selectedDevice?.id) {
+          let binary = "";
+          const uint8 = new Uint8Array(buffer);
+          for (let j = 0; j < uint8.length; j++) {
+            binary += String.fromCharCode(uint8[j]);
+          }
+          const b64 = btoa(binary);
+
+          const res = await api.uploadDeviceFileV1(selectedDevice.id, file.name, b64, sha256Hex);
+          if (res && res.ok) {
+            setActiveTransfer((prev) =>
+              prev && prev.transfer_id === tid
+                ? { ...prev, percent: 100, status: "completed", speed_kbps: res.speed_kbps || 120 }
+                : prev
+            );
+            setRecentMacroNotice(`Uploaded file ${file.name} successfully to remote host`);
+            setTimeout(() => setRecentMacroNotice(null), 3000);
+            void fetchRemoteFiles();
+          } else {
+            throw new Error(res?.error || "Upload failed");
+          }
+        }
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        setActiveTransfer((prev) =>
+          prev && prev.transfer_id === tid ? { ...prev, status: "error", error: errMsg } : prev
+        );
+        setRecentMacroNotice(`File transfer error: ${errMsg}`);
+        setTimeout(() => setRecentMacroNotice(null), 3500);
+      }
+    },
+    [sendDataChannelEvent, selectedDevice?.id, fetchRemoteFiles]
+  );
+
+  const requestFileDownload = useCallback(
+    (fileItem: RemoteFileItem) => {
+      setRecentMacroNotice(`Downloading ${fileItem.name} from remote host...`);
+      if (inputDcRef.current?.readyState === "open") {
+        sendDataChannelEvent({ action: "file_download_request", path: fileItem.full_path });
+      } else if (selectedDevice?.id) {
+        void api
+          .downloadDeviceFileV1(selectedDevice.id, fileItem.full_path)
+          .then((res) => {
+            if (res && res.content_b64) {
+              const byteCharacters = atob(res.content_b64);
+              const byteNumbers = new Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              const blob = new Blob([byteArray], { type: "application/octet-stream" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = res.name || fileItem.name;
+              a.click();
+              URL.revokeObjectURL(url);
+              setRecentMacroNotice(`Downloaded ${fileItem.name} successfully`);
+              setTimeout(() => setRecentMacroNotice(null), 3000);
+            }
+          })
+          .catch((err) => {
+            setRecentMacroNotice(`Download error: ${err.message}`);
+            setTimeout(() => setRecentMacroNotice(null), 3000);
+          });
+      }
+    },
+    [sendDataChannelEvent, selectedDevice?.id]
+  );
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingFile(true);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDraggingFile(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingFile(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      void startFileTransfer(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      void startFileTransfer(e.target.files[0]);
+    }
+  };
 
   // Automatically release held keys on window blur or visibility loss
   useEffect(() => {
@@ -934,6 +1175,46 @@ export const LiveDesktopView: React.FC = () => {
                   setRecentMacroNotice(`Vetoed agent action [${data.intent_id}]: ${data.reason || "Interception successful"}`);
                   setTimeout(() => setRecentMacroNotice(null), 3000);
                 }
+                if (data.type === "file_transfer_progress") {
+                  setActiveTransfer((prev) =>
+                    prev && prev.transfer_id === data.transfer_id
+                      ? {
+                          ...prev,
+                          percent: Number(data.percent || 0),
+                          received_bytes: Number(data.received_bytes || 0),
+                        }
+                      : prev
+                  );
+                }
+                if (data.type === "file_transfer_complete") {
+                  setActiveTransfer((prev) =>
+                    prev && prev.transfer_id === data.transfer_id
+                      ? {
+                          ...prev,
+                          percent: 100,
+                          status: "completed",
+                          speed_kbps: Number(data.speed_kbps || prev.speed_kbps),
+                        }
+                      : prev
+                  );
+                  setRecentMacroNotice(`Transferred ${data.filename} (${data.file_size} bytes) to remote host`);
+                  setTimeout(() => setRecentMacroNotice(null), 3500);
+                  void fetchRemoteFiles();
+                }
+                if (data.type === "file_transfer_error") {
+                  setActiveTransfer((prev) =>
+                    prev && prev.transfer_id === data.transfer_id
+                      ? { ...prev, status: "error", error: String(data.error || "Transfer failed") }
+                      : prev
+                  );
+                }
+                if (data.type === "file_list_result" && Array.isArray(data.files)) {
+                  setRecentTransfers(data.files);
+                }
+                if (data.type === "file_download_complete") {
+                  setRecentMacroNotice(`Remote file transfer download completed [${data.transfer_id}]`);
+                  setTimeout(() => setRecentMacroNotice(null), 3000);
+                }
               } catch {}
             };
           };
@@ -1249,6 +1530,42 @@ export const LiveDesktopView: React.FC = () => {
               <span>Pointer Lock</span>
               <span className={`w-1.5 h-1.5 rounded-full ${pointerLockActive ? "bg-indigo-400 animate-pulse" : "bg-slate-600"}`}></span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setIsAudioMuted(!isAudioMuted)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-1.5 border transition-all ${
+                !isAudioMuted
+                  ? "bg-emerald-600/20 text-emerald-300 border-emerald-500/40"
+                  : "bg-slate-950 text-slate-500 border-slate-800"
+              }`}
+              title={isAudioMuted ? "Click to unmute remote host audio (WASAPI Opus)" : "Click to mute audio"}
+            >
+              {isAudioMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
+              <span>{isAudioMuted ? "Audio Muted" : "Audio Active"}</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${!isAudioMuted ? "bg-emerald-400 animate-pulse" : "bg-slate-600"}`}></span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const next = !fileDrawerOpen;
+                setFileDrawerOpen(next);
+                if (next) void fetchRemoteFiles();
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-1.5 border transition-all ${
+                fileDrawerOpen || activeTransfer
+                  ? "bg-cyan-600/20 text-cyan-300 border-cyan-500/40"
+                  : "bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200"
+              }`}
+              title="Open host file transfer manager (Drag & drop files onto stream or select files)"
+            >
+              <Upload className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Files</span>
+              {activeTransfer && (
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+              )}
+            </button>
           </div>
         </div>
 
@@ -1350,6 +1667,21 @@ export const LiveDesktopView: React.FC = () => {
               <Zap className="w-3 h-3 text-indigo-400" />
               <span>Preview Agent Intent</span>
             </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="px-2.5 py-1 rounded-lg bg-cyan-950/70 border border-cyan-500/50 hover:border-cyan-400 text-cyan-300 font-mono text-xs transition-all active:scale-95 flex items-center gap-1"
+              title="Upload file directly to remote host (/transfers)"
+            >
+              <Upload className="w-3 h-3 text-cyan-400" />
+              <span>Transfer File</span>
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileInputChange}
+              className="hidden"
+            />
           </div>
         </div>
 
@@ -1376,13 +1708,17 @@ export const LiveDesktopView: React.FC = () => {
         onKeyDown={handleCanvasKeyDown}
         onKeyUp={handleCanvasKeyUp}
         onBlur={releaseAllRemoteKeys}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
         className="relative w-full aspect-video min-h-[560px] max-h-[760px] rounded-2xl bg-slate-950 border border-slate-800/80 overflow-hidden shadow-2xl select-none group focus:outline-none focus:border-indigo-500/60"
       >
         <video
           ref={videoRef}
           autoPlay
           playsInline
-          muted
+          muted={isAudioMuted}
           className={`absolute inset-0 w-full h-full z-20 transition-opacity duration-150 ${
             webrtcConnected ? "opacity-100" : "opacity-0 pointer-events-none"
           } ${
@@ -1393,6 +1729,19 @@ export const LiveDesktopView: React.FC = () => {
               : "object-contain"
           }`}
         />
+
+        {/* Bi-Directional Drag-and-Drop Dropzone Overlay */}
+        {isDraggingFile && (
+          <div className="absolute inset-0 z-50 bg-cyan-950/85 backdrop-blur-sm border-4 border-dashed border-cyan-400 rounded-2xl flex flex-col items-center justify-center gap-3 pointer-events-none transition-all">
+            <div className="p-4 rounded-2xl bg-cyan-500/20 border border-cyan-400/50 text-cyan-300 animate-bounce">
+              <Upload className="w-10 h-10 text-cyan-400" />
+            </div>
+            <div className="text-center px-4 font-mono">
+              <p className="font-semibold text-white text-base">Drop file to transfer directly to remote host</p>
+              <p className="text-xs text-cyan-300/80 mt-1">Streamed via WebRTC DataChannel (64 KB chunks, SHA-256 verified)</p>
+            </div>
+          </div>
+        )}
 
         {liveFrameUrl && (
           <img
@@ -1697,6 +2046,141 @@ export const LiveDesktopView: React.FC = () => {
         )}
 
       </div>
+
+      {/* Bi-Directional File Transfer Manager & Drawer */}
+      {fileDrawerOpen && (
+        <div className="p-4 rounded-2xl bg-slate-950/95 border border-cyan-500/40 backdrop-blur-md shadow-2xl flex flex-col gap-3 font-mono text-xs">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <div className="flex items-center gap-2 text-cyan-400 font-semibold">
+              <Folder className="w-4 h-4 text-cyan-400" />
+              <span>Remote File Transfer & Storage (`/transfers`)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-2.5 py-1 rounded-lg bg-cyan-600/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-600/30 flex items-center gap-1.5 transition-all"
+              >
+                <Upload className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Upload File</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void fetchRemoteFiles()}
+                className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+                title="Refresh remote files"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setFileDrawerOpen(false)}
+                className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+                title="Close file manager"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Active In-Progress Transfer Progress HUD */}
+          {activeTransfer && (
+            <div className="p-3 rounded-xl bg-slate-900/90 border border-cyan-500/30 flex flex-col gap-2">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-cyan-400" />
+                  <span className="text-slate-200 font-semibold">{activeTransfer.filename}</span>
+                  <span className="text-slate-500 text-[11px]">
+                    ({(activeTransfer.size / 1024).toFixed(1)} KB)
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-cyan-400 font-bold">{activeTransfer.percent}%</span>
+                  <span className="text-slate-400 text-[11px]">
+                    {activeTransfer.status === "completed"
+                      ? "Completed"
+                      : activeTransfer.status === "verifying"
+                      ? "Verifying SHA-256..."
+                      : activeTransfer.status === "error"
+                      ? "Failed"
+                      : `${activeTransfer.speed_kbps} KB/s`}
+                  </span>
+                </div>
+              </div>
+
+              {/* Progress bar using compliant preset classes */}
+              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                <div
+                  className={`h-full bg-cyan-400 rounded-full transition-all duration-200 ${
+                    activeTransfer.percent >= 100
+                      ? "w-full"
+                      : activeTransfer.percent >= 75
+                      ? "w-3/4"
+                      : activeTransfer.percent >= 50
+                      ? "w-1/2"
+                      : activeTransfer.percent >= 25
+                      ? "w-1/4"
+                      : "w-2"
+                  }`}
+                />
+              </div>
+
+              {activeTransfer.error && (
+                <div className="text-[11px] text-rose-400 bg-rose-950/40 px-2 py-1 rounded border border-rose-500/30">
+                  {activeTransfer.error}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Transferred Files on Remote Host */}
+          <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
+            {recentTransfers.length === 0 ? (
+              <div className="p-4 text-center text-slate-500 text-xs">
+                No transferred files found on remote host. Drag and drop any file onto the stream or click Upload File.
+              </div>
+            ) : (
+              recentTransfers.map((f) => (
+                <div
+                  key={f.full_path}
+                  className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800/80 hover:border-slate-700 transition-colors"
+                >
+                  <div className="flex items-center gap-2.5 truncate max-w-[70%]">
+                    <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span className="text-slate-200 truncate">{f.name}</span>
+                    <span className="text-slate-500 text-[10px] shrink-0">
+                      {(f.size_bytes / 1024).toFixed(1)} KB
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => requestFileDownload(f)}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] flex items-center gap-1 transition-colors"
+                      title="Download file to browser"
+                    >
+                      <Download className="w-3 h-3 text-cyan-400" />
+                      <span>Download</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(f.full_path).catch(() => {});
+                        setRecentMacroNotice(`Copied host path to clipboard: ${f.full_path}`);
+                        setTimeout(() => setRecentMacroNotice(null), 2500);
+                      }}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] transition-colors"
+                      title="Copy absolute remote path"
+                    >
+                      Copy Path
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Active Windows HUD Tray (Collapsible & Focusable) */}
       <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">

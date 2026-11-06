@@ -361,6 +361,75 @@ def attach_v1_routes(
         from .. import tools
         return tools.desktop_get_ui_elements(include_controls=include_controls, max_elements=max_elements)
 
+    @app.get("/api/v1/devices/{device_id}/files")
+    def v1_list_device_files(
+        device_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        from .. import tools
+        files = tools.desktop_list_transfers()
+        return {"device_id": device_id, "files": files, "count": len(files)}
+
+    @app.post("/api/v1/devices/{device_id}/files/upload")
+    def v1_upload_device_file(
+        device_id: str,
+        body: dict = Body(...),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("operator", x_admin_token, x_session_token, authorization)
+        filename = str(body.get("filename") or f"upload_{int(time.time())}.bin")
+        content_b64 = str(body.get("content_b64") or "")
+        expected_sha = str(body.get("sha256") or "")
+        target_dir = str(body.get("target_dir") or "")
+
+        from .. import tools
+        tid = f"rest_{uuid.uuid4().hex[:8]}"
+        try:
+            raw_data = base64.b64decode(content_b64)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid base64 payload: {exc}")
+
+        init_res = tools.desktop_handle_file_start(tid, filename, len(raw_data), 1, target_dir)
+        if not init_res.get("ok"):
+            raise HTTPException(status_code=500, detail=init_res.get("error", "Init failed"))
+
+        chunk_res = tools.desktop_handle_file_chunk(tid, 0, content_b64)
+        if not chunk_res.get("ok"):
+            raise HTTPException(status_code=500, detail=chunk_res.get("error", "Write failed"))
+
+        fin_res = tools.desktop_handle_file_end(tid, expected_sha)
+        if not fin_res.get("ok"):
+            raise HTTPException(status_code=400, detail=fin_res.get("error", "Finalize failed"))
+        return fin_res
+
+    @app.get("/api/v1/devices/{device_id}/files/download")
+    def v1_download_device_file(
+        device_id: str,
+        path: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        from .. import tools
+        meta = tools.desktop_prepare_file_download(path)
+        if not meta.get("ok"):
+            raise HTTPException(status_code=404, detail=meta.get("error", "File not found"))
+        target_path = Path(meta["path"])
+        raw = target_path.read_bytes()
+        b64 = base64.b64encode(raw).decode("ascii")
+        return {
+            "name": meta["name"],
+            "size": meta["size"],
+            "sha256": meta["sha256"],
+            "content_b64": b64,
+        }
+
 
     # ------------------------------------------------------------------
     # 2. Agent Gateway (/api/v1/agents/{device_id}/heartbeat)

@@ -263,6 +263,17 @@ export const api = {
     call(`/api/v1/devices/${encodeURIComponent(deviceId)}/monitors`),
   getDeviceUiElementsV1: (deviceId: string) =>
     call(`/api/v1/devices/${encodeURIComponent(deviceId)}/ui-elements`),
+  listDeviceFilesV1: (deviceId: string) =>
+    call(`/api/v1/devices/${encodeURIComponent(deviceId)}/files`),
+  uploadDeviceFileV1: (deviceId: string, filename: string, contentB64: string, sha256?: string, targetDir?: string) =>
+    call(`/api/v1/devices/${encodeURIComponent(deviceId)}/files/upload`, "POST", {
+      filename,
+      content_b64: contentB64,
+      sha256,
+      target_dir: targetDir,
+    }),
+  downloadDeviceFileV1: (deviceId: string, path: string) =>
+    call(`/api/v1/devices/${encodeURIComponent(deviceId)}/files/download?path=${encodeURIComponent(path)}`),
   updateSessionQualityV1: (
     sessionId: string,
     quality: { bitrate_kbps?: number; fps?: number; monitor_index?: number }

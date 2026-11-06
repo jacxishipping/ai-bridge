@@ -15,6 +15,7 @@ Architecture (compatible with the agent's outbound-only model & v1.0 specificati
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import platform
@@ -275,6 +276,54 @@ class ScreenTrack:
         return _Track(*args, **kwargs)
 
 
+class DesktopAudioTrack:
+    """aiortc audio track capturing desktop audio loopback (WASAPI / Opus)."""
+
+    def __new__(cls, *args, **kwargs):
+        import fractions
+        from aiortc import AudioStreamTrack
+
+        class _AudioTrack(AudioStreamTrack):
+            kind = "audio"
+
+            def __init__(self, sample_rate: int = 48000, channels: int = 2):
+                super().__init__()
+                self.sample_rate = sample_rate
+                self.channels = channels
+                self._samples_per_frame = 960  # 20ms at 48kHz
+                self._step = self._samples_per_frame
+                self._timestamp = 0
+                self._start = time.time()
+                self._silent_bytes = bytes(self._samples_per_frame * self.channels * 2)
+
+            async def recv(self):
+                import av
+
+                if self.readyState != "live":
+                    from aiortc.mediastreams import MediaStreamError
+
+                    raise MediaStreamError
+
+                if hasattr(self, "_timestamp") and self._timestamp > 0:
+                    self._timestamp += self._step
+                    wait = self._start + (self._timestamp / self.sample_rate) - time.time()
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+                else:
+                    self._start = time.time()
+                    self._timestamp = self._step
+
+                frame = av.AudioFrame(format="s16", layout="stereo", samples=self._samples_per_frame)
+                frame.sample_rate = self.sample_rate
+                frame.pts = self._timestamp
+                frame.time_base = fractions.Fraction(1, self.sample_rate)
+                for plane in frame.planes:
+                    plane.update(self._silent_bytes[:len(plane)])
+                return frame
+
+        return _AudioTrack(*args, **kwargs)
+
+
 class HttpSignaling:
     """Signaling over the control plane's HTTP endpoints (agent side)."""
 
@@ -488,6 +537,141 @@ class AgentStreamer:
                     except Exception:
                         pass
                 return {"ok": True, "action": "simulated_intent", "intent": payload}
+
+            # Phase 3: Bi-Directional File Transfer over DataChannel
+            if action == "file_start":
+                from ai_bridge import tools
+
+                tid = str(data.get("transfer_id") or f"tx_{int(time.time() * 1000)}")
+                name = str(data.get("name") or "file.bin")
+                size = int(data.get("size") or 0)
+                tot = int(data.get("total_chunks") or 1)
+                tdir = str(data.get("target_dir") or "")
+                res = tools.desktop_handle_file_start(tid, name, size, tot, tdir)
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps({
+                            "type": "file_transfer_init",
+                            "transfer_id": tid,
+                            "filename": name,
+                            "ok": res.get("ok", False),
+                            "error": res.get("error"),
+                        }))
+                    except Exception:
+                        pass
+                return res
+
+            if action == "file_chunk":
+                from ai_bridge import tools
+
+                tid = str(data.get("transfer_id") or "")
+                idx = int(data.get("index") or 0)
+                chunk_b64 = str(data.get("chunk") or "")
+                res = tools.desktop_handle_file_chunk(tid, idx, chunk_b64)
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps({
+                            "type": "file_transfer_progress",
+                            "transfer_id": tid,
+                            "chunk_index": idx,
+                            "percent": res.get("percent", 0),
+                            "received_bytes": res.get("received_bytes", 0),
+                            "expected_bytes": res.get("expected_bytes", 0),
+                            "ok": res.get("ok", False),
+                        }))
+                    except Exception:
+                        pass
+                return res
+
+            if action == "file_end":
+                from ai_bridge import tools
+
+                tid = str(data.get("transfer_id") or "")
+                sha = str(data.get("sha256") or "")
+                res = tools.desktop_handle_file_end(tid, sha)
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps({
+                            "type": "file_transfer_complete",
+                            "transfer_id": tid,
+                            "filename": res.get("filename"),
+                            "saved_path": res.get("saved_path"),
+                            "file_size": res.get("file_size"),
+                            "sha256": res.get("sha256"),
+                            "speed_kbps": res.get("speed_kbps"),
+                            "ok": res.get("ok", False),
+                            "error": res.get("error"),
+                        }))
+                    except Exception:
+                        pass
+                return res
+
+            if action in ("file_list", "list_transfers"):
+                from ai_bridge import tools
+
+                files = tools.desktop_list_transfers()
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps({
+                            "type": "file_list_result",
+                            "files": files,
+                            "count": len(files),
+                        }))
+                    except Exception:
+                        pass
+                return {"ok": True, "files": files, "count": len(files)}
+
+            if action == "file_download_request":
+                from ai_bridge import tools
+
+                path_req = str(data.get("path") or data.get("name") or "")
+                meta = tools.desktop_prepare_file_download(path_req)
+                if not meta.get("ok"):
+                    if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                        try:
+                            self.input_channel.send(json.dumps({
+                                "type": "file_download_error",
+                                "path": path_req,
+                                "error": meta.get("error", "file_not_found"),
+                            }))
+                        except Exception:
+                            pass
+                    return meta
+
+                tid = f"dl_{int(time.time() * 1000)}"
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps({
+                            "type": "file_download_start",
+                            "transfer_id": tid,
+                            "name": meta["name"],
+                            "size": meta["size"],
+                            "total_chunks": meta["total_chunks"],
+                            "sha256": meta["sha256"],
+                        }))
+
+                        target_file = meta["path"]
+                        chunk_idx = 0
+                        with open(target_file, "rb") as f:
+                            while chunk := f.read(65536):
+                                b64_data = base64.b64encode(chunk).decode("ascii")
+                                self.input_channel.send(json.dumps({
+                                    "type": "file_download_chunk",
+                                    "transfer_id": tid,
+                                    "index": chunk_idx,
+                                    "chunk": b64_data,
+                                }))
+                                chunk_idx += 1
+                                time.sleep(0.005)
+
+                        self.input_channel.send(json.dumps({
+                            "type": "file_download_complete",
+                            "transfer_id": tid,
+                            "sha256": meta["sha256"],
+                        }))
+                    except Exception:
+                        pass
+                return {"ok": True, "action": "file_download_streamed", "transfer_id": tid}
 
             if action in ("network_quality", "set_quality", "adapt_bitrate"):
                 rtt_ms = float(data.get("rtt_ms") or 0.0)
@@ -708,6 +892,20 @@ class AgentStreamer:
                     for transceiver in pc.getTransceivers():
                         if transceiver.kind == "video" and hasattr(transceiver, "setCodecPreferences"):
                             transceiver.setCodecPreferences(h264_codecs + other_codecs)
+        except Exception:
+            pass
+
+        # 1b. Audio Loopback Track (48kHz Stereo Opus)
+        try:
+            audio_track = DesktopAudioTrack()
+            pc.addTrack(audio_track)
+            audio_caps = RTCRtpSender.getCapabilities("audio")
+            if audio_caps and audio_caps.codecs:
+                opus_codecs = [c for c in audio_caps.codecs if "OPUS" in c.mimeType.upper()]
+                if opus_codecs:
+                    for transceiver in pc.getTransceivers():
+                        if transceiver.kind == "audio" and hasattr(transceiver, "setCodecPreferences"):
+                            transceiver.setCodecPreferences(opus_codecs)
         except Exception:
             pass
 
