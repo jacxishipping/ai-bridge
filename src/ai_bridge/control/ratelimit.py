@@ -82,15 +82,13 @@ def rate_limit(key: str, limit: int = 120, window: int = 60) -> Callable[[], Non
         def _sync_check():
             try:
                 import asyncio
-                loop = asyncio.new_event_loop()
                 try:
-                    loop.run_until_complete(_check())
-                except HTTPException:
-                    raise
-                except Exception:
+                    asyncio.get_running_loop()
+                    # Already inside an async context — fall back to memory
                     _memory_rate_limit(key, limit, window)
-                finally:
-                    loop.close()
+                except RuntimeError:
+                    # No running loop — safe to run the async check
+                    asyncio.run(_check())
             except HTTPException:
                 raise
             except Exception:
