@@ -127,6 +127,25 @@ export const LiveDesktopView: React.FC = () => {
   const wsRef = useRef<WebSocket | null>(null);
   const prevBytesRef = useRef<{ bytes: number; ts: number }>({ bytes: 0, ts: 0 });
   const inputSeqRef = useRef<number>(1);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const webrtcConnectedRef = useRef<boolean>(false);
+  const lastCoordUpdateRef = useRef<number>(0);
+  const cleanupWebrtcRef = useRef<() => void>(() => {});
+
+  webrtcConnectedRef.current = webrtcConnected;
+
+  // Synchronize active WebRTC media stream onto video element across all state updates and renders
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && mediaStreamRef.current) {
+      if (video.srcObject !== mediaStreamRef.current) {
+        video.srcObject = mediaStreamRef.current;
+      }
+      if (video.paused && webrtcConnected) {
+        video.play().catch(() => {});
+      }
+    }
+  });
 
   const sendDataChannelEvent = useCallback((payload: Record<string, unknown>) => {
     const dc = inputDcRef.current;
@@ -183,9 +202,10 @@ export const LiveDesktopView: React.FC = () => {
 
   const fetchLiveFrame = useCallback(
     async (scale = 0.75, quality = 70) => {
-      if (!isLiveMode() || !selectedDevice?.id) return;
+      if (!isLiveMode() || !selectedDevice?.id || webrtcConnectedRef.current) return;
       try {
         const res = await api.desktopFrame(selectedDevice.id, scale, quality);
+        if (webrtcConnectedRef.current) return;
         if (res && typeof res === "object" && res.base64_data) {
           const fmt = String(res.format || "jpeg").toLowerCase();
           setLiveFrameUrl(`data:image/${fmt};base64,${res.base64_data}`);
@@ -201,6 +221,7 @@ export const LiveDesktopView: React.FC = () => {
           });
         }
       } catch (err: any) {
+        if (webrtcConnectedRef.current) return;
         setLiveFrameMeta({
           error: err?.message || "Unable to fetch desktop frame",
           note: "Check that the target device is online and desktop capture is enabled.",
@@ -225,7 +246,9 @@ export const LiveDesktopView: React.FC = () => {
       .catch(() => {});
 
     if (selectedDevice.status === "online" || selectedDevice.id === "local") {
-      void fetchLiveFrame(0.75, 70);
+      if (!webrtcConnected) {
+        void fetchLiveFrame(0.75, 70);
+      }
     } else {
       setLiveFrameUrl(null);
       setLiveFrameMeta({
@@ -240,7 +263,7 @@ export const LiveDesktopView: React.FC = () => {
     }
 
     const timer = setInterval(() => {
-      if (!cancelled && isLiveMode() && !webrtcConnected) {
+      if (!cancelled && isLiveMode() && !webrtcConnectedRef.current) {
         void fetchLiveFrame(0.75, 70);
       }
     }, 3000);
@@ -259,7 +282,13 @@ export const LiveDesktopView: React.FC = () => {
       const normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / Math.max(1, rect.height)));
       const x = Math.round(normX * 2560);
       const y = Math.round(normY * 1440);
-      setOperatorCoords({ x, y });
+
+      // Throttle HUD coordinate text re-renders to ~15 FPS to avoid 60-120 full React re-renders per second
+      const now = performance.now();
+      if (now - lastCoordUpdateRef.current > 66) {
+        lastCoordUpdateRef.current = now;
+        setOperatorCoords({ x, y });
+      }
 
       if (controlMode === "takeover" && mouseLinked) {
         sendDataChannelEvent({
@@ -293,18 +322,21 @@ export const LiveDesktopView: React.FC = () => {
       ) {
         return;
       }
-      void api
-        .sendDesktopInput(selectedDevice.id, {
-          action: "click",
-          x: normX,
-          y: normY,
-          normalized: true,
-          button: "left",
-          clicks: 1,
-          screen_width: liveFrameMeta?.width || 1920,
-          screen_height: liveFrameMeta?.height || 1080,
-        })
-        .catch(() => {});
+      // Only fallback to HTTP input if WebRTC data channel is completely disconnected
+      if (!webrtcConnectedRef.current) {
+        void api
+          .sendDesktopInput(selectedDevice.id, {
+            action: "click",
+            x: normX,
+            y: normY,
+            normalized: true,
+            button: "left",
+            clicks: 1,
+            screen_width: liveFrameMeta?.width || 1920,
+            screen_height: liveFrameMeta?.height || 1080,
+          })
+          .catch(() => {});
+      }
     },
     [controlMode, mouseLinked, selectedDevice?.id, liveFrameMeta?.width, liveFrameMeta?.height, sendDataChannelEvent]
   );
@@ -397,6 +429,12 @@ export const LiveDesktopView: React.FC = () => {
 
   const cleanupWebrtc = useCallback(() => {
     releaseAllRemoteKeys();
+    mediaStreamRef.current = null;
+    if (videoRef.current) {
+      try {
+        videoRef.current.srcObject = null;
+      } catch {}
+    }
     if (wsRef.current) {
       try {
         wsRef.current.close();
@@ -423,6 +461,8 @@ export const LiveDesktopView: React.FC = () => {
     }
     setWebrtcConnected(false);
   }, [releaseAllRemoteKeys]);
+
+  cleanupWebrtcRef.current = cleanupWebrtc;
 
   // Poll RTCPeerConnection.getStats() for live FPS, bitrate, RTT, and dropped frames
   useEffect(() => {
@@ -480,9 +520,12 @@ export const LiveDesktopView: React.FC = () => {
     return () => clearInterval(interval);
   }, [webrtcSessionId]);
 
+  // Only teardown WebRTC when LiveDesktopView component actually unmounts
   useEffect(() => {
-    return () => cleanupWebrtc();
-  }, [cleanupWebrtc]);
+    return () => {
+      cleanupWebrtcRef.current();
+    };
+  }, []);
 
   const handleStartWebrtc = async () => {
     if (!isLiveMode() || !selectedDevice?.id) {
@@ -556,8 +599,12 @@ export const LiveDesktopView: React.FC = () => {
           pc.ondatachannel = (e) => setupDc(e.channel);
 
           pc.ontrack = (event) => {
-            if (videoRef.current && event.streams && event.streams[0]) {
-              videoRef.current.srcObject = event.streams[0];
+            if (event.streams && event.streams[0]) {
+              mediaStreamRef.current = event.streams[0];
+              if (videoRef.current) {
+                videoRef.current.srcObject = event.streams[0];
+                videoRef.current.play().catch(() => {});
+              }
               setWebrtcConnected(true);
             }
           };
@@ -923,8 +970,8 @@ export const LiveDesktopView: React.FC = () => {
           autoPlay
           playsInline
           muted
-          className={`absolute inset-0 w-full h-full z-20 ${
-            webrtcConnected ? "block" : "hidden"
+          className={`absolute inset-0 w-full h-full z-20 transition-opacity duration-150 ${
+            webrtcConnected ? "opacity-100" : "opacity-0 pointer-events-none"
           } ${
             scalingMode === "fill"
               ? "object-cover"
@@ -934,11 +981,13 @@ export const LiveDesktopView: React.FC = () => {
           }`}
         />
 
-        {liveFrameUrl && !webrtcConnected && (
+        {liveFrameUrl && (
           <img
             src={liveFrameUrl}
             alt="Remote desktop stream frame"
-            className={`absolute inset-0 w-full h-full z-10 ${
+            className={`absolute inset-0 w-full h-full z-10 transition-opacity duration-150 ${
+              webrtcConnected ? "opacity-0 pointer-events-none" : "opacity-100"
+            } ${
               scalingMode === "fill"
                 ? "object-cover"
                 : scalingMode === "native"

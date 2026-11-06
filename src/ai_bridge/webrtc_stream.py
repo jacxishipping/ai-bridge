@@ -747,16 +747,23 @@ class AgentStreamer:
 
         # Keep streaming until session ends or expires
         while not self._stop.is_set():
-            sess = await asyncio.to_thread(self.signaling.poll_session)
-            if sess.get("status") in ("ended", "error"):
-                break
-            if time.time() - float(sess.get("created_at", time.time())) > SESSION_TTL_SECONDS:
-                break
+            try:
+                sess = await asyncio.to_thread(self.signaling.poll_session)
+                if sess.get("status") in ("ended", "error"):
+                    break
+                if time.time() - float(sess.get("created_at", time.time())) > SESSION_TTL_SECONDS:
+                    break
+            except Exception:
+                # Transient HTTP error (e.g. 429 or network glitch) should not terminate live stream
+                pass
             if pc.connectionState in ("failed", "closed"):
                 break
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(2.5)
         release_all_held_keys()
-        await pc.close()
+        try:
+            await pc.close()
+        except Exception:
+            pass
 
 
 def start_stream(
