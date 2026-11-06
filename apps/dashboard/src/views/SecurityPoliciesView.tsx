@@ -1,3 +1,4 @@
+import { SimulatedNotice } from "../shell/SimulatedNotice";
 /**
  * Security Policies & Webhooks Manager (Screen 11)
  * Reconstructed with pure JXUI primitives, motion/react, and lucide-react.
@@ -347,6 +348,7 @@ export const SecurityPoliciesView: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      <SimulatedNotice feature="The policy rule matrix and executable allow-list" />
       {/* 4-Tab Policy Rule Matrix */}
       <JXCard className="bg-slate-900/60 border-slate-800">
         <div className="p-4 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-3">

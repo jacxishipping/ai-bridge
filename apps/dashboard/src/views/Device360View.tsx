@@ -625,10 +625,10 @@ export const Device360View: React.FC = () => {
               <div className="space-y-3">
                 <div className="flex items-baseline justify-between">
                   <span className="font-mono text-2xl font-bold text-purple-300 tabular-nums">
-                    {isOffline ? "0.0 / 0.0 GB" : `${telemetry.memoryUsedGb} / ${telemetry.memoryTotalGb} GB`}
+                    {isOffline ? "0.0 / 0.0 GB" : telemetry.memoryTotalGb > 0 ? `${telemetry.memoryUsedGb} / ${telemetry.memoryTotalGb} GB` : "Not reported"}
                   </span>
                   <span className="text-[11px] font-mono text-slate-400">
-                    {isOffline ? "0%" : `${Math.round((telemetry.memoryUsedGb / (telemetry.memoryTotalGb || 1)) * 100)}%`}
+                    {isOffline ? "0%" : telemetry.memoryTotalGb > 0 ? `${Math.round((telemetry.memoryUsedGb / telemetry.memoryTotalGb) * 100)}%` : "—"}
                   </span>
                 </div>
 
@@ -1156,7 +1156,7 @@ export const Device360View: React.FC = () => {
                     Host SHA-256 Fingerprint
                   </span>
                   <code className="text-[10px] text-indigo-300 break-all select-all block">
-                    {telemetry.fingerprintSha256 || (selectedDevice.id ? `sha256:${selectedDevice.id.padEnd(64, "0")}` : "unknown")}
+                    {telemetry.fingerprintSha256 && telemetry.fingerprintSha256 !== "unknown" ? telemetry.fingerprintSha256 : "Not reported"}
                   </code>
                 </div>
 
@@ -1167,7 +1167,7 @@ export const Device360View: React.FC = () => {
                       mTLS Cert Expiry
                     </span>
                     <span className={`font-bold ${isOffline ? "text-slate-400" : "text-emerald-400"}`}>
-                      {isOffline ? "Offline (Agent not enrolled)" : `Expires in ${telemetry.certExpiryDays} days`}
+                      {isOffline ? "Offline (Agent not enrolled)" : telemetry.certExpiryDays > 0 ? `Expires in ${telemetry.certExpiryDays} days` : "Not reported"}
                     </span>
                   </div>
                   {isOffline ? <AlertTriangle className="w-4 h-4 text-amber-400" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
@@ -1180,7 +1180,7 @@ export const Device360View: React.FC = () => {
                       TPM 2.0 Status
                     </span>
                     <span className="text-slate-200 font-semibold uppercase">
-                      {isOffline ? "Offline (No attestation)" : `${telemetry.tpmStatus} PCR-7 Key-Bound`}
+                      {isOffline ? "Offline (No attestation)" : telemetry.tpmStatus === "active" ? "active PCR-7 Key-Bound" : "Not reported"}
                     </span>
                   </div>
                   <Lock className="w-4 h-4 text-indigo-400" />

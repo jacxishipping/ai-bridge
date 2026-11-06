@@ -1,3 +1,4 @@
+import { SimulatedNotice } from "../shell/SimulatedNotice";
 /**
  * AI Bridge Enterprise Dashboard — Autonomous Workflows & Multi-Turn Plans (Screen 7)
  * Multi-turn DAG pipeline stepper with AI reasoning thought trace, OCR verification,
@@ -380,6 +381,7 @@ export const WorkflowsView: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      <SimulatedNotice feature="The workflow planner" />
       {/* Top Header & Breadcrumb Ribbon */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
         {/* Action Controls */}

@@ -52,7 +52,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
           <div role="note" className="shrink-0 border-b border-emerald-800/40 bg-emerald-950/20 px-4 py-2 text-xs text-emerald-400 sm:px-6 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              <strong className="font-medium text-emerald-300">Live Control Plane</strong> · Connected to {typeof window !== "undefined" ? window.location.host : "18.188.153.166"}
+              <strong className="font-medium text-emerald-300">Live Control Plane</strong> · Connected to {typeof window !== "undefined" ? window.location.host : ""}
             </div>
             <button type="button" onClick={() => { clearCredentials(); window.location.hash = "#/login"; window.location.reload(); }} className="text-xs text-slate-400 hover:text-slate-200 underline">Sign out</button>
           </div>

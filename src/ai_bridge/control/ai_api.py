@@ -18,7 +18,7 @@ import urllib.request
 import uuid
 from typing import Any, Callable
 
-from fastapi import APIRouter, Header, HTTPException, Request, Response
+from fastapi import Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 

@@ -2,7 +2,7 @@
 	"mcpServers": {
 		"ai-bridge-local": {
 			"type": "stdio",
-			"command": "C:\\Users\\Administrator\\Documents\\GitHub\\ai-bridge/.venv/Scripts/python.exe",
+			"command": "python",
 			"args": [
 				"-m",
 				"ai_bridge.server"
@@ -11,17 +11,17 @@
 				"*"
 			],
 			"env": {
-				"AI_BRIDGE_WORKSPACE": "C:\\Users\\Administrator\\Documents\\GitHub\\ai-bridge"
+				"AI_BRIDGE_WORKSPACE": "${AI_BRIDGE_WORKSPACE:-.}"
 			}
 		},
 		"ai-bridge-remote": {
 			"type": "http",
-			"url": "https://jxiptvplayer.app/mcp",
+			"url": "${AI_BRIDGE_MCP_URL:-https://jxiptvplayer.app/mcp}",
 			"tools": [
 				"*"
 			],
 			"headers": {
-				"Authorization": "Bearer a0f63388f83290e1dec8cdba8a140a2bacfa4e6801d916bd"
+				"Authorization": "Bearer ${AI_BRIDGE_ADMIN_TOKEN}"
 			}
 		}
 	}

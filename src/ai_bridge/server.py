@@ -32,7 +32,6 @@ from . import diagnostics, git_ops, tools, workspace
 from .device_routing import (
     BindingError,
     cancel_device_task,
-    get_device,
     get_device_task,
     list_all_devices,
     resolve_binding,

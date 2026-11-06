@@ -1,3 +1,4 @@
+import { SimulatedNotice } from "../shell/SimulatedNotice";
 /**
  * AI Bridge Enterprise Dashboard — Interactive ANSI Live Terminal (Screen 6)
  * High-contrast monospace PTY studio with WebSocket session telemetry,
@@ -277,6 +278,7 @@ export const TerminalView: React.FC = () => {
 
   return (
     <div className="space-y-5">
+      <SimulatedNotice feature="The terminal" />
       {/* Top Header & Breadcrumb Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
         {/* Node Switcher & SecOps Escalation */}

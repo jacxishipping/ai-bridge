@@ -744,9 +744,9 @@ class DashboardStore {
         const username = identRes.actor || identRes.username || "admin";
         nextState.operatorProfile = {
           name: username === "admin-token" ? "Fleet Administrator" : username,
-          role: identRes.role === "admin" ? "Lead SecOps Engineer" : (identRes.role || "Operator"),
-          email: username === "admin-token" ? "admin@18.188.153.166" : `${username}@ai-bridge`,
-          workstationMtlsPinned: true,
+          role: identRes.role || "Operator",
+          email: identRes.email || "",
+          workstationMtlsPinned: false,
         };
       }
 
@@ -772,30 +772,32 @@ class DashboardStore {
             ? "darwin"
             : "linux";
           const tele = teleMap.get(d.id) || {};
-          const cpuPercent = isOnline && typeof tele.cpu_percent === "number" ? Math.round(tele.cpu_percent * 10) / 10 : (isOnline ? 5.6 : 0);
-          const memPercent = isOnline && typeof tele.memory_percent === "number" ? Math.round(tele.memory_percent * 10) / 10 : (isOnline ? 16.8 : 0);
-          const diskPercent = isOnline && typeof tele.disk_percent === "number" ? Math.round(tele.disk_percent * 10) / 10 : (isOnline ? 7.4 : 0);
-          const memTotalGb = platform === "windows" ? 32 : 16;
-          const diskTotalGb = 500;
+          // Only values the control plane actually reports are used; anything else stays 0 / "not reported".
+          const pct = (v: unknown) => (isOnline && typeof v === "number" ? Math.round(v * 10) / 10 : 0);
+          const cpuPercent = pct(tele.cpu_percent);
+          const memPercent = pct(tele.memory_percent);
+          const diskPercent = pct(tele.disk_percent);
+          const memTotalGb = typeof tele.memory_total_gb === "number" ? tele.memory_total_gb : 0;
+          const diskTotalGb = typeof tele.disk_total_gb === "number" ? tele.disk_total_gb : 0;
 
           return {
             id: d.id,
             name: d.name || d.id,
             hostname: d.hostname || d.name || d.id,
             platform,
-            osRelease: d.os || (isOnline ? "Linux 7.0.0-1014-aws" : (platform === "windows" ? "Windows (Not connected)" : "Linux (Not connected)")),
+            osRelease: d.os || "OS not reported",
             arch: (d.os?.toLowerCase().includes("arm") || d.os?.toLowerCase().includes("aarch64")) ? "aarch64" : "x86_64",
             status: isOnline ? "online" : "offline",
             lastHeartbeat: d.last_seen ? new Date(d.last_seen * 1000).toISOString() : "",
-            pollIntervalSec: 10,
+            pollIntervalSec: typeof d.poll_interval_sec === "number" ? d.poll_interval_sec : 0,
             latencyMs: isOnline ? Math.max(8, latency) : 0,
-            workspacePath: platform === "windows" ? "C:\\ai-bridge\\workspace" : "/var/lib/ai-bridge/workspace",
-            assignedModels: ["Claude 3.5 Sonnet", "GPT-4o"],
-            tags: Array.isArray(d.tags) && d.tags.length ? d.tags : ["production", platform],
+            workspacePath: typeof d.workspace === "string" ? d.workspace : "Not reported",
+            assignedModels: Array.isArray(d.assigned_models) ? d.assigned_models : [],
+            tags: Array.isArray(d.tags) ? d.tags : [],
             telemetry: {
               cpuPercent: isOnline ? cpuPercent : 0,
-              cpuCores: isOnline ? [cpuPercent + 1.2, Math.max(0, cpuPercent - 0.8), cpuPercent + 0.4, cpuPercent] : [0, 0, 0, 0],
-              cpuClockGhz: isOnline ? 2.5 : 0,
+              cpuCores: isOnline ? [cpuPercent] : [0],
+              cpuClockGhz: 0,
               memoryUsedGb: isOnline ? Math.round((memTotalGb * memPercent / 100) * 10) / 10 : 0,
               memoryTotalGb: isOnline ? memTotalGb : 0,
               swapUsedGb: 0,
@@ -803,13 +805,13 @@ class DashboardStore {
               diskUsedGb: isOnline ? Math.round(diskTotalGb * diskPercent / 100) : 0,
               diskTotalGb: isOnline ? diskTotalGb : 0,
               diskPercent: isOnline ? diskPercent : 0,
-              networkRxMbps: isOnline ? 1.8 : 0,
-              networkTxMbps: isOnline ? 0.6 : 0,
-              ipAddress: d.ip_address || (isOnline ? (platform === "linux" ? "18.188.153.166" : "192.168.1.100") : "Not reported"),
-              uptimeSeconds: isOnline ? 120400 : 0,
-              tpmStatus: isOnline ? "active" : "inactive",
-              certExpiryDays: isOnline ? 45 : 0,
-              fingerprintSha256: d.id ? `sha256:${d.id.padEnd(64, "0")}` : "unknown",
+              networkRxMbps: 0,
+              networkTxMbps: 0,
+              ipAddress: d.ip_address || "Not reported",
+              uptimeSeconds: typeof tele.uptime_hours === "number" ? Math.round(tele.uptime_hours * 3600) : 0,
+              tpmStatus: "inactive",
+              certExpiryDays: 0,
+              fingerprintSha256: "unknown",
             },
             revoked: Boolean(d.revoked),
           };
@@ -846,14 +848,14 @@ class DashboardStore {
         nextState.approvals = rawApprovals.map((a: any) => ({
           id: a.id,
           taskId: a.task_id || a.id,
-          deviceId: a.device_id || "srv-core",
-          deviceHostname: liveDevices.find((d) => d.id === a.device_id)?.hostname || a.device_name || a.device_id || "srv-core",
+          deviceId: a.device_id || "",
+          deviceHostname: liveDevices.find((d) => d.id === a.device_id)?.hostname || a.device_name || a.device_id || "Unknown device",
           command: a.args?.command || a.tool || "system_command",
           riskTier: (a.tier === 1 ? "tier1_safe" : a.tier === 2 ? "tier2_workspace" : a.tier === 3 ? "tier3_shell" : "tier4_kernel") as TaskRiskTier,
           reason: a.reason || "Operation requires operator approval.",
           requester: a.tenant ? `tenant:${a.tenant}` : "agent:fleet-controller",
           requestedAt: a.created_at ? new Date(a.created_at * 1000).toISOString() : new Date().toISOString(),
-          expiresAt: a.expires_at ? new Date(a.expires_at * 1000).toISOString() : new Date(Date.now() + 3600000).toISOString(),
+          expiresAt: a.expires_at ? new Date(a.expires_at * 1000).toISOString() : "",
           status: (a.status || "pending") as "pending" | "approved" | "denied",
           decidedBy: a.decided_by,
           decidedAt: a.decided_at ? new Date(a.decided_at * 1000).toISOString() : undefined,
@@ -868,8 +870,8 @@ class DashboardStore {
           action: ev.tool || "system",
           targetHost: liveDevices.find((d) => d.id === ev.device_id)?.hostname || ev.device_id || "fleet-gateway",
           governanceVerdict: (ev.decision === "allowed" ? "auto_allowed" : ev.decision === "approved" ? "human_approved" : "denied") as "auto_allowed" | "human_approved" | "denied",
-          sha256Hash: `sha256:${(ev.id || idx).toString(16).padStart(64, "0")}`,
-          prevHash: `sha256:${((ev.id || idx) - 1).toString(16).padStart(64, "0")}`,
+          sha256Hash: ev.hash ? `sha256:${ev.hash}` : "not recorded",
+          prevHash: ev.prev_hash ? `sha256:${ev.prev_hash}` : "not recorded",
           payloadSummary: typeof ev.args_json === "string" ? ev.args_json : JSON.stringify(ev.args_json || {}),
         }));
       }
