@@ -586,8 +586,8 @@ export const DevicesView: React.FC = () => {
                                 color="warning"
                                 size="sm"
                                 onClick={() => handleRevokeDevice(device)}
-                                startIcon={<Ban className="w-3 h-3 text-amber-400" />}
-                                className="text-[11px] bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-amber-300"
+                                startIcon={<Ban className="w-3 h-3" />}
+                                className="text-[11px]"
                               >
                                 Revoke
                               </JXButton>
@@ -597,8 +597,8 @@ export const DevicesView: React.FC = () => {
                                 color="error"
                                 size="sm"
                                 onClick={() => handleDeleteDevice(device)}
-                                startIcon={<Trash2 className="w-3 h-3 text-rose-400" />}
-                                className="text-[11px] bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-rose-300"
+                                startIcon={<Trash2 className="w-3 h-3" />}
+                                className="text-[11px]"
                               >
                                 Delete
                               </JXButton>
