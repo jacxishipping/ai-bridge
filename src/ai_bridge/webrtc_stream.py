@@ -122,6 +122,29 @@ def get_session_telemetry(session_id: str) -> dict[str, Any]:
     return dict(_STREAM_TELEMETRY.get(session_id) or {})
 
 
+def compute_adaptive_stream_params(
+    current_bitrate_kbps: int,
+    current_fps: int,
+    rtt_ms: float = 0.0,
+    packet_loss_pct: float = 0.0,
+) -> dict[str, int]:
+    """Compute adaptive H.264 bitrate (kbps) and frame rate (FPS) from network RTT and packet loss."""
+    kbps = max(500, min(20000, int(current_bitrate_kbps or 4500)))
+    fps = max(10, min(60, int(current_fps or 30)))
+
+    if packet_loss_pct >= 5.0 or rtt_ms >= 250.0:
+        kbps = max(1000, int(kbps * 0.65))
+        fps = max(15, min(fps, 24))
+    elif packet_loss_pct >= 2.0 or rtt_ms >= 150.0:
+        kbps = max(1500, int(kbps * 0.80))
+        fps = max(20, min(fps, 30))
+    elif packet_loss_pct < 0.5 and 0.0 < rtt_ms < 50.0:
+        kbps = min(12000, int(kbps * 1.15))
+
+    return {"bitrate_kbps": kbps, "fps": fps}
+
+
+
 def grab_screen(scale: float = 1.0, monitor_index: int | None = None):
     """Grab the desktop using hardware-accelerated DXGI / fast capture and scale it."""
     try:
@@ -412,6 +435,64 @@ class AgentStreamer:
             if action == "release_all_keys":
                 released = release_all_held_keys()
                 return {"ok": True, "action": "release_all_keys", "released": released}
+
+            if action in ("network_quality", "set_quality", "adapt_bitrate"):
+                rtt_ms = float(data.get("rtt_ms") or 0.0)
+                loss_pct = float(data.get("packet_loss_pct") or 0.0)
+                req_kbps = data.get("bitrate_kbps")
+                req_fps = data.get("fps")
+                if req_kbps is not None or req_fps is not None:
+                    new_kbps = max(500, min(20000, int(req_kbps or self.bitrate_kbps)))
+                    new_fps = max(10, min(60, int(req_fps or self.fps)))
+                else:
+                    adapted = compute_adaptive_stream_params(self.bitrate_kbps, self.fps, rtt_ms, loss_pct)
+                    new_kbps = adapted["bitrate_kbps"]
+                    new_fps = adapted["fps"]
+                self.bitrate_kbps = new_kbps
+                self.fps = new_fps
+                try:
+                    from ai_bridge.screen_capture import get_native_dll
+
+                    ndll = get_native_dll()
+                    if ndll is not None and hasattr(ndll, "aibridge_set_encoder_bitrate"):
+                        ndll.aibridge_set_encoder_bitrate(int(new_kbps))
+                except Exception:
+                    pass
+                if self.session_id in _STREAM_TELEMETRY:
+                    _STREAM_TELEMETRY[self.session_id]["bitrate_kbps_target"] = new_kbps
+                    _STREAM_TELEMETRY[self.session_id]["fps_target"] = new_fps
+                    _STREAM_TELEMETRY[self.session_id]["rtt_ms"] = round(rtt_ms, 2)
+                    _STREAM_TELEMETRY[self.session_id]["packet_loss_pct"] = round(loss_pct, 2)
+                return {"ok": True, "action": "network_quality", "bitrate_kbps": new_kbps, "fps": new_fps}
+
+            if action == "switch_monitor":
+                new_mon = int(data.get("monitor_index") or 0)
+                self.monitor_index = new_mon
+                if hasattr(self, "video_track") and self.video_track is not None:
+                    self.video_track._monitor_index = new_mon
+                return {"ok": True, "action": "switch_monitor", "monitor_index": new_mon}
+
+            if action == "clipboard_sync":
+                if not self._session_allows_input(is_keyboard=True):
+                    return {"ok": False, "error": "clipboard_sync_denied"}
+                direction = str(data.get("direction") or "set").lower()
+                from ai_bridge.tools import perform_approved_ui_action
+
+                if direction == "get":
+                    res = perform_approved_ui_action("clipboard_get", approval_granted=True)
+                    if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                        try:
+                            self.input_channel.send(json.dumps({
+                                "type": "clipboard_data",
+                                "text": res.get("text", ""),
+                            }))
+                        except Exception:
+                            pass
+                    return {"ok": True, "action": "clipboard_get", "text": res.get("text", "")}
+                clip_text = str(data.get("text") or "")
+                perform_approved_ui_action("clipboard_set", text=clip_text, approval_granted=True)
+                return {"ok": True, "action": "clipboard_set", "length": len(clip_text)}
+
 
             if not self._check_input_rate_limit():
                 return {"ok": False, "error": "rate_limit_exceeded"}

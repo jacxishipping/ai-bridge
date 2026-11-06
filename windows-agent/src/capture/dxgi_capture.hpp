@@ -67,6 +67,7 @@ public:
 
     std::vector<MonitorDescriptor> EnumerateMonitors() const;
     bool CaptureNextFrame(CapturedFrame& out_frame, int timeout_ms = 50, bool copy_to_cpu = true);
+    bool CaptureWindow(HWND hwnd, CapturedFrame& out_frame) const;
     bool IsSecureDesktopActive() const;
 
     int CurrentMonitorIndex() const { return current_monitor_; }

@@ -99,7 +99,49 @@ SystemHealthSnapshot WindowsSystemMonitor::CollectSnapshot() {
     }
 
     snap.windows_version = "Windows NT (x64)";
+    auto sessions = EnumerateSessions();
+    snap.interactive_session_count = static_cast<int>(sessions.size());
+    for (const auto& s : sessions) {
+        if (s.is_active && !s.username.empty()) {
+            snap.active_session_id = s.session_id;
+            snap.active_user = s.username;
+            break;
+        }
+    }
     return snap;
+}
+
+std::vector<InteractiveSessionInfo> WindowsSystemMonitor::EnumerateSessions() const {
+    std::vector<InteractiveSessionInfo> result;
+    PWTS_SESSION_INFOW pSessionInfo = nullptr;
+    DWORD count = 0;
+    if (WTSEnumerateSessionsW(WTS_CURRENT_SERVER_HANDLE, 0, 1, &pSessionInfo, &count) && pSessionInfo) {
+        for (DWORD i = 0; i < count; ++i) {
+            const auto& si = pSessionInfo[i];
+            if (si.SessionId == 0) continue; // Skip Session 0 non-interactive service session
+            InteractiveSessionInfo info{};
+            info.session_id = si.SessionId;
+            info.station_name = WideToUtf8(si.pWinStationName);
+            info.is_active = (si.State == WTSActive);
+            switch (si.State) {
+                case WTSActive: info.state = "Active"; break;
+                case WTSConnected: info.state = "Connected"; break;
+                case WTSDisconnected: info.state = "Disconnected"; break;
+                default: info.state = "Idle"; break;
+            }
+            LPWSTR user_buf = nullptr;
+            DWORD user_bytes = 0;
+            if (WTSQuerySessionInformationW(WTS_CURRENT_SERVER_HANDLE, si.SessionId, WTSUserName, &user_buf, &user_bytes) && user_buf) {
+                info.username = WideToUtf8(user_buf);
+                WTSFreeMemory(user_buf);
+            }
+            if (!info.username.empty() || info.is_active) {
+                result.push_back(info);
+            }
+        }
+        WTSFreeMemory(pSessionInfo);
+    }
+    return result;
 }
 
 } // namespace monitoring

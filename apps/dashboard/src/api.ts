@@ -259,6 +259,14 @@ export const api = {
     const wsBase = BASE.replace(/^http/, "ws");
     return `${wsBase}/api/v1/ws/sessions/${encodeURIComponent(sessionId)}`;
   },
+  getDeviceMonitorsV1: (deviceId: string) =>
+    call(`/api/v1/devices/${encodeURIComponent(deviceId)}/monitors`),
+  updateSessionQualityV1: (
+    sessionId: string,
+    quality: { bitrate_kbps?: number; fps?: number; monitor_index?: number }
+  ) => call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/quality`, "PATCH", quality),
+  syncSessionClipboardV1: (sessionId: string, action: "get" | "set", text?: string) =>
+    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/clipboard`, "POST", { action, text }),
   sendDesktopInput: (deviceId: string, body: any) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/input`, "POST", body),
   fleetVersion: () => call("/api/fleet/version"),

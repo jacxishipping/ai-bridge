@@ -12,13 +12,21 @@ Windows isolates background services from interactive user desktops. To operate 
 
 2. **Process B — Interactive Desktop Agent (`ai_bridge_desktop.exe`)**
    - Runs inside the logged-in user's **interactive desktop session**.
-   - Captures desktop frames via **DXGI Desktop Duplication API** (`IDXGIOutput1::DuplicateOutput`).
-   - Encodes frames via **Media Foundation H.264** (`CLSID_CMSH264EncoderMFT` / hardware NVENC, Intel QSV, AMD AMF, or software fallback).
+   - Captures desktop frames via **DXGI Desktop Duplication API** (`IDXGIOutput1::DuplicateOutput`) and window-specific surfaces via `PrintWindow(PW_RENDERFULLCONTENT)`.
+   - Encodes frames via **Media Foundation H.264** (`CLSID_CMSH264EncoderMFT` / hardware NVENC, Intel QSV, AMD AMF, or software fallback) with dynamic bitrate adjustment.
    - Injects mouse and keyboard events via the Win32 **`SendInput`** API with Per-Monitor DPI v2 awareness.
+   - Synchronizes clipboard events bidirectionally over WebRTC DataChannel and REST.
    - Communicates with `ai_bridge_service.exe` over `\\.\pipe\AIBridgeDesktopPipe` using length-prefixed JSON envelopes authenticated with an HMAC-SHA256 tag.
 
 3. **Native Shared Bridge (`ai_bridge_native.dll`)**
-   - Exports a clean C ABI (`windows-agent/src/c_api.h`) used by both the native executables and the Python WebRTC/MCP runtime (`src/ai_bridge/screen_capture.py`).
+   - Exports a clean C ABI (`windows-agent/src/c_api.h`) used by both the native executables and the Python WebRTC/MCP runtime (`src/ai_bridge/screen_capture.py`):
+     - `aibridge_capture_frame`: Full desktop DXGI capture with dirty/move rects & cursor metadata.
+     - `aibridge_capture_window`: High-fidelity single-window capture by HWND.
+     - `aibridge_enumerate_monitors`: Enumerates all attached displays with bounds and rotation.
+     - `aibridge_encode_h264_frame` & `aibridge_set_encoder_bitrate`: Real-time H.264 encoding with dynamic bitrate adaptation.
+     - `aibridge_send_mouse_move`, `aibridge_send_mouse_button`, `aibridge_send_mouse_scroll`: SendInput coordinate transformation.
+     - `aibridge_send_key_event`, `aibridge_release_all_keys`: Virtual key tracking & disconnect key-up safety.
+     - `aibridge_get_system_health_json`: CPU, RAM, disk, uptime, and multi-session snapshot.
 
 ## 2. Screen Capture (`windows-agent/src/capture/`)
 - **Primary Backend**: DXGI Desktop Duplication (`IDXGIOutputDuplication`).

@@ -1513,6 +1513,87 @@ def desktop_get_screenshot(*, approval_granted: bool = False, policy: Policy | N
     return capture_desktop_screenshot(approval_granted=approval_granted, policy=eff_policy)
 
 
+def desktop_get_window_screenshot(
+    hwnd: int | None = None,
+    title: str = "",
+    scale: float = 1.0,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+    device_id: str = "local",
+) -> dict:
+    """Return a screenshot of a specific application window by HWND or title."""
+    eff_policy = policy or default_policy()
+    _check("desktop_get_window_screenshot", approval_granted=approval_granted, policy=eff_policy)
+    from .screen_capture import capture_window_by_hwnd
+
+    target_hwnd = hwnd
+    target_title = title
+    if (target_hwnd is None or target_hwnd <= 0) and target_title:
+        wins = list_desktop_windows(approval_granted=approval_granted, policy=eff_policy).get("windows", [])
+        needle = target_title.strip().lower()
+        match = next((w for w in wins if needle in str(w.get("title", "")).lower()), None)
+        if match:
+            target_hwnd = int(match.get("hwnd", 0))
+            target_title = match.get("title", target_title)
+
+    if target_hwnd and target_hwnd > 0:
+        shot = capture_window_by_hwnd(target_hwnd, scale=scale)
+    else:
+        return capture_desktop_screenshot(approval_granted=approval_granted, policy=eff_policy)
+
+    out = get_settings().data_dir / f"window-{int(time.time())}.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    shot.save(out)
+    b64, mime = _encode_image_base64(shot)
+    sw = shot.size[0] if isinstance(shot.size, tuple) else getattr(shot, "width", 0)
+    sh = shot.size[1] if isinstance(shot.size, tuple) else getattr(shot, "height", 0)
+    return {
+        "available": True,
+        "path": str(out),
+        "size": [sw, sh],
+        "width": sw,
+        "height": sh,
+        "hwnd": target_hwnd,
+        "window_title": target_title,
+        "image_base64": b64,
+        "mime_type": mime,
+    }
+
+
+def desktop_get_monitors(*, policy: Policy | None = None) -> dict:
+    """Return list of connected displays with dimensions, offsets, and primary status."""
+    eff_policy = policy or default_policy()
+    _check("desktop_get_monitors", policy=eff_policy)
+    from .screen_capture import get_monitors
+
+    mons = get_monitors()
+    return {"ok": True, "monitors": mons, "count": len(mons)}
+
+
+def desktop_clipboard_get(*, policy: Policy | None = None, device_id: str = "local") -> dict:
+    """Read the current system clipboard text."""
+    eff_policy = policy or default_policy()
+    _check("desktop_clipboard_get", policy=eff_policy)
+    return get_clipboard(policy=eff_policy)
+
+
+def desktop_clipboard_set(
+    text: str,
+    paste: bool = False,
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+    device_id: str = "local",
+) -> dict:
+    """Write text to the system clipboard and optionally trigger paste."""
+    _require_no_human_takeover(device_id)
+    eff_policy = policy or default_policy()
+    _check("desktop_clipboard_set", approval_granted=approval_granted, policy=eff_policy)
+    return set_clipboard(text=text, paste=paste, approval_granted=approval_granted, policy=eff_policy)
+
+
+
 def desktop_get_status(*, device_id: str = "local") -> dict:
     """Return desktop and session status, monitors, capture backend, and human takeover state."""
     _check("desktop_get_status")

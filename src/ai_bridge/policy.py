@@ -75,9 +75,13 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "delete_workspace_file": RiskTier.HIGH_RISK, "submit_task": RiskTier.SENSITIVE,
     "request_approval": RiskTier.LOW_RISK, "approve_task": RiskTier.HIGH_RISK,
     "cancel_task": RiskTier.LOW_RISK,
-    # Canonical v1.0 MCP Computer-Use Toolset (Section 8)
+    # Canonical v1.0 MCP Computer-Use Toolset (Section 8) & v2.0 Extensions
     "desktop_get_screenshot": RiskTier.SENSITIVE,
+    "desktop_get_window_screenshot": RiskTier.SENSITIVE,
     "desktop_get_status": RiskTier.READ_ONLY,
+    "desktop_get_monitors": RiskTier.READ_ONLY,
+    "desktop_clipboard_get": RiskTier.READ_ONLY,
+    "desktop_clipboard_set": RiskTier.SENSITIVE,
     "desktop_mouse_move": RiskTier.SENSITIVE,
     "desktop_click": RiskTier.SENSITIVE,
     "desktop_keyboard": RiskTier.SENSITIVE,
@@ -139,8 +143,8 @@ def decide(policy: Policy, tool: str, *, approval_granted: bool = False,
             "mouse_drag", "keyboard_type", "keyboard_press", "press_hotkey", "focus_window",
             "ocr_screen", "click_text", "click_element", "list_ui_elements", "set_of_marks_screenshot",
             "wait_for_text", "verify_screen_contains", "execute_workflow",
-            "desktop_get_screenshot", "desktop_mouse_move", "desktop_click", "desktop_keyboard",
-            "desktop_scroll", "desktop_open_application", "desktop_wait", "desktop_verify_action",
+            "desktop_get_screenshot", "desktop_get_window_screenshot", "desktop_mouse_move", "desktop_click", "desktop_keyboard",
+            "desktop_scroll", "desktop_clipboard_set", "desktop_open_application", "desktop_wait", "desktop_verify_action",
         }
         if tool in desktop_tools and not policy.desktop_enabled:
             return Decision(False, reason="Desktop automation is not enabled.")

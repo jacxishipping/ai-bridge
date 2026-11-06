@@ -459,6 +459,13 @@ export const LiveDesktopView: React.FC = () => {
           }
         }
         prevBytesRef.current = { bytes: bytesReceived, ts: now };
+        if (inputDcRef.current?.readyState === "open" && (rttMs > 160 || droppedFrames > 5)) {
+          sendDataChannelEvent({
+            action: "network_quality",
+            rtt_ms: rttMs,
+            packet_loss_pct: Math.min(100, Math.round((droppedFrames / Math.max(1, droppedFrames + fps)) * 100)),
+          });
+        }
         setWebrtcStats({
           fps,
           bitrateMbps,
@@ -530,8 +537,23 @@ export const LiveDesktopView: React.FC = () => {
           });
           pcRef.current = pc;
 
+          const setupDc = (channel: RTCDataChannel) => {
+            inputDcRef.current = channel;
+            channel.onmessage = (event) => {
+              try {
+                const data = JSON.parse(event.data);
+                if (data.type === "clipboard_data" && data.text) {
+                  void navigator.clipboard?.writeText(data.text).catch(() => {});
+                  setRecentMacroNotice(`Synced clipboard from remote (${data.text.length} chars)`);
+                  setTimeout(() => setRecentMacroNotice(null), 3000);
+                }
+              } catch {}
+            };
+          };
+
           const dc = pc.createDataChannel("input", { ordered: true });
-          inputDcRef.current = dc;
+          setupDc(dc);
+          pc.ondatachannel = (e) => setupDc(e.channel);
 
           pc.ontrack = (event) => {
             if (videoRef.current && event.streams && event.streams[0]) {
@@ -589,6 +611,36 @@ export const LiveDesktopView: React.FC = () => {
     }
   };
 
+  const handleSwitchMonitor = (idx: number) => {
+    setSelectedMonitorIndex(idx);
+    sendDataChannelEvent({ action: "switch_monitor", monitor_index: idx });
+    if (webrtcSessionId && isLiveMode()) {
+      void api.updateSessionQualityV1(webrtcSessionId, { monitor_index: idx }).catch(() => {});
+    }
+  };
+
+  const handleSyncClipboard = async () => {
+    setClipboardSync((prev) => !prev);
+    try {
+      const text = await navigator.clipboard?.readText();
+      if (text) {
+        sendDataChannelEvent({ action: "clipboard_sync", direction: "set", text });
+        if (webrtcSessionId && isLiveMode()) {
+          void api.syncSessionClipboardV1(webrtcSessionId, "set", text).catch(() => {});
+        }
+        setRecentMacroNotice(`Pushed clipboard (${text.length} chars) to remote`);
+        setTimeout(() => setRecentMacroNotice(null), 3000);
+        return;
+      }
+    } catch {}
+    sendDataChannelEvent({ action: "clipboard_sync", direction: "get" });
+    if (webrtcSessionId && isLiveMode()) {
+      void api.syncSessionClipboardV1(webrtcSessionId, "get").catch(() => {});
+    }
+    setRecentMacroNotice("Requested clipboard from remote");
+    setTimeout(() => setRecentMacroNotice(null), 3000);
+  };
+
   const focusWindow = (id: string) => {
     setActiveWindowId(id);
     setWindowsList((prev) =>
@@ -618,7 +670,7 @@ export const LiveDesktopView: React.FC = () => {
                 <button
                   key={mon.index}
                   type="button"
-                  onClick={() => setSelectedMonitorIndex(mon.index)}
+                  onClick={() => handleSwitchMonitor(mon.index)}
                   className={`px-2 py-0.5 rounded-lg border transition-colors ${
                     selectedMonitorIndex === mon.index
                       ? "bg-indigo-950/60 border-indigo-500/60 text-indigo-300"
@@ -738,7 +790,7 @@ export const LiveDesktopView: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => setClipboardSync(!clipboardSync)}
+              onClick={() => void handleSyncClipboard()}
               className={`px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-1.5 border transition-all ${
                 clipboardSync
                   ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/30"

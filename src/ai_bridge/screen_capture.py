@@ -100,6 +100,24 @@ class _AIBridgeCaptureMetrics(ctypes.Structure):
     ]
 
 
+class _AIBridgeMonitorInfo(ctypes.Structure):
+    _fields_ = [
+        ("index", ctypes.c_int),
+        ("left", ctypes.c_int),
+        ("top", ctypes.c_int),
+        ("right", ctypes.c_int),
+        ("bottom", ctypes.c_int),
+        ("width", ctypes.c_int),
+        ("height", ctypes.c_int),
+        ("rotation_degrees", ctypes.c_int),
+        ("is_primary", ctypes.c_int),
+        ("name", ctypes.c_char * 64),
+        ("device_name", ctypes.c_char * 64),
+        ("adapter_name", ctypes.c_char * 128),
+    ]
+
+
+
 def get_native_dll():
     """Load the compiled C++ `ai_bridge_native.dll` if available on Windows."""
     global _NATIVE_DLL, _NATIVE_DLL_LOADED
@@ -167,6 +185,20 @@ def get_native_dll():
                 dll.aibridge_send_mouse_scroll.restype = ctypes.c_int
                 dll.aibridge_send_key_event.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
                 dll.aibridge_send_key_event.restype = ctypes.c_int
+                if hasattr(dll, "aibridge_enumerate_monitors"):
+                    dll.aibridge_enumerate_monitors.argtypes = [ctypes.POINTER(_AIBridgeMonitorInfo), ctypes.c_int]
+                    dll.aibridge_enumerate_monitors.restype = ctypes.c_int
+                if hasattr(dll, "aibridge_capture_window"):
+                    dll.aibridge_capture_window.argtypes = [
+                        ctypes.c_uint64,
+                        ctypes.POINTER(ctypes.c_uint8),
+                        ctypes.c_int,
+                        ctypes.POINTER(_AIBridgeCaptureMetrics),
+                    ]
+                    dll.aibridge_capture_window.restype = ctypes.c_int
+                if hasattr(dll, "aibridge_set_encoder_bitrate"):
+                    dll.aibridge_set_encoder_bitrate.argtypes = [ctypes.c_int]
+                    dll.aibridge_set_encoder_bitrate.restype = ctypes.c_int
                 _NATIVE_DLL = dll
                 _NATIVE_DLL_LOADED = True
                 return _NATIVE_DLL
@@ -185,6 +217,32 @@ def get_monitors() -> list[dict[str, Any]]:
     monitors: list[dict[str, Any]] = []
 
     if platform.system() == "Windows":
+        dll = get_native_dll()
+        if dll is not None and hasattr(dll, "aibridge_enumerate_monitors"):
+            try:
+                arr = (_AIBridgeMonitorInfo * 16)()
+                cnt = int(dll.aibridge_enumerate_monitors(arr, 16))
+                for i in range(min(cnt, 16)):
+                    m = arr[i]
+                    monitors.append({
+                        "index": int(m.index),
+                        "name": m.name.decode("utf-8", errors="replace") or f"Display {i + 1}",
+                        "device": m.device_name.decode("utf-8", errors="replace") or f"DISPLAY{i + 1}",
+                        "adapter": m.adapter_name.decode("utf-8", errors="replace") or "",
+                        "left": int(m.left),
+                        "top": int(m.top),
+                        "right": int(m.right),
+                        "bottom": int(m.bottom),
+                        "width": int(m.width),
+                        "height": int(m.height),
+                        "rotation_degrees": int(m.rotation_degrees),
+                        "is_primary": bool(m.is_primary),
+                    })
+                if monitors:
+                    return monitors
+            except Exception:
+                monitors.clear()
+
         try:
             from ctypes import wintypes
 
@@ -477,3 +535,28 @@ def capture_desktop(monitor_index: int | None = None, scale: float = 1.0) -> Ima
     _LAST_CAPTURE_METRICS["width"] = img.width
     _LAST_CAPTURE_METRICS["height"] = img.height
     return img
+
+
+def capture_window_by_hwnd(hwnd: int, scale: float = 1.0) -> Image.Image:
+    """Capture a specific application window by HWND using native C++ PrintWindow(PW_RENDERFULLCONTENT)."""
+    dll = get_native_dll()
+    if dll is not None and hasattr(dll, "aibridge_capture_window") and int(hwnd) > 0:
+        try:
+            metrics = _AIBridgeCaptureMetrics()
+            buf_size = 3840 * 2160 * 4
+            buf = (ctypes.c_uint8 * buf_size)()
+            ok = dll.aibridge_capture_window(ctypes.c_uint64(int(hwnd)), buf, buf_size, ctypes.byref(metrics))
+            if ok and metrics.valid and metrics.width > 0 and metrics.height > 0:
+                actual_bytes = metrics.width * metrics.height * 4
+                raw = bytes(memoryview(buf)[:actual_bytes])
+                img = Image.frombuffer("RGB", (metrics.width, metrics.height), raw, "raw", "BGRX", 0, 1)
+                scale = max(0.2, min(1.0, float(scale)))
+                target_w = max(120, (int(img.width * scale) // 2) * 2)
+                target_h = max(120, (int(img.height * scale) // 2) * 2)
+                if target_w != img.width or target_h != img.height:
+                    img = img.resize((target_w, target_h), Image.Resampling.BILINEAR)
+                return img
+        except Exception:
+            pass
+    return capture_desktop(scale=scale)
+

@@ -37,6 +37,66 @@ AIBRIDGE_API void aibridge_capture_shutdown(void) {
     g_encoder_initialized = false;
 }
 
+AIBRIDGE_API int aibridge_enumerate_monitors(AIBridgeMonitorInfo* out_monitors, int max_monitors) {
+    std::lock_guard<std::mutex> lock(g_api_mutex);
+    auto list = g_capturer.EnumerateMonitors();
+    int count = static_cast<int>(list.size());
+    if (out_monitors && max_monitors > 0) {
+        int to_write = count < max_monitors ? count : max_monitors;
+        for (int i = 0; i < to_write; ++i) {
+            std::memset(&out_monitors[i], 0, sizeof(AIBridgeMonitorInfo));
+            out_monitors[i].index = list[i].index;
+            out_monitors[i].left = list[i].left;
+            out_monitors[i].top = list[i].top;
+            out_monitors[i].right = list[i].right;
+            out_monitors[i].bottom = list[i].bottom;
+            out_monitors[i].width = list[i].width;
+            out_monitors[i].height = list[i].height;
+            out_monitors[i].rotation_degrees = list[i].rotation_degrees;
+            out_monitors[i].is_primary = list[i].is_primary ? 1 : 0;
+            std::snprintf(out_monitors[i].name, sizeof(out_monitors[i].name), "%s", list[i].name.c_str());
+            std::snprintf(out_monitors[i].device_name, sizeof(out_monitors[i].device_name), "%s", list[i].device_name.c_str());
+            std::snprintf(out_monitors[i].adapter_name, sizeof(out_monitors[i].adapter_name), "%s", list[i].adapter_name.c_str());
+        }
+    }
+    return count;
+}
+
+AIBRIDGE_API int aibridge_capture_window(
+    uint64_t hwnd_value,
+    uint8_t* out_bgra_buffer,
+    int max_bytes,
+    AIBridgeCaptureMetrics* out_metrics
+) {
+    std::lock_guard<std::mutex> lock(g_api_mutex);
+    aibridge::capture::CapturedFrame frame;
+    HWND hwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(hwnd_value));
+    bool ok = g_capturer.CaptureWindow(hwnd, frame);
+    if (out_metrics) {
+        std::memset(out_metrics, 0, sizeof(AIBridgeCaptureMetrics));
+        out_metrics->valid = frame.valid ? 1 : 0;
+        out_metrics->from_dxgi = 0;
+        out_metrics->width = frame.width;
+        out_metrics->height = frame.height;
+        out_metrics->stride = frame.stride;
+        out_metrics->capture_time_ms = frame.capture_time_ms;
+    }
+    if (!ok || !frame.valid) {
+        return 0;
+    }
+    if (out_bgra_buffer && max_bytes >= static_cast<int>(frame.bgra_pixels.size()) && !frame.bgra_pixels.empty()) {
+        std::memcpy(out_bgra_buffer, frame.bgra_pixels.data(), frame.bgra_pixels.size());
+    }
+    return 1;
+}
+
+AIBRIDGE_API int aibridge_set_encoder_bitrate(int bitrate_kbps) {
+    if (bitrate_kbps <= 0) return 0;
+    std::lock_guard<std::mutex> lock(g_api_mutex);
+    g_enc_kbps = bitrate_kbps;
+    return g_encoder.UpdateBitrate(bitrate_kbps * 1000) ? 1 : 0;
+}
+
 AIBRIDGE_API int aibridge_capture_frame(
     int monitor_index,
     uint8_t* out_bgra_buffer,
@@ -169,7 +229,7 @@ AIBRIDGE_API int aibridge_get_system_health_json(char* out_json, int max_len) {
         static_cast<size_t>(max_len),
         "{\"cpu_percent\":%.1f,\"memory_percent\":%.1f,\"memory_total_gb\":%.2f,\"memory_available_gb\":%.2f,"
         "\"disk_percent\":%.1f,\"disk_total_gb\":%.1f,\"disk_free_gb\":%.1f,\"uptime_hours\":%.1f,"
-        "\"hostname\":\"%s\",\"active_user\":\"%s\",\"active_session_id\":%u}",
+        "\"hostname\":\"%s\",\"active_user\":\"%s\",\"active_session_id\":%u,\"interactive_session_count\":%d}",
         snap.cpu_percent,
         snap.memory_percent,
         snap.memory_total_gb,
@@ -180,7 +240,8 @@ AIBRIDGE_API int aibridge_get_system_health_json(char* out_json, int max_len) {
         snap.uptime_hours,
         snap.hostname.c_str(),
         snap.active_user.c_str(),
-        snap.active_session_id
+        snap.active_session_id,
+        snap.interactive_session_count
     );
     return (written > 0 && written < max_len) ? written : 0;
 }

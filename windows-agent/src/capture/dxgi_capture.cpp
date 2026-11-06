@@ -402,5 +402,64 @@ bool DxgiDesktopCapturer::CaptureNextFrame(CapturedFrame& out_frame, int timeout
     return ok;
 }
 
+bool DxgiDesktopCapturer::CaptureWindow(HWND hwnd, CapturedFrame& out_frame) const {
+    auto t0 = std::chrono::steady_clock::now();
+    out_frame = CapturedFrame{};
+    if (!hwnd || !IsWindow(hwnd)) {
+        return false;
+    }
+
+    RECT rc{};
+    if (!GetWindowRect(hwnd, &rc)) {
+        return false;
+    }
+    int width = (rc.right - rc.left) & ~1;
+    int height = (rc.bottom - rc.top) & ~1;
+    if (width <= 0 || height <= 0) {
+        return false;
+    }
+
+    HDC win_dc = GetWindowDC(hwnd);
+    if (!win_dc) return false;
+    HDC mem_dc = CreateCompatibleDC(win_dc);
+    HBITMAP bmp = CreateCompatibleBitmap(win_dc, width, height);
+    HGDIOBJ old_obj = SelectObject(mem_dc, bmp);
+
+    // PW_RENDERFULLCONTENT (0x00000002) renders DirectComposition / WGC / DWM hardware surfaces
+    BOOL printed = PrintWindow(hwnd, mem_dc, 0x00000002);
+    if (!printed) {
+        BitBlt(mem_dc, 0, 0, width, height, win_dc, 0, 0, SRCCOPY);
+    }
+
+    BITMAPINFOHEADER bi{};
+    bi.biSize = sizeof(BITMAPINFOHEADER);
+    bi.biWidth = width;
+    bi.biHeight = -height; // Top-down
+    bi.biPlanes = 1;
+    bi.biBitCount = 32;
+    bi.biCompression = BI_RGB;
+
+    out_frame.width = width;
+    out_frame.height = height;
+    out_frame.stride = width * 4;
+    out_frame.from_dxgi = false;
+    out_frame.bgra_pixels.resize(static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
+
+    if (bmp) {
+        GetDIBits(mem_dc, bmp, 0, static_cast<UINT>(height), out_frame.bgra_pixels.data(),
+                  reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
+    }
+
+    SelectObject(mem_dc, old_obj);
+    DeleteObject(bmp);
+    DeleteDC(mem_dc);
+    ReleaseDC(hwnd, win_dc);
+
+    auto t1 = std::chrono::steady_clock::now();
+    out_frame.capture_time_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    out_frame.valid = (bmp != nullptr);
+    return out_frame.valid;
+}
+
 } // namespace capture
 } // namespace aibridge

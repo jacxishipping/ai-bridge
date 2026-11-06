@@ -320,7 +320,7 @@ def attach_v1_routes(
             "windows_version": row["os"],
             "status": row["status"],
             "last_seen": row["last_seen"],
-            "agent_version": meta.get("agent_version", "1.0.0"),
+            "agent_version": meta.get("agent_version", "2.0.0"),
             "active_user": meta.get("active_user", "Interactive User"),
             "ip_address": meta.get("ip_address", ""),
             "cpu_percent": telem["cpu_percent"] if telem else 0.0,
@@ -328,6 +328,26 @@ def attach_v1_routes(
             "disk_percent": telem["disk_percent"] if telem else 0.0,
             "human_takeover_active": is_device_human_takeover_active(device_id),
         }
+
+    @app.get("/api/v1/devices/{device_id}/monitors")
+    def v1_get_device_monitors(
+        device_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        if device_id == "local":
+            from ..screen_capture import get_monitors
+            mons = get_monitors()
+            return {"device_id": "local", "monitors": mons, "count": len(mons)}
+        row = conn.execute("SELECT id FROM devices WHERE id=? AND revoked=0", (device_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Device not found.")
+        meta = (getattr(app.state, "device_live_meta", {}) or {}).get(device_id) or {}
+        mons = meta.get("monitors") or [{"index": 0, "name": "Display 1 (Primary)", "width": 1920, "height": 1080, "is_primary": True}]
+        return {"device_id": device_id, "monitors": mons, "count": len(mons)}
+
 
     # ------------------------------------------------------------------
     # 2. Agent Gateway (/api/v1/agents/{device_id}/heartbeat)
@@ -553,6 +573,57 @@ def attach_v1_routes(
         formatted = format_session_v1(sess)
         await _broadcast_ws(session_id, {"type": "session_updated", "session": formatted})
         return formatted
+
+    @app.patch("/api/v1/sessions/{session_id}/quality")
+    async def v1_update_session_quality(
+        session_id: str,
+        body: dict = Body(default={}),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        sess = load_webrtc_session_db(conn, app.state, session_id)
+        if sess is None:
+            raise HTTPException(status_code=404, detail="Session not found.")
+        req_kbps = body.get("bitrate_kbps")
+        req_fps = body.get("fps")
+        req_mon = body.get("monitor_index")
+        video = sess.setdefault("video", {})
+        if req_kbps is not None:
+            video["bitrate_kbps"] = max(500, min(20000, int(req_kbps)))
+        if req_fps is not None:
+            video["fps"] = max(10, min(60, int(req_fps)))
+        if req_mon is not None:
+            video["monitor_index"] = int(req_mon)
+        save_webrtc_session_db(conn, app.state, sess)
+        await _broadcast_ws(session_id, {"type": "quality_updated", "video": video})
+        return {"ok": True, "session_id": session_id, "video": video}
+
+    @app.post("/api/v1/sessions/{session_id}/clipboard")
+    def v1_session_clipboard(
+        session_id: str,
+        body: dict = Body(default={}),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        actor, _role = auth_context(x_admin_token, x_session_token, authorization)
+        sess = load_webrtc_session_db(conn, app.state, session_id)
+        if sess is None:
+            raise HTTPException(status_code=404, detail="Session not found.")
+        perms = sess.get("permissions") or {}
+        if not perms.get("clipboard_sync", True):
+            raise HTTPException(status_code=403, detail="Clipboard synchronization is disabled for this session.")
+        action = str(body.get("action") or "get").lower()
+        from .. import tools
+
+        if action == "get":
+            res = tools.get_clipboard()
+            return {"ok": True, "action": "get", "text": res.get("text", "")}
+        text = str(body.get("text") or "")
+        res = tools.set_clipboard(text=text, paste=bool(body.get("paste", False)), approval_granted=True)
+        return {"ok": True, "action": "set", "length": len(text)}
 
     @app.post("/api/v1/sessions/{session_id}/terminate")
     async def v1_terminate_session(
