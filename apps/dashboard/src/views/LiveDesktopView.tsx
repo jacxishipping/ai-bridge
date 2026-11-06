@@ -16,6 +16,7 @@ import {
   JXCardContent,
   JXBadge,
   JXButton,
+  JXSelect,
 } from "../ui";
 import {
   Monitor,
@@ -138,6 +139,7 @@ const SOM_POSITION_PRESETS = [
 export const LiveDesktopView: React.FC = () => {
   const devices = useDashboardStore((s) => s.devices);
   const selectedDeviceId = useDashboardStore((s) => s.selectedDeviceId);
+  const setSelectedDeviceId = useDashboardStore((s) => s.setSelectedDeviceId);
   const selectedDevice = devices.find((d) => d.id === selectedDeviceId) || devices[0];
 
   // Control modes (maps to canonical session modes: view_only, human_control, ai_assisted)
@@ -1366,7 +1368,18 @@ export const LiveDesktopView: React.FC = () => {
       {/* Top Header & Breadcrumb Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
         <div className="flex items-center gap-3">
-          <p className="text-sm text-slate-400">{selectedDevice?.hostname || "No device selected"}</p>
+          <div className="w-72">
+            <JXSelect
+              options={devices.map((d) => ({
+                value: d.id,
+                label: `${d.hostname} (${d.name})`,
+              }))}
+              value={selectedDeviceId}
+              onChange={(val) => setSelectedDeviceId(val)}
+              searchable
+              label="Device"
+            />
+          </div>
           {liveMonitors.length > 0 && (
             <div className="flex items-center gap-1.5 font-mono text-xs">
               {liveMonitors.map((mon) => (
