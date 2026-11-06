@@ -17,4 +17,6 @@ ai-bridge-workspace/
 
 .agents/teamwork/
 windows-agent/build/
+*.pem
+*.key
 
