@@ -12,17 +12,17 @@ export function AccountsPanel({ admin }: { admin: boolean }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  if (!admin) return <p className="text-sm text-slate-400">User management requires an administrator.</p>;
+  if (!admin) return <p className="text-sm text-[var(--product-text-tertiary)]">User management requires an administrator.</p>;
   return <section aria-label="Live users" className="space-y-4">
     <div className="flex flex-wrap gap-2">
       <JXButton color="neutral" variant="outlined" disabled={state.loading} onClick={state.refresh}>Refresh users</JXButton>
       <JXButton disabled={state.loading || !!state.error} onClick={() => { setCreating(true); setEdit({ username: "", role: "viewer", disabled: false }); setPassword(""); setError(""); }}>Add user</JXButton>
     </div>
     <ReadState {...state} />
-    <p className="text-xs text-slate-400">Google users appear after their first sign-in as viewers. Role or access changes revoke their existing sessions.</p>
+    <p className="text-xs text-[var(--product-text-tertiary)]">Google users appear after their first sign-in as viewers. Role or access changes revoke their existing sessions.</p>
     <ul className="divide-y divide-slate-800">{state.data?.map(user => <li key={user.username} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
       <span className="min-w-0 break-all" dir="auto">{user.username}</span>
-      <span className="text-xs text-slate-400">{user.role} · {user.disabled ? "Disabled" : "Active"}</span>
+      <span className="text-xs text-[var(--product-text-tertiary)]">{user.role} · {user.disabled ? "Disabled" : "Active"}</span>
       <JXButton color="neutral" variant="text" disabled={state.loading || !!state.error} onClick={() => { setCreating(false); setEdit({ ...user }); setError(""); }}>Edit {user.username}</JXButton>
     </li>)}</ul>
     {edit && <GlassModal title={creating ? "Add user" : "Review account access"} onClose={() => { if (!busy) { setEdit(undefined); setPassword(""); } }}>

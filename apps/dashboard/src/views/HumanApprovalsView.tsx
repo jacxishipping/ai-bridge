@@ -221,7 +221,7 @@ export const HumanApprovalsView: React.FC = () => {
               className={`px-1 rounded ${
                 isDanger
                   ? "bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold"
-                  : "text-slate-200"
+                  : "text-[var(--product-text-secondary)]"
               }`}
             >
               {word}
@@ -242,10 +242,10 @@ export const HumanApprovalsView: React.FC = () => {
         <JXGridItem colSpan={4}>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider">
+              <span className="text-xs font-mono font-semibold text-[var(--product-text-tertiary)] uppercase tracking-wider">
                 Urgent Approvals Queue
               </span>
-              <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+              <span className="font-mono text-xs px-2 py-0.5 rounded bg-[var(--product-raised)] text-[var(--product-text-secondary)]">
                 {pendingCount} Pending
               </span>
             </div>
@@ -261,13 +261,13 @@ export const HumanApprovalsView: React.FC = () => {
                     onClick={() => setSelectedId(req.id)}
                     className={`p-4 rounded-xl border cursor-pointer transition-all ${
                       isSelected
-                        ? "bg-slate-900 border-indigo-500 shadow-lg shadow-indigo-500/10"
-                        : "bg-slate-950/60 border-slate-800 hover:border-slate-700"
+                        ? "bg-[var(--product-surface)] border-indigo-500 shadow-lg shadow-indigo-500/10"
+                        : "bg-[var(--product-canvas)]/60 border-[var(--product-line)] hover:border-[var(--product-line)]"
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-slate-100 text-sm">
+                        <span className="font-mono font-bold text-[var(--product-text)] text-sm">
                           {req.id}
                         </span>
                         <span
@@ -294,24 +294,24 @@ export const HumanApprovalsView: React.FC = () => {
                       </span>
                     </div>
 
-                    <div className="text-xs font-semibold text-slate-200 truncate mb-1">
+                    <div className="text-xs font-semibold text-[var(--product-text-secondary)] truncate mb-1">
                       {req.reason}
                     </div>
 
-                    <div className="text-[11px] font-mono text-slate-400 space-y-1">
+                    <div className="text-[11px] font-mono text-[var(--product-text-tertiary)] space-y-1">
                       <div className="flex items-center gap-1.5 truncate">
-                        <Bot className="w-3.5 h-3.5 text-slate-500" />
+                        <Bot className="w-3.5 h-3.5 text-[var(--product-text-dim)]" />
                         <span>{req.requester}</span>
                       </div>
                       <div className="flex items-center gap-1.5 truncate">
-                        <Server className="w-3.5 h-3.5 text-slate-500" />
+                        <Server className="w-3.5 h-3.5 text-[var(--product-text-dim)]" />
                         <span>{req.deviceHostname}</span>
                       </div>
                     </div>
 
                     {isPending && (
-                      <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] font-mono">
-                        <span className="text-slate-400">Auto-kill SLA</span>
+                      <div className="mt-3 pt-2.5 border-t border-[var(--product-line)]/80 flex items-center justify-between text-[11px] font-mono">
+                        <span className="text-[var(--product-text-tertiary)]">Auto-kill SLA</span>
                         <span className="text-amber-400 font-bold flex items-center gap-1">
                           <Clock className="w-3 h-3" />
                           {formatCountdown(countdownSeconds)}
@@ -330,24 +330,24 @@ export const HumanApprovalsView: React.FC = () => {
           {activeApproval ? (
             <div className="space-y-4">
               {/* Header Box */}
-              <JXCard className="bg-slate-900/60 border-slate-800">
+              <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
                 <JXCardHeader
                   title={`Approval Inspector — ${activeApproval.id}`}
                   subheader={`Host: ${activeApproval.deviceHostname} • Requester: ${activeApproval.requester}`}
                   icon={<ShieldAlert className="w-5 h-5 text-amber-400" />}
                 />
                 <JXCardContent>
-                  <div className="grid grid-cols-3 gap-3 p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono">
+                  <div className="grid grid-cols-3 gap-3 p-3 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs font-mono">
                     <div>
-                      <span className="text-slate-400 uppercase tracking-wider block text-[10px]">
+                      <span className="text-[var(--product-text-tertiary)] uppercase tracking-wider block text-[10px]">
                         Target Host Node
                       </span>
-                      <span className="font-semibold text-slate-200">
+                      <span className="font-semibold text-[var(--product-text-secondary)]">
                         {activeApproval.deviceHostname}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 uppercase tracking-wider block text-[10px]">
+                      <span className="text-[var(--product-text-tertiary)] uppercase tracking-wider block text-[10px]">
                         Permission Tier
                       </span>
                       <span className="font-semibold text-amber-400">
@@ -355,10 +355,10 @@ export const HumanApprovalsView: React.FC = () => {
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 uppercase tracking-wider block text-[10px]">
+                      <span className="text-[var(--product-text-tertiary)] uppercase tracking-wider block text-[10px]">
                         Cryptographic Proof
                       </span>
-                      <span className="text-slate-300 truncate block">
+                      <span className="text-[var(--product-text-secondary)] truncate block">
                         Ed25519 Verified
                       </span>
                     </div>
@@ -367,31 +367,31 @@ export const HumanApprovalsView: React.FC = () => {
               </JXCard>
 
               {/* Exact AST Command Diff with Dangerous Parameter Highlighting */}
-              <JXCard className="bg-slate-900/60 border-slate-800">
+              <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
                 <JXCardHeader
                   title="Command changes"
                   icon={<FileCode className="w-4 h-4 text-indigo-400" />}
                 />
                 <JXCardContent>
                   <div className="space-y-3">
-                    <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
-                      <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-2">
+                    <div className="p-4 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)]">
+                      <span className="text-[10px] font-mono text-[var(--product-text-tertiary)] uppercase tracking-wider block mb-2">
                         Requested Command String
                       </span>
                       {renderHighlightedCommand(activeApproval.command)}
                     </div>
 
                     {activeApproval.argsDiff && (
-                      <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-1.5 text-xs font-mono">
-                        <div className="text-slate-400">
+                      <div className="p-3 rounded-lg bg-[var(--product-canvas)]/60 border border-[var(--product-line)]/80 space-y-1.5 text-xs font-mono">
+                        <div className="text-[var(--product-text-tertiary)]">
                           Dangerous AST parameter tokens:{" "}
                           <span className="text-rose-400 font-bold">
                             {activeApproval.argsDiff.dangerousTokens.join(", ")}
                           </span>
                         </div>
-                        <div className="text-slate-400">
+                        <div className="text-[var(--product-text-tertiary)]">
                           Parsed Target Scope:{" "}
-                          <span className="text-slate-200 font-semibold">
+                          <span className="text-[var(--product-text-secondary)] font-semibold">
                             {activeApproval.argsDiff.proposed}
                           </span>
                         </div>
@@ -402,23 +402,23 @@ export const HumanApprovalsView: React.FC = () => {
               </JXCard>
 
               {/* Remote Visual Context Screenshot */}
-              <JXCard className="bg-slate-900/60 border-slate-800">
+              <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
                 <JXCardHeader
                   title="Desktop context"
                   icon={<Eye className="w-4 h-4 text-cyan-400" />}
                 />
                 <JXCardContent>
-                  <div className="rounded-xl bg-slate-950 border border-slate-800 p-6 flex flex-col items-center justify-center text-center space-y-3">
-                    <div className="w-full max-w-md h-40 rounded-lg border border-slate-800 bg-slate-900 flex flex-col items-center justify-center relative overflow-hidden">
-                      <div className="absolute top-2 left-2 text-[10px] font-mono text-slate-400">
+                  <div className="rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] p-6 flex flex-col items-center justify-center text-center space-y-3">
+                    <div className="w-full max-w-md h-40 rounded-lg border border-[var(--product-line)] bg-[var(--product-surface)] flex flex-col items-center justify-center relative overflow-hidden">
+                      <div className="absolute top-2 left-2 text-[10px] font-mono text-[var(--product-text-tertiary)]">
                         {activeApproval.deviceHostname} (1920x1080@60Hz)
                       </div>
-                      <Terminal className="w-10 h-10 text-slate-700 mb-2" />
+                      <Terminal className="w-10 h-10 text-[var(--product-text-dim)] mb-2" />
                       <div className="px-3 py-1 rounded bg-rose-500/20 border border-rose-500/40 text-[11px] font-mono text-rose-300">
                         Targeting Terminal PID #4912
                       </div>
                     </div>
-                    <span className="text-[11px] font-mono text-slate-400">
+                    <span className="text-[11px] font-mono text-[var(--product-text-tertiary)]">
                       Visual context verified: No uncommitted workspace edits in active foreground window.
                     </span>
                   </div>
@@ -427,7 +427,7 @@ export const HumanApprovalsView: React.FC = () => {
 
               {/* Mandatory Safety Checklist & Decision Action Ribbon */}
               {activeApproval.status === "pending" && (
-                <JXCard className="bg-slate-900/60 border-slate-800">
+                <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
                   <JXCardHeader
                     title="Safety checklist"
                     subheader="Complete all checks before approving."
@@ -435,7 +435,7 @@ export const HumanApprovalsView: React.FC = () => {
                   />
                   <JXCardContent>
                     <div className="space-y-4">
-                      <div className="space-y-2 p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs">
+                      <div className="space-y-2 p-3 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs">
                         <label className="flex items-center gap-3 cursor-pointer">
                           <input
                             type="checkbox"
@@ -443,9 +443,9 @@ export const HumanApprovalsView: React.FC = () => {
                             onChange={(e) =>
                               setChecklist((c) => ({ ...c, scopeConfirmed: e.target.checked }))
                             }
-                            className="w-4 h-4 rounded border-slate-700 bg-slate-900 accent-emerald-500 cursor-pointer"
+                            className="w-4 h-4 rounded border-[var(--product-line)] bg-[var(--product-surface)] accent-emerald-500 cursor-pointer"
                           />
-                          <span className="text-slate-200">
+                          <span className="text-[var(--product-text-secondary)]">
                             Verified target hostname matches intended operational scope
                           </span>
                         </label>
@@ -457,9 +457,9 @@ export const HumanApprovalsView: React.FC = () => {
                             onChange={(e) =>
                               setChecklist((c) => ({ ...c, networkChecked: e.target.checked }))
                             }
-                            className="w-4 h-4 rounded border-slate-700 bg-slate-900 accent-emerald-500 cursor-pointer"
+                            className="w-4 h-4 rounded border-[var(--product-line)] bg-[var(--product-surface)] accent-emerald-500 cursor-pointer"
                           />
-                          <span className="text-slate-200">
+                          <span className="text-[var(--product-text-secondary)]">
                             Confirmed payload contains no unauthorized external network transfers
                           </span>
                         </label>
@@ -471,9 +471,9 @@ export const HumanApprovalsView: React.FC = () => {
                             onChange={(e) =>
                               setChecklist((c) => ({ ...c, blastRadiusEvaluated: e.target.checked }))
                             }
-                            className="w-4 h-4 rounded border-slate-700 bg-slate-900 accent-emerald-500 cursor-pointer"
+                            className="w-4 h-4 rounded border-[var(--product-line)] bg-[var(--product-surface)] accent-emerald-500 cursor-pointer"
                           />
-                          <span className="text-slate-200">
+                          <span className="text-[var(--product-text-secondary)]">
                             Evaluated blast radius of destructive command and confirmed rollback strategy
                           </span>
                         </label>
@@ -527,7 +527,7 @@ export const HumanApprovalsView: React.FC = () => {
               )}
             </div>
           ) : (
-            <div className="p-8 text-center text-slate-400 font-mono text-xs">
+            <div className="p-8 text-center text-[var(--product-text-tertiary)] font-mono text-xs">
               No approval selected.
             </div>
           )}
@@ -535,16 +535,16 @@ export const HumanApprovalsView: React.FC = () => {
       </JXGrid>
 
       {/* Historical Decision Archive Table */}
-      <JXCard className="bg-slate-900/60 border-slate-800">
+      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
         <JXCardHeader
           title="Decision history"
           icon={<History className="w-5 h-5 text-indigo-400" />}
         />
         <JXCardContent>
-          <div tabIndex={0} role="region" aria-label="Approval decision history" className="overflow-x-auto rounded-xl border border-slate-800">
+          <div tabIndex={0} role="region" aria-label="Approval decision history" className="overflow-x-auto rounded-xl border border-[var(--product-line)]">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-950 border-b border-slate-800 text-slate-400 font-mono uppercase">
+                <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase">
                   <th className="p-3">Request ID</th>
                   <th className="p-3">Command</th>
                   <th className="p-3">Deciding Operator</th>
@@ -556,18 +556,18 @@ export const HumanApprovalsView: React.FC = () => {
               <tbody className="divide-y divide-slate-800/60 font-mono">
                 {effectiveHistoryRecords.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-6 text-center text-slate-400 font-sans">
+                    <td colSpan={6} className="p-6 text-center text-[var(--product-text-tertiary)] font-sans">
                       No approval decisions recorded yet.
                     </td>
                   </tr>
                 ) : (
                   effectiveHistoryRecords.map((rec) => (
-                    <tr key={rec.id} className="hover:bg-slate-950/40 transition-colors">
-                      <td className="p-3 font-semibold text-slate-200">{rec.id}</td>
-                      <td className="p-3 text-slate-300">
+                    <tr key={rec.id} className="hover:bg-[var(--product-canvas)]/40 transition-colors">
+                      <td className="p-3 font-semibold text-[var(--product-text-secondary)]">{rec.id}</td>
+                      <td className="p-3 text-[var(--product-text-secondary)]">
                         <code>{rec.command}</code>
                       </td>
-                      <td className="p-3 text-slate-400">{rec.decidedBy}</td>
+                      <td className="p-3 text-[var(--product-text-tertiary)]">{rec.decidedBy}</td>
                       <td className="p-3">
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
@@ -579,8 +579,8 @@ export const HumanApprovalsView: React.FC = () => {
                           {rec.verdict}
                         </span>
                       </td>
-                      <td className="p-3 text-slate-400">{rec.timestamp}</td>
-                      <td className="p-3 text-slate-300 font-sans">{rec.justification}</td>
+                      <td className="p-3 text-[var(--product-text-tertiary)]">{rec.timestamp}</td>
+                      <td className="p-3 text-[var(--product-text-secondary)] font-sans">{rec.justification}</td>
                     </tr>
                   ))
                 )}
@@ -600,7 +600,7 @@ export const HumanApprovalsView: React.FC = () => {
               exit={{ opacity: 0, scale: 0.95 }}
               className="space-y-4"
             >
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center justify-between border-b border-[var(--product-line)] pb-3">
                 <div className="flex items-center gap-2 text-rose-400 font-bold">
                   <XCircle className="w-5 h-5" />
                   <span>Deny Request #{activeApproval?.id}</span>
@@ -609,14 +609,14 @@ export const HumanApprovalsView: React.FC = () => {
                   type="button"
                   aria-label="Close denial"
                   onClick={() => setShowDenyModal(false)}
-                  className="text-slate-400 hover:text-slate-200"
+                  className="text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                 >
                   <XCircle className="w-5 h-5" />
                 </button>
               </div>
 
               <div className="space-y-2 text-xs">
-                <label className="block text-slate-300 font-semibold font-mono">
+                <label className="block text-[var(--product-text-secondary)] font-semibold font-mono">
                   Mandatory Rejection Reason:
                 </label>
                 <textarea
@@ -624,7 +624,7 @@ export const HumanApprovalsView: React.FC = () => {
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
                   placeholder="Explain why this invocation was rejected. This text will be returned to the autonomous agent..."
-                  className="w-full p-3 rounded-lg bg-slate-950 border border-slate-800 font-mono text-xs text-slate-200 focus:outline-none resize-none"
+                  className="w-full p-3 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] font-mono text-xs text-[var(--product-text-secondary)] focus:outline-none resize-none"
                 />
               </div>
 

@@ -49,10 +49,10 @@ export function JXCard(props: React.ComponentProps<typeof Card>) {
 export function JXCardHeader({ title, subheader, icon }: { title: string; subheader?: string; icon?: React.ReactNode }) {
   return <div className="mb-3 flex items-start justify-between gap-3">
     <div className="min-w-0">
-      <h2 className="text-sm font-semibold text-slate-100">{title}</h2>
-      {subheader && <p className="mt-1 text-xs leading-relaxed text-slate-400">{subheader}</p>}
+      <h2 className="text-sm font-semibold" style={{ color: "var(--product-text)" }}>{title}</h2>
+      {subheader && <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--product-text-tertiary)" }}>{subheader}</p>}
     </div>
-    {icon && <span aria-hidden="true" className="shrink-0 text-slate-400">{icon}</span>}
+    {icon && <span aria-hidden="true" className="shrink-0" style={{ color: "var(--product-text-tertiary)" }}>{icon}</span>}
   </div>;
 }
 
@@ -71,7 +71,8 @@ export function JXTabs({ tabs = [], value, defaultValue, onChange, className = "
   const [local, setLocal] = useState(defaultValue || tabs[0]?.id);
   const current = value ?? local;
   return <div className={`space-y-3 ${className}`}>
-    <div role="group" aria-label="View sections" className="flex flex-wrap gap-2 rounded-xl bg-slate-800 p-1"
+    <div role="group" aria-label="View sections" className="flex flex-wrap gap-2 rounded-xl p-1"
+      style={{ backgroundColor: "var(--product-raised)" }}
       onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         const buttons = Array.from(event.currentTarget.querySelectorAll("button"));
@@ -93,7 +94,7 @@ export function JXTabs({ tabs = [], value, defaultValue, onChange, className = "
 export function JXLinearProgress({ value = 0, label = "Progress", className = "" }:
   { value?: number; label?: string; className?: string }) {
   return <progress aria-label={label} max={100} value={Math.min(100, Math.max(0, value))}
-    className={`block w-full h-2 overflow-hidden rounded-full [&::-webkit-progress-bar]:bg-slate-800 [&::-webkit-progress-value]:bg-indigo-500 [&::-moz-progress-bar]:bg-indigo-500 ${className}`}>{value}%</progress>;
+    className={`block w-full h-2 overflow-hidden rounded-full ${className}`}>{value}%</progress>;
 }
 
 export function GlassModal({ open = true, onClose, title, children, closeLabel = "Close dialog" }:
@@ -122,12 +123,15 @@ export function GlassModal({ open = true, onClose, title, children, closeLabel =
   return <dialog ref={ref} aria-labelledby={titleId}
     onCancel={(event) => { event.preventDefault(); close.current?.(); }}
     onClick={(event) => { if (event.target === event.currentTarget) close.current?.(); }}
-    className="product-dialog m-auto w-[calc(100%-2rem)] max-w-2xl max-h-[90dvh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-0 text-slate-100 shadow-2xl backdrop:bg-slate-950/80 backdrop:backdrop-blur-sm">
+    className="product-dialog m-auto w-[calc(100%-2rem)] max-w-2xl max-h-[90dvh] overflow-y-auto rounded-2xl border p-0 shadow-2xl backdrop:backdrop-blur-sm"
+    style={{ borderColor: "var(--product-line)", color: "var(--product-text)" }}
+    data-dialog-backdrop>
     <JXBox padding="lg" border={false} className="min-w-0">
       <div className="mb-5 flex items-center justify-between gap-4">
         <h2 id={titleId} className="text-base font-semibold">{title}</h2>
         <button type="button" onClick={onClose} aria-label={closeLabel}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800">
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg hover:bg-[var(--product-raised)]"
+          style={{ color: "var(--product-text-tertiary)" }}>
           <X className="h-5 w-5" aria-hidden="true" />
         </button>
       </div>

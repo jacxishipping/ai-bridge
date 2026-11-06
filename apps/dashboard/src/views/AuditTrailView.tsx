@@ -193,7 +193,7 @@ export const AuditTrailView: React.FC = () => {
   return (
     <div className="space-y-4">
       {/* Cryptographic Merkle Root Header & Verification Action */}
-      <JXCard className="bg-slate-900/60 border-slate-800">
+      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
         <div className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-center gap-2 flex-wrap">
             <JXButton
@@ -222,11 +222,11 @@ export const AuditTrailView: React.FC = () => {
               </JXButton>
 
               {exportMenuOpen && (
-                <div className="absolute right-0 mt-2 w-56 rounded-xl bg-slate-900 border border-slate-800 p-1.5 shadow-2xl z-30 space-y-1 font-mono text-xs">
+                <div className="absolute right-0 mt-2 w-56 rounded-xl bg-[var(--product-surface)] border border-[var(--product-line)] p-1.5 shadow-2xl z-30 space-y-1 font-mono text-xs">
                   <button
                     type="button"
                     onClick={() => handleExport("csv")}
-                    className="w-full flex items-center gap-2.5 p-2 rounded-lg text-slate-200 hover:bg-slate-800 text-left transition-colors"
+                    className="w-full flex items-center gap-2.5 p-2 rounded-lg text-[var(--product-text-secondary)] hover:bg-[var(--product-raised)] text-left transition-colors"
                   >
                     <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
                     <span>CSV</span>
@@ -234,7 +234,7 @@ export const AuditTrailView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleExport("jsonld")}
-                    className="w-full flex items-center gap-2.5 p-2 rounded-lg text-slate-200 hover:bg-slate-800 text-left transition-colors"
+                    className="w-full flex items-center gap-2.5 p-2 rounded-lg text-[var(--product-text-secondary)] hover:bg-[var(--product-raised)] text-left transition-colors"
                   >
                     <FileJson className="w-4 h-4 text-indigo-400" />
                     <span>JSON-LD</span>
@@ -242,7 +242,7 @@ export const AuditTrailView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleExport("jsonl")}
-                    className="w-full flex items-center gap-2.5 p-2 rounded-lg text-slate-200 hover:bg-slate-800 text-left transition-colors"
+                    className="w-full flex items-center gap-2.5 p-2 rounded-lg text-[var(--product-text-secondary)] hover:bg-[var(--product-raised)] text-left transition-colors"
                   >
                     <FileText className="w-4 h-4 text-cyan-400" />
                     <span>JSONL</span>
@@ -262,7 +262,7 @@ export const AuditTrailView: React.FC = () => {
                   Sample verification complete: {verificationProof.blocksChecked} blocks.
                 </span>
               </div>
-              <span className="text-slate-400">Validated in {verificationProof.latencyMs}ms</span>
+              <span className="text-[var(--product-text-tertiary)]">Validated in {verificationProof.latencyMs}ms</span>
             </div>
           </div>
         )}
@@ -277,14 +277,14 @@ export const AuditTrailView: React.FC = () => {
       </JXCard>
 
       {/* Filter Ribbon & Immutable Data Grid */}
-      <JXCard className="bg-slate-900/60 border-slate-800">
-        <div className="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
+        <div className="p-4 border-b border-[var(--product-line)] flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
           <div className="flex items-center gap-2 flex-wrap">
             <select
               aria-label="Filter audit verdicts"
               value={verdictFilter}
               onChange={(e) => setVerdictFilter(e.target.value)}
-              className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none"
+              className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] focus:outline-none"
             >
               <option value="all">All Verdicts</option>
               <option value="auto_allowed">Auto-Allowed</option>
@@ -296,7 +296,7 @@ export const AuditTrailView: React.FC = () => {
               aria-label="Filter audit actors"
               value={actorFilter}
               onChange={(e) => setActorFilter(e.target.value)}
-              className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none"
+              className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] focus:outline-none"
             >
               <option value="all">All Actors</option>
               <option value="claude">Claude Agent</option>
@@ -309,7 +309,7 @@ export const AuditTrailView: React.FC = () => {
               placeholder="Search target host..."
               value={hostSearch}
               onChange={(e) => setHostSearch(e.target.value)}
-              className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none"
+              className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] placeholder-slate-500 focus:outline-none"
             />
 
             <input
@@ -317,20 +317,20 @@ export const AuditTrailView: React.FC = () => {
               placeholder="Filter by hash..."
               value={hashSearch}
               onChange={(e) => setHashSearch(e.target.value)}
-              className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none"
+              className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] placeholder-slate-500 focus:outline-none"
             />
           </div>
 
-          <span className="text-slate-400">
-            Showing <strong className="text-slate-200">{filteredRecords.length}</strong> immutable records
+          <span className="text-[var(--product-text-tertiary)]">
+            Showing <strong className="text-[var(--product-text-secondary)]">{filteredRecords.length}</strong> immutable records
           </span>
         </div>
 
         <JXCardContent>
-          <div className="overflow-x-auto rounded-xl border border-slate-800">
+          <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-950 border-b border-slate-800 text-slate-400 font-mono uppercase">
+                <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase">
                   <th className="p-3">Block #</th>
                   <th className="p-3">RFC 3339 Timestamp (UTC)</th>
                   <th className="p-3">Actor Identity</th>
@@ -343,18 +343,18 @@ export const AuditTrailView: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-mono">
                 {filteredRecords.map((rec) => (
-                  <tr key={rec.blockNumber} className="hover:bg-slate-950/40 transition-colors">
+                  <tr key={rec.blockNumber} className="hover:bg-[var(--product-canvas)]/40 transition-colors">
                     <td className="p-3 font-bold text-indigo-400">
                       #{String(rec.blockNumber).padStart(8, "0")}
                     </td>
-                    <td className="p-3 text-slate-300">{rec.timestamp}</td>
-                    <td className="p-3 text-slate-200">{rec.actor}</td>
+                    <td className="p-3 text-[var(--product-text-secondary)]">{rec.timestamp}</td>
+                    <td className="p-3 text-[var(--product-text-secondary)]">{rec.actor}</td>
                     <td className="p-3">
-                      <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-200">
+                      <span className="px-2 py-0.5 rounded bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)]">
                         {rec.action}
                       </span>
                     </td>
-                    <td className="p-3 text-slate-300">{rec.targetHost}</td>
+                    <td className="p-3 text-[var(--product-text-secondary)]">{rec.targetHost}</td>
                     <td className="p-3">
                       <span
                         className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
@@ -368,14 +368,14 @@ export const AuditTrailView: React.FC = () => {
                         {rec.governanceVerdict}
                       </span>
                     </td>
-                    <td className="p-3 text-slate-400 text-[11px] truncate max-w-xs">
+                    <td className="p-3 text-[var(--product-text-tertiary)] text-[11px] truncate max-w-xs">
                       {rec.sha256Hash}
                     </td>
                     <td className="p-3 text-right">
                       <button
                         type="button"
                         onClick={() => setSelectedProofEvent(rec)}
-                        className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition-colors"
+                        className="px-2.5 py-1 rounded bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] text-xs transition-colors"
                       >
                         Verify Proof
                       </button>
@@ -398,7 +398,7 @@ export const AuditTrailView: React.FC = () => {
               exit={{ opacity: 0, scale: 0.95 }}
               className="space-y-4"
             >
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center justify-between border-b border-[var(--product-line)] pb-3">
                 <div className="flex items-center gap-2 text-emerald-400 font-bold">
                   <ShieldCheck className="w-5 h-5" />
                   <span>Merkle Cryptographic Chain Proof</span>
@@ -407,7 +407,7 @@ export const AuditTrailView: React.FC = () => {
                   type="button"
                   aria-label="Close audit proof"
                   onClick={() => setSelectedProofEvent(null)}
-                  className="text-slate-400 hover:text-slate-200"
+                  className="text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                 >
                   <XCircle className="w-5 h-5" />
                 </button>
@@ -415,29 +415,29 @@ export const AuditTrailView: React.FC = () => {
 
               <div className="space-y-3 text-xs font-mono">
                 <div>
-                  <span className="text-slate-400 block mb-1">Block Sequence ID:</span>
-                  <div className="p-2 rounded bg-slate-950 text-indigo-400 font-bold">
+                  <span className="text-[var(--product-text-tertiary)] block mb-1">Block Sequence ID:</span>
+                  <div className="p-2 rounded bg-[var(--product-canvas)] text-indigo-400 font-bold">
                     #{selectedProofEvent.blockNumber} (RFC 3339: {selectedProofEvent.timestamp})
                   </div>
                 </div>
 
                 <div>
-                  <span className="text-slate-400 block mb-1">Current Block Hash (Leaf Node):</span>
-                  <div className="p-2 rounded bg-slate-950 text-emerald-300 break-all font-mono">
+                  <span className="text-[var(--product-text-tertiary)] block mb-1">Current Block Hash (Leaf Node):</span>
+                  <div className="p-2 rounded bg-[var(--product-canvas)] text-emerald-300 break-all font-mono">
                     {selectedProofEvent.sha256Hash}
                   </div>
                 </div>
 
                 <div>
-                  <span className="text-slate-400 block mb-1">Previous Block Hash Link:</span>
-                  <div className="p-2 rounded bg-slate-950 text-slate-300 break-all font-mono">
+                  <span className="text-[var(--product-text-tertiary)] block mb-1">Previous Block Hash Link:</span>
+                  <div className="p-2 rounded bg-[var(--product-canvas)] text-[var(--product-text-secondary)] break-all font-mono">
                     {selectedProofEvent.prevHash || "0x0000000000000000000000000000000000000000 (Genesis Root)"}
                   </div>
                 </div>
 
                 <div>
-                  <span className="text-slate-400 block mb-1">Payload Summary:</span>
-                  <div className="p-2.5 rounded bg-slate-950 text-slate-300">
+                  <span className="text-[var(--product-text-tertiary)] block mb-1">Payload Summary:</span>
+                  <div className="p-2.5 rounded bg-[var(--product-canvas)] text-[var(--product-text-secondary)]">
                     {selectedProofEvent.payloadSummary}
                   </div>
                 </div>
@@ -447,20 +447,20 @@ export const AuditTrailView: React.FC = () => {
                   selectedProofEvent.action.toLowerCase().includes("recording") ||
                   selectedProofEvent.action.toLowerCase().includes("desktop")) && (
                   <div>
-                    <span className="text-slate-400 block mb-1">Encrypted Session Recording Timeline:</span>
-                    <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                      <div className="flex items-center justify-between text-[11px] pb-1 border-b border-slate-800/80">
+                    <span className="text-[var(--product-text-tertiary)] block mb-1">Encrypted Session Recording Timeline:</span>
+                    <div className="p-3 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] space-y-2">
+                      <div className="flex items-center justify-between text-[11px] pb-1 border-b border-[var(--product-line)]/80">
                         <span className="text-cyan-400 font-semibold">WebRTC H.264 & Opus Stream Manifest</span>
                         <span className="text-emerald-400 font-bold">SEALED · VERIFIED</span>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-400">
-                        <div>Transport: <span className="text-slate-200">Coturn TURN (UDP 3478)</span></div>
-                        <div>Encryption: <span className="text-slate-200">AES-GCM / SRTP / Opus</span></div>
-                        <div>Integrity: <span className="text-slate-200">SHA-256 Merkle Chain</span></div>
-                        <div>Duration: <span className="text-slate-200">360s</span></div>
+                      <div className="grid grid-cols-2 gap-2 text-[10px] text-[var(--product-text-tertiary)]">
+                        <div>Transport: <span className="text-[var(--product-text-secondary)]">Coturn TURN (UDP 3478)</span></div>
+                        <div>Encryption: <span className="text-[var(--product-text-secondary)]">AES-GCM / SRTP / Opus</span></div>
+                        <div>Integrity: <span className="text-[var(--product-text-secondary)]">SHA-256 Merkle Chain</span></div>
+                        <div>Duration: <span className="text-[var(--product-text-secondary)]">360s</span></div>
                       </div>
-                      <div className="text-[10px] space-y-1 pt-1 border-t border-slate-800/60">
-                        <div className="text-slate-300">#0 · SESSION_INITIALIZED (H.264 1080p@30)</div>
+                      <div className="text-[10px] space-y-1 pt-1 border-t border-[var(--product-line)]">
+                        <div className="text-[var(--product-text-secondary)]">#0 · SESSION_INITIALIZED (H.264 1080p@30)</div>
                         <div className="text-indigo-300">#1 · OPERATOR_TAKEOVER_ENGAGED (Autonomous Intercept)</div>
                         <div className="text-amber-300">#2 · AI_ACTION_ANTICIPATED (Deploy Canary Intent)</div>
                         <div className="text-rose-300">#3 · OPERATOR_VETO_DISPATCHED (Veto Triggered)</div>

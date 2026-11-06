@@ -15,6 +15,7 @@ export const messages = [
   "Signing in…", "Sign in with your identity provider", "Explore demo workspace",
   "Unable to sign in", "Search", "Cancel", "Save", "Previous page", "Next page",
   "Not reported", "Not loaded", "{count} results · Page {page} of {pages}",
+  "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
 ] as const;
 export type Message = typeof messages[number];
 
@@ -53,6 +54,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "جارٍ تسجيل الدخول…", "تسجيل الدخول باستخدام موفر الهوية", "استكشاف مساحة العمل التجريبية",
     "تعذّر تسجيل الدخول", "بحث", "إلغاء", "حفظ", "الصفحة السابقة", "الصفحة التالية",
     "لم يتم الإبلاغ", "لم يتم التحميل", "{count} نتيجة · الصفحة {page} من {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   bn: [
     "ভাষা", "ভাষা খুঁজুন", "বন্ধ করুন", "প্রদর্শনের ঘনত্ব", "সংক্ষিপ্ত", "প্রশস্ত",
@@ -63,6 +65,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "সাইন ইন হচ্ছে…", "আপনার পরিচয় প্রদানকারীর মাধ্যমে সাইন ইন করুন", "ডেমো ওয়ার্কস্পেস দেখুন",
     "সাইন ইন করা যায়নি", "খুঁজুন", "বাতিল", "সংরক্ষণ", "আগের পৃষ্ঠা", "পরের পৃষ্ঠা",
     "জানানো হয়নি", "লোড হয়নি", "{count} ফলাফল · পৃষ্ঠা {page} / {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   "zh-Hans": [
     "语言", "搜索语言", "关闭", "显示密度", "紧凑", "舒适",
@@ -73,6 +76,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "正在登录…", "使用身份提供商登录", "探索演示工作区",
     "无法登录", "搜索", "取消", "保存", "上一页", "下一页",
     "未报告", "未加载", "{count} 条结果 · 第 {page} 页，共 {pages} 页",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   "zh-Hant": [
     "語言", "搜尋語言", "關閉", "顯示密度", "緊湊", "舒適",
@@ -83,6 +87,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "正在登入…", "使用身分提供者登入", "探索示範工作區",
     "無法登入", "搜尋", "取消", "儲存", "上一頁", "下一頁",
     "未回報", "未載入", "{count} 筆結果 · 第 {page} 頁，共 {pages} 頁",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   fr: [
     "Langue", "Rechercher une langue", "Fermer", "Densité d’affichage", "Compact", "Confortable",
@@ -93,6 +98,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "Connexion…", "Se connecter avec votre fournisseur d’identité", "Explorer l’espace de démonstration",
     "Connexion impossible", "Rechercher", "Annuler", "Enregistrer", "Page précédente", "Page suivante",
     "Non renseigné", "Non chargé", "{count} résultats · Page {page} sur {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   de: [
     "Sprache", "Sprachen suchen", "Schließen", "Anzeigedichte", "Kompakt", "Komfortabel",
@@ -103,6 +109,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "Anmeldung läuft…", "Mit Ihrem Identitätsanbieter anmelden", "Demo-Arbeitsbereich erkunden",
     "Anmeldung nicht möglich", "Suchen", "Abbrechen", "Speichern", "Vorherige Seite", "Nächste Seite",
     "Nicht gemeldet", "Nicht geladen", "{count} Ergebnisse · Seite {page} von {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   he: [
     "שפה", "חיפוש שפות", "סגירה", "צפיפות תצוגה", "קומפקטי", "מרווח",
@@ -113,6 +120,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "מתבצעת כניסה…", "כניסה באמצעות ספק הזהות שלך", "סיור בסביבת ההדגמה",
     "לא ניתן להיכנס", "חיפוש", "ביטול", "שמירה", "העמוד הקודם", "העמוד הבא",
     "לא דווח", "לא נטען", "{count} תוצאות · עמוד {page} מתוך {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   hi: [
     "भाषा", "भाषाएँ खोजें", "बंद करें", "प्रदर्शन घनत्व", "सघन", "आरामदायक",
@@ -123,6 +131,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "साइन इन हो रहा है…", "अपने पहचान प्रदाता से साइन इन करें", "डेमो कार्यस्थान देखें",
     "साइन इन नहीं हो सका", "खोजें", "रद्द करें", "सहेजें", "पिछला पृष्ठ", "अगला पृष्ठ",
     "रिपोर्ट नहीं किया गया", "लोड नहीं हुआ", "{count} परिणाम · पृष्ठ {page} / {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   id: [
     "Bahasa", "Cari bahasa", "Tutup", "Kepadatan tampilan", "Ringkas", "Nyaman",
@@ -133,6 +142,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "Sedang masuk…", "Masuk dengan penyedia identitas Anda", "Jelajahi ruang kerja demo",
     "Tidak dapat masuk", "Cari", "Batal", "Simpan", "Halaman sebelumnya", "Halaman berikutnya",
     "Belum dilaporkan", "Belum dimuat", "{count} hasil · Halaman {page} dari {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   ja: [
     "言語", "言語を検索", "閉じる", "表示密度", "コンパクト", "ゆったり",
@@ -143,6 +153,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "サインイン中…", "ID プロバイダーでサインイン", "デモワークスペースを見る",
     "サインインできません", "検索", "キャンセル", "保存", "前のページ", "次のページ",
     "未報告", "未読み込み", "{count} 件 · {page} / {pages} ページ",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   ko: [
     "언어", "언어 검색", "닫기", "화면 밀도", "간결하게", "여유롭게",
@@ -153,6 +164,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "로그인 중…", "ID 공급자로 로그인", "데모 작업 공간 둘러보기",
     "로그인할 수 없음", "검색", "취소", "저장", "이전 페이지", "다음 페이지",
     "보고되지 않음", "로드되지 않음", "결과 {count}개 · {page} / {pages} 페이지",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   fa: [
     "زبان", "جستجوی زبان‌ها", "بستن", "تراکم نمایش", "فشرده", "راحت",
@@ -163,6 +175,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "در حال ورود…", "ورود با ارائه‌دهنده هویت", "مشاهده فضای کاری نمایشی",
     "ورود امکان‌پذیر نیست", "جستجو", "لغو", "ذخیره", "صفحه قبل", "صفحه بعد",
     "گزارش نشده", "بارگذاری نشده", "{count} نتیجه · صفحه {page} از {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   pt: [
     "Idioma", "Pesquisar idiomas", "Fechar", "Densidade da interface", "Compacto", "Confortável",
@@ -173,6 +186,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "Entrando…", "Entrar com seu provedor de identidade", "Explorar a área de demonstração",
     "Não foi possível entrar", "Pesquisar", "Cancelar", "Salvar", "Página anterior", "Próxima página",
     "Não informado", "Não carregado", "{count} resultados · Página {page} de {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   ru: [
     "Язык", "Поиск языков", "Закрыть", "Плотность интерфейса", "Компактно", "Просторно",
@@ -183,6 +197,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "Вход…", "Войти через поставщика удостоверений", "Открыть демонстрационную среду",
     "Не удалось войти", "Поиск", "Отмена", "Сохранить", "Предыдущая страница", "Следующая страница",
     "Нет данных", "Не загружено", "Результатов: {count} · Страница {page} из {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   es: [
     "Idioma", "Buscar idiomas", "Cerrar", "Densidad de pantalla", "Compacto", "Cómodo",
@@ -193,6 +208,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "Iniciando sesión…", "Iniciar sesión con tu proveedor de identidad", "Explorar el espacio de demostración",
     "No se pudo iniciar sesión", "Buscar", "Cancelar", "Guardar", "Página anterior", "Página siguiente",
     "No informado", "Sin cargar", "{count} resultados · Página {page} de {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   ta: [
     "மொழி", "மொழிகளைத் தேடு", "மூடு", "காட்சி அடர்த்தி", "சுருக்கம்", "வசதி",
@@ -203,6 +219,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "உள்நுழைகிறது…", "உங்கள் அடையாள வழங்குநர் மூலம் உள்நுழையவும்", "மாதிரி பணியிடத்தைப் பார்",
     "உள்நுழைய முடியவில்லை", "தேடு", "ரத்து", "சேமி", "முந்தைய பக்கம்", "அடுத்த பக்கம்",
     "தெரிவிக்கப்படவில்லை", "ஏற்றப்படவில்லை", "{count} முடிவுகள் · பக்கம் {page} / {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   tr: [
     "Dil", "Dil ara", "Kapat", "Görünüm yoğunluğu", "Kompakt", "Rahat",
@@ -213,6 +230,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "Giriş yapılıyor…", "Kimlik sağlayıcınızla giriş yapın", "Demo çalışma alanını keşfet",
     "Giriş yapılamadı", "Ara", "İptal", "Kaydet", "Önceki sayfa", "Sonraki sayfa",
     "Bildirilmedi", "Yüklenmedi", "{count} sonuç · Sayfa {page} / {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   ur: [
     "زبان", "زبانیں تلاش کریں", "بند کریں", "ڈسپلے کی کثافت", "مختصر", "کشادہ",
@@ -223,6 +241,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "سائن ان ہو رہا ہے…", "اپنے شناخت فراہم کنندہ کے ذریعے سائن ان کریں", "ڈیمو ورک اسپیس دیکھیں",
     "سائن ان نہیں ہو سکا", "تلاش", "منسوخ", "محفوظ کریں", "پچھلا صفحہ", "اگلا صفحہ",
     "اطلاع نہیں دی گئی", "لوڈ نہیں ہوا", "{count} نتائج · صفحہ {page} از {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
   vi: [
     "Ngôn ngữ", "Tìm ngôn ngữ", "Đóng", "Mật độ hiển thị", "Gọn", "Thoáng",
@@ -233,6 +252,7 @@ export const catalogRows: Record<Exclude<Locale, "en">, TranslationRow<typeof me
     "Đang đăng nhập…", "Đăng nhập bằng nhà cung cấp danh tính", "Khám phá không gian minh họa",
     "Không thể đăng nhập", "Tìm kiếm", "Hủy", "Lưu", "Trang trước", "Trang sau",
     "Chưa báo cáo", "Chưa tải", "{count} kết quả · Trang {page} / {pages}",
+    "Theme", "Switch to light theme", "Switch to dark theme", "Light", "Dark",
   ],
 };
 

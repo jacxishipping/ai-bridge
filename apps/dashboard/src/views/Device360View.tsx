@@ -400,9 +400,9 @@ export const Device360View: React.FC = () => {
   return (
     <div className="w-full space-y-4">
       {/* Breadcrumb Navigation & Node Selector Ribbon */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-[var(--product-line)]">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-100 mt-1">
+          <h1 className="text-xl font-bold tracking-tight text-[var(--product-text)] mt-1">
             Device details
           </h1>
         </div>
@@ -420,7 +420,7 @@ export const Device360View: React.FC = () => {
       </div>
 
       {/* Device Header & Fast Hardware Controls */}
-      <JXCard className="bg-slate-900/60 border-slate-800 relative overflow-hidden">
+      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)] relative overflow-hidden">
         <JXCardContent>
           <div className="space-y-4">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -436,8 +436,8 @@ export const Device360View: React.FC = () => {
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-lg font-bold text-slate-100">{selectedDevice.hostname}</span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded uppercase bg-slate-800 text-slate-300">
+                    <span className="text-lg font-bold text-[var(--product-text)]">{selectedDevice.hostname}</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded uppercase bg-[var(--product-raised)] text-[var(--product-text-secondary)]">
                       {selectedDevice.arch}
                     </span>
                     <span
@@ -452,7 +452,7 @@ export const Device360View: React.FC = () => {
                       {selectedDevice.status}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400 font-mono mt-0.5">
+                  <p className="text-xs text-[var(--product-text-tertiary)] font-mono mt-0.5">
                     {selectedDevice.osRelease} • IP: {isOffline ? "Not assigned" : telemetry.ipAddress} • Latency: {isOffline ? "—" : `${selectedDevice.latencyMs}ms`}
                   </p>
                 </div>
@@ -467,7 +467,7 @@ export const Device360View: React.FC = () => {
                   disabled={isOffline}
                   onClick={handleCaptureScreen}
                   startIcon={<Monitor className="w-3.5 h-3.5 text-indigo-400" />}
-                  className="bg-slate-850 hover:bg-slate-800 text-slate-200 border border-slate-700/60 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] border border-[var(--product-line)] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Capture Screen
                 </JXButton>
@@ -479,7 +479,7 @@ export const Device360View: React.FC = () => {
                   disabled={isOffline}
                   onClick={handleFlushDns}
                   startIcon={<RotateCcw className="w-3.5 h-3.5 text-cyan-400" />}
-                  className="bg-slate-850 hover:bg-slate-800 text-slate-200 border border-slate-700/60 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] border border-[var(--product-line)] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Flush DNS
                 </JXButton>
@@ -491,7 +491,7 @@ export const Device360View: React.FC = () => {
                   disabled={isOffline}
                   onClick={handleCreateBackup}
                   startIcon={<HardDrive className="w-3.5 h-3.5 text-amber-400" />}
-                  className="bg-slate-850 hover:bg-slate-800 text-slate-200 border border-slate-700/60 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] border border-[var(--product-line)] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Create Backup
                 </JXButton>
@@ -503,7 +503,7 @@ export const Device360View: React.FC = () => {
                     color="error"
                     size="sm"
                     disabled
-                    className="opacity-40 cursor-not-allowed text-xs bg-slate-850 text-rose-300 border border-slate-700/60"
+                    className="opacity-40 cursor-not-allowed text-xs bg-[var(--product-raised)] text-rose-300 border border-[var(--product-line)]"
                   >
                     Reboot Node
                   </JXButton>
@@ -530,7 +530,7 @@ export const Device360View: React.FC = () => {
                         This node has not connected or reported telemetry yet. Run the enrollment command on the remote machine to connect:
                       </p>
                     </div>
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 text-xs font-mono">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-[var(--product-canvas)]/80 border border-[var(--product-line)] text-xs font-mono">
                       <code className="text-indigo-300 truncate select-all">
                         {selectedDevice.platform === "windows"
                           ? `powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://jxiptvplayer.app/magic-install.ps1' -OutFile 'magic-install.ps1'; .\\magic-install.ps1 -ControlUrl 'https://jxiptvplayer.app'"`
@@ -574,7 +574,7 @@ export const Device360View: React.FC = () => {
       <JXGrid columns={12} gap="md">
         {/* Gauge 1: CPU Utilization */}
         <JXGridItem colSpan={3}>
-          <JXCard spotlight hoverLift className="bg-slate-900/60 border-slate-800 h-full">
+          <JXCard spotlight hoverLift className="bg-[var(--product-surface)]/60 border-[var(--product-line)] h-full">
             <JXCardHeader
               title="CPU"
               icon={<Cpu className="w-4 h-4 text-indigo-400" />}
@@ -582,19 +582,19 @@ export const Device360View: React.FC = () => {
             <JXCardContent>
               <div className="space-y-3">
                 <div className="flex items-baseline justify-between">
-                  <span className="font-mono text-2xl font-bold text-slate-100 tabular-nums">
+                  <span className="font-mono text-2xl font-bold text-[var(--product-text)] tabular-nums">
                     {isOffline ? "0.0%" : `${telemetry.cpuPercent.toFixed(1)}%`}
                   </span>
-                  <span className="text-[11px] font-mono text-slate-400">
+                  <span className="text-[11px] font-mono text-[var(--product-text-tertiary)]">
                     {isOffline ? "Offline" : "Load: Normal"}
                   </span>
                 </div>
 
                 {/* Per-core mini bars */}
-                <div className="space-y-1.5 p-2 rounded-xl bg-slate-850/80 border border-slate-800">
-                  <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                <div className="space-y-1.5 p-2 rounded-xl bg-[var(--product-raised)]/80 border border-[var(--product-line)]">
+                  <div className="flex items-center justify-between text-[10px] font-mono text-[var(--product-text-tertiary)]">
                     <span>CORES ({isOffline ? 0 : telemetry.cpuCores.length} vCPU)</span>
-                    <span className={isOffline ? "text-slate-500" : "text-indigo-400"}>
+                    <span className={isOffline ? "text-[var(--product-text-dim)]" : "text-indigo-400"}>
                       {isOffline ? "Offline" : "Active"}
                     </span>
                   </div>
@@ -602,7 +602,7 @@ export const Device360View: React.FC = () => {
                     {(isOffline ? [0, 0, 0, 0] : telemetry.cpuCores.slice(0, 8)).map((core, idx) => (
                       <div key={idx} className="space-y-0.5 text-center">
                         <JXLinearProgress value={isOffline ? 0 : core} className="h-1.5" />
-                        <span className="text-[9px] font-mono text-slate-400 block tabular-nums">
+                        <span className="text-[9px] font-mono text-[var(--product-text-tertiary)] block tabular-nums">
                           C{idx}: {isOffline ? "0%" : `${core}%`}
                         </span>
                       </div>
@@ -616,7 +616,7 @@ export const Device360View: React.FC = () => {
 
         {/* Gauge 2: Memory (RAM) */}
         <JXGridItem colSpan={3}>
-          <JXCard spotlight hoverLift className="bg-slate-900/60 border-slate-800 h-full">
+          <JXCard spotlight hoverLift className="bg-[var(--product-surface)]/60 border-[var(--product-line)] h-full">
             <JXCardHeader
               title="Memory"
               icon={<Layers className="w-4 h-4 text-purple-400" />}
@@ -627,23 +627,23 @@ export const Device360View: React.FC = () => {
                   <span className="font-mono text-2xl font-bold text-purple-300 tabular-nums">
                     {isOffline ? "0.0 / 0.0 GB" : telemetry.memoryTotalGb > 0 ? `${telemetry.memoryUsedGb} / ${telemetry.memoryTotalGb} GB` : "Not reported"}
                   </span>
-                  <span className="text-[11px] font-mono text-slate-400">
+                  <span className="text-[11px] font-mono text-[var(--product-text-tertiary)]">
                     {isOffline ? "0%" : telemetry.memoryTotalGb > 0 ? `${Math.round((telemetry.memoryUsedGb / telemetry.memoryTotalGb) * 100)}%` : "—"}
                   </span>
                 </div>
 
                 {/* Segmented Memory Breakdown Bar */}
-                <div className="space-y-1.5 p-2 rounded-xl bg-slate-850/80 border border-slate-800">
-                  <div className="w-full h-2 rounded-full bg-slate-800 flex overflow-hidden">
+                <div className="space-y-1.5 p-2 rounded-xl bg-[var(--product-raised)]/80 border border-[var(--product-line)]">
+                  <div className="w-full h-2 rounded-full bg-[var(--product-raised)] flex overflow-hidden">
                     {!isOffline && (
                       <>
                         <div className="bg-purple-500 h-full w-[45%]" title="Active Allocations" />
                         <div className="bg-indigo-400 h-full w-[25%]" title="Buffers & Cache" />
                       </>
                     )}
-                    <div className="bg-slate-700 h-full w-full" title="Free / Offline Space" />
+                    <div className="bg-[var(--product-raised)] h-full w-full" title="Free / Offline Space" />
                   </div>
-                  <div className="flex justify-between items-center text-[10px] font-mono text-slate-400 pt-0.5">
+                  <div className="flex justify-between items-center text-[10px] font-mono text-[var(--product-text-tertiary)] pt-0.5">
                     <span>Active: {isOffline ? "0.0G" : `${(telemetry.memoryUsedGb * 0.7).toFixed(1)}G`}</span>
                     <span>Cache: {isOffline ? "0.0G" : `${(telemetry.memoryUsedGb * 0.3).toFixed(1)}G`}</span>
                     <span>Swap: {isOffline ? "0.0G" : `${telemetry.swapUsedGb}G`}</span>
@@ -656,7 +656,7 @@ export const Device360View: React.FC = () => {
 
         {/* Gauge 3: Storage Volumes */}
         <JXGridItem colSpan={3}>
-          <JXCard spotlight hoverLift className="bg-slate-900/60 border-slate-800 h-full">
+          <JXCard spotlight hoverLift className="bg-[var(--product-surface)]/60 border-[var(--product-line)] h-full">
             <JXCardHeader
               title="Storage"
               icon={<HardDrive className="w-4 h-4 text-emerald-400" />}
@@ -667,17 +667,17 @@ export const Device360View: React.FC = () => {
                   <span className="font-mono text-2xl font-bold text-emerald-300 tabular-nums">
                     {isOffline ? "0 / 0 GB" : `${telemetry.diskUsedGb} / ${telemetry.diskTotalGb} GB`}
                   </span>
-                  <span className={`text-[11px] font-mono ${isOffline ? "text-slate-500" : "text-emerald-400"}`}>
+                  <span className={`text-[11px] font-mono ${isOffline ? "text-[var(--product-text-dim)]" : "text-emerald-400"}`}>
                     {isOffline ? "Offline" : "SMART OK"}
                   </span>
                 </div>
 
                 {/* Partition bars */}
-                <div className="space-y-2 p-2 rounded-xl bg-slate-850/80 border border-slate-800">
+                <div className="space-y-2 p-2 rounded-xl bg-[var(--product-raised)]/80 border border-[var(--product-line)]">
                   <div className="space-y-1">
-                    <div className="flex justify-between text-[10px] font-mono text-slate-400">
+                    <div className="flex justify-between text-[10px] font-mono text-[var(--product-text-tertiary)]">
                       <span>{selectedDevice.platform === "windows" ? "C:\\ (System Volume)" : "/ (Root Volume)"}</span>
-                      <span className="text-slate-300 tabular-nums">
+                      <span className="text-[var(--product-text-secondary)] tabular-nums">
                         {isOffline ? "0% used" : `${telemetry.diskPercent}% used`}
                       </span>
                     </div>
@@ -691,7 +691,7 @@ export const Device360View: React.FC = () => {
 
         {/* Gauge 4: Network Throughput */}
         <JXGridItem colSpan={3}>
-          <JXCard spotlight hoverLift className="bg-slate-900/60 border-slate-800 h-full">
+          <JXCard spotlight hoverLift className="bg-[var(--product-surface)]/60 border-[var(--product-line)] h-full">
             <JXCardHeader
               title="Network"
               icon={<Activity className="w-4 h-4 text-cyan-400" />}
@@ -701,29 +701,29 @@ export const Device360View: React.FC = () => {
                 <div className="flex items-baseline justify-between font-mono">
                   <div>
                     <span className="text-[11px] text-emerald-400 block font-semibold">RX Rate</span>
-                    <span className="text-2xl font-bold text-slate-100 tabular-nums">
+                    <span className="text-2xl font-bold text-[var(--product-text)] tabular-nums">
                       {isOffline ? "0.0" : telemetry.networkRxMbps} MB/s
                     </span>
                   </div>
                   <div className="text-right">
                     <span className="text-[11px] text-cyan-400 block font-semibold">TX Rate</span>
-                    <span className="text-2xl font-bold text-slate-100 tabular-nums">
+                    <span className="text-2xl font-bold text-[var(--product-text)] tabular-nums">
                       {isOffline ? "0.0" : telemetry.networkTxMbps} MB/s
                     </span>
                   </div>
                 </div>
 
                 {/* Sockets Micro-Telemetry */}
-                <div className="space-y-1 p-2 rounded-xl bg-slate-850/80 border border-slate-800 text-[10px] font-mono">
+                <div className="space-y-1 p-2 rounded-xl bg-[var(--product-raised)]/80 border border-[var(--product-line)] text-[10px] font-mono">
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-400">PUBLIC IP:</span>
-                    <span className="text-slate-200">
+                    <span className="text-[var(--product-text-tertiary)]">PUBLIC IP:</span>
+                    <span className="text-[var(--product-text-secondary)]">
                       {isOffline ? "—" : (import.meta as any).env?.VITE_PUBLIC_IP || "your-aws-ip"}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-400">PRIVATE IP:</span>
-                    <span className="text-slate-200">
+                    <span className="text-[var(--product-text-tertiary)]">PRIVATE IP:</span>
+                    <span className="text-[var(--product-text-secondary)]">
                       {isOffline ? "Not assigned" : telemetry.ipAddress}
                     </span>
                   </div>
@@ -738,7 +738,7 @@ export const Device360View: React.FC = () => {
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
         {/* Left Side: 4 JXTabs Panels (ColSpan 8) */}
         <div className="xl:col-span-8 space-y-4">
-          <JXCard className="bg-slate-900/60 border-slate-800 overflow-hidden">
+          <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)] overflow-hidden">
             <JXCardContent>
               <div className="space-y-4">
                 {/* 4 JXTabs Switcher */}
@@ -772,25 +772,25 @@ export const Device360View: React.FC = () => {
                 {/* Tab 1: Running Processes */}
                 {activeTab === "processes" && (
                   <div className="space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-850/80 border border-slate-800">
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-xl bg-[var(--product-raised)]/80 border border-[var(--product-line)]">
                       <div className="flex items-center gap-2 flex-1 min-w-[240px]">
                         <JXTextField
                           value={processSearch}
                           onChange={(val) => setProcessSearch(val)}
                           placeholder="Filter by PID, executable name, or user context..."
-                          startIcon={<Search className="w-3.5 h-3.5 text-slate-400" />}
+                          startIcon={<Search className="w-3.5 h-3.5 text-[var(--product-text-tertiary)]" />}
                           size="sm"
                           clearable
                         />
                       </div>
 
                       <div className="flex items-center gap-2 text-xs font-mono">
-                        <span className="text-slate-400">Sort:</span>
+                        <span className="text-[var(--product-text-tertiary)]">Sort:</span>
                         <button
                           type="button"
                           onClick={() => setProcessSortBy("cpu")}
                           className={`px-2 py-1 rounded-lg ${
-                            processSortBy === "cpu" ? "bg-indigo-600 text-white" : "bg-slate-800 text-slate-400"
+                            processSortBy === "cpu" ? "bg-indigo-600 text-white" : "bg-[var(--product-raised)] text-[var(--product-text-tertiary)]"
                           }`}
                         >
                           CPU%
@@ -799,7 +799,7 @@ export const Device360View: React.FC = () => {
                           type="button"
                           onClick={() => setProcessSortBy("mem")}
                           className={`px-2 py-1 rounded-lg ${
-                            processSortBy === "mem" ? "bg-indigo-600 text-white" : "bg-slate-800 text-slate-400"
+                            processSortBy === "mem" ? "bg-indigo-600 text-white" : "bg-[var(--product-raised)] text-[var(--product-text-tertiary)]"
                           }`}
                         >
                           RAM
@@ -808,7 +808,7 @@ export const Device360View: React.FC = () => {
                           type="button"
                           onClick={() => setProcessSortBy("pid")}
                           className={`px-2 py-1 rounded-lg ${
-                            processSortBy === "pid" ? "bg-indigo-600 text-white" : "bg-slate-800 text-slate-400"
+                            processSortBy === "pid" ? "bg-indigo-600 text-white" : "bg-[var(--product-raised)] text-[var(--product-text-tertiary)]"
                           }`}
                         >
                           PID
@@ -817,28 +817,28 @@ export const Device360View: React.FC = () => {
                     </div>
 
                     {loadingOverview ? (
-                      <div className="p-8 text-center text-slate-400 text-xs">
+                      <div className="p-8 text-center text-[var(--product-text-tertiary)] text-xs">
                         <RefreshCw className="w-5 h-5 mx-auto mb-2 animate-spin text-indigo-400" />
                         Querying live node processes...
                       </div>
                     ) : isOffline ? (
-                      <div className="p-8 rounded-xl bg-slate-850/40 border border-slate-800 text-center space-y-2">
-                        <Radio className="w-6 h-6 mx-auto text-slate-500" />
-                        <p className="text-sm font-semibold text-slate-300">Device Offline</p>
-                        <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                      <div className="p-8 rounded-xl bg-[var(--product-raised)]/40 border border-[var(--product-line)] text-center space-y-2">
+                        <Radio className="w-6 h-6 mx-auto text-[var(--product-text-dim)]" />
+                        <p className="text-sm font-semibold text-[var(--product-text-secondary)]">Device Offline</p>
+                        <p className="text-xs text-[var(--product-text-tertiary)] max-w-sm mx-auto">
                           Live process diagnostics will stream here once the AI Bridge edge agent connects.
                         </p>
                       </div>
                     ) : filteredProcesses.length === 0 ? (
-                      <div className="p-8 rounded-xl bg-slate-850/40 border border-slate-800 text-center space-y-1">
-                        <p className="text-sm font-semibold text-slate-300">No processes matching filter</p>
-                        <p className="text-xs text-slate-400">Try adjusting your search criteria or clear the query.</p>
+                      <div className="p-8 rounded-xl bg-[var(--product-raised)]/40 border border-[var(--product-line)] text-center space-y-1">
+                        <p className="text-sm font-semibold text-[var(--product-text-secondary)]">No processes matching filter</p>
+                        <p className="text-xs text-[var(--product-text-tertiary)]">Try adjusting your search criteria or clear the query.</p>
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse text-xs font-mono">
                           <thead>
-                            <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider">
+                            <tr className="border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] uppercase tracking-wider">
                               <th className="py-2.5 px-3">PID</th>
                               <th className="py-2.5 px-3">Process Name</th>
                               <th className="py-2.5 px-3">User</th>
@@ -850,11 +850,11 @@ export const Device360View: React.FC = () => {
                           </thead>
                           <tbody className="divide-y divide-slate-800/60">
                             {filteredProcesses.map((proc) => (
-                              <tr key={proc.pid} className="hover:bg-slate-850/60 transition-colors">
+                              <tr key={proc.pid} className="hover:bg-[var(--product-raised)]/60 transition-colors">
                                 <td className="py-2.5 px-3 font-bold text-indigo-300 tabular-nums">
                                   {proc.pid}
                                 </td>
-                                <td className="py-2.5 px-3 font-semibold text-slate-200">
+                                <td className="py-2.5 px-3 font-semibold text-[var(--product-text-secondary)]">
                                   {proc.name}
                                   {proc.isProtected && (
                                     <span className="ml-2 text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-normal">
@@ -862,17 +862,17 @@ export const Device360View: React.FC = () => {
                                     </span>
                                   )}
                                 </td>
-                                <td className="py-2.5 px-3 text-slate-400">{proc.user}</td>
+                                <td className="py-2.5 px-3 text-[var(--product-text-tertiary)]">{proc.user}</td>
                                 <td className="py-2.5 px-3 tabular-nums">
-                                  <span className={proc.cpuPercent > 10 ? "text-amber-400 font-bold" : "text-slate-300"}>
+                                  <span className={proc.cpuPercent > 10 ? "text-amber-400 font-bold" : "text-[var(--product-text-secondary)]"}>
                                     {proc.cpuPercent.toFixed(1)}%
                                   </span>
                                 </td>
-                                <td className="py-2.5 px-3 tabular-nums text-slate-300">
+                                <td className="py-2.5 px-3 tabular-nums text-[var(--product-text-secondary)]">
                                   {proc.memoryMb} MB
                                 </td>
                                 <td className="py-2.5 px-3">
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--product-raised)] text-[var(--product-text-secondary)]">
                                     {proc.state}
                                   </span>
                                 </td>
@@ -904,28 +904,28 @@ export const Device360View: React.FC = () => {
                 {activeTab === "applications" && (
                   <div className="space-y-3">
                     {loadingOverview ? (
-                      <div className="p-8 text-center text-slate-400 text-xs">
+                      <div className="p-8 text-center text-[var(--product-text-tertiary)] text-xs">
                         <RefreshCw className="w-5 h-5 mx-auto mb-2 animate-spin text-indigo-400" />
                         Querying installed packages...
                       </div>
                     ) : isOffline ? (
-                      <div className="p-8 rounded-xl bg-slate-850/40 border border-slate-800 text-center space-y-2">
-                        <Radio className="w-6 h-6 mx-auto text-slate-500" />
-                        <p className="text-sm font-semibold text-slate-300">Device Offline</p>
-                        <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                      <div className="p-8 rounded-xl bg-[var(--product-raised)]/40 border border-[var(--product-line)] text-center space-y-2">
+                        <Radio className="w-6 h-6 mx-auto text-[var(--product-text-dim)]" />
+                        <p className="text-sm font-semibold text-[var(--product-text-secondary)]">Device Offline</p>
+                        <p className="text-xs text-[var(--product-text-tertiary)] max-w-sm mx-auto">
                           Software inventory will be discovered and listed here when the node connects.
                         </p>
                       </div>
                     ) : installedApps.length === 0 ? (
-                      <div className="p-8 rounded-xl bg-slate-850/40 border border-slate-800 text-center space-y-1">
-                        <p className="text-sm font-semibold text-slate-300">No installed packages reported</p>
-                        <p className="text-xs text-slate-400">The remote agent has not detected standard application binaries.</p>
+                      <div className="p-8 rounded-xl bg-[var(--product-raised)]/40 border border-[var(--product-line)] text-center space-y-1">
+                        <p className="text-sm font-semibold text-[var(--product-text-secondary)]">No installed packages reported</p>
+                        <p className="text-xs text-[var(--product-text-tertiary)]">The remote agent has not detected standard application binaries.</p>
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse text-xs font-mono">
                           <thead>
-                            <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider">
+                            <tr className="border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] uppercase tracking-wider">
                               <th className="py-2.5 px-3">Application Binary</th>
                               <th className="py-2.5 px-3">Version</th>
                               <th className="py-2.5 px-3">Publisher</th>
@@ -936,19 +936,19 @@ export const Device360View: React.FC = () => {
                           </thead>
                           <tbody className="divide-y divide-slate-800/60">
                             {installedApps.map((app) => (
-                              <tr key={app.id} className="hover:bg-slate-850/60 transition-colors">
-                                <td className="py-2.5 px-3 font-semibold text-slate-200">
+                              <tr key={app.id} className="hover:bg-[var(--product-raised)]/60 transition-colors">
+                                <td className="py-2.5 px-3 font-semibold text-[var(--product-text-secondary)]">
                                   {app.name}
                                 </td>
                                 <td className="py-2.5 px-3 text-indigo-300 font-bold">{app.version}</td>
-                                <td className="py-2.5 px-3 text-slate-400">{app.publisher}</td>
+                                <td className="py-2.5 px-3 text-[var(--product-text-tertiary)]">{app.publisher}</td>
                                 <td className="py-2.5 px-3">
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--product-raised)] text-[var(--product-text-secondary)]">
                                     {app.category}
                                   </span>
                                 </td>
                                 <td className="py-2.5 px-3">
-                                  <code className="text-[10px] px-1.5 py-0.5 rounded bg-slate-850 text-slate-300">
+                                  <code className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--product-raised)] text-[var(--product-text-secondary)]">
                                     {app.binaryPath}
                                   </code>
                                 </td>
@@ -961,7 +961,7 @@ export const Device360View: React.FC = () => {
                                       setActionFeedback(`Application "${app.name}" launch signal dispatched.`)
                                     }
                                     startIcon={<Play className="w-3 h-3 text-emerald-400" />}
-                                    className="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-200"
+                                    className="text-[11px] bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)]"
                                   >
                                     Launch
                                   </JXButton>
@@ -979,28 +979,28 @@ export const Device360View: React.FC = () => {
                 {activeTab === "sockets" && (
                   <div className="space-y-3">
                     {loadingOverview ? (
-                      <div className="p-8 text-center text-slate-400 text-xs">
+                      <div className="p-8 text-center text-[var(--product-text-tertiary)] text-xs">
                         <RefreshCw className="w-5 h-5 mx-auto mb-2 animate-spin text-indigo-400" />
                         Scanning listening ports and sockets...
                       </div>
                     ) : isOffline ? (
-                      <div className="p-8 rounded-xl bg-slate-850/40 border border-slate-800 text-center space-y-2">
-                        <Radio className="w-6 h-6 mx-auto text-slate-500" />
-                        <p className="text-sm font-semibold text-slate-300">Device Offline</p>
-                        <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                      <div className="p-8 rounded-xl bg-[var(--product-raised)]/40 border border-[var(--product-line)] text-center space-y-2">
+                        <Radio className="w-6 h-6 mx-auto text-[var(--product-text-dim)]" />
+                        <p className="text-sm font-semibold text-[var(--product-text-secondary)]">Device Offline</p>
+                        <p className="text-xs text-[var(--product-text-tertiary)] max-w-sm mx-auto">
                           Active network sockets and listening ports will appear here once the agent connects.
                         </p>
                       </div>
                     ) : listeningSockets.length === 0 ? (
-                      <div className="p-8 rounded-xl bg-slate-850/40 border border-slate-800 text-center space-y-1">
-                        <p className="text-sm font-semibold text-slate-300">No active listening sockets reported</p>
-                        <p className="text-xs text-slate-400">All inbound ports are either filtered or inactive.</p>
+                      <div className="p-8 rounded-xl bg-[var(--product-raised)]/40 border border-[var(--product-line)] text-center space-y-1">
+                        <p className="text-sm font-semibold text-[var(--product-text-secondary)]">No active listening sockets reported</p>
+                        <p className="text-xs text-[var(--product-text-tertiary)]">All inbound ports are either filtered or inactive.</p>
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse text-xs font-mono">
                           <thead>
-                            <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider">
+                            <tr className="border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] uppercase tracking-wider">
                               <th className="py-2.5 px-3">Port</th>
                               <th className="py-2.5 px-3">Protocol</th>
                               <th className="py-2.5 px-3">Local Address</th>
@@ -1011,13 +1011,13 @@ export const Device360View: React.FC = () => {
                           </thead>
                           <tbody className="divide-y divide-slate-800/60">
                             {listeningSockets.map((s) => (
-                              <tr key={s.port} className="hover:bg-slate-850/60 transition-colors">
+                              <tr key={s.port} className="hover:bg-[var(--product-raised)]/60 transition-colors">
                                 <td className="py-2.5 px-3 font-bold text-cyan-300 tabular-nums">
                                   :{s.port}
                                 </td>
                                 <td className="py-2.5 px-3 text-indigo-300 font-semibold">{s.protocol}</td>
-                                <td className="py-2.5 px-3 text-slate-300">{s.localAddress}</td>
-                                <td className="py-2.5 px-3 text-slate-400">{s.foreignAddress}</td>
+                                <td className="py-2.5 px-3 text-[var(--product-text-secondary)]">{s.localAddress}</td>
+                                <td className="py-2.5 px-3 text-[var(--product-text-tertiary)]">{s.foreignAddress}</td>
                                 <td className="py-2.5 px-3">
                                   <span
                                     className={`text-[10px] px-2 py-0.5 rounded font-bold ${
@@ -1029,7 +1029,7 @@ export const Device360View: React.FC = () => {
                                     {s.state}
                                   </span>
                                 </td>
-                                <td className="py-2.5 px-3 text-slate-300">{s.service}</td>
+                                <td className="py-2.5 px-3 text-[var(--product-text-secondary)]">{s.service}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1043,28 +1043,28 @@ export const Device360View: React.FC = () => {
                 {activeTab === "daemons" && (
                   <div className="space-y-3">
                     {loadingOverview ? (
-                      <div className="p-8 text-center text-slate-400 text-xs">
+                      <div className="p-8 text-center text-[var(--product-text-tertiary)] text-xs">
                         <RefreshCw className="w-5 h-5 mx-auto mb-2 animate-spin text-indigo-400" />
                         Inspecting system service daemons...
                       </div>
                     ) : isOffline ? (
-                      <div className="p-8 rounded-xl bg-slate-850/40 border border-slate-800 text-center space-y-2">
-                        <Radio className="w-6 h-6 mx-auto text-slate-500" />
-                        <p className="text-sm font-semibold text-slate-300">Device Offline</p>
-                        <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                      <div className="p-8 rounded-xl bg-[var(--product-raised)]/40 border border-[var(--product-line)] text-center space-y-2">
+                        <Radio className="w-6 h-6 mx-auto text-[var(--product-text-dim)]" />
+                        <p className="text-sm font-semibold text-[var(--product-text-secondary)]">Device Offline</p>
+                        <p className="text-xs text-[var(--product-text-tertiary)] max-w-sm mx-auto">
                           Background daemons and system services will appear here once the agent connects.
                         </p>
                       </div>
                     ) : daemons.length === 0 ? (
-                      <div className="p-8 rounded-xl bg-slate-850/40 border border-slate-800 text-center space-y-1">
-                        <p className="text-sm font-semibold text-slate-300">No managed daemons reported</p>
-                        <p className="text-xs text-slate-400">System services are managed by the host OS init system.</p>
+                      <div className="p-8 rounded-xl bg-[var(--product-raised)]/40 border border-[var(--product-line)] text-center space-y-1">
+                        <p className="text-sm font-semibold text-[var(--product-text-secondary)]">No managed daemons reported</p>
+                        <p className="text-xs text-[var(--product-text-tertiary)]">System services are managed by the host OS init system.</p>
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse text-xs font-mono">
                           <thead>
-                            <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider">
+                            <tr className="border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] uppercase tracking-wider">
                               <th className="py-2.5 px-3">Service Daemon</th>
                               <th className="py-2.5 px-3">Description</th>
                               <th className="py-2.5 px-3">Status</th>
@@ -1076,9 +1076,9 @@ export const Device360View: React.FC = () => {
                           </thead>
                           <tbody className="divide-y divide-slate-800/60">
                             {daemons.map((daemon) => (
-                              <tr key={daemon.name} className="hover:bg-slate-850/60 transition-colors">
-                                <td className="py-2.5 px-3 font-bold text-slate-100">{daemon.name}</td>
-                                <td className="py-2.5 px-3 text-slate-400">{daemon.description}</td>
+                              <tr key={daemon.name} className="hover:bg-[var(--product-raised)]/60 transition-colors">
+                                <td className="py-2.5 px-3 font-bold text-[var(--product-text)]">{daemon.name}</td>
+                                <td className="py-2.5 px-3 text-[var(--product-text-tertiary)]">{daemon.description}</td>
                                 <td className="py-2.5 px-3">
                                   <span
                                     className={`text-[10px] px-2 py-0.5 rounded font-semibold ${
@@ -1090,9 +1090,9 @@ export const Device360View: React.FC = () => {
                                     {daemon.status}
                                   </span>
                                 </td>
-                                <td className="py-2.5 px-3 text-slate-300">{daemon.pid || "—"}</td>
-                                <td className="py-2.5 px-3 text-slate-300">{daemon.memoryMb} MB</td>
-                                <td className="py-2.5 px-3 text-slate-400">{daemon.restarts}</td>
+                                <td className="py-2.5 px-3 text-[var(--product-text-secondary)]">{daemon.pid || "—"}</td>
+                                <td className="py-2.5 px-3 text-[var(--product-text-secondary)]">{daemon.memoryMb} MB</td>
+                                <td className="py-2.5 px-3 text-[var(--product-text-tertiary)]">{daemon.restarts}</td>
                                 <td className="py-2.5 px-3 text-right">
                                   <div className="flex items-center justify-end gap-1.5">
                                     {daemon.status === "active" ? (
@@ -1142,7 +1142,7 @@ export const Device360View: React.FC = () => {
 
         {/* Right Side: Security Fingerprint Card (ColSpan 4) */}
         <div className="xl:col-span-4 space-y-4">
-          <JXCard className="bg-slate-900/60 border-slate-800">
+          <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
             <JXCardHeader
               title="Security Fingerprint"
               subheader="Zero-Trust mTLS & TPM PCR Attestation"
@@ -1151,8 +1151,8 @@ export const Device360View: React.FC = () => {
             <JXCardContent>
               <div className="space-y-3 font-mono text-xs">
                 {/* SHA-256 Fingerprint */}
-                <div className="space-y-1 p-2.5 rounded-xl bg-slate-850/80 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+                <div className="space-y-1 p-2.5 rounded-xl bg-[var(--product-raised)]/80 border border-[var(--product-line)]">
+                  <span className="text-[10px] text-[var(--product-text-tertiary)] uppercase tracking-wider block">
                     Host SHA-256 Fingerprint
                   </span>
                   <code className="text-[10px] text-indigo-300 break-all select-all block">
@@ -1161,12 +1161,12 @@ export const Device360View: React.FC = () => {
                 </div>
 
                 {/* mTLS Cert Expiry */}
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-850/80 border border-slate-800">
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-[var(--product-raised)]/80 border border-[var(--product-line)]">
                   <div>
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+                    <span className="text-[10px] text-[var(--product-text-tertiary)] uppercase tracking-wider block">
                       mTLS Cert Expiry
                     </span>
-                    <span className={`font-bold ${isOffline ? "text-slate-400" : "text-emerald-400"}`}>
+                    <span className={`font-bold ${isOffline ? "text-[var(--product-text-tertiary)]" : "text-emerald-400"}`}>
                       {isOffline ? "Offline (Agent not enrolled)" : telemetry.certExpiryDays > 0 ? `Expires in ${telemetry.certExpiryDays} days` : "Not reported"}
                     </span>
                   </div>
@@ -1174,12 +1174,12 @@ export const Device360View: React.FC = () => {
                 </div>
 
                 {/* TPM 2.0 PCR Status */}
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-850/80 border border-slate-800">
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-[var(--product-raised)]/80 border border-[var(--product-line)]">
                   <div>
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+                    <span className="text-[10px] text-[var(--product-text-tertiary)] uppercase tracking-wider block">
                       TPM 2.0 Status
                     </span>
-                    <span className="text-slate-200 font-semibold uppercase">
+                    <span className="text-[var(--product-text-secondary)] font-semibold uppercase">
                       {isOffline ? "Offline (No attestation)" : telemetry.tpmStatus === "active" ? "active PCR-7 Key-Bound" : "Not reported"}
                     </span>
                   </div>
@@ -1187,9 +1187,9 @@ export const Device360View: React.FC = () => {
                 </div>
 
                 {/* Cipher Suite */}
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-850/80 border border-slate-800">
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-[var(--product-raised)]/80 border border-[var(--product-line)]">
                   <div>
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+                    <span className="text-[10px] text-[var(--product-text-tertiary)] uppercase tracking-wider block">
                       Cipher Suite
                     </span>
                     <span className="text-indigo-300 font-semibold">
@@ -1200,16 +1200,16 @@ export const Device360View: React.FC = () => {
                 </div>
 
                 {/* Security Enforcement */}
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-850/80 border border-slate-800">
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-[var(--product-raised)]/80 border border-[var(--product-line)]">
                   <div>
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+                    <span className="text-[10px] text-[var(--product-text-tertiary)] uppercase tracking-wider block">
                       SELinux / AppArmor
                     </span>
-                    <span className={`font-semibold ${isOffline ? "text-slate-400" : "text-emerald-400"}`}>
+                    <span className={`font-semibold ${isOffline ? "text-[var(--product-text-tertiary)]" : "text-emerald-400"}`}>
                       {isOffline ? "Offline" : "Enforcing"}
                     </span>
                   </div>
-                  {isOffline ? <XCircle className="w-4 h-4 text-slate-500" /> : <Check className="w-4 h-4 text-emerald-400" />}
+                  {isOffline ? <XCircle className="w-4 h-4 text-[var(--product-text-dim)]" /> : <Check className="w-4 h-4 text-emerald-400" />}
                 </div>
               </div>
             </JXCardContent>
@@ -1231,12 +1231,12 @@ export const Device360View: React.FC = () => {
             {killGuardError ? (
               <JXAlert severity="error" title="Action Prohibited" description={killGuardError} />
             ) : (
-              <p className="text-slate-300">
+              <p className="text-[var(--product-text-secondary)]">
                 Are you sure you want to terminate process <strong className="text-indigo-300">{processToKill.name}</strong> (PID {processToKill.pid}) running under user {processToKill.user}? A SIGTERM signal will be sent to the remote node.
               </p>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--product-line)]">
               <JXButton
                 variant="soft"
                 color="neutral"

@@ -681,7 +681,7 @@ export const FleetOperationsView: React.FC = () => {
   return (
     <div className="space-y-4">
       {/* SECTION 1: Multi-Node Command Bus */}
-      <JXCard className="bg-slate-900/60 border-slate-800">
+      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
         <JXCardHeader
           title="Run on multiple devices"
           icon={<Terminal className="w-5 h-5 text-indigo-400" />}
@@ -692,7 +692,7 @@ export const FleetOperationsView: React.FC = () => {
             <JXGridItem colSpan={4}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                  <label className="block text-xs font-mono font-semibold text-[var(--product-text-tertiary)] uppercase tracking-wider mb-2">
                     Target Fleet Scope
                   </label>
                   <div className="space-y-2">
@@ -702,14 +702,14 @@ export const FleetOperationsView: React.FC = () => {
                       className={`w-full flex items-center justify-between p-3 rounded-xl border text-xs text-left transition-colors ${
                         targetScope === "all"
                           ? "bg-indigo-950/60 border-indigo-500/60 text-indigo-200"
-                          : "bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-700"
+                          : "bg-[var(--product-canvas)]/60 border-[var(--product-line)] text-[var(--product-text-secondary)] hover:border-[var(--product-line)]"
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-indigo-400" />
                         <span className="font-semibold">All Fleet Nodes</span>
                       </div>
-                      <span className="font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                      <span className="font-mono px-2 py-0.5 rounded bg-[var(--product-raised)] text-[var(--product-text-secondary)]">
                         {devices.length}
                       </span>
                     </button>
@@ -720,14 +720,14 @@ export const FleetOperationsView: React.FC = () => {
                       className={`w-full flex items-center justify-between p-3 rounded-xl border text-xs text-left transition-colors ${
                         targetScope === "production-east"
                           ? "bg-indigo-950/60 border-indigo-500/60 text-indigo-200"
-                          : "bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-700"
+                          : "bg-[var(--product-canvas)]/60 border-[var(--product-line)] text-[var(--product-text-secondary)] hover:border-[var(--product-line)]"
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-400" />
                         <span className="font-semibold">Tag: #production-east</span>
                       </div>
-                      <span className="font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                      <span className="font-mono px-2 py-0.5 rounded bg-[var(--product-raised)] text-[var(--product-text-secondary)]">
                         {devices.filter((d) => d.tags.includes("production-east")).length}
                       </span>
                     </button>
@@ -738,14 +738,14 @@ export const FleetOperationsView: React.FC = () => {
                       className={`w-full flex items-center justify-between p-3 rounded-xl border text-xs text-left transition-colors ${
                         targetScope === "gpu-runners"
                           ? "bg-indigo-950/60 border-indigo-500/60 text-indigo-200"
-                          : "bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-700"
+                          : "bg-[var(--product-canvas)]/60 border-[var(--product-line)] text-[var(--product-text-secondary)] hover:border-[var(--product-line)]"
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-cyan-400" />
                         <span className="font-semibold">Tag: #gpu-runners</span>
                       </div>
-                      <span className="font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">6</span>
+                      <span className="font-mono px-2 py-0.5 rounded bg-[var(--product-raised)] text-[var(--product-text-secondary)]">6</span>
                     </button>
 
                     <button
@@ -754,22 +754,22 @@ export const FleetOperationsView: React.FC = () => {
                       className={`w-full flex items-center justify-between p-3 rounded-xl border text-xs text-left transition-colors ${
                         targetScope === "custom"
                           ? "bg-indigo-950/60 border-indigo-500/60 text-indigo-200"
-                          : "bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-700"
+                          : "bg-[var(--product-canvas)]/60 border-[var(--product-line)] text-[var(--product-text-secondary)] hover:border-[var(--product-line)]"
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <Layers className="w-3.5 h-3.5 text-slate-400" />
+                        <Layers className="w-3.5 h-3.5 text-[var(--product-text-tertiary)]" />
                         <span className="font-semibold">Custom Multi-Select</span>
                       </div>
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                      <ChevronRight className="w-3.5 h-3.5 text-[var(--product-text-tertiary)]" />
                     </button>
                   </div>
                 </div>
 
                 {/* Concurrency Rollout Slider */}
-                <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+                <div className="p-3 rounded-xl bg-[var(--product-canvas)]/60 border border-[var(--product-line)] space-y-3">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-300 font-semibold">Concurrency Rollout</span>
+                    <span className="text-[var(--product-text-secondary)] font-semibold">Concurrency Rollout</span>
                     <span className="font-mono text-indigo-400 font-bold">
                       {concurrency} nodes in parallel
                     </span>
@@ -782,9 +782,9 @@ export const FleetOperationsView: React.FC = () => {
                     step={1}
                     value={concurrency}
                     onChange={(e) => setConcurrency(Math.min(20, Math.max(1, Number(e.target.value))))}
-                    className="w-full accent-indigo-500 bg-slate-800 rounded-lg cursor-pointer"
+                    className="w-full accent-indigo-500 bg-[var(--product-raised)] rounded-lg cursor-pointer"
                   />
-                  <div className="flex justify-between text-[10px] font-mono text-slate-400">
+                  <div className="flex justify-between text-[10px] font-mono text-[var(--product-text-tertiary)]">
                     <span>1 (Staged)</span>
                     <span>5 (Default)</span>
                     <span>20 (Full Burst)</span>
@@ -797,14 +797,14 @@ export const FleetOperationsView: React.FC = () => {
             <JXGridItem colSpan={8}>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 p-1 rounded-lg bg-slate-950 border border-slate-800">
+                  <div className="flex items-center gap-1.5 p-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)]">
                     <button
                       type="button"
                       onClick={() => handleLanguageChange("bash")}
                       className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
                         scriptLang === "bash"
                           ? "bg-indigo-600 text-white font-semibold"
-                          : "text-slate-400 hover:text-slate-200"
+                          : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                       }`}
                     >
                       Bash (sh/zsh)
@@ -815,7 +815,7 @@ export const FleetOperationsView: React.FC = () => {
                       className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
                         scriptLang === "powershell"
                           ? "bg-indigo-600 text-white font-semibold"
-                          : "text-slate-400 hover:text-slate-200"
+                          : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                       }`}
                     >
                       PowerShell Core
@@ -826,21 +826,21 @@ export const FleetOperationsView: React.FC = () => {
                       className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
                         scriptLang === "python"
                           ? "bg-indigo-600 text-white font-semibold"
-                          : "text-slate-400 hover:text-slate-200"
+                          : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                       }`}
                     >
                       Python 3.12
                     </button>
                   </div>
 
-                  <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+                  <div className="flex items-center gap-2 text-xs font-mono text-[var(--product-text-tertiary)]">
                     <span className="w-2 h-2 rounded-full bg-emerald-400" />
                     <span>mTLS Zero-Trust Bus</span>
                   </div>
                 </div>
 
-                <div className="rounded-xl bg-slate-950 border border-slate-800 overflow-hidden font-mono text-xs">
-                  <div className="p-3 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between text-slate-400">
+                <div className="rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] overflow-hidden font-mono text-xs">
+                  <div className="p-3 bg-[var(--product-surface)]/80 border-b border-[var(--product-line)] flex items-center justify-between text-[var(--product-text-tertiary)]">
                     <span>payload.{scriptLang === "powershell" ? "ps1" : scriptLang === "python" ? "py" : "sh"}</span>
                     <span>SHA256: e82b...9a12 • Ed25519 Signed</span>
                   </div>
@@ -850,17 +850,17 @@ export const FleetOperationsView: React.FC = () => {
                     value={scriptPayload}
                     onChange={(e) => setScriptPayload(e.target.value)}
                     placeholder="Enter shell or script command payload..."
-                    className="w-full p-4 bg-transparent text-slate-200 font-mono text-xs focus:outline-none resize-none"
+                    className="w-full p-4 bg-transparent text-[var(--product-text-secondary)] font-mono text-xs focus:outline-none resize-none"
                   />
                 </div>
 
                 {/* Real-time Aggregate Broadcast Progress Bar */}
                 {broadcastProgress && (
-                  <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
+                  <div className="p-4 rounded-xl bg-[var(--product-canvas)]/70 border border-[var(--product-line)] space-y-2">
                     <div className="flex items-center justify-between text-xs font-mono">
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                        <span className="text-slate-200 font-semibold">
+                        <span className="text-[var(--product-text-secondary)] font-semibold">
                           Broadcast Progress: {broadcastProgress.succeeded}/{broadcastProgress.total} Succeeded
                         </span>
                         <span className="text-cyan-400">({broadcastProgress.inProgress} In-Progress)</span>
@@ -873,7 +873,7 @@ export const FleetOperationsView: React.FC = () => {
 
                     <JXLinearProgress
                       value={progressPercent}
-                      className="w-full bg-slate-800"
+                      className="w-full bg-[var(--product-raised)]"
                     />
                   </div>
                 )}
@@ -908,7 +908,7 @@ export const FleetOperationsView: React.FC = () => {
                       Update Fleet Agents
                     </JXButton>
                     {fleetVersionInfo?.control_plane_version && (
-                      <span className="text-[11px] font-mono text-slate-400">
+                      <span className="text-[11px] font-mono text-[var(--product-text-tertiary)]">
                         v{fleetVersionInfo.control_plane_version} ({fleetVersionInfo.git_commit || "main"})
                       </span>
                     )}
@@ -942,7 +942,7 @@ export const FleetOperationsView: React.FC = () => {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <HeartPulse className="w-5 h-5 text-emerald-400" />
-            <h2 className="text-base font-semibold text-slate-100">Automation rules</h2>
+            <h2 className="text-base font-semibold text-[var(--product-text)]">Automation rules</h2>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -951,13 +951,13 @@ export const FleetOperationsView: React.FC = () => {
               placeholder="New rule name..."
               value={newRuleName}
               onChange={(e) => setNewRuleName(e.target.value)}
-              className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-200 focus:outline-none"
+              className="px-2.5 py-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs font-mono text-[var(--product-text-secondary)] focus:outline-none"
             />
             <select
               aria-label="Rule metric"
               value={newRuleMetric}
               onChange={(e) => setNewRuleMetric(e.target.value)}
-              className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-300 focus:outline-none"
+              className="px-2 py-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs font-mono text-[var(--product-text-secondary)] focus:outline-none"
             >
               <option value="memory_percent">memory_percent</option>
               <option value="cpu_percent">cpu_percent</option>
@@ -973,7 +973,7 @@ export const FleetOperationsView: React.FC = () => {
             >
               Add Rule
             </JXButton>
-            <span className="text-xs font-mono text-slate-400">
+            <span className="text-xs font-mono text-[var(--product-text-tertiary)]">
               Autonomous closed-loop remediation sentinels
             </span>
           </div>
@@ -982,8 +982,8 @@ export const FleetOperationsView: React.FC = () => {
         <JXGrid columns={12} gap="md">
           {rules.map((rule) => (
             <JXGridItem key={rule.id} colSpan={6}>
-              <JXCard className="bg-slate-900/60 border-slate-800">
-                <div className="p-4 pb-2 flex items-center justify-between border-b border-slate-800/60">
+              <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
+                <div className="p-4 pb-2 flex items-center justify-between border-b border-[var(--product-line)]">
                   <div className="flex items-center gap-2.5">
                     {rule.category === "service" ? (
                       <RotateCcw className="w-4 h-4 text-indigo-400" />
@@ -995,14 +995,14 @@ export const FleetOperationsView: React.FC = () => {
                       <HardDrive className="w-4 h-4 text-amber-400" />
                     )}
                     <div>
-                      <h4 className="text-sm font-semibold text-slate-100">{rule.name}</h4>
-                      <p className="text-[11px] font-mono text-slate-400">
+                      <h4 className="text-sm font-semibold text-[var(--product-text)]">{rule.name}</h4>
+                      <p className="text-[11px] font-mono text-[var(--product-text-tertiary)]">
                         RULE-ID: #{rule.id} • Last fired: {rule.lastFired}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-mono text-slate-400">
+                    <span className="text-[11px] font-mono text-[var(--product-text-tertiary)]">
                       {rule.enabled ? "Active" : "Disabled"}
                     </span>
                     <JXSwitch
@@ -1015,23 +1015,23 @@ export const FleetOperationsView: React.FC = () => {
                 </div>
                 <JXCardContent>
                   <div className="space-y-2.5">
-                    <div className="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800/80 text-xs">
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block mb-0.5">
+                    <div className="p-2.5 rounded-lg bg-[var(--product-canvas)]/70 border border-[var(--product-line)]/80 text-xs">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--product-text-tertiary)] block mb-0.5">
                         Trigger Condition
                       </span>
-                      <code className="text-slate-200 font-mono">{rule.condition}</code>
+                      <code className="text-[var(--product-text-secondary)] font-mono">{rule.condition}</code>
                     </div>
 
-                    <div className="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800/80 text-xs">
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block mb-0.5">
+                    <div className="p-2.5 rounded-lg bg-[var(--product-canvas)]/70 border border-[var(--product-line)]/80 text-xs">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--product-text-tertiary)] block mb-0.5">
                         Remediation Action
                       </span>
                       <code className="text-emerald-400 font-mono">{rule.action}</code>
                     </div>
 
                     <div className="flex items-center justify-between pt-1 text-xs">
-                      <span className="font-mono text-slate-400">
-                        Triggered: <strong className="text-slate-200">{rule.firedCount} times</strong>
+                      <span className="font-mono text-[var(--product-text-tertiary)]">
+                        Triggered: <strong className="text-[var(--product-text-secondary)]">{rule.firedCount} times</strong>
                       </span>
                       <div className="flex items-center gap-1.5">
                         {rule.isBackend && (
@@ -1065,7 +1065,7 @@ export const FleetOperationsView: React.FC = () => {
       </div>
 
       {/* SECTION 3: Fleet Cron Scheduler Table */}
-      <JXCard className="bg-slate-900/60 border-slate-800">
+      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
         <JXCardHeader
           title="Schedules"
           icon={<Calendar className="w-5 h-5 text-indigo-400" />}
@@ -1078,7 +1078,7 @@ export const FleetOperationsView: React.FC = () => {
               placeholder="Schedule name..."
               value={newSchedName}
               onChange={(e) => setNewSchedName(e.target.value)}
-              className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-200 focus:outline-none"
+              className="px-2.5 py-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs font-mono text-[var(--product-text-secondary)] focus:outline-none"
             />
             <JXButton
               variant="soft"
@@ -1091,10 +1091,10 @@ export const FleetOperationsView: React.FC = () => {
               Add Schedule
             </JXButton>
           </div>
-          <div className="overflow-x-auto rounded-xl border border-slate-800">
+          <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-950 border-b border-slate-800 text-slate-400 font-mono uppercase">
+                <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase">
                   <th className="p-3">Job Name</th>
                   <th className="p-3">Cron Syntax</th>
                   <th className="p-3">Target Nodes</th>
@@ -1105,17 +1105,17 @@ export const FleetOperationsView: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-mono">
                 {cronJobs.map((job) => (
-                  <tr key={job.id} className="hover:bg-slate-950/40 transition-colors">
+                  <tr key={job.id} className="hover:bg-[var(--product-canvas)]/40 transition-colors">
                     <td className="p-3">
-                      <div className="font-semibold text-slate-200">{job.name}</div>
-                      <div className="text-[11px] text-slate-400 font-sans">{job.description}</div>
+                      <div className="font-semibold text-[var(--product-text-secondary)]">{job.name}</div>
+                      <div className="text-[11px] text-[var(--product-text-tertiary)] font-sans">{job.description}</div>
                     </td>
                     <td className="p-3">
-                      <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-indigo-400">
+                      <span className="px-2 py-0.5 rounded bg-[var(--product-canvas)] border border-[var(--product-line)] text-indigo-400">
                         {job.cronExpr}
                       </span>
                     </td>
-                    <td className="p-3 text-slate-300">{job.targets}</td>
+                    <td className="p-3 text-[var(--product-text-secondary)]">{job.targets}</td>
                     <td className="p-3">
                       <div className="flex items-center gap-1.5">
                         {job.lastStatus === "success" && (
@@ -1127,11 +1127,11 @@ export const FleetOperationsView: React.FC = () => {
                         {job.lastStatus === "failed" && (
                           <XCircle className="w-3.5 h-3.5 text-rose-400" />
                         )}
-                        <span className="text-slate-300 capitalize">{job.lastStatus}</span>
-                        <span className="text-slate-500">({job.lastDuration})</span>
+                        <span className="text-[var(--product-text-secondary)] capitalize">{job.lastStatus}</span>
+                        <span className="text-[var(--product-text-dim)]">({job.lastDuration})</span>
                       </div>
                     </td>
-                    <td className="p-3 text-slate-300">{job.nextRun}</td>
+                    <td className="p-3 text-[var(--product-text-secondary)]">{job.nextRun}</td>
                     <td className="p-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         {job.isBackend && (
@@ -1174,7 +1174,7 @@ export const FleetOperationsView: React.FC = () => {
               exit={{ opacity: 0, scale: 0.95 }}
               className="space-y-4"
             >
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center justify-between border-b border-[var(--product-line)] pb-3">
                 <div className="flex items-center gap-2 text-rose-400 font-bold">
                   <AlertTriangle className="w-5 h-5" />
                   <span>Broadcast Execution Drill-Down</span>
@@ -1183,7 +1183,7 @@ export const FleetOperationsView: React.FC = () => {
                   type="button"
                   aria-label="Close broadcast failure"
                   onClick={() => setSelectedFailedNode(null)}
-                  className="text-slate-400 hover:text-slate-200"
+                  className="text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                 >
                   <XCircle className="w-5 h-5" />
                 </button>
@@ -1191,16 +1191,16 @@ export const FleetOperationsView: React.FC = () => {
 
               <div className="space-y-3 text-xs font-mono">
                 <div>
-                  <span className="text-slate-400">Node Identifier:</span>
-                  <div className="text-slate-200 font-semibold">{selectedFailedNode.nodeId}</div>
+                  <span className="text-[var(--product-text-tertiary)]">Node Identifier:</span>
+                  <div className="text-[var(--product-text-secondary)] font-semibold">{selectedFailedNode.nodeId}</div>
                 </div>
                 <div>
-                  <span className="text-slate-400">Exit Status Code:</span>
+                  <span className="text-[var(--product-text-tertiary)]">Exit Status Code:</span>
                   <div className="text-rose-400 font-bold">{selectedFailedNode.exitCode}</div>
                 </div>
                 <div>
-                  <span className="text-slate-400">Stderr Output:</span>
-                  <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-rose-300">
+                  <span className="text-[var(--product-text-tertiary)]">Stderr Output:</span>
+                  <div className="p-3 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-rose-300">
                     {selectedFailedNode.stderr}
                   </div>
                 </div>

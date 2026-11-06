@@ -1,4 +1,4 @@
-﻿/** DEMO-ONLY: seeded fixtures (fake hashes, webhooks). Rendered only when no credentials are present. Never mount in live mode. */
+/** DEMO-ONLY: seeded fixtures (fake hashes, webhooks). Rendered only when no credentials are present. Never mount in live mode. */
 /**
  * Security Policies & Webhooks Manager (Screen 11)
  * Reconstructed with pure JXUI primitives, motion/react, and lucide-react.
@@ -348,16 +348,16 @@ export const SecurityPoliciesDemo: React.FC = () => {
 
   return (
     <div className="space-y-4">      {/* 4-Tab Policy Rule Matrix */}
-      <JXCard className="bg-slate-900/60 border-slate-800">
-        <div className="p-4 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2 p-1 rounded-lg bg-slate-950 border border-slate-800">
+      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
+        <div className="p-4 border-b border-[var(--product-line)]/80 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2 p-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)]">
             <button
               type="button"
               onClick={() => setActiveTab("binaries")}
               className={`px-3 py-1.5 rounded text-xs font-mono transition-colors ${
                 activeTab === "binaries"
                   ? "bg-indigo-600 text-white font-semibold"
-                  : "text-slate-400 hover:text-slate-200"
+                  : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
               }`}
             >
               Executable Allowlists
@@ -368,7 +368,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
               className={`px-3 py-1.5 rounded text-xs font-mono transition-colors ${
                 activeTab === "paths"
                   ? "bg-indigo-600 text-white font-semibold"
-                  : "text-slate-400 hover:text-slate-200"
+                  : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
               }`}
             >
               Restricted Paths
@@ -379,7 +379,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
               className={`px-3 py-1.5 rounded text-xs font-mono transition-colors ${
                 activeTab === "tiers"
                   ? "bg-indigo-600 text-white font-semibold"
-                  : "text-slate-400 hover:text-slate-200"
+                  : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
               }`}
             >
               Tier Overrides & Throttles
@@ -390,7 +390,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
               className={`px-3 py-1.5 rounded text-xs font-mono transition-colors ${
                 activeTab === "diff"
                   ? "bg-indigo-600 text-white font-semibold"
-                  : "text-slate-400 hover:text-slate-200"
+                  : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
               }`}
             >
               Semantic Policy Diff
@@ -422,10 +422,10 @@ export const SecurityPoliciesDemo: React.FC = () => {
 
             {/* Tab 1: Executable Allowlists */}
             {activeTab === "binaries" && (
-              <div className="overflow-x-auto rounded-xl border border-slate-800">
+              <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-slate-950 border-b border-slate-800 text-slate-400 font-mono uppercase">
+                    <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase">
                       <th className="p-3">Binary Name</th>
                       <th className="p-3">Filesystem Path</th>
                       <th className="p-3">SHA-256 Cryptographic Hash</th>
@@ -435,12 +435,12 @@ export const SecurityPoliciesDemo: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 font-mono">
                     {binaries.map((b) => (
-                      <tr key={b.id} className="hover:bg-slate-950/40 transition-colors">
-                        <td className="p-3 font-semibold text-slate-200">{b.name}</td>
-                        <td className="p-3 text-slate-300">
+                      <tr key={b.id} className="hover:bg-[var(--product-canvas)]/40 transition-colors">
+                        <td className="p-3 font-semibold text-[var(--product-text-secondary)]">{b.name}</td>
+                        <td className="p-3 text-[var(--product-text-secondary)]">
                           <code>{b.path}</code>
                         </td>
-                        <td className="p-3 text-slate-400 font-mono text-[11px] truncate max-w-xs">
+                        <td className="p-3 text-[var(--product-text-tertiary)] font-mono text-[11px] truncate max-w-xs">
                           {b.sha256}
                         </td>
                         <td className="p-3">
@@ -474,10 +474,10 @@ export const SecurityPoliciesDemo: React.FC = () => {
 
             {/* Tab 2: Restricted Paths */}
             {activeTab === "paths" && (
-              <div className="overflow-x-auto rounded-xl border border-slate-800">
+              <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-slate-950 border-b border-slate-800 text-slate-400 font-mono uppercase">
+                    <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase">
                       <th className="p-3">Protected Filesystem Glob</th>
                       <th className="p-3">Protection Description</th>
                       <th className="p-3">Kernel Enforcement Level</th>
@@ -485,11 +485,11 @@ export const SecurityPoliciesDemo: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 font-mono">
                     {paths.map((p) => (
-                      <tr key={p.id} className="hover:bg-slate-950/40 transition-colors">
+                      <tr key={p.id} className="hover:bg-[var(--product-canvas)]/40 transition-colors">
                         <td className="p-3 text-rose-400 font-bold">
                           <code>{p.glob}</code>
                         </td>
-                        <td className="p-3 text-slate-300 font-sans">{p.description}</td>
+                        <td className="p-3 text-[var(--product-text-secondary)] font-sans">{p.description}</td>
                         <td className="p-3">
                           <span className="px-2 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-rose-300 text-[10px] uppercase font-bold">
                             Zero-Bypass Kernel Hook
@@ -505,9 +505,9 @@ export const SecurityPoliciesDemo: React.FC = () => {
             {/* Tab 3: Tier Overrides & Throttles */}
             {activeTab === "tiers" && (
               <div className="grid grid-cols-3 gap-4">
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                <div className="p-4 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono font-semibold text-slate-200">
+                    <span className="text-xs font-mono font-semibold text-[var(--product-text-secondary)]">
                       Tier 3 Execution Timeout
                     </span>
                     <span className="font-mono text-indigo-400 font-bold">{tier3Timeout}s</span>
@@ -520,16 +520,16 @@ export const SecurityPoliciesDemo: React.FC = () => {
                     step={10}
                     value={tier3Timeout}
                     onChange={(e) => setTier3Timeout(Number(e.target.value))}
-                    className="w-full accent-indigo-500 bg-slate-800 rounded-lg cursor-pointer"
+                    className="w-full accent-indigo-500 bg-[var(--product-raised)] rounded-lg cursor-pointer"
                   />
-                  <p className="text-[11px] font-mono text-slate-400">
+                  <p className="text-[11px] font-mono text-[var(--product-text-tertiary)]">
                     Maximum wall-clock execution time permitted for arbitrary shell jobs
                   </p>
                 </div>
 
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                <div className="p-4 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono font-semibold text-slate-200">
+                    <span className="text-xs font-mono font-semibold text-[var(--product-text-secondary)]">
                       Burst Rate Limit
                     </span>
                     <span className="font-mono text-cyan-400 font-bold">
@@ -544,16 +544,16 @@ export const SecurityPoliciesDemo: React.FC = () => {
                     step={5}
                     value={burstRateLimit}
                     onChange={(e) => setBurstRateLimit(Number(e.target.value))}
-                    className="w-full accent-cyan-500 bg-slate-800 rounded-lg cursor-pointer"
+                    className="w-full accent-cyan-500 bg-[var(--product-raised)] rounded-lg cursor-pointer"
                   />
-                  <p className="text-[11px] font-mono text-slate-400">
+                  <p className="text-[11px] font-mono text-[var(--product-text-tertiary)]">
                     Per-agent tool execution throttling across edge gateway
                   </p>
                 </div>
 
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                <div className="p-4 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono font-semibold text-slate-200">
+                    <span className="text-xs font-mono font-semibold text-[var(--product-text-secondary)]">
                       AST Entropy Sensitivity
                     </span>
                     <span className="font-mono text-emerald-400 font-bold">
@@ -568,9 +568,9 @@ export const SecurityPoliciesDemo: React.FC = () => {
                     step={0.01}
                     value={entropySensitivity}
                     onChange={(e) => setEntropySensitivity(Number(e.target.value))}
-                    className="w-full accent-emerald-500 bg-slate-800 rounded-lg cursor-pointer"
+                    className="w-full accent-emerald-500 bg-[var(--product-raised)] rounded-lg cursor-pointer"
                   />
-                  <p className="text-[11px] font-mono text-slate-400">
+                  <p className="text-[11px] font-mono text-[var(--product-text-tertiary)]">
                     Threshold for detecting obfuscated bash and base64 payloads
                   </p>
                 </div>
@@ -581,12 +581,12 @@ export const SecurityPoliciesDemo: React.FC = () => {
             {activeTab === "diff" && (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                      <span className="font-mono font-bold text-slate-300">Release v3.4.0 (Baseline)</span>
-                      <span className="text-xs font-mono text-slate-500">2026-10-15</span>
+                  <div className="p-4 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] space-y-2">
+                    <div className="flex items-center justify-between border-b border-[var(--product-line)] pb-2">
+                      <span className="font-mono font-bold text-[var(--product-text-secondary)]">Release v3.4.0 (Baseline)</span>
+                      <span className="text-xs font-mono text-[var(--product-text-dim)]">2026-10-15</span>
                     </div>
-                    <div className="text-xs font-mono text-slate-400 space-y-1">
+                    <div className="text-xs font-mono text-[var(--product-text-tertiary)] space-y-1">
                       <div>+ Binary: /usr/bin/git (sha256:e3b0...)</div>
                       <div>+ Binary: /usr/bin/docker (sha256:d87a...)</div>
                       <div>+ Path: /etc/shadow (enforcement: block)</div>
@@ -594,12 +594,12 @@ export const SecurityPoliciesDemo: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div className="p-4 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] space-y-2">
+                    <div className="flex items-center justify-between border-b border-[var(--product-line)] pb-2">
                       <span className="font-mono font-bold text-emerald-400">Release v3.4.1 (Current Active)</span>
                       <span className="text-xs font-mono text-emerald-400">2026-11-02</span>
                     </div>
-                    <div className="text-xs font-mono text-slate-400 space-y-1">
+                    <div className="text-xs font-mono text-[var(--product-text-tertiary)] space-y-1">
                       <div className="text-emerald-400">+ Added: Google Chrome (chrome.exe allowlist)</div>
                       <div className="text-rose-400">+ Blocked: nc (netcat raw socket listener)</div>
                       <div className="text-rose-400">+ Blocked: nmap (network scanner)</div>
@@ -640,9 +640,9 @@ export const SecurityPoliciesDemo: React.FC = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Webhook className="w-5 h-5 text-indigo-400" />
-            <h2 className="text-base font-semibold text-slate-100">Webhooks</h2>
+            <h2 className="text-base font-semibold text-[var(--product-text)]">Webhooks</h2>
           </div>
-          <span className="text-xs font-mono text-slate-400">
+          <span className="text-xs font-mono text-[var(--product-text-tertiary)]">
             Outbound SecOps alerting and incident automation
           </span>
         </div>
@@ -650,11 +650,11 @@ export const SecurityPoliciesDemo: React.FC = () => {
         <JXGrid columns={12} gap="md">
           {webhooks.map((wh) => (
             <JXGridItem key={wh.id} colSpan={6}>
-              <JXCard className="bg-slate-900/60 border-slate-800">
-                <div className="p-4 border-b border-slate-800/60 flex flex-wrap items-center justify-between gap-3">
+              <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
+                <div className="p-4 border-b border-[var(--product-line)] flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <h4 className="text-sm font-semibold text-slate-100">{wh.name}</h4>
-                    <span className="text-[11px] font-mono text-slate-400 truncate block max-w-xs">
+                    <h4 className="text-sm font-semibold text-[var(--product-text)]">{wh.name}</h4>
+                    <span className="text-[11px] font-mono text-[var(--product-text-tertiary)] truncate block max-w-xs">
                       {wh.urlMasked}
                     </span>
                   </div>
@@ -681,7 +681,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
 
                 <JXCardContent>
                   <div className="space-y-2 pt-1 text-xs">
-                    <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block">
+                    <span className="text-[11px] font-mono text-[var(--product-text-tertiary)] uppercase tracking-wider block">
                       Subscribed Incident Events
                     </span>
 
@@ -691,9 +691,9 @@ export const SecurityPoliciesDemo: React.FC = () => {
                           type="checkbox"
                           checked={wh.subscriptions.highRiskApproval}
                           onChange={() => handleToggleSubscription(wh.id, "highRiskApproval")}
-                          className="w-3.5 h-3.5 rounded bg-slate-900 border-slate-700 accent-indigo-500 cursor-pointer"
+                          className="w-3.5 h-3.5 rounded bg-[var(--product-surface)] border-[var(--product-line)] accent-indigo-500 cursor-pointer"
                         />
-                        <span className="text-slate-300">High-Risk Approvals</span>
+                        <span className="text-[var(--product-text-secondary)]">High-Risk Approvals</span>
                       </label>
 
                       <label className="flex items-center gap-2 cursor-pointer">
@@ -701,9 +701,9 @@ export const SecurityPoliciesDemo: React.FC = () => {
                           type="checkbox"
                           checked={wh.subscriptions.agentOffline}
                           onChange={() => handleToggleSubscription(wh.id, "agentOffline")}
-                          className="w-3.5 h-3.5 rounded bg-slate-900 border-slate-700 accent-indigo-500 cursor-pointer"
+                          className="w-3.5 h-3.5 rounded bg-[var(--product-surface)] border-[var(--product-line)] accent-indigo-500 cursor-pointer"
                         />
-                        <span className="text-slate-300">Node Disconnected</span>
+                        <span className="text-[var(--product-text-secondary)]">Node Disconnected</span>
                       </label>
 
                       <label className="flex items-center gap-2 cursor-pointer">
@@ -711,9 +711,9 @@ export const SecurityPoliciesDemo: React.FC = () => {
                           type="checkbox"
                           checked={wh.subscriptions.selfHealingFired}
                           onChange={() => handleToggleSubscription(wh.id, "selfHealingFired")}
-                          className="w-3.5 h-3.5 rounded bg-slate-900 border-slate-700 accent-indigo-500 cursor-pointer"
+                          className="w-3.5 h-3.5 rounded bg-[var(--product-surface)] border-[var(--product-line)] accent-indigo-500 cursor-pointer"
                         />
-                        <span className="text-slate-300">Self-Healing Triggered</span>
+                        <span className="text-[var(--product-text-secondary)]">Self-Healing Triggered</span>
                       </label>
 
                       <label className="flex items-center gap-2 cursor-pointer">
@@ -721,9 +721,9 @@ export const SecurityPoliciesDemo: React.FC = () => {
                           type="checkbox"
                           checked={wh.subscriptions.auditBreach}
                           onChange={() => handleToggleSubscription(wh.id, "auditBreach")}
-                          className="w-3.5 h-3.5 rounded bg-slate-900 border-slate-700 accent-indigo-500 cursor-pointer"
+                          className="w-3.5 h-3.5 rounded bg-[var(--product-surface)] border-[var(--product-line)] accent-indigo-500 cursor-pointer"
                         />
-                        <span className="text-slate-300">Audit Integrity Breach</span>
+                        <span className="text-[var(--product-text-secondary)]">Audit Integrity Breach</span>
                       </label>
                     </div>
                   </div>
@@ -734,7 +734,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
         </JXGrid>
 
         {/* Live Delivery Log Stream */}
-        <JXCard className="bg-slate-900/60 border-slate-800">
+        <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
           <JXCardHeader
             title="Delivery log"
             icon={<Activity className="w-5 h-5 text-indigo-400" />}
@@ -744,16 +744,16 @@ export const SecurityPoliciesDemo: React.FC = () => {
               {deliveryLogs.map((log) => (
                 <div
                   key={log.id}
-                  className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg bg-slate-950 border border-slate-800"
+                  className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)]"
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-indigo-400 font-bold">{log.id}</span>
-                    <span className="text-slate-200 font-semibold">{log.event}</span>
-                    <span className="text-slate-400">â†’ {log.channel}</span>
+                    <span className="text-[var(--product-text-secondary)] font-semibold">{log.event}</span>
+                    <span className="text-[var(--product-text-tertiary)]">→ {log.channel}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-emerald-400 font-bold">{log.status}</span>
-                    <span className="text-slate-400">{log.time}</span>
+                    <span className="text-[var(--product-text-tertiary)]">{log.time}</span>
                   </div>
                 </div>
               ))}
@@ -772,7 +772,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
               exit={{ opacity: 0, scale: 0.95 }}
               className="space-y-4"
             >
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center justify-between border-b border-[var(--product-line)] pb-3">
                 <div className="flex items-center gap-2 text-indigo-400 font-bold">
                   <Plus className="w-5 h-5" />
                   <span>Add Executable to Allowlist</span>
@@ -781,7 +781,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
                   type="button"
                   aria-label="Close executable form"
                   onClick={() => setShowAddBinary(false)}
-                  className="text-slate-400 hover:text-slate-200"
+                  className="text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                 >
                   <XCircle className="w-5 h-5" />
                 </button>
@@ -789,24 +789,24 @@ export const SecurityPoliciesDemo: React.FC = () => {
 
               <div className="space-y-3 text-xs font-mono">
                 <div>
-                  <label className="block text-slate-400 mb-1">Absolute Binary Path:</label>
+                  <label className="block text-[var(--product-text-tertiary)] mb-1">Absolute Binary Path:</label>
                   <input
                     type="text"
                     value={newBinaryPath}
                     onChange={(e) => setNewBinaryPath(e.target.value)}
                     placeholder="/usr/bin/node"
-                    className="w-full p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none"
+                    className="w-full p-2.5 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 mb-1">SHA-256 Digest:</label>
+                  <label className="block text-[var(--product-text-tertiary)] mb-1">SHA-256 Digest:</label>
                   <input
                     type="text"
                     value={newBinarySha}
                     onChange={(e) => setNewBinarySha(e.target.value)}
                     placeholder="7f49a13b..."
-                    className="w-full p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none"
+                    className="w-full p-2.5 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] focus:outline-none"
                   />
                 </div>
               </div>

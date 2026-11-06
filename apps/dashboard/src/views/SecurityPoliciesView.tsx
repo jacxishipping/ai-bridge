@@ -34,8 +34,8 @@ const TRI_FIELDS: { key: string; label: string }[] = [
   { key: "allow_file_deletion", label: "File deletion" },
 ];
 
-const inputCls = "w-full p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 text-xs font-mono focus:outline-none";
-const cardCls = "rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-3";
+const inputCls = "w-full p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] text-xs font-mono focus:outline-none";
+const cardCls = "rounded-xl border border-[var(--product-line)] bg-[var(--product-surface)]/60 p-4 space-y-3";
 
 const toTri = (v: unknown): Tri => (v === true ? "allow" : v === false ? "deny" : "inherit");
 const fromTri = (v: Tri): boolean | null => (v === "allow" ? true : v === "deny" ? false : null);
@@ -289,7 +289,7 @@ const LiveSecurityPolicies: React.FC = () => {
     return { ...t, needsApproval };
   }, [detail, probeTool]);
 
-  if (loading) return <div role="status" className="p-6 text-sm text-slate-400">Loading policies from the control plane...</div>;
+  if (loading) return <div role="status" className="p-6 text-sm text-[var(--product-text-tertiary)]">Loading policies from the control plane...</div>;
   if (forbidden) return <div role="alert" className="p-6 rounded-xl border border-rose-700/50 bg-rose-950/30 text-sm text-rose-300">Permission denied: your role cannot view security policies.</div>;
   if (loadError) {
     return (
@@ -320,17 +320,17 @@ const LiveSecurityPolicies: React.FC = () => {
       {/* Device policy */}
       <section className={cardCls} aria-label="Device policy">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-slate-100">Device policy</h2>
+          <h2 className="text-base font-semibold text-[var(--product-text)]">Device policy</h2>
           <select aria-label="Device" className={`${inputCls} max-w-xs`} value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
             {devices.map((d) => <option key={d.id} value={d.id}>{d.name || d.hostname || d.id}</option>)}
           </select>
         </div>
 
-        {devices.length === 0 && <p className="text-xs text-slate-400">No devices are enrolled yet. Enroll a device to manage its policy.</p>}
+        {devices.length === 0 && <p className="text-xs text-[var(--product-text-tertiary)]">No devices are enrolled yet. Enroll a device to manage its policy.</p>}
 
         {detail && eff && (
           <>
-            <div className="text-xs font-mono text-slate-400">
+            <div className="text-xs font-mono text-[var(--product-text-tertiary)]">
               {detail.hostname || detail.device_name} {detail.os && `(${detail.os})`} - source:{" "}
               <span className="text-indigo-300">{detail.has_custom_policy ? "custom device policy" : "inherits global policy"}</span>
               {eff._source === "linux_unrestricted_server" && <span className="ml-2 text-amber-300">UNRESTRICTED</span>}
@@ -338,7 +338,7 @@ const LiveSecurityPolicies: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-3">
-                <label className="flex items-center gap-2 text-xs text-slate-200">
+                <label className="flex items-center gap-2 text-xs text-[var(--product-text-secondary)]">
                   <input type="checkbox" disabled={!canEdit} checked={inherit} onChange={(e) => setInherit(e.target.checked)} />
                   Inherit global policy as the base
                 </label>
@@ -348,7 +348,7 @@ const LiveSecurityPolicies: React.FC = () => {
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   {TRI_FIELDS.map((f) => (
-                    <label key={f.key} className="text-[11px] text-slate-400 space-y-1">
+                    <label key={f.key} className="text-[11px] text-[var(--product-text-tertiary)] space-y-1">
                       {f.label}
                       <select className={inputCls} disabled={!canEdit} value={tri[f.key] || "inherit"}
                         onChange={(e) => setTri((p) => ({ ...p, [f.key]: e.target.value as Tri }))}>
@@ -359,21 +359,21 @@ const LiveSecurityPolicies: React.FC = () => {
                     </label>
                   ))}
                 </div>
-                <label className="block text-[11px] text-slate-400 space-y-1">
+                <label className="block text-[11px] text-[var(--product-text-tertiary)] space-y-1">
                   Max tier run unattended (0-4, blank = inherit)
                   <input className={inputCls} disabled={!canEdit} inputMode="numeric" value={maxTier} onChange={(e) => setMaxTier(e.target.value)} />
                 </label>
               </div>
               <div className="space-y-3">
-                <label className="block text-[11px] text-slate-400 space-y-1">
+                <label className="block text-[11px] text-[var(--product-text-tertiary)] space-y-1">
                   Allowed apps (one per line, blank = inherit)
                   <textarea className={inputCls} rows={3} disabled={!canEdit} value={apps} onChange={(e) => setApps(e.target.value)} />
                 </label>
-                <label className="block text-[11px] text-slate-400 space-y-1">
+                <label className="block text-[11px] text-[var(--product-text-tertiary)] space-y-1">
                   Allowed services (one per line, blank = inherit)
                   <textarea className={inputCls} rows={3} disabled={!canEdit} value={services} onChange={(e) => setServices(e.target.value)} />
                 </label>
-                <label className="block text-[11px] text-slate-400 space-y-1">
+                <label className="block text-[11px] text-[var(--product-text-tertiary)] space-y-1">
                   Note
                   <input className={inputCls} disabled={!canEdit} value={devNote} onChange={(e) => setDevNote(e.target.value)} />
                 </label>
@@ -385,26 +385,26 @@ const LiveSecurityPolicies: React.FC = () => {
               <JXButton variant="outlined" color="warning" size="sm" disabled={!canEdit || busy || !detail.has_custom_policy} onClick={() => void resetDevice()}>Reset to global default</JXButton>
             </div>
 
-            <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 space-y-2">
-              <h3 className="text-xs font-semibold text-slate-200">Effective policy (what the server enforces)</h3>
-              <dl className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] font-mono text-slate-300">
+            <div className="rounded-lg border border-[var(--product-line)] bg-[var(--product-canvas)] p-3 space-y-2">
+              <h3 className="text-xs font-semibold text-[var(--product-text-secondary)]">Effective policy (what the server enforces)</h3>
+              <dl className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] font-mono text-[var(--product-text-secondary)]">
                 {["allow_writes", "allow_tier3", "desktop_enabled", "allow_shell", "allow_package_install", "allow_file_deletion"].map((k) => (
-                  <div key={k}><dt className="text-slate-500">{k}</dt><dd>{eff[k] === undefined ? "n/a" : String(eff[k])}</dd></div>
+                  <div key={k}><dt className="text-[var(--product-text-dim)]">{k}</dt><dd>{eff[k] === undefined ? "n/a" : String(eff[k])}</dd></div>
                 ))}
-                <div><dt className="text-slate-500">max_tier_unattended</dt><dd>{eff.max_tier_unattended === undefined ? "n/a" : String(eff.max_tier_unattended)}</dd></div>
-                <div><dt className="text-slate-500">allowed_apps</dt><dd>{(eff.allowed_apps || []).join(", ") || "none"}</dd></div>
-                <div><dt className="text-slate-500">allowed_services</dt><dd>{(eff.allowed_services || []).join(", ") || "none"}</dd></div>
-                <div><dt className="text-slate-500">denied_tools</dt><dd>{(eff.denied_tools || []).length}</dd></div>
+                <div><dt className="text-[var(--product-text-dim)]">max_tier_unattended</dt><dd>{eff.max_tier_unattended === undefined ? "n/a" : String(eff.max_tier_unattended)}</dd></div>
+                <div><dt className="text-[var(--product-text-dim)]">allowed_apps</dt><dd>{(eff.allowed_apps || []).join(", ") || "none"}</dd></div>
+                <div><dt className="text-[var(--product-text-dim)]">allowed_services</dt><dd>{(eff.allowed_services || []).join(", ") || "none"}</dd></div>
+                <div><dt className="text-[var(--product-text-dim)]">denied_tools</dt><dd>{(eff.denied_tools || []).length}</dd></div>
               </dl>
             </div>
 
-            <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 space-y-2">
-              <h3 className="text-xs font-semibold text-slate-200">Check a tool against this device</h3>
+            <div className="rounded-lg border border-[var(--product-line)] bg-[var(--product-canvas)] p-3 space-y-2">
+              <h3 className="text-xs font-semibold text-[var(--product-text-secondary)]">Check a tool against this device</h3>
               <select aria-label="Tool to check" className={`${inputCls} max-w-xs`} value={probeTool} onChange={(e) => setProbeTool(e.target.value)}>
                 {detail.tools.map((t) => <option key={t.tool} value={t.tool}>{t.tool}</option>)}
               </select>
               {probe && (
-                <p className="text-xs font-mono text-slate-300">
+                <p className="text-xs font-mono text-[var(--product-text-secondary)]">
                   Tier {probe.tier} ({probe.tier_name}):{" "}
                   <span className={probe.allowed ? "text-emerald-300" : "text-rose-300"}>{probe.allowed ? "permitted by policy" : "denied by policy"}</span>
                   {probe.allowed && (probe.needsApproval ? " - requires human approval" : " - may run unattended")}
@@ -412,18 +412,18 @@ const LiveSecurityPolicies: React.FC = () => {
               )}
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-slate-800 max-h-80 overflow-y-auto">
+            <div className="overflow-x-auto rounded-xl border border-[var(--product-line)] max-h-80 overflow-y-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="bg-slate-950 border-b border-slate-800 text-slate-400 font-mono uppercase sticky top-0">
+                  <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase sticky top-0">
                     <th className="p-2">Tool</th><th className="p-2">Tier</th><th className="p-2">Effective</th><th className="p-2">Deny on this device</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-mono">
                   {detail.tools.map((t) => (
                     <tr key={t.tool}>
-                      <td className="p-2 text-slate-200">{t.tool}</td>
-                      <td className="p-2 text-slate-400">{t.tier} {t.tier_name}</td>
+                      <td className="p-2 text-[var(--product-text-secondary)]">{t.tool}</td>
+                      <td className="p-2 text-[var(--product-text-tertiary)]">{t.tier} {t.tier_name}</td>
                       <td className={`p-2 ${t.allowed ? "text-emerald-300" : "text-rose-300"}`}>{t.allowed ? "allowed" : "denied"}</td>
                       <td className="p-2">
                         <input type="checkbox" aria-label={`Deny ${t.tool}`} disabled={!canEdit} checked={denied.has(t.tool)}
@@ -441,35 +441,35 @@ const LiveSecurityPolicies: React.FC = () => {
       {/* Global policy */}
       <section className={cardCls} aria-label="Global policy">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-base font-semibold text-slate-100">Global policy</h2>
-          <span className="text-xs font-mono text-slate-400">
+          <h2 className="text-base font-semibold text-[var(--product-text)]">Global policy</h2>
+          <span className="text-xs font-mono text-[var(--product-text-tertiary)]">
             {globalPol && globalPol.version > 0 ? `active version v${globalPol.version}` : "no versioned policy yet - environment defaults apply"}
           </span>
         </div>
         {gp && (
-          <p className="text-[11px] font-mono text-slate-500">
+          <p className="text-[11px] font-mono text-[var(--product-text-dim)]">
             Active: tier3={String(gp.allow_tier3)} desktop={String(gp.desktop_enabled)} apps={(gp.allowed_apps || []).length} services={(gp.allowed_services || []).length}
           </p>
         )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs text-slate-200">
+            <label className="flex items-center gap-2 text-xs text-[var(--product-text-secondary)]">
               <input type="checkbox" disabled={!canEdit} checked={gTier3} onChange={(e) => setGTier3(e.target.checked)} /> Allow Tier 3 tools unattended
             </label>
-            <label className="flex items-center gap-2 text-xs text-slate-200">
+            <label className="flex items-center gap-2 text-xs text-[var(--product-text-secondary)]">
               <input type="checkbox" disabled={!canEdit} checked={gDesktop} onChange={(e) => setGDesktop(e.target.checked)} /> Desktop control enabled
             </label>
-            <label className="block text-[11px] text-slate-400 space-y-1">
+            <label className="block text-[11px] text-[var(--product-text-tertiary)] space-y-1">
               Note
               <input className={inputCls} disabled={!canEdit} value={gNote} onChange={(e) => setGNote(e.target.value)} />
             </label>
           </div>
           <div className="space-y-2">
-            <label className="block text-[11px] text-slate-400 space-y-1">
+            <label className="block text-[11px] text-[var(--product-text-tertiary)] space-y-1">
               Allowed apps (one per line)
               <textarea className={inputCls} rows={3} disabled={!canEdit} value={gApps} onChange={(e) => setGApps(e.target.value)} />
             </label>
-            <label className="block text-[11px] text-slate-400 space-y-1">
+            <label className="block text-[11px] text-[var(--product-text-tertiary)] space-y-1">
               Allowed services (one per line)
               <textarea className={inputCls} rows={3} disabled={!canEdit} value={gServices} onChange={(e) => setGServices(e.target.value)} />
             </label>
@@ -486,14 +486,14 @@ const LiveSecurityPolicies: React.FC = () => {
           )}
         </div>
         {sim && (
-          <div className="overflow-x-auto rounded-xl border border-slate-800 max-h-64 overflow-y-auto">
+          <div className="overflow-x-auto rounded-xl border border-[var(--product-line)] max-h-64 overflow-y-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead><tr className="bg-slate-950 border-b border-slate-800 text-slate-400 font-mono uppercase"><th className="p-2">Tool</th><th className="p-2">Tier</th><th className="p-2">Under proposed policy</th></tr></thead>
+              <thead><tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase"><th className="p-2">Tool</th><th className="p-2">Tier</th><th className="p-2">Under proposed policy</th></tr></thead>
               <tbody className="divide-y divide-slate-800/60 font-mono">
                 {sim.map((r) => (
                   <tr key={r.tool}>
-                    <td className="p-2 text-slate-200">{r.tool}</td>
-                    <td className="p-2 text-slate-400">{r.tier}</td>
+                    <td className="p-2 text-[var(--product-text-secondary)]">{r.tool}</td>
+                    <td className="p-2 text-[var(--product-text-tertiary)]">{r.tier}</td>
                     <td className={`p-2 ${r.allowed_unattended ? "text-emerald-300" : "text-amber-300"}`}>{r.allowed_unattended ? "runs unattended" : "requires approval"}</td>
                   </tr>
                 ))}
@@ -502,13 +502,13 @@ const LiveSecurityPolicies: React.FC = () => {
           </div>
         )}
 
-        <h3 className="text-sm font-semibold text-slate-200 pt-2">Version history</h3>
+        <h3 className="text-sm font-semibold text-[var(--product-text-secondary)] pt-2">Version history</h3>
         {history.length === 0 ? (
-          <p className="text-xs text-slate-400">No policy versions have been published yet.</p>
+          <p className="text-xs text-[var(--product-text-tertiary)]">No policy versions have been published yet.</p>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-800">
+          <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]">
             <table className="w-full text-left text-xs border-collapse">
-              <thead><tr className="bg-slate-950 border-b border-slate-800 text-slate-400 font-mono uppercase">
+              <thead><tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase">
                 <th className="p-2">Version</th><th className="p-2">Created</th><th className="p-2">By</th><th className="p-2">Settings</th><th className="p-2">Note</th><th className="p-2 text-right">Actions</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-800/60 font-mono">
@@ -516,11 +516,11 @@ const LiveSecurityPolicies: React.FC = () => {
                   const p = parsePolicy(h.policy_json);
                   return (
                     <tr key={h.version}>
-                      <td className="p-2 text-slate-200">v{h.version}{globalPol?.version === h.version && <span className="ml-2 text-emerald-300">active</span>}</td>
-                      <td className="p-2 text-slate-400">{h.created_at}</td>
-                      <td className="p-2 text-slate-400">{h.created_by}</td>
-                      <td className="p-2 text-slate-400">tier3={String(!!p.allow_tier3)} desktop={String(!!p.desktop_enabled)} apps={(p.allowed_apps || []).length} svc={(p.allowed_services || []).length}</td>
-                      <td className="p-2 text-slate-400">{h.note}</td>
+                      <td className="p-2 text-[var(--product-text-secondary)]">v{h.version}{globalPol?.version === h.version && <span className="ml-2 text-emerald-300">active</span>}</td>
+                      <td className="p-2 text-[var(--product-text-tertiary)]">{h.created_at}</td>
+                      <td className="p-2 text-[var(--product-text-tertiary)]">{h.created_by}</td>
+                      <td className="p-2 text-[var(--product-text-tertiary)]">tier3={String(!!p.allow_tier3)} desktop={String(!!p.desktop_enabled)} apps={(p.allowed_apps || []).length} svc={(p.allowed_services || []).length}</td>
+                      <td className="p-2 text-[var(--product-text-tertiary)]">{h.note}</td>
                       <td className="p-2 text-right space-x-1 whitespace-nowrap">
                         <JXButton variant="soft" color="primary" size="sm" disabled={!canEdit} onClick={() => loadVersionIntoForm(h, false)}>Roll back (as new)</JXButton>
                         <JXButton variant="soft" color="primary" size="sm" disabled={!canEdit} onClick={() => loadVersionIntoForm(h, true)}>Edit</JXButton>
@@ -537,12 +537,12 @@ const LiveSecurityPolicies: React.FC = () => {
 
       {/* Webhook */}
       <section className={cardCls} aria-label="Alert webhook">
-        <h2 className="text-base font-semibold text-slate-100">Alert webhook</h2>
+        <h2 className="text-base font-semibold text-[var(--product-text)]">Alert webhook</h2>
         {hookError ? (
           <p className="text-xs text-amber-300">{hookError}</p>
         ) : (
           <>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-[var(--product-text-tertiary)]">
               {hookConfigured === null ? "Checking..." : hookConfigured ? "A webhook is configured (URL hidden)." : "No webhook configured."}
             </p>
             <input aria-label="Webhook URL" className={inputCls} type="password" autoComplete="off" disabled={!canEdit}

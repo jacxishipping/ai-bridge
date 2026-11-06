@@ -536,13 +536,13 @@ export const TerminalView: React.FC = () => {
       )}
 
       {/* Top Header & Breadcrumb Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-[var(--product-line)]">
         <div className="flex flex-wrap items-center gap-3">
           <select
             aria-label="Terminal target node"
             value={live ? liveDeviceId : targetNodeId}
             onChange={(e) => (live ? setLiveDeviceId(e.target.value) : setTargetNodeId(e.target.value))}
-            className="min-h-[40px] px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-200 font-mono text-xs focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer"
+            className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[var(--product-surface)] border border-[var(--product-line)] text-[var(--product-text-secondary)] font-mono text-xs focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer"
           >
             {live && devicesForSelect.length === 0 && <option value="">No devices enrolled</option>}
             {devicesForSelect.map((d) => (
@@ -552,7 +552,7 @@ export const TerminalView: React.FC = () => {
             ))}
           </select>
           {live && (
-            <span role="status" className="font-mono text-xs px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-300">
+            <span role="status" className="font-mono text-xs px-2 py-1 rounded bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)]">
               {statusLabel[liveStatus]}
             </span>
           )}
@@ -560,18 +560,18 @@ export const TerminalView: React.FC = () => {
       </div>
 
       {/* Terminal Session Controls Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 shadow-md">
+      <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-xl bg-[var(--product-surface)]/90 border border-[var(--product-line)] shadow-md">
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={sendSigint}
             disabled={inputDisabled}
             title="Send SIGINT (Ctrl+C)"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-200 font-mono text-xs transition-all active:scale-95 disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] hover:border-[var(--product-line)] text-[var(--product-text-secondary)] font-mono text-xs transition-all active:scale-95 disabled:opacity-50"
           >
             <StopCircle className="w-3.5 h-3.5 text-rose-400" />
             <span>Interrupt</span>
-            <kbd className="text-[10px] px-1 py-0.2 rounded bg-slate-800 text-slate-400">^C</kbd>
+            <kbd className="text-[10px] px-1 py-0.2 rounded bg-[var(--product-raised)] text-[var(--product-text-tertiary)]">^C</kbd>
           </button>
 
           <button
@@ -579,29 +579,29 @@ export const TerminalView: React.FC = () => {
             onClick={sendEof}
             disabled={inputDisabled}
             title="Send EOF (Ctrl+D)"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-200 font-mono text-xs transition-all active:scale-95 disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] hover:border-[var(--product-line)] text-[var(--product-text-secondary)] font-mono text-xs transition-all active:scale-95 disabled:opacity-50"
           >
             <ArrowRight className="w-3.5 h-3.5 text-cyan-400" />
             <span>Send EOF</span>
-            <kbd className="text-[10px] px-1 py-0.2 rounded bg-slate-800 text-slate-400">^D</kbd>
+            <kbd className="text-[10px] px-1 py-0.2 rounded bg-[var(--product-raised)] text-[var(--product-text-tertiary)]">^D</kbd>
           </button>
 
           <button
             type="button"
             onClick={clearBuffer}
             title="Clear Screen"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-200 font-mono text-xs transition-all active:scale-95"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] hover:border-[var(--product-line)] text-[var(--product-text-secondary)] font-mono text-xs transition-all active:scale-95"
           >
             <Trash2 className="w-3.5 h-3.5 text-indigo-400" />
             <span>Clear Buffer</span>
-            <kbd className="text-[10px] px-1 py-0.2 rounded bg-slate-800 text-slate-400">^L</kbd>
+            <kbd className="text-[10px] px-1 py-0.2 rounded bg-[var(--product-raised)] text-[var(--product-text-tertiary)]">^L</kbd>
           </button>
 
           <button
             type="button"
             onClick={reconnectSession}
             title={live ? "Close and open a new terminal session" : "Demo: simulated reconnect"}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-200 font-mono text-xs transition-all active:scale-95"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] hover:border-[var(--product-line)] text-[var(--product-text-secondary)] font-mono text-xs transition-all active:scale-95"
           >
             <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
             <span>Reconnect</span>
@@ -609,12 +609,12 @@ export const TerminalView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-mono text-slate-400">
+          <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-mono text-[var(--product-text-tertiary)]">
             <input
               type="checkbox"
               checked={autoScroll}
               onChange={(e) => setAutoScroll(e.target.checked)}
-              className="rounded bg-slate-950 border-slate-800 text-indigo-600 focus:ring-0"
+              className="rounded bg-[var(--product-canvas)] border-[var(--product-line)] text-indigo-600 focus:ring-0"
             />
             <span>Auto-scroll</span>
           </label>
@@ -622,7 +622,7 @@ export const TerminalView: React.FC = () => {
           <button
             type="button"
             onClick={downloadLog}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-200 font-mono text-xs transition-all active:scale-95"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] hover:border-[var(--product-line)] text-[var(--product-text-secondary)] font-mono text-xs transition-all active:scale-95"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export Log (.log)</span>
@@ -637,45 +637,45 @@ export const TerminalView: React.FC = () => {
       )}
 
       {/* Main Terminal Viewport */}
-      <div ref={viewportRef} className="rounded-2xl bg-[#090d16] border border-slate-800 shadow-2xl overflow-hidden flex flex-col font-mono text-xs">
-        <div className="h-9 px-4 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between select-none">
+      <div ref={viewportRef} className="rounded-2xl bg-[#090d16] border border-[var(--product-line)] shadow-2xl overflow-hidden flex flex-col font-mono text-xs">
+        <div className="h-9 px-4 bg-[var(--product-surface)]/90 border-b border-[var(--product-line)] flex items-center justify-between select-none">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-rose-500/80"></div>
             <div className="w-3 h-3 rounded-full bg-amber-500/80"></div>
             <div className="w-3 h-3 rounded-full bg-emerald-500/80"></div>
-            <TerminalIcon className="w-3.5 h-3.5 ml-2 text-slate-400" />
-            <span className="font-semibold text-slate-300">
+            <TerminalIcon className="w-3.5 h-3.5 ml-2 text-[var(--product-text-tertiary)]" />
+            <span className="font-semibold text-[var(--product-text-secondary)]">
               {live ? `${targetHostname} â€” live session` : `${promptPrefix} (demo)`}
             </span>
           </div>
 
-          <div className="flex items-center gap-3 text-[11px] text-slate-400">
-            <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-indigo-300">
+          <div className="flex items-center gap-3 text-[11px] text-[var(--product-text-tertiary)]">
+            <span className="px-2 py-0.5 rounded bg-[var(--product-canvas)] border border-[var(--product-line)] text-indigo-300">
               {live ? `BUFFER: ${liveText.length} chars` : `BUFFER: ${lines.length} items`}
             </span>
             <span>{live ? "plain text (ANSI stripped)" : "DEMO"}</span>
           </div>
         </div>
 
-        <div className="p-4 md:p-6 overflow-y-auto max-h-[520px] min-h-[420px] space-y-3 font-normal leading-relaxed text-slate-200 select-text">
+        <div className="p-4 md:p-6 overflow-y-auto max-h-[520px] min-h-[420px] space-y-3 font-normal leading-relaxed text-[var(--product-text-secondary)] select-text">
           {live ? (
-            <pre aria-label="Terminal output" className="font-mono text-xs text-slate-300 leading-relaxed whitespace-pre-wrap break-words">
+            <pre aria-label="Terminal output" className="font-mono text-xs text-[var(--product-text-secondary)] leading-relaxed whitespace-pre-wrap break-words">
               {liveStatus === "connecting" ? "Opening terminal sessionâ€¦" : cleanTerminalText(liveText)}
             </pre>
           ) : (
             lines.map((line) => {
               if (line.type === "motd") {
                 return (
-                  <div key={line.id} className="text-slate-400 text-[11px]">
+                  <div key={line.id} className="text-[var(--product-text-tertiary)] text-[11px]">
                     {line.text}
                   </div>
                 );
               }
               if (line.type === "command") {
                 return (
-                  <div key={line.id} className="flex items-center gap-2 text-slate-100">
+                  <div key={line.id} className="flex items-center gap-2 text-[var(--product-text)]">
                     <span className="text-emerald-400 font-bold">{promptPrefix}</span>
-                    <span className="text-slate-100 font-semibold">{line.commandText}</span>
+                    <span className="text-[var(--product-text)] font-semibold">{line.commandText}</span>
                   </div>
                 );
               }
@@ -694,7 +694,7 @@ export const TerminalView: React.FC = () => {
                 );
               }
               return (
-                <pre key={line.id} className="pl-2 font-mono text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">
+                <pre key={line.id} className="pl-2 font-mono text-xs text-[var(--product-text-secondary)] leading-relaxed whitespace-pre-wrap">
                   {line.text}
                 </pre>
               );
@@ -702,7 +702,7 @@ export const TerminalView: React.FC = () => {
           )}
 
           {/* Interactive Shell Input Line */}
-          <div className="flex items-center gap-2 pt-2 border-t border-slate-800/40">
+          <div className="flex items-center gap-2 pt-2 border-t border-[var(--product-line)]/40">
             <span className="text-emerald-400 font-bold select-none">{promptPrefix}</span>
             <div className="relative flex-1 flex items-center">
               <input
@@ -722,7 +722,7 @@ export const TerminalView: React.FC = () => {
                 }
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full bg-transparent text-slate-100 outline-none border-none p-0 m-0 font-mono text-xs placeholder-slate-600 focus:ring-0"
+                className="w-full bg-transparent text-[var(--product-text)] outline-none border-none p-0 m-0 font-mono text-xs placeholder-slate-600 focus:ring-0"
               />
               <span className="inline-block w-2.5 h-4 bg-emerald-400 ml-1 animate-pulse"></span>
             </div>
@@ -732,19 +732,19 @@ export const TerminalView: React.FC = () => {
       </div>
 
       {/* Snippet Quick-Bar */}
-      <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-3">
+      <div className="p-4 rounded-2xl bg-[var(--product-surface)]/80 border border-[var(--product-line)] shadow-xl space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-indigo-400" />
-            <h3 className="text-sm font-bold text-slate-100">Operational Snippets</h3>
+            <h3 className="text-sm font-bold text-[var(--product-text)]">Operational Snippets</h3>
           </div>
 
-          <div className="flex p-1 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs">
+          <div className="flex p-1 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] font-mono text-xs">
             <button
               type="button"
               onClick={() => setSnippetMode("insert")}
               className={`px-3 py-1.5 rounded-lg transition-all ${
-                snippetMode === "insert" ? "bg-indigo-600 text-white font-semibold shadow" : "text-slate-400 hover:text-slate-200"
+                snippetMode === "insert" ? "bg-indigo-600 text-white font-semibold shadow" : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
               }`}
             >
               Insert to Buffer
@@ -753,7 +753,7 @@ export const TerminalView: React.FC = () => {
               type="button"
               onClick={() => setSnippetMode("exec")}
               className={`px-3 py-1.5 rounded-lg transition-all ${
-                snippetMode === "exec" ? "bg-rose-600 text-white font-semibold shadow" : "text-slate-400 hover:text-slate-200"
+                snippetMode === "exec" ? "bg-rose-600 text-white font-semibold shadow" : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
               }`}
             >
               Execute Immediately
@@ -767,9 +767,9 @@ export const TerminalView: React.FC = () => {
               key={snip.cmd}
               type="button"
               onClick={() => handleSnippetClick(snip.cmd)}
-              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 hover:bg-slate-900 text-slate-200 font-mono text-xs transition-all active:scale-95 text-left group min-h-[40px]"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] hover:border-[var(--product-line)] hover:bg-[var(--product-surface)] text-[var(--product-text-secondary)] font-mono text-xs transition-all active:scale-95 text-left group min-h-[40px]"
             >
-              <Play className="w-3 h-3 text-slate-500 group-hover:text-indigo-400 transition-colors" />
+              <Play className="w-3 h-3 text-[var(--product-text-dim)] group-hover:text-indigo-400 transition-colors" />
               <span className={snip.color}>{snip.label}</span>
             </button>
           ))}

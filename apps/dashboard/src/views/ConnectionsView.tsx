@@ -441,15 +441,15 @@ export const ConnectionsView: React.FC = () => {
   return (
     <div className="space-y-4">
       {/* Protocol Header & Action Ribbon */}
-      <JXCard className="bg-slate-900/60 border-slate-800">
+      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
         <div className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1 text-xs font-mono text-slate-300">
+          <div className="space-y-1 text-xs font-mono text-[var(--product-text-secondary)]">
             <div>
               MCP Endpoint: <code className="text-indigo-400">{browserOrigin}/mcp</code> • OAuth Metadata:{" "}
               <code className="text-indigo-400">{browserOrigin}/.well-known/oauth-authorization-server</code>
             </div>
             {isLive && liveConn && (
-              <div className="text-slate-400 flex flex-wrap items-center gap-3">
+              <div className="text-[var(--product-text-tertiary)] flex flex-wrap items-center gap-3">
                 <span>
                   MCP:{" "}
                   <strong className={liveConn.mcp?.up ? "text-emerald-400" : "text-rose-400"}>
@@ -467,7 +467,7 @@ export const ConnectionsView: React.FC = () => {
                 <span>
                   Tokens: <strong className="text-cyan-400">{liveConn.chatgpt?.active_access_tokens ?? 0}</strong> access /{" "}
                   <strong className="text-cyan-400">{liveConn.chatgpt?.active_refresh_tokens ?? 0}</strong> refresh /{" "}
-                  <strong className="text-slate-200">{liveConn.chatgpt?.total_tokens ?? 0}</strong> total
+                  <strong className="text-[var(--product-text-secondary)]">{liveConn.chatgpt?.total_tokens ?? 0}</strong> total
                 </span>
                 {liveConn.chatgpt?.last_token_at && (
                   <span>Last Token: {String(liveConn.chatgpt.last_token_at)}</span>
@@ -533,17 +533,17 @@ export const ConnectionsView: React.FC = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Radio className="w-5 h-5 text-indigo-400" />
-            <h2 className="text-base font-semibold text-slate-100">MCP servers</h2>
+            <h2 className="text-base font-semibold text-[var(--product-text)]">MCP servers</h2>
           </div>
         </div>
 
         <JXGrid columns={12} gap="md">
           {effectiveMcpConnections.map((conn) => (
             <JXGridItem key={conn.id} colSpan={6}>
-              <JXCard className="bg-slate-900/60 border-slate-800">
-                <div className="p-4 border-b border-slate-800/60 flex items-center justify-between">
+              <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
+                <div className="p-4 border-b border-[var(--product-line)] flex items-center justify-between">
                   <div>
-                    <h4 className="text-sm font-semibold text-slate-100">{conn.name}</h4>
+                    <h4 className="text-sm font-semibold text-[var(--product-text)]">{conn.name}</h4>
                     <code className="text-[11px] font-mono text-indigo-400">{conn.route}</code>
                   </div>
                   <JXButton
@@ -560,16 +560,16 @@ export const ConnectionsView: React.FC = () => {
                 <JXCardContent>
                   <div className="space-y-3 pt-1 text-xs font-mono">
                     <div className="grid grid-cols-3 gap-2">
-                      <div className="p-2 rounded bg-slate-950 border border-slate-800/80">
-                        <span className="text-[10px] text-slate-400 uppercase block">Transport</span>
-                        <span className="text-slate-200 font-semibold">{conn.transport.toUpperCase()}</span>
+                      <div className="p-2 rounded bg-[var(--product-canvas)] border border-[var(--product-line)]/80">
+                        <span className="text-[10px] text-[var(--product-text-tertiary)] uppercase block">Transport</span>
+                        <span className="text-[var(--product-text-secondary)] font-semibold">{conn.transport.toUpperCase()}</span>
                       </div>
-                      <div className="p-2 rounded bg-slate-950 border border-slate-800/80">
-                        <span className="text-[10px] text-slate-400 uppercase block">Subscribers</span>
+                      <div className="p-2 rounded bg-[var(--product-canvas)] border border-[var(--product-line)]/80">
+                        <span className="text-[10px] text-[var(--product-text-tertiary)] uppercase block">Subscribers</span>
                         <span className="text-cyan-400 font-semibold">{conn.connectedClients} active</span>
                       </div>
-                      <div className="p-2 rounded bg-slate-950 border border-slate-800/80">
-                        <span className="text-[10px] text-slate-400 uppercase block">Throughput</span>
+                      <div className="p-2 rounded bg-[var(--product-canvas)] border border-[var(--product-line)]/80">
+                        <span className="text-[10px] text-[var(--product-text-tertiary)] uppercase block">Throughput</span>
                         <span className="text-emerald-400 font-semibold">{conn.throughputReqMin} req/m</span>
                       </div>
                     </div>
@@ -578,7 +578,7 @@ export const ConnectionsView: React.FC = () => {
                       {conn.exportedSchemas.map((schema) => (
                         <span
                           key={schema}
-                          className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-300 text-[11px]"
+                          className="px-2 py-0.5 rounded bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] text-[11px]"
                         >
                           {schema}
                         </span>
@@ -593,16 +593,16 @@ export const ConnectionsView: React.FC = () => {
       </div>
 
       {/* SECTION 2: Active AI Client Sessions Table */}
-      <JXCard className="bg-slate-900/60 border-slate-800">
+      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
         <JXCardHeader
           title="Client sessions"
           icon={<Terminal className="w-5 h-5 text-indigo-400" />}
         />
         <JXCardContent>
-          <div className="overflow-x-auto rounded-xl border border-slate-800">
+          <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]">
             <table className="w-full text-left text-xs border-collapse font-mono">
               <thead>
-                <tr className="bg-slate-950 border-b border-slate-800 text-slate-400 uppercase">
+                <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] uppercase">
                   <th className="p-3 font-sans">Connected Application</th>
                   <th className="p-3">PID & Route</th>
                   <th className="p-3">Duration</th>
@@ -614,22 +614,22 @@ export const ConnectionsView: React.FC = () => {
               <tbody className="divide-y divide-slate-800/60">
                 {sessions.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-6 text-center text-slate-400 font-sans">
+                    <td colSpan={6} className="p-6 text-center text-[var(--product-text-tertiary)] font-sans">
                       No active OAuth clients or MCP sessions registered yet. Connect an MCP client to{" "}
                       <code className="font-mono text-indigo-400">{browserOrigin}/mcp</code> to establish a session.
                     </td>
                   </tr>
                 ) : (
                   sessions.map((sess) => (
-                    <tr key={sess.id} className="hover:bg-slate-950/40 transition-colors">
+                    <tr key={sess.id} className="hover:bg-[var(--product-canvas)]/40 transition-colors">
                       <td className="p-3">
-                        <div className="font-semibold text-slate-200 font-sans">{sess.name}</div>
-                        <div className="text-[11px] text-slate-400 font-sans">{sess.version}</div>
+                        <div className="font-semibold text-[var(--product-text-secondary)] font-sans">{sess.name}</div>
+                        <div className="text-[11px] text-[var(--product-text-tertiary)] font-sans">{sess.version}</div>
                       </td>
-                      <td className="p-3 text-slate-300">
+                      <td className="p-3 text-[var(--product-text-secondary)]">
                         PID {sess.pid} • {sess.route}
                       </td>
-                      <td className="p-3 text-slate-300">{sess.duration}</td>
+                      <td className="p-3 text-[var(--product-text-secondary)]">{sess.duration}</td>
                       <td className="p-3">
                         <span className="text-indigo-400 font-semibold">{sess.invocations}</span>
                       </td>
@@ -638,7 +638,7 @@ export const ConnectionsView: React.FC = () => {
                           {sess.features.map((feat) => (
                             <span
                               key={feat}
-                              className="px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-300 text-[10px]"
+                              className="px-1.5 py-0.5 rounded bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] text-[10px]"
                             >
                               {feat}
                             </span>
@@ -669,7 +669,7 @@ export const ConnectionsView: React.FC = () => {
       <JXGrid columns={12} gap="lg">
         {/* OAuth 2.0 Registered Clients */}
         <JXGridItem colSpan={6}>
-          <JXCard className="bg-slate-900/60 border-slate-800">
+          <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
             <JXCardHeader
               title="OAuth clients"
               icon={<KeyRound className="w-5 h-5 text-indigo-400" />}
@@ -677,7 +677,7 @@ export const ConnectionsView: React.FC = () => {
             <JXCardContent>
               <div className="space-y-3 font-mono text-xs">
                 {effectiveOAuthClients.length === 0 ? (
-                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 font-sans">
+                  <div className="p-4 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-tertiary)] font-sans">
                     No OAuth 2.1 clients registered yet. Clients register dynamically via{" "}
                     <code className="font-mono text-indigo-400">{browserOrigin}/oauth/register</code>.
                   </div>
@@ -685,12 +685,12 @@ export const ConnectionsView: React.FC = () => {
                   effectiveOAuthClients.map((client) => (
                     <div
                       key={client.id}
-                      className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2"
+                      className="p-3 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] space-y-2"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div>
-                          <span className="font-bold text-slate-200">{client.clientName}</span>
-                          <div className="text-[11px] text-slate-400 font-sans">
+                          <span className="font-bold text-[var(--product-text-secondary)]">{client.clientName}</span>
+                          <div className="text-[11px] text-[var(--product-text-tertiary)] font-sans">
                             ID: {client.id} • {client.pkceType}
                           </div>
                         </div>
@@ -722,14 +722,14 @@ export const ConnectionsView: React.FC = () => {
                         {client.scopes.map((s) => (
                           <span
                             key={s}
-                            className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-indigo-300 text-[10px]"
+                            className="px-2 py-0.5 rounded bg-[var(--product-surface)] border border-[var(--product-line)] text-indigo-300 text-[10px]"
                           >
                             {s}
                           </span>
                         ))}
                       </div>
 
-                      <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[11px] text-slate-500">
+                      <div className="flex items-center justify-between pt-1 border-t border-[var(--product-line)]/80 text-[11px] text-[var(--product-text-dim)]">
                         <span>Secret: {client.tokenSecretMasked}</span>
                         <span>Expires: {client.expiresAt ? client.expiresAt.slice(0, 17) : "Dynamic"}</span>
                       </div>
@@ -743,7 +743,7 @@ export const ConnectionsView: React.FC = () => {
 
         {/* Interactive Client Handshake Preview */}
         <JXGridItem colSpan={6}>
-          <JXCard className="bg-slate-900/60 border-slate-800">
+          <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
             <JXCardHeader
               title="Token preview"
               icon={<Sparkles className="w-5 h-5 text-cyan-400" />}
@@ -751,12 +751,12 @@ export const ConnectionsView: React.FC = () => {
             <JXCardContent>
               <div className="space-y-4 text-xs font-mono">
                 <div>
-                  <label className="block text-slate-400 mb-1">Target Client ID</label>
+                  <label className="block text-[var(--product-text-tertiary)] mb-1">Target Client ID</label>
                   <select
                     aria-label="Target OAuth client"
                     value={targetClientId}
                     onChange={(e) => setTargetClientId(e.target.value)}
-                    className="w-full p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none"
+                    className="w-full p-2.5 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] focus:outline-none"
                   >
                     {effectiveOAuthClients.length === 0 ? (
                       <option value="ai-agent-orchestrator-01">Default Preview Client (ai-agent-orchestrator-01)</option>
@@ -771,8 +771,8 @@ export const ConnectionsView: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 mb-1.5">Scope Entitlements</label>
-                  <div className="grid grid-cols-2 gap-2 p-3 rounded-xl bg-slate-950 border border-slate-800">
+                  <label className="block text-[var(--product-text-tertiary)] mb-1.5">Scope Entitlements</label>
+                  <div className="grid grid-cols-2 gap-2 p-3 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)]">
                     {["fleet:read", "mcp:stream", "fleet:execute:tier2", "system:telemetry"].map(
                       (scope) => (
                         <label key={scope} className="flex items-center gap-2 cursor-pointer">
@@ -786,9 +786,9 @@ export const ConnectionsView: React.FC = () => {
                                 setSelectedScopes((prev) => prev.filter((s) => s !== scope));
                               }
                             }}
-                            className="w-3.5 h-3.5 rounded bg-slate-900 border-slate-700 accent-indigo-500 cursor-pointer"
+                            className="w-3.5 h-3.5 rounded bg-[var(--product-surface)] border-[var(--product-line)] accent-indigo-500 cursor-pointer"
                           />
-                          <span className="text-slate-300">{scope}</span>
+                          <span className="text-[var(--product-text-secondary)]">{scope}</span>
                         </label>
                       )
                     )}
@@ -797,7 +797,7 @@ export const ConnectionsView: React.FC = () => {
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Live Signed JWT Bearer Token</span>
+                    <span className="text-[var(--product-text-tertiary)]">Live Signed JWT Bearer Token</span>
                     <JXButton
                       variant="soft"
                       color="primary"
@@ -814,7 +814,7 @@ export const ConnectionsView: React.FC = () => {
                       {copiedToken ? "Copied" : "Copy Token"}
                     </JXButton>
                   </div>
-                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-emerald-400 break-all leading-relaxed max-h-24 overflow-y-auto">
+                  <div className="p-3 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-[11px] text-emerald-400 break-all leading-relaxed max-h-24 overflow-y-auto">
                     {generatedJwt}
                   </div>
                 </div>
@@ -837,11 +837,11 @@ export const ConnectionsView: React.FC = () => {
       </JXGrid>
 
       {/* SECTION 4: Realtime Wire Protocol Audit Drawer */}
-      <JXCard className="bg-slate-900/60 border-slate-800">
-        <div className="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
+        <div className="p-4 border-b border-[var(--product-line)] flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
           <div className="flex items-center gap-3">
-            <span className="font-bold text-slate-200">Wire Protocol Realtime Audit Drawer</span>
-            <span className="text-slate-400">SSE JSON-RPC 2.0 Live Frame Stream</span>
+            <span className="font-bold text-[var(--product-text-secondary)]">Wire Protocol Realtime Audit Drawer</span>
+            <span className="text-[var(--product-text-tertiary)]">SSE JSON-RPC 2.0 Live Frame Stream</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -849,7 +849,7 @@ export const ConnectionsView: React.FC = () => {
               aria-label="Filter protocol methods"
               value={wireFilter}
               onChange={(e) => setWireFilter(e.target.value)}
-              className="p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none"
+              className="p-1.5 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] text-xs focus:outline-none"
             >
               <option value="all">All Methods</option>
               <option value="tools/call">tools/call</option>
@@ -874,7 +874,7 @@ export const ConnectionsView: React.FC = () => {
             {filteredWireFrames.map((frame) => (
               <div
                 key={frame.id}
-                className="p-3 rounded-lg bg-slate-950 border border-slate-800 flex items-start justify-between gap-4"
+                className="p-3 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] flex items-start justify-between gap-4"
               >
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -888,13 +888,13 @@ export const ConnectionsView: React.FC = () => {
                       {frame.direction}
                     </span>
                     <span className="text-indigo-400 font-bold">{frame.method}</span>
-                    <span className="text-slate-400">[{frame.timestamp}]</span>
+                    <span className="text-[var(--product-text-tertiary)]">[{frame.timestamp}]</span>
                   </div>
-                  <pre tabIndex={0} aria-label="Protocol frame payload" className="text-slate-300 text-[11px] overflow-x-auto">
+                  <pre tabIndex={0} aria-label="Protocol frame payload" className="text-[var(--product-text-secondary)] text-[11px] overflow-x-auto">
                     <code>{JSON.stringify(frame.payload)}</code>
                   </pre>
                 </div>
-                <span className="text-slate-400 shrink-0">{frame.latencyMs}ms</span>
+                <span className="text-[var(--product-text-tertiary)] shrink-0">{frame.latencyMs}ms</span>
               </div>
             ))}
           </div>
@@ -911,7 +911,7 @@ export const ConnectionsView: React.FC = () => {
               exit={{ opacity: 0, scale: 0.95 }}
               className="space-y-4"
             >
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center justify-between border-b border-[var(--product-line)] pb-3">
                 <div className="flex items-center gap-2 text-indigo-400 font-bold">
                   <Eye className="w-5 h-5" />
                   <span>Inspect MCP Spec: {inspectSpecStream.name}</span>
@@ -920,7 +920,7 @@ export const ConnectionsView: React.FC = () => {
                   type="button"
                   aria-label="Close MCP details"
                   onClick={() => setInspectSpecStream(null)}
-                  className="text-slate-400 hover:text-slate-200"
+                  className="text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                 >
                   <XCircle className="w-5 h-5" />
                 </button>
@@ -928,16 +928,16 @@ export const ConnectionsView: React.FC = () => {
 
               <div className="space-y-3 text-xs font-mono">
                 <div>
-                  <span className="text-slate-400">Route Endpoint:</span>
-                  <div className="text-slate-200 font-bold">{inspectSpecStream.route}</div>
+                  <span className="text-[var(--product-text-tertiary)]">Route Endpoint:</span>
+                  <div className="text-[var(--product-text-secondary)] font-bold">{inspectSpecStream.route}</div>
                 </div>
                 <div>
-                  <span className="text-slate-400">Spec Version:</span>
+                  <span className="text-[var(--product-text-tertiary)]">Spec Version:</span>
                   <div className="text-indigo-400 font-bold">{inspectSpecStream.specVersion}</div>
                 </div>
                 <div>
-                  <span className="text-slate-400">Exported Tool Contract Schemas:</span>
-                  <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
+                  <span className="text-[var(--product-text-tertiary)]">Exported Tool Contract Schemas:</span>
+                  <div className="p-3 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] space-y-1">
                     {inspectSpecStream.exportedSchemas.map((s) => (
                       <div key={s} className="text-emerald-400">
                         • {s} (JSON-RPC 2.0 contract)

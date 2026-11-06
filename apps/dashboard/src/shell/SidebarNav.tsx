@@ -37,10 +37,10 @@ export const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }
         </ul>
       </div>)}
     </div>
-    <div className="border-t border-slate-800 p-3 space-y-1">
+    <div className="border-t p-3 space-y-1" style={{ borderColor: "var(--product-line)" }}>
       {isAuth ? (
         <>
-          <button type="button" onClick={() => navigate("live")} className={`product-nav-link ${currentView === "live" ? "text-indigo-400" : "text-emerald-400"}`}>
+          <button type="button" onClick={() => navigate("live")} className="product-nav-link" style={{ color: currentView === "live" ? "var(--product-accent)" : "var(--product-status-online)" }}>
             <Server className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span className="flex-1 text-left">Live Workspace</span>
           </button>
@@ -51,7 +51,8 @@ export const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }
               clearCredentials();
               navigate("login");
             }}
-            className="product-nav-link text-slate-400 hover:text-rose-400"
+            className="product-nav-link"
+            style={{ color: "var(--product-text-dim)" }}
           >
             <span className="flex-1 text-left">Sign Out</span>
           </button>

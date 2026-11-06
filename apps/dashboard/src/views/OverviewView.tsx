@@ -21,18 +21,18 @@ export const OverviewView: React.FC = () => {
 
   return <div className="space-y-4">
     <header className="flex flex-wrap items-center justify-between gap-4">
-      <h1 className="text-xl font-semibold text-slate-100">Fleet overview</h1>
+      <h1 className="text-xl font-semibold text-[var(--product-text)]">Fleet overview</h1>
       <JXButton variant="outlined" color="neutral" onClick={() => navigate("devices")}
         endIcon={<ArrowRight className="h-4 w-4" />}>View devices</JXButton>
     </header>
 
-    <dl className="grid grid-cols-1 divide-y divide-slate-800 rounded-xl border border-slate-800 bg-slate-900/40 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+    <dl className="grid grid-cols-1 divide-y divide-slate-800 rounded-xl border border-[var(--product-line)] bg-[var(--product-surface)]/40 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
       {summary.map((item) => <div key={item.label} className="p-3.5">
-        <dt className="text-sm text-slate-400">{item.label}</dt>
+        <dt className="text-sm text-[var(--product-text-tertiary)]">{item.label}</dt>
         <dd className="mt-1">
           <button type="button" onClick={() => navigate(item.view)}
             aria-label={`${item.label}: ${item.value}`}
-            className="rounded text-xl font-semibold tabular-nums text-slate-100 hover:text-indigo-300">
+            className="rounded text-xl font-semibold tabular-nums text-[var(--product-text)] hover:text-indigo-300">
             {item.value}
           </button>
         </dd>
@@ -42,19 +42,19 @@ export const OverviewView: React.FC = () => {
     <JXCard>
       <JXCardContent>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-semibold text-slate-100">Recent tasks</h2>
+          <h2 className="font-semibold text-[var(--product-text)]">Recent tasks</h2>
           <JXButton variant="text" color="neutral" size="sm" onClick={() => navigate("task-queue-and-vision")}>View all</JXButton>
         </div>
-        {tasks.length === 0 ? <p className="py-8 text-sm text-slate-400">No tasks yet.</p> :
+        {tasks.length === 0 ? <p className="py-8 text-sm text-[var(--product-text-tertiary)]">No tasks yet.</p> :
           <ul className="divide-y divide-slate-800">
             {tasks.slice(0, 5).map((task) => <li key={task.id}>
               <button type="button" onClick={() => setSelectedTask(task)}
-                className="flex w-full flex-wrap items-center justify-between gap-3 rounded-lg py-2.5 text-left hover:bg-slate-800/40">
+                className="flex w-full flex-wrap items-center justify-between gap-3 rounded-lg py-2.5 text-left hover:bg-[var(--product-raised)]/40">
                 <span className="min-w-0">
-                  <span className="block break-all text-sm text-slate-200">{task.tool}</span>
-                  <span className="mt-1 block break-all text-xs text-slate-400">{task.deviceHostname}</span>
+                  <span className="block break-all text-sm text-[var(--product-text-secondary)]">{task.tool}</span>
+                  <span className="mt-1 block break-all text-xs text-[var(--product-text-tertiary)]">{task.deviceHostname}</span>
                 </span>
-                <span className={`text-xs ${task.status === "failed" ? "text-rose-300" : task.status === "needs_approval" ? "text-amber-200" : "text-slate-400"}`}>
+                <span className={`text-xs ${task.status === "failed" ? "text-rose-300" : task.status === "needs_approval" ? "text-amber-200" : "text-[var(--product-text-tertiary)]"}`}>
                   {task.status.replace(/_/g, " ")}
                 </span>
               </button>
@@ -69,13 +69,13 @@ export const OverviewView: React.FC = () => {
           {[
             ["Device", selectedTask.deviceHostname], ["Status", selectedTask.status.replace(/_/g, " ")],
             ["Tool", selectedTask.tool], ["Risk", selectedTask.riskTier.replace(/_/g, " ")],
-          ].map(([label, value]) => <div key={label}><dt className="text-slate-400">{label}</dt><dd className="mt-1 break-all text-slate-200">{value}</dd></div>)}
+          ].map(([label, value]) => <div key={label}><dt className="text-[var(--product-text-tertiary)]">{label}</dt><dd className="mt-1 break-all text-[var(--product-text-secondary)]">{value}</dd></div>)}
         </dl>
         <div><h3 className="mb-2 text-sm font-medium">Arguments</h3>
-          <pre tabIndex={0} aria-label="Task arguments" className="overflow-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-300">{JSON.stringify(selectedTask.args, null, 2)}</pre>
+          <pre tabIndex={0} aria-label="Task arguments" className="overflow-auto rounded-lg bg-[var(--product-canvas)] p-3 text-xs text-[var(--product-text-secondary)]">{JSON.stringify(selectedTask.args, null, 2)}</pre>
         </div>
         {selectedTask.result && <div><h3 className="mb-2 text-sm font-medium">Result</h3>
-          <pre tabIndex={0} aria-label="Task result" className="max-h-64 overflow-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-300">{JSON.stringify(selectedTask.result, null, 2)}</pre>
+          <pre tabIndex={0} aria-label="Task result" className="max-h-64 overflow-auto rounded-lg bg-[var(--product-canvas)] p-3 text-xs text-[var(--product-text-secondary)]">{JSON.stringify(selectedTask.result, null, 2)}</pre>
         </div>}
       </div>
     </GlassModal>}

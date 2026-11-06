@@ -30,8 +30,8 @@ function Enrollment({ onClose, onCreated }: { onClose: () => void; onCreated: ()
         <p className="text-sm text-amber-300">This token is shown once. Supply it privately to the agent, then close this dialog. Do not commit it to a repository.</p>
         <Field label="Device ID"><input className={fieldClass} readOnly value={result.device_id} /></Field>
         <Field label="Device token"><textarea className={`${fieldClass} font-mono`} readOnly value={result.device_token} /></Field>
-        <p className="text-sm text-slate-400">The device stays offline until its agent connects using these credentials.</p>
-        <ol className="list-inside list-decimal space-y-2 text-sm text-slate-300">
+        <p className="text-sm text-[var(--product-text-tertiary)]">The device stays offline until its agent connects using these credentials.</p>
+        <ol className="list-inside list-decimal space-y-2 text-sm text-[var(--product-text-secondary)]">
           <li>Install the agent on the target computer using the repository’s platform installation guide.</li>
           <li>Configure its control-plane URL and the device token above in the agent’s private environment file.</li>
           <li>Start the agent service, then refresh Devices to confirm its first heartbeat.</li>
@@ -44,9 +44,9 @@ function Enrollment({ onClose, onCreated }: { onClose: () => void; onCreated: ()
         }}>Copy token</JXButton>
       </> : <>
         <Field label="Device name"><input className={fieldClass} value={name} maxLength={100} disabled={busy} onChange={(e) => setName(e.target.value)} /></Field>
-        <p className="text-sm text-slate-400">Creates credentials for one agent. This does not install or start the agent.</p>
+        <p className="text-sm text-[var(--product-text-tertiary)]">Creates credentials for one agent. This does not install or start the agent.</p>
       </>}
-      {feedback && <p role="status" className="text-sm text-slate-200">{feedback}</p>}
+      {feedback && <p role="status" className="text-sm text-[var(--product-text-secondary)]">{feedback}</p>}
       <div className="flex flex-wrap justify-end gap-2">
         <JXButton color="neutral" variant="outlined" disabled={busy} onClick={onClose}>{result ? "Done" : "Cancel"}</JXButton>
         {!result && <JXButton disabled={busy || lock.current || !name.trim()} loading={busy} onClick={create}>Create enrollment</JXButton>}
@@ -91,32 +91,32 @@ export function Inventory({ devices, filters, onFilters, canAct, canEnroll, open
       </select></Field>}
       <JXButton color="neutral" variant="outlined" disabled={!canEnroll} onClick={() => setEnroll(true)}>Enroll device</JXButton>
     </div>
-    {!canEnroll && <p className="text-xs text-slate-400">Enrollment requires an administrator and current fleet data.</p>}
-    {targets.length > 0 && <div role="region" aria-label="Selected devices" className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-600 bg-slate-800 p-3">
+    {!canEnroll && <p className="text-xs text-[var(--product-text-tertiary)]">Enrollment requires an administrator and current fleet data.</p>}
+    {targets.length > 0 && <div role="region" aria-label="Selected devices" className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--product-line)] bg-[var(--product-raised)] p-3">
       <p className="mr-auto text-sm">{targets.length} selected{targets.some((device) => !visible.includes(device)) ? " (including hidden devices)" : ""}</p>
       <JXButton color="neutral" variant="text" onClick={() => setSelected([])}>Clear selection</JXButton>
       <JXButton disabled={!canAct} onClick={() => setBulk(true)}>Run on selected</JXButton>
     </div>}
     {!devices.length ? <Empty title="No devices enrolled yet">
-      <p className="text-sm text-slate-400">Enroll an agent to get started.</p>
+      <p className="text-sm text-[var(--product-text-tertiary)]">Enroll an agent to get started.</p>
     </Empty> : !visible.length ? <Empty title="No matching devices">
       <JXButton color="neutral" variant="outlined" onClick={() => onFilters({ ...defaultFilters, taskStatus: filters.taskStatus })}>Clear device filters</JXButton>
     </Empty> : <div className="overflow-x-auto" role="region" aria-label="Live device inventory" tabIndex={0}>
       <table className="product-table w-full min-w-[520px] text-left text-sm">
-        <thead className="border-b border-slate-700 text-xs text-slate-400"><tr>
+        <thead className="border-b border-[var(--product-line)] text-xs text-[var(--product-text-tertiary)]"><tr>
           <th className="p-3"><input type="checkbox" aria-label="Select visible devices" disabled={!canAct || !eligible.length} checked={allSelected}
             onChange={(e) => setSelected(e.target.checked ? [...new Set([...selected, ...eligible.map((device) => device.id)])] : selected.filter((id) => !eligible.some((device) => device.id === id)))} /></th>
           <th className="p-3">Device</th><th className="p-3">Status</th><th className="p-3">Last seen</th><th className="relative p-3"><span className="sr-only">Actions</span></th>
         </tr></thead>
-        <tbody>{pageDevices.map((device) => <tr key={device.id} className="border-b border-slate-800 hover:bg-slate-800/40">
+        <tbody>{pageDevices.map((device) => <tr key={device.id} className="border-b border-[var(--product-line)] hover:bg-[var(--product-raised)]/40">
           <td className="p-3"><input type="checkbox" aria-label={`Select ${deviceName(device)}`} disabled={!canAct || !!device.revoked}
             checked={targets.some((target) => target.id === device.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, device.id] : selected.filter((id) => id !== device.id))} /></td>
           <td className="p-3"><button onClick={() => openDevice(device.id)} className="product-device-link flex items-center gap-3 text-left">
-            <Server className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" /><span dir="auto">{deviceName(device)}</span>
+            <Server className="h-4 w-4 shrink-0 text-[var(--product-text-tertiary)]" aria-hidden="true" /><span dir="auto">{deviceName(device)}</span>
           </button></td>
-          <td className="p-3 capitalize"><span className="product-status" data-status={deviceStatus(device)}>{deviceStatus(device)}</span></td><td className="p-3 text-xs text-slate-400">{time(device.last_seen)}</td>
-          <td className="p-3"><details><summary aria-label={`More actions for ${deviceName(device)}`} className="cursor-pointer text-slate-300">More</summary>
-            <div className="mt-2 grid gap-2">{["tasks", "terminal", "desktop"].map((tab) => <button key={tab} className="py-1 text-left text-xs capitalize text-slate-300" onClick={() => openDevice(device.id, tab)}>{tab}</button>)}</div>
+          <td className="p-3 capitalize"><span className="product-status" data-status={deviceStatus(device)}>{deviceStatus(device)}</span></td><td className="p-3 text-xs text-[var(--product-text-tertiary)]">{time(device.last_seen)}</td>
+          <td className="p-3"><details><summary aria-label={`More actions for ${deviceName(device)}`} className="cursor-pointer text-[var(--product-text-secondary)]">More</summary>
+            <div className="mt-2 grid gap-2">{["tasks", "terminal", "desktop"].map((tab) => <button key={tab} className="py-1 text-left text-xs capitalize text-[var(--product-text-secondary)]" onClick={() => openDevice(device.id, tab)}>{tab}</button>)}</div>
           </details></td>
         </tr>)}</tbody>
       </table>

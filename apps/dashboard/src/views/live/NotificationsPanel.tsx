@@ -19,6 +19,6 @@ export function NotificationsPanel({ open }: { open: (section: "devices" | "task
         <JXButton color="neutral" variant="text" onClick={() => open(item.section, item.filter)}>{item.count.toLocaleString()} · View</JXButton>
       </li>)}
     </ul>}
-    <p className="text-xs text-slate-400">Refreshed every five seconds while this tab is visible. These are current attention counts, not a historical notification inbox. A device is stale after two minutes without a heartbeat.</p>
+    <p className="text-xs text-[var(--product-text-tertiary)]">Refreshed every five seconds while this tab is visible. These are current attention counts, not a historical notification inbox. A device is stale after two minutes without a heartbeat.</p>
   </section>;
 }

@@ -396,7 +396,7 @@ export const DiagnosticsLogsView: React.FC = () => {
   return (
     <div className="space-y-4">
       {/* Status Ribbon with Ingest EPS and Ring Buffer Meter */}
-      <JXCard className="bg-slate-900/60 border-slate-800">
+      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
         <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs font-mono">
           <div className="flex items-center gap-2 flex-wrap">
             <JXButton
@@ -462,7 +462,7 @@ export const DiagnosticsLogsView: React.FC = () => {
       </JXCard>
 
       {/* Filter Ribbon */}
-      <JXCard className="bg-slate-900/60 border-slate-800">
+      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
         <div className="p-4 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
           <div className="flex items-center gap-2 flex-wrap">
             {/* Target Service Dropdown */}
@@ -470,7 +470,7 @@ export const DiagnosticsLogsView: React.FC = () => {
               aria-label="Target log service"
               value={targetService}
               onChange={(e) => setTargetService(e.target.value)}
-              className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none"
+              className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] focus:outline-none"
             >
               <option value="ai-bridge-core.service">ai-bridge-core.service (control)</option>
               <option value="ai-bridge-mcp-gateway">ai-bridge-mcp-gateway (mcp)</option>
@@ -488,7 +488,7 @@ export const DiagnosticsLogsView: React.FC = () => {
               aria-label="Log buffer size"
               value={bufferSize}
               onChange={(e) => setBufferSize(Number(e.target.value))}
-              className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 focus:outline-none"
+              className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] focus:outline-none"
             >
               <option value={250}>Buffer: 250 lines</option>
               <option value={500}>Buffer: 500 lines</option>
@@ -496,8 +496,8 @@ export const DiagnosticsLogsView: React.FC = () => {
             </select>
 
             {/* Auto-Scroll Toggle */}
-            <div className="flex items-center gap-2 p-1.5 rounded-lg bg-slate-950 border border-slate-800">
-              <span className="text-slate-400">Auto-Scroll</span>
+            <div className="flex items-center gap-2 p-1.5 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)]">
+              <span className="text-[var(--product-text-tertiary)]">Auto-Scroll</span>
               <JXSwitch label="Auto-scroll logs" checked={autoScroll} onChange={() => setAutoScroll(!autoScroll)} />
             </div>
 
@@ -508,16 +508,16 @@ export const DiagnosticsLogsView: React.FC = () => {
                 placeholder="Regex search pattern..."
                 value={regexQuery}
                 onChange={(e) => setRegexQuery(e.target.value)}
-                className="p-2 pr-16 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none w-64"
+                className="p-2 pr-16 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] placeholder-slate-500 focus:outline-none w-64"
               />
-              <span className="absolute right-2 top-2 px-1 rounded bg-slate-800 text-[10px] text-indigo-400 font-bold">
+              <span className="absolute right-2 top-2 px-1 rounded bg-[var(--product-raised)] text-[10px] text-indigo-400 font-bold">
                 .* REGEX
               </span>
             </div>
           </div>
 
           {/* Log Level Pills */}
-          <div className="flex items-center gap-1.5 p-1 rounded-lg bg-slate-950 border border-slate-800">
+          <div className="flex items-center gap-1.5 p-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)]">
             {["ALL", "DEBUG", "INFO", "WARN", "ERROR"].map((lvl) => (
               <button
                 key={lvl}
@@ -526,7 +526,7 @@ export const DiagnosticsLogsView: React.FC = () => {
                 className={`px-2.5 py-1 rounded text-[11px] font-bold transition-colors ${
                   logLevelFilter === lvl
                     ? "bg-indigo-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
+                    : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                 }`}
               >
                 {lvl}
@@ -553,11 +553,11 @@ export const DiagnosticsLogsView: React.FC = () => {
       <JXGrid columns={12} gap="lg">
         {/* Monospace Log Canvas */}
         <JXGridItem colSpan={8}>
-          <JXCard className="bg-slate-900/60 border-slate-800">
-            <div className="p-3 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs font-mono text-slate-400">
+          <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
+            <div className="p-3 bg-[var(--product-canvas)] border-b border-[var(--product-line)] flex items-center justify-between text-xs font-mono text-[var(--product-text-tertiary)]">
               <div className="flex items-center gap-2">
                 <Terminal className="w-4 h-4 text-indigo-400" />
-                <span className="text-slate-200 font-bold">/var/log/ai-bridge/core.stdout.log (tail -f)</span>
+                <span className="text-[var(--product-text-secondary)] font-bold">/var/log/ai-bridge/core.stdout.log (tail -f)</span>
               </div>
               <div className="flex items-center gap-3">
                 <span>UTF-8</span>
@@ -572,7 +572,7 @@ export const DiagnosticsLogsView: React.FC = () => {
             <JXCardContent>
               <div className="p-3 space-y-1 font-mono text-xs max-h-[520px] overflow-y-auto leading-relaxed">
                 {filteredLogs.length === 0 ? (
-                  <div className="p-6 text-center text-slate-400">
+                  <div className="p-6 text-center text-[var(--product-text-tertiary)]">
                     {isLoadingLogs
                       ? `Loading ${backendService} service logs...`
                       : `No log records match the current filter (${backendService}).`}
@@ -591,11 +591,11 @@ export const DiagnosticsLogsView: React.FC = () => {
                         onClick={() => setSelectedEntry(log)}
                         className={`p-2 rounded-lg cursor-pointer transition-colors flex flex-wrap items-start gap-3 ${
                           isSelected
-                            ? "bg-indigo-950/60 border border-indigo-500/60 text-slate-100"
-                            : "hover:bg-slate-950/60 text-slate-300"
+                            ? "bg-indigo-950/60 border border-indigo-500/60 text-[var(--product-text)]"
+                            : "hover:bg-[var(--product-canvas)]/60 text-[var(--product-text-secondary)]"
                         }`}
                       >
-                        <span className="text-slate-400 text-[11px] shrink-0">{log.timestamp.slice(11, 23)}</span>
+                        <span className="text-[var(--product-text-tertiary)] text-[11px] shrink-0">{log.timestamp.slice(11, 23)}</span>
                         <span className="text-indigo-400 font-semibold shrink-0">[{log.workerThread}]</span>
                         <span className="text-cyan-400 font-semibold shrink-0">[{log.moduleTag}]</span>
                         <span
@@ -603,7 +603,7 @@ export const DiagnosticsLogsView: React.FC = () => {
                             log.level === "INFO"
                               ? "bg-emerald-500/20 text-emerald-300"
                               : log.level === "DEBUG"
-                              ? "bg-slate-800 text-slate-400"
+                              ? "bg-[var(--product-raised)] text-[var(--product-text-tertiary)]"
                               : log.level === "WARN"
                               ? "bg-amber-500/20 text-amber-300"
                               : "bg-rose-500/20 text-rose-300"
@@ -623,7 +623,7 @@ export const DiagnosticsLogsView: React.FC = () => {
 
         {/* Structured JSON Detail Inspection Drawer */}
         <JXGridItem colSpan={4}>
-          <JXCard className="bg-slate-900/60 border-slate-800">
+          <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
             <JXCardHeader
               title="Log details"
               icon={<FileCode className="w-5 h-5 text-indigo-400" />}
@@ -631,17 +631,17 @@ export const DiagnosticsLogsView: React.FC = () => {
             <JXCardContent>
               {selectedEntry ? (
                 <div className="space-y-4 text-xs font-mono">
-                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+                  <div className="p-3 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] space-y-1.5">
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Service:</span>
-                      <span className="text-slate-200 font-semibold">{selectedEntry.service}</span>
+                      <span className="text-[var(--product-text-tertiary)]">Service:</span>
+                      <span className="text-[var(--product-text-secondary)] font-semibold">{selectedEntry.service}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Worker PID:</span>
-                      <span className="text-slate-200">{selectedEntry.pid}</span>
+                      <span className="text-[var(--product-text-tertiary)]">Worker PID:</span>
+                      <span className="text-[var(--product-text-secondary)]">{selectedEntry.pid}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Trace ID:</span>
+                      <span className="text-[var(--product-text-tertiary)]">Trace ID:</span>
                       <span className="text-cyan-400 font-bold">{selectedEntry.traceId}</span>
                     </div>
                   </div>
@@ -670,17 +670,17 @@ export const DiagnosticsLogsView: React.FC = () => {
 
                   {/* Formatted JSON Payload Attributes */}
                   <div className="space-y-1.5">
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+                    <span className="text-[10px] text-[var(--product-text-tertiary)] uppercase tracking-wider block">
                       Parsed Structured Attributes
                     </span>
-                    <pre className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 overflow-x-auto max-h-56 overflow-y-auto">
+                    <pre className="p-3 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-[11px] text-[var(--product-text-secondary)] overflow-x-auto max-h-56 overflow-y-auto">
                       <code>{JSON.stringify(selectedEntry.details, null, 2)}</code>
                     </pre>
                   </div>
 
                 </div>
               ) : (
-                <div className="p-8 text-center text-slate-400 text-sm">
+                <div className="p-8 text-center text-[var(--product-text-tertiary)] text-sm">
                   Select a log to see its details.
                 </div>
               )}

@@ -426,8 +426,8 @@ export const TaskQueueVisionView: React.FC = () => {
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 font-mono text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-            <Clock className="w-3 h-3 text-slate-400" /> {status}
+          <span className="inline-flex items-center gap-1 font-mono text-[11px] px-2 py-0.5 rounded bg-[var(--product-raised)] text-[var(--product-text-secondary)] border border-[var(--product-line)]">
+            <Clock className="w-3 h-3 text-[var(--product-text-tertiary)]" /> {status}
           </span>
         );
     }
@@ -439,7 +439,7 @@ export const TaskQueueVisionView: React.FC = () => {
       <JXGrid columns={12} gap="lg">
         {/* LEFT COLUMN: Tool Dispatch Studio (5 cols) */}
         <JXGridItem colSpan={5}>
-          <JXCard className="bg-slate-900/70 border-slate-800 shadow-xl">
+          <JXCard className="bg-[var(--product-surface)]/70 border-[var(--product-line)] shadow-xl">
             <JXCardHeader
               title="Run a task"
               icon={<Zap className="w-4 h-4 text-indigo-400" />}
@@ -449,7 +449,7 @@ export const TaskQueueVisionView: React.FC = () => {
               {/* Target Host System */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
-                  <label htmlFor="target-host-select" className="font-medium text-slate-200">
+                  <label htmlFor="target-host-select" className="font-medium text-[var(--product-text-secondary)]">
                     Device
                   </label>
                 </div>
@@ -457,7 +457,7 @@ export const TaskQueueVisionView: React.FC = () => {
                   id="target-host-select"
                   value={targetHost}
                   onChange={(e) => setTargetHost(e.target.value)}
-                  className="w-full min-h-[42px] px-3 py-2 rounded-xl bg-slate-950/80 border border-slate-800 text-slate-200 font-mono text-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors cursor-pointer"
+                  className="w-full min-h-[42px] px-3 py-2 rounded-xl bg-[var(--product-canvas)]/80 border border-[var(--product-line)] text-[var(--product-text-secondary)] font-mono text-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors cursor-pointer"
                 >
                   {devices.map((d) => (
                     <option key={d.id} value={d.id}>
@@ -470,7 +470,7 @@ export const TaskQueueVisionView: React.FC = () => {
               {/* Tool Category & Selection */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
-                  <label htmlFor="tool-select" className="font-medium text-slate-200">
+                  <label htmlFor="tool-select" className="font-medium text-[var(--product-text-secondary)]">
                     Tool
                   </label>
                   <span className={`font-mono text-[10px] px-2 py-0.5 rounded font-semibold uppercase ${getRiskBadgeColor(activeRiskTier)}`}>
@@ -481,7 +481,7 @@ export const TaskQueueVisionView: React.FC = () => {
                   id="tool-select"
                   value={selectedTool}
                   onChange={(e) => setSelectedTool(e.target.value)}
-                  className="w-full min-h-[42px] px-3 py-2 rounded-xl bg-slate-950/80 border border-slate-800 text-slate-200 font-mono text-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors cursor-pointer"
+                  className="w-full min-h-[42px] px-3 py-2 rounded-xl bg-[var(--product-canvas)]/80 border border-[var(--product-line)] text-[var(--product-text-secondary)] font-mono text-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors cursor-pointer"
                 >
                   <optgroup label="Vision & Input Primitives">
                     <option value="desktop.capture_screen">desktop.capture_screen [Tier 1: Safe ReadOnly]</option>
@@ -504,7 +504,7 @@ export const TaskQueueVisionView: React.FC = () => {
 
               {/* Parameter Presets Quick-Chips */}
               <div className="space-y-1.5">
-                <span className="font-mono text-[11px] text-slate-400 uppercase tracking-wider block">
+                <span className="font-mono text-[11px] text-[var(--product-text-tertiary)] uppercase tracking-wider block">
                   Parameter Presets
                 </span>
                 <div className="flex flex-wrap gap-1.5">
@@ -518,7 +518,7 @@ export const TaskQueueVisionView: React.FC = () => {
                         className={`px-2.5 py-1 rounded-lg text-xs font-mono transition-all ${
                           isSelected
                             ? "bg-indigo-600 text-white font-semibold shadow-md shadow-indigo-600/30"
-                            : "bg-slate-950/70 border border-slate-800 text-slate-300 hover:border-slate-700 hover:text-slate-100"
+                            : "bg-[var(--product-canvas)]/70 border border-[var(--product-line)] text-[var(--product-text-secondary)] hover:border-[var(--product-line)] hover:text-[var(--product-text)]"
                         }`}
                       >
                         {p.name}
@@ -531,7 +531,7 @@ export const TaskQueueVisionView: React.FC = () => {
               {/* JSON Argument Editor */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-medium text-slate-200">Invocation Arguments (JSON)</span>
+                  <span className="font-medium text-[var(--product-text-secondary)]">Invocation Arguments (JSON)</span>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -552,14 +552,14 @@ export const TaskQueueVisionView: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="relative rounded-xl bg-slate-950 border border-slate-800 p-2 font-mono text-xs">
+                <div className="relative rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] p-2 font-mono text-xs">
                   <textarea
                     aria-label="Tool arguments JSON"
                     rows={7}
                     value={argsJson}
                     onChange={handleJsonChange}
                     spellCheck={false}
-                    className="w-full bg-transparent text-slate-200 font-mono text-xs leading-relaxed outline-none resize-none border-none p-1"
+                    className="w-full bg-transparent text-[var(--product-text-secondary)] font-mono text-xs leading-relaxed outline-none resize-none border-none p-1"
                   />
                 </div>
                 {jsonError && (
@@ -575,7 +575,7 @@ export const TaskQueueVisionView: React.FC = () => {
                   onClick={handleDispatch}
                   className={`w-full min-h-[44px] px-4 py-2.5 rounded-xl text-white font-semibold text-xs flex items-center justify-between transition-all shadow-lg ${
                     isSubmitting || jsonError
-                      ? "bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-700"
+                      ? "bg-[var(--product-raised)] text-[var(--product-text-tertiary)] cursor-not-allowed border border-[var(--product-line)]"
                       : "bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] shadow-indigo-600/25"
                   }`}
                 >
@@ -594,7 +594,7 @@ export const TaskQueueVisionView: React.FC = () => {
               </div>
 
               {/* Security Guardrail Callout */}
-              <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 flex items-center justify-between text-[11px] font-mono text-slate-400">
+              <div className="p-3 rounded-xl bg-[var(--product-canvas)]/70 border border-[var(--product-line)]/80 flex items-center justify-between text-[11px] font-mono text-[var(--product-text-tertiary)]">
                 <span className="flex items-center gap-1.5 text-emerald-400">
                   <Shield className="w-3.5 h-3.5" /> Zero-Trust Sandbox Active
                 </span>
@@ -609,7 +609,7 @@ export const TaskQueueVisionView: React.FC = () => {
         <JXGridItem colSpan={7}>
           <div className="space-y-6">
             {/* Upper: Execution Stream Table */}
-            <JXCard className="bg-slate-900/70 border-slate-800 shadow-xl">
+            <JXCard className="bg-[var(--product-surface)]/70 border-[var(--product-line)] shadow-xl">
               <JXCardHeader
                 title="Tasks"
                 icon={<Layers className="w-4 h-4 text-cyan-400" />}
@@ -634,7 +634,7 @@ export const TaskQueueVisionView: React.FC = () => {
                         className={`px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-1.5 transition-all ${
                           isSelected
                             ? "bg-indigo-600 text-white font-semibold shadow-md shadow-indigo-600/30"
-                            : "bg-slate-950/80 border border-slate-800 text-slate-300 hover:border-slate-700"
+                            : "bg-[var(--product-canvas)]/80 border border-[var(--product-line)] text-[var(--product-text-secondary)] hover:border-[var(--product-line)]"
                         }`}
                       >
                         <span>{filter.label}</span>
@@ -647,10 +647,10 @@ export const TaskQueueVisionView: React.FC = () => {
                 </div>
 
                 {/* Task Table */}
-                <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-950/60">
+                <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]/80 bg-[var(--product-canvas)]/60">
                   <table className="w-full text-left text-xs">
                     <thead>
-                      <tr className="bg-slate-900/80 text-slate-400 font-mono text-[11px] uppercase border-b border-slate-800">
+                      <tr className="bg-[var(--product-surface)]/80 text-[var(--product-text-tertiary)] font-mono text-[11px] uppercase border-b border-[var(--product-line)]">
                         <th className="py-2.5 px-3">Task ID</th>
                         <th className="py-2.5 px-3">Target & Tool</th>
                         <th className="py-2.5 px-3">Status</th>
@@ -667,8 +667,8 @@ export const TaskQueueVisionView: React.FC = () => {
                             onClick={() => setSelectedTaskId(t.id)}
                             className={`cursor-pointer transition-colors ${
                               isSelected
-                                ? "bg-indigo-950/40 text-slate-100"
-                                : "hover:bg-slate-900/40 text-slate-300"
+                                ? "bg-indigo-950/40 text-[var(--product-text)]"
+                                : "hover:bg-[var(--product-surface)]/40 text-[var(--product-text-secondary)]"
                             }`}
                           >
                             <td className="py-2.5 px-3">
@@ -676,19 +676,19 @@ export const TaskQueueVisionView: React.FC = () => {
                             </td>
                             <td className="py-2.5 px-3">
                               <div className="flex flex-col">
-                                <span className="font-semibold text-slate-200">{t.tool}</span>
-                                <span className="text-[10px] text-slate-400">{t.deviceHostname || t.deviceId}</span>
+                                <span className="font-semibold text-[var(--product-text-secondary)]">{t.tool}</span>
+                                <span className="text-[10px] text-[var(--product-text-tertiary)]">{t.deviceHostname || t.deviceId}</span>
                               </div>
                             </td>
                             <td className="py-2.5 px-3">{getStatusBadge(t.status)}</td>
-                            <td className="py-2.5 px-3 text-slate-400 text-[11px]">{t.invoker}</td>
+                            <td className="py-2.5 px-3 text-[var(--product-text-tertiary)] text-[11px]">{t.invoker}</td>
                             <td className="py-2.5 px-3 text-right">
                               <button
                                 type="button"
                                 className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
                                   isSelected
                                     ? "bg-indigo-600 text-white"
-                                    : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                                    : "bg-[var(--product-raised)] text-[var(--product-text-secondary)] hover:bg-[var(--product-raised)]"
                                 }`}
                               >
                                 View
@@ -705,7 +705,7 @@ export const TaskQueueVisionView: React.FC = () => {
             </JXCard>
 
             {/* Lower: Vision Screen Viewer & Output Inspector */}
-            <JXCard className="bg-slate-900/70 border-slate-800 shadow-xl">
+            <JXCard className="bg-[var(--product-surface)]/70 border-[var(--product-line)] shadow-xl">
               <JXCardHeader
                 title={`Vision Inspector — #${activeTask?.id || "N/A"}`}
                 icon={<Crosshair className="w-4 h-4 text-emerald-400" />}
@@ -713,12 +713,12 @@ export const TaskQueueVisionView: React.FC = () => {
               <JXCardContent>
               <div className="space-y-4">
                 {/* Control bar: Zoom, SoM toggle, Download */}
-                <div className="flex flex-wrap items-center justify-between gap-3 p-2 rounded-xl bg-slate-950/80 border border-slate-800">
+                <div className="flex flex-wrap items-center justify-between gap-3 p-2 rounded-xl bg-[var(--product-canvas)]/80 border border-[var(--product-line)]">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs font-semibold text-indigo-400">
                       {activeTask?.tool}
                     </span>
-                    <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                    <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-[var(--product-raised)] text-[var(--product-text-secondary)]">
                       {activeTask?.deviceHostname || activeTask?.deviceId}
                     </span>
                   </div>
@@ -731,7 +731,7 @@ export const TaskQueueVisionView: React.FC = () => {
                       className={`px-3 py-1 rounded-lg text-xs font-mono font-semibold flex items-center gap-1.5 transition-all ${
                         somEnabled
                           ? "bg-emerald-600/20 text-emerald-300 border border-emerald-500/40"
-                          : "bg-slate-800 text-slate-400 border border-slate-700"
+                          : "bg-[var(--product-raised)] text-[var(--product-text-tertiary)] border border-[var(--product-line)]"
                       }`}
                     >
                       <Crosshair className="w-3.5 h-3.5" />
@@ -739,23 +739,23 @@ export const TaskQueueVisionView: React.FC = () => {
                     </button>
 
                     {/* Zoom Buttons */}
-                    <div className="flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5">
+                    <div className="flex items-center rounded-lg bg-[var(--product-surface)] border border-[var(--product-line)] p-0.5">
                       <button
                         type="button"
                         onClick={handleZoomOut}
                         title="Zoom Out"
-                        className="p-1.5 text-slate-400 hover:text-slate-200 transition-colors"
+                        className="p-1.5 text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)] transition-colors"
                       >
                         <ZoomOut className="w-3.5 h-3.5" />
                       </button>
-                      <span className="font-mono text-[11px] px-2 text-slate-300 tabular-nums">
+                      <span className="font-mono text-[11px] px-2 text-[var(--product-text-secondary)] tabular-nums">
                         {Math.round(zoomLevel * 100)}%
                       </span>
                       <button
                         type="button"
                         onClick={handleZoomIn}
                         title="Zoom In"
-                        className="p-1.5 text-slate-400 hover:text-slate-200 transition-colors"
+                        className="p-1.5 text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)] transition-colors"
                       >
                         <ZoomIn className="w-3.5 h-3.5" />
                       </button>
@@ -772,13 +772,13 @@ export const TaskQueueVisionView: React.FC = () => {
                 </div>
 
                 {/* Vision Screen Canvas (Simulated High-Res Desktop Frame Buffer with SoM Marks) */}
-                <div className="relative w-full aspect-video rounded-xl bg-slate-950 border border-slate-800 overflow-hidden select-none">
+                <div className="relative w-full aspect-video rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] overflow-hidden select-none">
                   {/* Simulated Desktop Environment */}
-                  <div className="absolute inset-0 flex flex-col bg-slate-950">
+                  <div className="absolute inset-0 flex flex-col bg-[var(--product-canvas)]">
                     {/* Top Simulated OS Bar */}
-                    <div className="h-6 w-full bg-slate-900 border-b border-slate-800 px-3 flex items-center justify-between font-mono text-[11px] text-slate-400">
+                    <div className="h-6 w-full bg-[var(--product-surface)] border-b border-[var(--product-line)] px-3 flex items-center justify-between font-mono text-[11px] text-[var(--product-text-tertiary)]">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-slate-200">Ubuntu 24.04 LTS</span>
+                        <span className="font-semibold text-[var(--product-text-secondary)]">Ubuntu 24.04 LTS</span>
                         <span>{activeTask?.deviceHostname || "srv-us-east-412"}</span>
                       </div>
                       <div className="flex items-center gap-3">
@@ -791,26 +791,26 @@ export const TaskQueueVisionView: React.FC = () => {
                     {/* Window Area */}
                     <div className="flex-1 p-3 grid grid-cols-12 gap-3 relative overflow-hidden">
                       {/* Simulated Window 1: Terminal */}
-                      <div className="col-span-7 rounded-lg bg-slate-900/95 border border-slate-800 p-2.5 font-mono text-xs flex flex-col relative shadow-lg">
-                        <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-2">
+                      <div className="col-span-7 rounded-lg bg-[var(--product-surface)]/95 border border-[var(--product-line)] p-2.5 font-mono text-xs flex flex-col relative shadow-lg">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-[var(--product-line)]/80 mb-2">
                           <div className="flex items-center gap-1.5">
                             <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80"></span>
                             <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80"></span>
                             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></span>
-                            <span className="ml-2 text-[10px] text-slate-400">bash — 80x24</span>
+                            <span className="ml-2 text-[10px] text-[var(--product-text-tertiary)]">bash — 80x24</span>
                           </div>
                         </div>
-                        <div className="space-y-1 text-slate-300 text-[11px]">
+                        <div className="space-y-1 text-[var(--product-text-secondary)] text-[11px]">
                           <p><span className="text-emerald-400">root@srv-us-east-412:~#</span> systemctl status ai-bridge-agent</p>
                           <p className="text-emerald-400">● ai-bridge-agent.service - Active (running)</p>
-                          <p className="text-slate-400">Main PID: 18492 (agent_worker)</p>
+                          <p className="text-[var(--product-text-tertiary)]">Main PID: 18492 (agent_worker)</p>
                           <p className="text-cyan-300">WebSocket channel: verified (TLS 1.3)</p>
                         </div>
                       </div>
 
                       {/* Simulated Window 2: Web Preview */}
-                      <div className="col-span-5 rounded-lg bg-slate-900/90 border border-slate-800 p-2.5 flex flex-col relative shadow-lg">
-                        <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 mb-2 text-[10px] text-slate-400 font-mono">
+                      <div className="col-span-5 rounded-lg bg-[var(--product-surface)]/90 border border-[var(--product-line)] p-2.5 flex flex-col relative shadow-lg">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-[var(--product-line)]/80 mb-2 text-[10px] text-[var(--product-text-tertiary)] font-mono">
                           <span>Bridge Gateway Inspector</span>
                           <span className="text-emerald-400">● Live</span>
                         </div>
@@ -821,16 +821,16 @@ export const TaskQueueVisionView: React.FC = () => {
                             <div className="flex-1 bg-indigo-500/80 rounded-t h-[85%]"></div>
                             <div className="flex-1 bg-cyan-400 rounded-t h-[95%]"></div>
                           </div>
-                          <span className="font-mono text-[10px] text-slate-500 text-center">Packets/Sec</span>
+                          <span className="font-mono text-[10px] text-[var(--product-text-dim)] text-center">Packets/Sec</span>
                         </div>
                       </div>
 
                       {/* Bottom Taskbar */}
-                      <div className="col-span-12 h-8 rounded-lg bg-slate-900/90 border border-slate-800 flex items-center justify-between px-3 text-[11px] font-mono text-slate-400">
+                      <div className="col-span-12 h-8 rounded-lg bg-[var(--product-surface)]/90 border border-[var(--product-line)] flex items-center justify-between px-3 text-[11px] font-mono text-[var(--product-text-tertiary)]">
                         <div className="flex items-center gap-3">
                           <Terminal className="w-3.5 h-3.5 text-indigo-400" />
                           <Monitor className="w-3.5 h-3.5 text-emerald-400" />
-                          <FileText className="w-3.5 h-3.5 text-slate-400" />
+                          <FileText className="w-3.5 h-3.5 text-[var(--product-text-tertiary)]" />
                         </div>
                         <span>IPC Channel: OK • 14ms</span>
                       </div>
@@ -848,7 +848,7 @@ export const TaskQueueVisionView: React.FC = () => {
                             selectedMarkId === mark.id ? "ring-2 ring-white shadow-xl scale-[1.01]" : ""
                           }`}
                         >
-                          <span className="absolute -top-3 -left-1 px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-slate-900 text-white shadow-md border border-slate-700">
+                          <span className="absolute -top-3 -left-1 px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-[var(--product-surface)] text-white shadow-md border border-[var(--product-line)]">
                             [{mark.id}]
                           </span>
                         </div>
@@ -857,7 +857,7 @@ export const TaskQueueVisionView: React.FC = () => {
                   )}
 
                   {/* Bottom Telemetry Overlay Inside Canvas */}
-                  <div className="absolute bottom-2 left-2 right-2 px-3 py-1.5 rounded-lg bg-slate-950/85 backdrop-blur-md border border-slate-800 flex items-center justify-between font-mono text-[11px] text-slate-400">
+                  <div className="absolute bottom-2 left-2 right-2 px-3 py-1.5 rounded-lg bg-[var(--product-canvas)]/85 backdrop-blur-md border border-[var(--product-line)] flex items-center justify-between font-mono text-[11px] text-[var(--product-text-tertiary)]">
                     <span className="text-emerald-400 flex items-center gap-1.5">
                       <Crosshair className="w-3.5 h-3.5" />
                       4 Target Marks Bound (SoM Alpha 1.4)
@@ -868,13 +868,13 @@ export const TaskQueueVisionView: React.FC = () => {
 
                 {/* Mark Details Inspection if a mark is selected */}
                 {selectedMarkId && (
-                  <div className="p-3 rounded-xl bg-slate-950/90 border border-indigo-500/40 text-xs font-mono space-y-1">
+                  <div className="p-3 rounded-xl bg-[var(--product-canvas)]/90 border border-indigo-500/40 text-xs font-mono space-y-1">
                     <div className="flex items-center justify-between text-indigo-300 font-bold">
                       <span>Selected SoM Mark [{selectedMarkId}]</span>
                       <button
                         type="button"
                         onClick={() => setSelectedMarkId(null)}
-                        className="text-slate-400 hover:text-slate-200"
+                        className="text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                       >
                         Dismiss
                       </button>
@@ -883,7 +883,7 @@ export const TaskQueueVisionView: React.FC = () => {
                       const m = DEFAULT_SOM_MARKS.find((mark) => mark.id === selectedMarkId);
                       if (!m) return null;
                       return (
-                        <div className="text-slate-300 space-y-0.5">
+                        <div className="text-[var(--product-text-secondary)] space-y-0.5">
                           <div>Label: {m.label}</div>
                           <div>Category: {m.category}</div>
                           <div>Bounding Box: [X: {m.bounds[0]}%, Y: {m.bounds[1]}%, W: {m.bounds[2]}%, H: {m.bounds[3]}%]</div>
@@ -897,7 +897,7 @@ export const TaskQueueVisionView: React.FC = () => {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-slate-200">Execution Return Payload</span>
+                      <span className="font-medium text-[var(--product-text-secondary)]">Execution Return Payload</span>
                       <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                         200 OK
                       </span>
@@ -906,7 +906,7 @@ export const TaskQueueVisionView: React.FC = () => {
                     <button
                       type="button"
                       onClick={copyToClipboard}
-                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-[11px] flex items-center gap-1.5 transition-colors"
+                      className="px-2.5 py-1 rounded-lg bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] font-mono text-[11px] flex items-center gap-1.5 transition-colors"
                     >
                       {copiedPayload ? (
                         <>
@@ -915,14 +915,14 @@ export const TaskQueueVisionView: React.FC = () => {
                         </>
                       ) : (
                         <>
-                          <Copy className="w-3.5 h-3.5 text-slate-400" />
+                          <Copy className="w-3.5 h-3.5 text-[var(--product-text-tertiary)]" />
                           <span>Copy JSON</span>
                         </>
                       )}
                     </button>
                   </div>
 
-                  <pre tabIndex={0} aria-label="Task output" className="p-3 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs text-slate-200 overflow-x-auto max-h-36">
+                  <pre tabIndex={0} aria-label="Task output" className="p-3 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] font-mono text-xs text-[var(--product-text-secondary)] overflow-x-auto max-h-36">
                     <code>
                       {JSON.stringify(
                         {

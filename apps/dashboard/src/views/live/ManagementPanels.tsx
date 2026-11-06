@@ -29,11 +29,11 @@ export function AuditPanel({ admin }: { admin: boolean }) {
     {state.data && !rows.length && <Empty title="No matching events" />}
     <ul className="divide-y divide-slate-800">{rows.slice((currentPage - 1) * 25, currentPage * 25).map(row => <li key={row.id} className="space-y-2 py-3">
       <p className="break-words text-sm">{row.tool} · {row.decision}</p>
-      <p className="break-words text-xs text-slate-400">{row.actor} · {time(row.ts)}{row.device_id ? ` · ${row.device_id}` : ""}</p>
+      <p className="break-words text-xs text-[var(--product-text-tertiary)]">{row.actor} · {time(row.ts)}{row.device_id ? ` · ${row.device_id}` : ""}</p>
       <Payload title="Event details" value={row} />
     </li>)}</ul>
     <Pagination page={currentPage} total={rows.length} onPage={setPage} />
-    <p className="text-xs text-slate-400">Search covers the latest 500 events. Admin export includes up to 10,000 events. Treat downloaded logs as sensitive.</p>
+    <p className="text-xs text-[var(--product-text-tertiary)]">Search covers the latest 500 events. Admin export includes up to 10,000 events. Treat downloaded logs as sensitive.</p>
   </section>;
 }
 
@@ -50,7 +50,7 @@ export function PoliciesPanel({ admin }: { admin: boolean }) {
     {state.data && <>
       <p className="text-sm">Global policy · Version {state.data.version}</p>
       <Payload title="Current global policy" value={state.data.policy} />
-      <p className="text-xs text-slate-400">Device overrides may differ. Inspect Effective policy on the device before submitting a task.</p>
+      <p className="text-xs text-[var(--product-text-tertiary)]">Device overrides may differ. Inspect Effective policy on the device before submitting a task.</p>
       <JXButton disabled={!admin || !!state.error || state.loading} onClick={() => {
         const policy = state.data!.policy;
         setDraft({ allow_tier3: !!policy.allow_tier3, desktop_enabled: !!policy.desktop_enabled,
@@ -58,7 +58,7 @@ export function PoliciesPanel({ admin }: { admin: boolean }) {
         setError(""); setReview(false);
       }}>Edit global policy</JXButton>
     </>}
-    {!admin && <p className="text-xs text-slate-400">Only administrators can change policy.</p>}
+    {!admin && <p className="text-xs text-[var(--product-text-tertiary)]">Only administrators can change policy.</p>}
     {draft && <GlassModal title={review ? "Review policy change" : "Edit global policy"} onClose={() => { if (!busy) setDraft(undefined); }}>
       <div className="space-y-4">
         {review ? <>
@@ -101,17 +101,17 @@ export function ConnectionsPanel({ admin }: { admin: boolean }) {
     <JXButton color="neutral" variant="outlined" disabled={state.loading} onClick={state.refresh}>Check connections</JXButton>
     {state.data && <>
       <dl className="grid gap-4 text-sm sm:grid-cols-2">
-        <div><dt className="text-slate-400">MCP service</dt><dd>{state.data.mcp?.up ? "Reachable" : "Not reachable"} on control-plane host</dd></div>
-        <div><dt className="text-slate-400">OAuth gateway</dt><dd>{state.data.oauth_gateway?.up ? "Reachable" : "Not reachable"} on control-plane host</dd></div>
+        <div><dt className="text-[var(--product-text-tertiary)]">MCP service</dt><dd>{state.data.mcp?.up ? "Reachable" : "Not reachable"} on control-plane host</dd></div>
+        <div><dt className="text-[var(--product-text-tertiary)]">OAuth gateway</dt><dd>{state.data.oauth_gateway?.up ? "Reachable" : "Not reachable"} on control-plane host</dd></div>
       </dl>
-      <p className="text-xs text-slate-400">Local port checks do not verify external routing or successful authentication.</p>
+      <p className="text-xs text-[var(--product-text-tertiary)]">Local port checks do not verify external routing or successful authentication.</p>
       <Payload title="Registered OAuth clients" value={state.data.chatgpt?.clients || []} />
       {admin && <ul className="space-y-2">{state.data.chatgpt?.clients?.map((client: any) => <li key={client.client_id}>
         <JXButton color="neutral" variant="outlined" disabled={state.loading || !!state.error} onClick={() => {
           setEdit({ client_id: client.client_id, client_name: client.client_name || "", redirect_uris: client.redirect_uris || "" }); setReview(false); setError("");
         }}>Edit {client.client_name || client.client_id_prefix}</JXButton>
       </li>)}</ul>}
-      <p className="text-xs text-slate-400">Only administrators can edit registered clients. Google provider secrets belong in the server environment, never in this dashboard.</p>
+      <p className="text-xs text-[var(--product-text-tertiary)]">Only administrators can edit registered clients. Google provider secrets belong in the server environment, never in this dashboard.</p>
     </>}
     {edit && <GlassModal title={review ? "Review OAuth client change" : "Edit OAuth client"} onClose={() => { if (!busy) setEdit(undefined); }}>
       <div className="space-y-4">
@@ -121,7 +121,7 @@ export function ConnectionsPanel({ admin }: { admin: boolean }) {
         </> : <>
           <Field label="Client name"><input className={fieldClass} value={edit.client_name} maxLength={200} onChange={e => setEdit({ ...edit, client_name: e.target.value })} /></Field>
           <Field label="Redirect URIs (one per line)"><textarea className={fieldClass} value={edit.redirect_uris} maxLength={4096} onChange={e => setEdit({ ...edit, redirect_uris: e.target.value })} /></Field>
-          <p className="text-xs text-slate-400">HTTPS URLs or HTTP localhost callbacks only.</p>
+          <p className="text-xs text-[var(--product-text-tertiary)]">HTTPS URLs or HTTP localhost callbacks only.</p>
         </>}
         {error && <p role="alert" className="text-sm text-amber-300">{error} Close and refresh connections before trying again.</p>}
         <div className="flex flex-wrap justify-end gap-2">
@@ -144,14 +144,14 @@ export function LogsPanel({ admin }: { admin: boolean }) {
   const load = useCallback(() => admin ? api.logs(service, 100) : Promise.resolve(undefined), [admin, service]);
   const state = useRead<{ lines: string[] } | undefined>(load);
   return <section aria-label="Live service logs" className="space-y-4">
-    {!admin ? <p className="text-sm text-slate-400">Service logs require an administrator. Device telemetry is available under Devices.</p> : <>
+    {!admin ? <p className="text-sm text-[var(--product-text-tertiary)]">Service logs require an administrator. Device telemetry is available under Devices.</p> : <>
       <Field label="Log service"><select className={fieldClass} value={service} onChange={e => setService(e.target.value)}>
         {["control", "mcp", "oauth", "nginx"].map(value => <option key={value}>{value}</option>)}
       </select></Field>
       <JXButton color="neutral" variant="outlined" disabled={state.loading} onClick={state.refresh}>Refresh logs</JXButton>
       <ReadState {...state} />
-      <p className="text-xs text-slate-400">Latest 100 server log lines, redacted by the API. Log availability depends on the host.</p>
-      {state.data && <pre tabIndex={0} aria-label="Service log output" className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-950 p-3 text-xs text-slate-300">{state.data.lines.join("\n") || "No log lines available."}</pre>}
+      <p className="text-xs text-[var(--product-text-tertiary)]">Latest 100 server log lines, redacted by the API. Log availability depends on the host.</p>
+      {state.data && <pre tabIndex={0} aria-label="Service log output" className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-[var(--product-canvas)] p-3 text-xs text-[var(--product-text-secondary)]">{state.data.lines.join("\n") || "No log lines available."}</pre>}
     </>}
   </section>;
 }

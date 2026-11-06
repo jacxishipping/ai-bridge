@@ -70,7 +70,7 @@ export const LoginView: React.FC = () => {
             <form className="space-y-4" onSubmit={submit}>
               {method === "token" ? <><JXTextField label={t("Admin token")} type="password" value={token} onChange={setToken}
                 required autoComplete="off" clearable={false} />
-                <p lang="en" dir="ltr" className="text-xs text-slate-400">Use the AI_BRIDGE_ADMIN_TOKEN configured on your server.</p></> :
+                <p lang="en" dir="ltr" className="text-xs" style={{ color: "var(--product-text-tertiary)" }}>Use the AI_BRIDGE_ADMIN_TOKEN configured on your server.</p></> :
                 <>
                   <JXTextField label={t("Username")} value={username} onChange={setUsername} required autoComplete="username" clearable={false} />
                   <div className="space-y-1">
@@ -79,9 +79,8 @@ export const LoginView: React.FC = () => {
                       <div className="space-y-1" aria-live="polite">
                         <JXLinearProgress
                           value={(passwordStrength(password).score + 1) * 20}
-                          className={passwordStrength(password).color === "rose" ? "[&::-webkit-progress-value]:bg-rose-500 [&::-moz-progress-bar]:bg-rose-500" : passwordStrength(password).color === "amber" ? "[&::-webkit-progress-value]:bg-amber-500 [&::-moz-progress-bar]:bg-amber-500" : "[&::-webkit-progress-value]:bg-emerald-500 [&::-moz-progress-bar]:bg-emerald-500"}
                         />
-                        <p className="text-[11px] text-slate-400">{passwordStrength(password).label}</p>
+                        <p className="text-[11px]" style={{ color: "var(--product-text-tertiary)" }}>{passwordStrength(password).label}</p>
                       </div>
                     )}
                   </div>
@@ -90,13 +89,13 @@ export const LoginView: React.FC = () => {
                 endIcon={<ArrowRight className="h-4 w-4 rtl:rotate-180" />}>{t("Sign in")}</JXButton>
             </form>
             {ssoConfigured && <JXButton fullWidth color="neutral" variant="outlined" onClick={() => api.oidcLogin()}>{t("Sign in with your identity provider")}</JXButton>}
-            <div className="space-y-3 border-t border-slate-800 pt-5">
+            <div className="space-y-3 border-t pt-5" style={{ borderColor: "var(--product-line)" }}>
               <JXButton fullWidth variant="outlined" color="neutral" onClick={() => navigate("overview")}>{t("Explore demo workspace")}</JXButton>
             </div>
           </div>
         </JXCardContent>
       </JXCard>
-      <p lang="en" dir="ltr" className="text-xs leading-relaxed text-slate-400">Credentials are kept for this browser session, not saved permanently.</p>
+      <p lang="en" dir="ltr" className="text-xs leading-relaxed" style={{ color: "var(--product-text-tertiary)" }}>Credentials are kept for this browser session, not saved permanently.</p>
     </div>
     <div className="product-auth-art"><BrandArt /></div>
     </div>

@@ -60,13 +60,13 @@ export const CommandPaletteModal: React.FC = () => {
           const Icon = item.icon;
           return <button key={item.id} id={`${listId}-${index}`} type="button" role="option"
             aria-selected={index === active} tabIndex={-1} onClick={() => select(index)}
-            className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm ${index === active ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800/50"}`}>
+            className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm ${index === active ? "bg-[var(--product-raised)] text-[var(--product-text)]" : "text-[var(--product-text-tertiary)] hover:bg-[var(--product-raised)]"}`}>
             <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span className="min-w-0 break-all">{item.label}</span>
           </button>;
         })}
       </div>
-      {results.length === 0 && <p role="status" className="py-6 text-center text-sm text-slate-400">No results.</p>}
+      {results.length === 0 && <p role="status" className="py-6 text-center text-sm text-[var(--product-text-tertiary)]">No results.</p>}
     </div>
   </GlassModal>;
 };

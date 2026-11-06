@@ -1366,7 +1366,7 @@ export const LiveDesktopView: React.FC = () => {
   return (
     <div className="space-y-5">
       {/* Top Header & Breadcrumb Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-[var(--product-line)]">
         <div className="flex items-center gap-3">
           <div className="w-72">
             <JXSelect
@@ -1390,7 +1390,7 @@ export const LiveDesktopView: React.FC = () => {
                   className={`px-2 py-0.5 rounded-lg border transition-colors ${
                     selectedMonitorIndex === mon.index
                       ? "bg-indigo-950/60 border-indigo-500/60 text-indigo-300"
-                      : "bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200"
+                      : "bg-[var(--product-canvas)] border-[var(--product-line)] text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                   }`}
                 >
                   {mon.name || `Display ${mon.index}`} ({mon.width}×{mon.height})
@@ -1400,10 +1400,10 @@ export const LiveDesktopView: React.FC = () => {
           )}
         </div>
         <div className="flex items-center gap-2 font-mono text-xs">
-          <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300">
+          <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)]">
             <Activity className="w-3 h-3 text-emerald-400" />
             <span>H.264 {webrtcStats.fps} FPS</span>
-            <span className="text-slate-600">|</span>
+            <span className="text-[var(--product-text-dim)]">|</span>
             <button
               type="button"
               onClick={() => {
@@ -1431,23 +1431,23 @@ export const LiveDesktopView: React.FC = () => {
                   : `ABR ${(parseInt(abrMode, 10) / 1000).toFixed(1)}M [FIXED]`}
               </span>
             </button>
-            <span className="text-slate-600">|</span>
+            <span className="text-[var(--product-text-dim)]">|</span>
             <span>RTT {webrtcStats.rttMs}ms</span>
-            <span className="text-slate-600">|</span>
+            <span className="text-[var(--product-text-dim)]">|</span>
             <span>Drop {webrtcStats.droppedFrames}</span>
           </div>
           <button
             type="button"
             onClick={() => setIsStreamActive((prev) => !prev)}
-            className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700 flex items-center gap-1.5"
+            className="px-2.5 py-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] hover:border-[var(--product-line)] flex items-center gap-1.5"
           >
-            <RefreshCw className={`w-3 h-3 ${isStreamActive ? "text-emerald-400" : "text-slate-500"}`} />
+            <RefreshCw className={`w-3 h-3 ${isStreamActive ? "text-emerald-400" : "text-[var(--product-text-dim)]"}`} />
             <span>{isStreamActive ? "Stream Polling [ON]" : "Stream Polling [PAUSED]"}</span>
           </button>
           <button
             type="button"
             onClick={() => void handleStartWebrtc()}
-            className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-indigo-300 hover:border-indigo-500/50 flex items-center gap-1.5"
+            className="px-2.5 py-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-indigo-300 hover:border-indigo-500/50 flex items-center gap-1.5"
           >
             <Radio className="w-3 h-3 text-indigo-400" />
             <span>{webrtcSessionId ? `WebRTC #${webrtcSessionId.slice(0, 6)}` : "WebRTC Session"}</span>
@@ -1456,17 +1456,17 @@ export const LiveDesktopView: React.FC = () => {
       </div>
 
       {/* Floating Dual-Control Takeover Bar */}
-      <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl flex flex-wrap items-center justify-between gap-3">
+      <div className="p-3 rounded-2xl bg-[var(--product-surface)]/90 border border-[var(--product-line)] shadow-xl flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           {/* Mode Segmented Switch */}
-          <div className="flex p-1 rounded-xl bg-slate-950 border border-slate-800">
+          <div className="flex p-1 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)]">
             <button
               type="button"
               onClick={() => void applySessionMode("view_only")}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                 controlMode === "observer"
-                  ? "bg-slate-800 text-slate-100 shadow"
-                  : "text-slate-400 hover:text-slate-200"
+                  ? "bg-[var(--product-raised)] text-[var(--product-text)] shadow"
+                  : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
               }`}
             >
               <Monitor className="w-3.5 h-3.5" />
@@ -1478,7 +1478,7 @@ export const LiveDesktopView: React.FC = () => {
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                 controlMode === "takeover" && sessionMode === "human_control"
                   ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
-                  : "text-slate-400 hover:text-slate-200"
+                  : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
               }`}
             >
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -1490,7 +1490,7 @@ export const LiveDesktopView: React.FC = () => {
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                 sessionMode === "ai_assisted"
                   ? "bg-cyan-700 text-white shadow-md shadow-cyan-700/30"
-                  : "text-slate-400 hover:text-slate-200"
+                  : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
               }`}
             >
               <Cpu className="w-3.5 h-3.5" />
@@ -1498,7 +1498,7 @@ export const LiveDesktopView: React.FC = () => {
             </button>
           </div>
 
-          <div className="h-6 w-px bg-slate-800 hidden sm:block mx-1"></div>
+          <div className="h-6 w-px bg-[var(--product-raised)] hidden sm:block mx-1"></div>
 
           {/* Kinematic Input Toggles */}
           <div className="flex items-center gap-1.5">
@@ -1508,12 +1508,12 @@ export const LiveDesktopView: React.FC = () => {
               className={`px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-1.5 border transition-all ${
                 mouseLinked
                   ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
-                  : "bg-slate-950 text-slate-500 border-slate-800"
+                  : "bg-[var(--product-canvas)] text-[var(--product-text-dim)] border-[var(--product-line)]"
               }`}
             >
               <Mouse className="w-3.5 h-3.5" />
               <span>Mouse Link</span>
-              <span className={`w-1.5 h-1.5 rounded-full ${mouseLinked ? "bg-emerald-400" : "bg-slate-600"}`}></span>
+              <span className={`w-1.5 h-1.5 rounded-full ${mouseLinked ? "bg-emerald-400" : "bg-[var(--product-text-dim)]"}`}></span>
             </button>
 
             <button
@@ -1522,12 +1522,12 @@ export const LiveDesktopView: React.FC = () => {
               className={`px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-1.5 border transition-all ${
                 keyForwarded
                   ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
-                  : "bg-slate-950 text-slate-500 border-slate-800"
+                  : "bg-[var(--product-canvas)] text-[var(--product-text-dim)] border-[var(--product-line)]"
               }`}
             >
               <Keyboard className="w-3.5 h-3.5" />
               <span>Key Forward</span>
-              <span className={`w-1.5 h-1.5 rounded-full ${keyForwarded ? "bg-emerald-400" : "bg-slate-600"}`}></span>
+              <span className={`w-1.5 h-1.5 rounded-full ${keyForwarded ? "bg-emerald-400" : "bg-[var(--product-text-dim)]"}`}></span>
             </button>
 
             <button
@@ -1536,12 +1536,12 @@ export const LiveDesktopView: React.FC = () => {
               className={`px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-1.5 border transition-all ${
                 clipboardSync
                   ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/30"
-                  : "bg-slate-950 text-slate-500 border-slate-800"
+                  : "bg-[var(--product-canvas)] text-[var(--product-text-dim)] border-[var(--product-line)]"
               }`}
             >
               <ClipboardCopy className="w-3.5 h-3.5" />
               <span>Clipboard Sync</span>
-              <span className={`w-1.5 h-1.5 rounded-full ${clipboardSync ? "bg-indigo-400" : "bg-slate-600"}`}></span>
+              <span className={`w-1.5 h-1.5 rounded-full ${clipboardSync ? "bg-indigo-400" : "bg-[var(--product-text-dim)]"}`}></span>
             </button>
 
             <button
@@ -1550,13 +1550,13 @@ export const LiveDesktopView: React.FC = () => {
               className={`px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-1.5 border transition-all ${
                 pointerLockActive
                   ? "bg-indigo-600/20 text-indigo-300 border-indigo-500/40"
-                  : "bg-slate-950 text-slate-500 border-slate-800"
+                  : "bg-[var(--product-canvas)] text-[var(--product-text-dim)] border-[var(--product-line)]"
               }`}
               title="Lock mouse cursor inside stream canvas for direct precision control (Press Esc to unlock)"
             >
               <Crosshair className="w-3.5 h-3.5" />
               <span>Pointer Lock</span>
-              <span className={`w-1.5 h-1.5 rounded-full ${pointerLockActive ? "bg-indigo-400 animate-pulse" : "bg-slate-600"}`}></span>
+              <span className={`w-1.5 h-1.5 rounded-full ${pointerLockActive ? "bg-indigo-400 animate-pulse" : "bg-[var(--product-text-dim)]"}`}></span>
             </button>
 
             <button
@@ -1565,13 +1565,13 @@ export const LiveDesktopView: React.FC = () => {
               className={`px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-1.5 border transition-all ${
                 !isAudioMuted
                   ? "bg-emerald-600/20 text-emerald-300 border-emerald-500/40"
-                  : "bg-slate-950 text-slate-500 border-slate-800"
+                  : "bg-[var(--product-canvas)] text-[var(--product-text-dim)] border-[var(--product-line)]"
               }`}
               title={isAudioMuted ? "Click to unmute remote host audio (WASAPI Opus)" : "Click to mute audio"}
             >
               {isAudioMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
               <span>{isAudioMuted ? "Audio Muted" : "Audio Active"}</span>
-              <span className={`w-1.5 h-1.5 rounded-full ${!isAudioMuted ? "bg-emerald-400 animate-pulse" : "bg-slate-600"}`}></span>
+              <span className={`w-1.5 h-1.5 rounded-full ${!isAudioMuted ? "bg-emerald-400 animate-pulse" : "bg-[var(--product-text-dim)]"}`}></span>
             </button>
 
             <button
@@ -1584,7 +1584,7 @@ export const LiveDesktopView: React.FC = () => {
               className={`px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-1.5 border transition-all ${
                 fileDrawerOpen || activeTransfer
                   ? "bg-cyan-600/20 text-cyan-300 border-cyan-500/40"
-                  : "bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200"
+                  : "bg-[var(--product-canvas)] text-[var(--product-text-tertiary)] border-[var(--product-line)] hover:text-[var(--product-text-secondary)]"
               }`}
               title="Open host file transfer manager (Drag & drop files onto stream or select files)"
             >
@@ -1610,12 +1610,12 @@ export const LiveDesktopView: React.FC = () => {
         {/* Scaling, SoM Toggle, Snapshot */}
         <div className="flex items-center gap-2">
           {/* Scale Switcher */}
-          <div className="flex p-1 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs">
+          <div className="flex p-1 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] font-mono text-xs">
             <button
               type="button"
               onClick={() => setScalingMode("fit")}
               className={`px-2.5 py-1 rounded-lg ${
-                scalingMode === "fit" ? "bg-slate-800 text-slate-100" : "text-slate-400 hover:text-slate-200"
+                scalingMode === "fit" ? "bg-[var(--product-raised)] text-[var(--product-text)]" : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
               }`}
             >
               Fit
@@ -1624,7 +1624,7 @@ export const LiveDesktopView: React.FC = () => {
               type="button"
               onClick={() => setScalingMode("native")}
               className={`px-2.5 py-1 rounded-lg ${
-                scalingMode === "native" ? "bg-slate-800 text-slate-100" : "text-slate-400 hover:text-slate-200"
+                scalingMode === "native" ? "bg-[var(--product-raised)] text-[var(--product-text)]" : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
               }`}
             >
               1:1 Native
@@ -1633,7 +1633,7 @@ export const LiveDesktopView: React.FC = () => {
               type="button"
               onClick={() => setScalingMode("fill")}
               className={`px-2.5 py-1 rounded-lg ${
-                scalingMode === "fill" ? "bg-slate-800 text-slate-100" : "text-slate-400 hover:text-slate-200"
+                scalingMode === "fill" ? "bg-[var(--product-raised)] text-[var(--product-text)]" : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
               }`}
             >
               Fill
@@ -1647,7 +1647,7 @@ export const LiveDesktopView: React.FC = () => {
             className={`px-3 py-1.5 rounded-xl text-xs font-mono font-semibold flex items-center gap-1.5 border transition-all ${
               somOverlay
                 ? "bg-indigo-600/20 text-indigo-300 border-indigo-500/40"
-                : "bg-slate-950 text-slate-400 border-slate-800"
+                : "bg-[var(--product-canvas)] text-[var(--product-text-tertiary)] border-[var(--product-line)]"
             }`}
           >
             <Crosshair className="w-3.5 h-3.5 text-indigo-400" />
@@ -1659,7 +1659,7 @@ export const LiveDesktopView: React.FC = () => {
             type="button"
             onClick={handleCaptureSnapshot}
             title="Capture Desktop Snapshot"
-            className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 hover:text-slate-100 hover:border-slate-700 transition-colors"
+            className="p-2 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] hover:text-[var(--product-text)] hover:border-[var(--product-line)] transition-colors"
           >
             <Camera className="w-4 h-4" />
           </button>
@@ -1667,9 +1667,9 @@ export const LiveDesktopView: React.FC = () => {
       </div>
 
       {/* Emergency Hotkey Macros Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 rounded-xl bg-slate-950/80 border border-slate-800">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 rounded-xl bg-[var(--product-canvas)]/80 border border-[var(--product-line)]">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-[11px] text-slate-400 uppercase tracking-wider">
+          <span className="font-mono text-[11px] text-[var(--product-text-tertiary)] uppercase tracking-wider">
             Quick Hotkey Macros:
           </span>
           <div className="flex flex-wrap items-center gap-1.5">
@@ -1683,7 +1683,7 @@ export const LiveDesktopView: React.FC = () => {
                 key={macro}
                 type="button"
                 onClick={() => dispatchMacro(macro)}
-                className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 text-slate-200 font-mono text-xs transition-all active:scale-95"
+                className="px-2.5 py-1 rounded-lg bg-[var(--product-surface)] border border-[var(--product-line)] hover:border-[var(--product-line)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] font-mono text-xs transition-all active:scale-95"
               >
                 {macro}
               </button>
@@ -1691,7 +1691,7 @@ export const LiveDesktopView: React.FC = () => {
             <button
               type="button"
               onClick={() => dispatchMacro("Unlock Screen")}
-              className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-emerald-400 font-mono text-xs transition-all active:scale-95 flex items-center gap-1"
+              className="px-2.5 py-1 rounded-lg bg-[var(--product-surface)] border border-[var(--product-line)] hover:border-[var(--product-line)] text-emerald-400 font-mono text-xs transition-all active:scale-95 flex items-center gap-1"
             >
               <Unlock className="w-3 h-3 text-emerald-400" />
               <span>Unlock Screen</span>
@@ -1729,9 +1729,9 @@ export const LiveDesktopView: React.FC = () => {
           </div>
         )}
 
-        <div className="flex items-center gap-2 font-mono text-xs text-slate-400">
+        <div className="flex items-center gap-2 font-mono text-xs text-[var(--product-text-tertiary)]">
           <span>Focus: Container [tty1]</span>
-          <span className="px-2 py-0.5 rounded bg-slate-800 text-indigo-300 font-bold">PID: 1042</span>
+          <span className="px-2 py-0.5 rounded bg-[var(--product-raised)] text-indigo-300 font-bold">PID: 1042</span>
         </div>
       </div>
 
@@ -1750,7 +1750,7 @@ export const LiveDesktopView: React.FC = () => {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className="relative w-full aspect-video min-h-[560px] max-h-[760px] rounded-2xl bg-slate-950 border border-slate-800/80 overflow-hidden shadow-2xl select-none group focus:outline-none focus:border-indigo-500/60"
+        className="relative w-full aspect-video min-h-[560px] max-h-[760px] rounded-2xl bg-[var(--product-canvas)] border border-[var(--product-line)]/80 overflow-hidden shadow-2xl select-none group focus:outline-none focus:border-indigo-500/60"
       >
         <video
           ref={videoRef}
@@ -1770,10 +1770,10 @@ export const LiveDesktopView: React.FC = () => {
 
         {/* Encrypted Session Recording HUD Badge */}
         <div className="absolute top-3 left-3 z-30 pointer-events-none">
-          <div className="px-2.5 py-1 rounded-xl bg-slate-950/90 border border-slate-800 text-[11px] font-mono text-slate-300 shadow-xl flex items-center gap-2">
+          <div className="px-2.5 py-1 rounded-xl bg-[var(--product-canvas)]/90 border border-[var(--product-line)] text-[11px] font-mono text-[var(--product-text-secondary)] shadow-xl flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
             <span className="font-semibold text-rose-400">REC</span>
-            <span className="text-slate-400">Encrypted Manifest Linked</span>
+            <span className="text-[var(--product-text-tertiary)]">Encrypted Manifest Linked</span>
           </div>
         </div>
 
@@ -1807,7 +1807,7 @@ export const LiveDesktopView: React.FC = () => {
         )}
 
         {!liveFrameUrl && liveFrameMeta?.note && (
-          <div className="absolute bottom-3 left-3 z-20 px-3 py-1.5 rounded-lg bg-slate-950/90 border border-slate-800 text-xs font-mono text-slate-300">
+          <div className="absolute bottom-3 left-3 z-20 px-3 py-1.5 rounded-lg bg-[var(--product-canvas)]/90 border border-[var(--product-line)] text-xs font-mono text-[var(--product-text-secondary)]">
             {liveFrameMeta.note}
           </div>
         )}
@@ -1815,7 +1815,7 @@ export const LiveDesktopView: React.FC = () => {
         {/* Remote Operating System Canvas Simulation */}
         <div className="absolute inset-0 flex flex-col bg-[#0b0f19]">
           {/* OS Window Chrome Header */}
-          <div className="h-8 bg-slate-900/90 border-b border-slate-800 px-3 flex items-center justify-between text-xs font-mono text-slate-400">
+          <div className="h-8 bg-[var(--product-surface)]/90 border-b border-[var(--product-line)] px-3 flex items-center justify-between text-xs font-mono text-[var(--product-text-tertiary)]">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full bg-rose-500/80"></span>
@@ -1823,8 +1823,8 @@ export const LiveDesktopView: React.FC = () => {
                 <span className="w-3 h-3 rounded-full bg-emerald-500/80"></span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-slate-200 font-semibold">ubuntu@srv-us-east-412:~</span>
-                <span className="text-[10px] px-1.5 rounded bg-slate-800 text-slate-400">X11/GNOME 46</span>
+                <span className="text-[var(--product-text-secondary)] font-semibold">ubuntu@srv-us-east-412:~</span>
+                <span className="text-[10px] px-1.5 rounded bg-[var(--product-raised)] text-[var(--product-text-tertiary)]">X11/GNOME 46</span>
               </div>
             </div>
 
@@ -1832,34 +1832,34 @@ export const LiveDesktopView: React.FC = () => {
               <span>CPU 24%</span>
               <span>RAM 12.4/64 GB</span>
               <span>GPU 41°C</span>
-              <span className="text-slate-200 font-semibold">14:38:09 UTC</span>
+              <span className="text-[var(--product-text-secondary)] font-semibold">14:38:09 UTC</span>
             </div>
           </div>
 
           {/* Desktop Canvas Window Area */}
           <div className="flex-1 p-4 grid grid-cols-12 grid-rows-6 gap-3 overflow-hidden relative">
             {/* Window 1: VS Code Server (cols 1..8, rows 1..4) */}
-            <div className="col-span-8 row-span-4 rounded-xl bg-slate-950/95 border border-slate-800 shadow-2xl flex flex-col overflow-hidden relative">
-              <div className="h-8 bg-slate-900 px-3 flex items-center justify-between border-b border-slate-800 text-xs font-mono">
+            <div className="col-span-8 row-span-4 rounded-xl bg-[var(--product-canvas)]/95 border border-[var(--product-line)] shadow-2xl flex flex-col overflow-hidden relative">
+              <div className="h-8 bg-[var(--product-surface)] px-3 flex items-center justify-between border-b border-[var(--product-line)] text-xs font-mono">
                 <div className="flex items-center gap-2">
                   <Code className="w-3.5 h-3.5 text-indigo-400" />
-                  <span className="text-slate-200 font-semibold">bridge_orchestrator.py — VS Code Server</span>
+                  <span className="text-[var(--product-text-secondary)] font-semibold">bridge_orchestrator.py — VS Code Server</span>
                 </div>
                 <div className="flex items-center gap-2 text-[11px] text-emerald-400">
                   <span>● Python 3.12 (venv)</span>
                 </div>
               </div>
 
-              <div className="flex-1 p-3 font-mono text-xs leading-relaxed text-slate-300 flex gap-3 overflow-hidden">
-                <div className="text-slate-600 select-none text-right flex flex-col">
+              <div className="flex-1 p-3 font-mono text-xs leading-relaxed text-[var(--product-text-secondary)] flex gap-3 overflow-hidden">
+                <div className="text-[var(--product-text-dim)] select-none text-right flex flex-col">
                   <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
                 </div>
-                <div className="flex-1 flex flex-col space-y-0.5 text-slate-300">
+                <div className="flex-1 flex flex-col space-y-0.5 text-[var(--product-text-secondary)]">
                   <div><span className="text-rose-400">import</span> asyncio</div>
                   <div><span className="text-rose-400">from</span> ai_bridge.core <span className="text-rose-400">import</span> <span className="text-emerald-400">AutonomousAgentMesh</span></div>
-                  <div className="text-slate-500"># Initialized from TaskQueue #TSK-89213</div>
+                  <div className="text-[var(--product-text-dim)]"># Initialized from TaskQueue #TSK-89213</div>
                   <div><span className="text-rose-400">async def</span> <span className="text-cyan-400 font-semibold">execute_failover_handshake</span>(node_id: <span className="text-indigo-300">str</span>):</div>
-                  <div className="pl-4"><span className="text-slate-500">&quot;&quot;&quot;Validates cryptographic peer quorum and routes TLS pipe.&quot;&quot;&quot;</span></div>
+                  <div className="pl-4"><span className="text-[var(--product-text-dim)]">&quot;&quot;&quot;Validates cryptographic peer quorum and routes TLS pipe.&quot;&quot;&quot;</span></div>
                   <div className="pl-4">session = <span className="text-rose-400">await</span> AutonomousAgentMesh.<span className="text-cyan-400">connect_peer</span>(node_id)</div>
                   <div className="pl-4"><span className="text-rose-400">if not</span> session.<span className="text-emerald-400">is_verified</span>():</div>
                   <div className="pl-8"><span className="text-rose-400">raise</span> <span className="text-rose-400">SecurityAssertionViolation</span>(<span className="text-amber-300">&quot;Quorum failed&quot;</span>)</div>
@@ -1870,23 +1870,23 @@ export const LiveDesktopView: React.FC = () => {
             </div>
 
             {/* Window 2: Command Shell (cols 9..12, rows 1..6) */}
-            <div className="col-span-4 row-span-6 rounded-xl bg-slate-950/95 border border-slate-800 shadow-2xl flex flex-col overflow-hidden relative">
-              <div className="h-8 bg-slate-900 px-3 flex items-center justify-between border-b border-slate-800 text-xs font-mono">
+            <div className="col-span-4 row-span-6 rounded-xl bg-[var(--product-canvas)]/95 border border-[var(--product-line)] shadow-2xl flex flex-col overflow-hidden relative">
+              <div className="h-8 bg-[var(--product-surface)] px-3 flex items-center justify-between border-b border-[var(--product-line)] text-xs font-mono">
                 <div className="flex items-center gap-2">
                   <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="text-slate-200 font-semibold">bash (PID 1042)</span>
+                  <span className="text-[var(--product-text-secondary)] font-semibold">bash (PID 1042)</span>
                 </div>
                 <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
               </div>
 
-              <div className="flex-1 p-2.5 font-mono text-[11px] leading-relaxed text-slate-300 space-y-1 overflow-hidden">
-                <div className="text-slate-500">sarah@srv-us-east-412:~$ docker ps</div>
+              <div className="flex-1 p-2.5 font-mono text-[11px] leading-relaxed text-[var(--product-text-secondary)] space-y-1 overflow-hidden">
+                <div className="text-[var(--product-text-dim)]">sarah@srv-us-east-412:~$ docker ps</div>
                 <div className="text-emerald-400 text-[10px]">CONTAINER ID   NAMES               STATUS</div>
-                <div className="text-slate-300 text-[10px]">8f9a21e4cc     bridge-ingress-gw   Up 14h (healthy)</div>
-                <div className="text-slate-300 text-[10px]">02c91fa09b     vector-indexer      Up 3h</div>
-                <div className="text-slate-300 text-[10px]">e45a90d81c     webrtc-streamer     Up 14h</div>
-                <div className="mt-2 text-slate-500">sarah@srv-us-east-412:~$ tail -f audit.log</div>
-                <div className="text-slate-400 text-[10px]">[14:37:58] Agent Sonnet requested keyboard event</div>
+                <div className="text-[var(--product-text-secondary)] text-[10px]">8f9a21e4cc     bridge-ingress-gw   Up 14h (healthy)</div>
+                <div className="text-[var(--product-text-secondary)] text-[10px]">02c91fa09b     vector-indexer      Up 3h</div>
+                <div className="text-[var(--product-text-secondary)] text-[10px]">e45a90d81c     webrtc-streamer     Up 14h</div>
+                <div className="mt-2 text-[var(--product-text-dim)]">sarah@srv-us-east-412:~$ tail -f audit.log</div>
+                <div className="text-[var(--product-text-tertiary)] text-[10px]">[14:37:58] Agent Sonnet requested keyboard event</div>
                 <div className="text-cyan-400 text-[10px]">[14:38:01] Dual-Control arbiter: Granting operator priority</div>
                 <div className="text-emerald-400 flex items-center gap-1 mt-2">
                   <span>sarah@srv-us-east-412:~$</span>
@@ -1896,30 +1896,30 @@ export const LiveDesktopView: React.FC = () => {
             </div>
 
             {/* Window 3: Performance Telemetry (cols 1..8, rows 5..6) */}
-            <div className="col-span-8 row-span-2 rounded-xl bg-slate-950/95 border border-slate-800 shadow-xl p-3 flex flex-col justify-between relative overflow-hidden">
+            <div className="col-span-8 row-span-2 rounded-xl bg-[var(--product-canvas)]/95 border border-[var(--product-line)] shadow-xl p-3 flex flex-col justify-between relative overflow-hidden">
               <div className="flex items-center justify-between text-xs font-mono">
-                <div className="flex items-center gap-2 text-slate-200 font-semibold">
+                <div className="flex items-center gap-2 text-[var(--product-text-secondary)] font-semibold">
                   <Activity className="w-3.5 h-3.5 text-indigo-400" />
                   <span>System Performance Realtime Telemetry</span>
                 </div>
-                <span className="text-[11px] text-slate-400">NVENC Session active: 60.1 fps</span>
+                <span className="text-[11px] text-[var(--product-text-tertiary)]">NVENC Session active: 60.1 fps</span>
               </div>
 
               <div className="grid grid-cols-4 gap-2 pt-1 font-mono">
-                <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
-                  <span className="text-[10px] text-slate-500 uppercase block">CPU UTIL</span>
-                  <span className="text-sm font-bold text-slate-200">24.2%</span>
+                <div className="p-2 rounded-lg bg-[var(--product-surface)] border border-[var(--product-line)]">
+                  <span className="text-[10px] text-[var(--product-text-dim)] uppercase block">CPU UTIL</span>
+                  <span className="text-sm font-bold text-[var(--product-text-secondary)]">24.2%</span>
                 </div>
-                <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
-                  <span className="text-[10px] text-slate-500 uppercase block">GPU VRAM</span>
+                <div className="p-2 rounded-lg bg-[var(--product-surface)] border border-[var(--product-line)]">
+                  <span className="text-[10px] text-[var(--product-text-dim)] uppercase block">GPU VRAM</span>
                   <span className="text-sm font-bold text-emerald-400">4.8 GB</span>
                 </div>
-                <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
-                  <span className="text-[10px] text-slate-500 uppercase block">NETWORK I/O</span>
+                <div className="p-2 rounded-lg bg-[var(--product-surface)] border border-[var(--product-line)]">
+                  <span className="text-[10px] text-[var(--product-text-dim)] uppercase block">NETWORK I/O</span>
                   <span className="text-sm font-bold text-indigo-300">14.8 Mb/s</span>
                 </div>
-                <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
-                  <span className="text-[10px] text-slate-500 uppercase block">AGENT-TO-GROUND</span>
+                <div className="p-2 rounded-lg bg-[var(--product-surface)] border border-[var(--product-line)]">
+                  <span className="text-[10px] text-[var(--product-text-dim)] uppercase block">AGENT-TO-GROUND</span>
                   <span className="text-sm font-bold text-cyan-400">PASSIVE</span>
                 </div>
               </div>
@@ -1956,7 +1956,7 @@ export const LiveDesktopView: React.FC = () => {
                     <span className="px-1.5 py-0.5 rounded bg-indigo-600 text-white font-mono text-[10px] font-bold shadow-md">
                       #{elem.id}
                     </span>
-                    <span className="font-mono text-[9px] text-indigo-200 bg-slate-950/90 px-1.5 py-0.5 rounded border border-indigo-500/30 truncate max-w-[130px]">
+                    <span className="font-mono text-[9px] text-indigo-200 bg-[var(--product-canvas)]/90 px-1.5 py-0.5 rounded border border-indigo-500/30 truncate max-w-[130px]">
                       {elem.label}
                     </span>
                   </div>
@@ -1969,7 +1969,7 @@ export const LiveDesktopView: React.FC = () => {
                   <span className="px-2 py-0.5 rounded bg-indigo-600 text-white font-mono text-[10px] font-bold shadow-md">
                     SoM #1 • Editor Workspace
                   </span>
-                  <span className="font-mono text-[10px] text-indigo-300 bg-slate-950/80 px-1.5 py-0.5 rounded border border-indigo-500/30">
+                  <span className="font-mono text-[10px] text-indigo-300 bg-[var(--product-canvas)]/80 px-1.5 py-0.5 rounded border border-indigo-500/30">
                     Target: active_buffer
                   </span>
                 </div>
@@ -1977,7 +1977,7 @@ export const LiveDesktopView: React.FC = () => {
                   <span className="px-2 py-0.5 rounded bg-emerald-800 text-white font-mono text-[10px] font-bold shadow-md">
                     SoM #2 • Command Shell
                   </span>
-                  <span className="font-mono text-[10px] text-emerald-300 bg-slate-950/80 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                  <span className="font-mono text-[10px] text-emerald-300 bg-[var(--product-canvas)]/80 px-1.5 py-0.5 rounded border border-emerald-500/30">
                     Target: bash_pty
                   </span>
                 </div>
@@ -1985,7 +1985,7 @@ export const LiveDesktopView: React.FC = () => {
                   <span className="px-2 py-0.5 rounded bg-cyan-800 text-white font-mono text-[10px] font-bold shadow-md">
                     SoM #3 • Telemetry Metrics
                   </span>
-                  <span className="font-mono text-[10px] text-cyan-300 bg-slate-950/80 px-1.5 py-0.5 rounded border border-cyan-500/30">
+                  <span className="font-mono text-[10px] text-cyan-300 bg-[var(--product-canvas)]/80 px-1.5 py-0.5 rounded border border-cyan-500/30">
                     Target: gpu_vitals
                   </span>
                 </div>
@@ -2010,7 +2010,7 @@ export const LiveDesktopView: React.FC = () => {
           <div className="w-4 h-4 rounded-full border-2 border-emerald-400 bg-emerald-500/30 flex items-center justify-center">
             <span className="w-1 h-1 rounded-full bg-emerald-300"></span>
           </div>
-          <div className="px-2 py-0.5 rounded bg-slate-900/90 backdrop-blur-md border border-emerald-500/40 text-emerald-300 font-mono text-[10px] font-semibold shadow-lg">
+          <div className="px-2 py-0.5 rounded bg-[var(--product-surface)]/90 backdrop-blur-md border border-emerald-500/40 text-emerald-300 font-mono text-[10px] font-semibold shadow-lg">
             Operator: Sarah J. (X: {operatorCoords.x}, Y: {operatorCoords.y})
           </div>
         </div>
@@ -2033,20 +2033,20 @@ export const LiveDesktopView: React.FC = () => {
               </div>
 
               {/* Action Intent Banner with Countdown & Veto Action */}
-              <div className="pointer-events-auto p-2.5 rounded-xl bg-slate-950/95 border border-cyan-500/60 shadow-2xl flex flex-col items-center gap-1.5 min-w-[220px]">
+              <div className="pointer-events-auto p-2.5 rounded-xl bg-[var(--product-canvas)]/95 border border-cyan-500/60 shadow-2xl flex flex-col items-center gap-1.5 min-w-[220px]">
                 <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-cyan-300">
                   <Zap className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
                   <span>Anticipated AI Action</span>
                 </div>
-                <div className="text-[11px] font-mono text-slate-200 font-semibold truncate max-w-[200px]">
+                <div className="text-[11px] font-mono text-[var(--product-text-secondary)] font-semibold truncate max-w-[200px]">
                   {pendingIntent.target_label}
                 </div>
                 {/* Countdown progress indicator */}
-                <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                <div className="w-full bg-[var(--product-raised)] rounded-full h-1.5 overflow-hidden">
                   <div className="bg-gradient-to-r from-cyan-500 to-indigo-500 h-full animate-pulse w-full" />
                 </div>
                 <div className="flex items-center justify-between w-full pt-1 gap-2">
-                  <span className="font-mono text-[10px] text-slate-400">
+                  <span className="font-mono text-[10px] text-[var(--product-text-tertiary)]">
                     Executing in {(countdownRemainingMs / 1000).toFixed(1)}s
                   </span>
                   <button
@@ -2065,7 +2065,7 @@ export const LiveDesktopView: React.FC = () => {
         {/* Takeover Active Warning Banner if Takeover Mode */}
         {controlMode === "takeover" && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none z-20">
-            <div className="px-4 py-1.5 rounded-full bg-slate-950/90 backdrop-blur-md border border-indigo-500/60 shadow-xl flex items-center gap-2 font-mono text-xs text-indigo-300">
+            <div className="px-4 py-1.5 rounded-full bg-[var(--product-canvas)]/90 backdrop-blur-md border border-indigo-500/60 shadow-xl flex items-center gap-2 font-mono text-xs text-indigo-300">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               <span className="font-semibold">Operator Takeover Active — Agent Input Suppressed</span>
             </div>
@@ -2075,7 +2075,7 @@ export const LiveDesktopView: React.FC = () => {
         {/* Pointer Lock Status Badge */}
         {pointerLockActive && (
           <div className="absolute top-3 right-3 pointer-events-none z-30">
-            <div className="px-3 py-1.5 rounded-xl bg-slate-950/95 border border-indigo-500/60 text-xs font-mono text-indigo-300 shadow-xl flex items-center gap-2">
+            <div className="px-3 py-1.5 rounded-xl bg-[var(--product-canvas)]/95 border border-indigo-500/60 text-xs font-mono text-indigo-300 shadow-xl flex items-center gap-2">
               <Crosshair className="w-3.5 h-3.5 text-indigo-400" />
               <span>Pointer Locked · Press [ESC] to unlock</span>
             </div>
@@ -2096,8 +2096,8 @@ export const LiveDesktopView: React.FC = () => {
 
       {/* Bi-Directional File Transfer Manager & Drawer */}
       {fileDrawerOpen && (
-        <div className="p-4 rounded-2xl bg-slate-950/95 border border-cyan-500/40 backdrop-blur-md shadow-2xl flex flex-col gap-3 font-mono text-xs">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+        <div className="p-4 rounded-2xl bg-[var(--product-canvas)]/95 border border-cyan-500/40 backdrop-blur-md shadow-2xl flex flex-col gap-3 font-mono text-xs">
+          <div className="flex items-center justify-between border-b border-[var(--product-line)] pb-2">
             <div className="flex items-center gap-2 text-cyan-400 font-semibold">
               <Folder className="w-4 h-4 text-cyan-400" />
               <span>Remote File Transfer & Storage (`/transfers`)</span>
@@ -2114,7 +2114,7 @@ export const LiveDesktopView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => void fetchRemoteFiles()}
-                className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+                className="px-2 py-1 rounded-lg bg-[var(--product-surface)] border border-[var(--product-line)] text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)] transition-colors"
                 title="Refresh remote files"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -2122,7 +2122,7 @@ export const LiveDesktopView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setFileDrawerOpen(false)}
-                className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+                className="px-2 py-1 rounded-lg bg-[var(--product-surface)] border border-[var(--product-line)] text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)] transition-colors"
                 title="Close file manager"
               >
                 <X className="w-3.5 h-3.5" />
@@ -2132,18 +2132,18 @@ export const LiveDesktopView: React.FC = () => {
 
           {/* Active In-Progress Transfer Progress HUD */}
           {activeTransfer && (
-            <div className="p-3 rounded-xl bg-slate-900/90 border border-cyan-500/30 flex flex-col gap-2">
+            <div className="p-3 rounded-xl bg-[var(--product-surface)]/90 border border-cyan-500/30 flex flex-col gap-2">
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-cyan-400" />
-                  <span className="text-slate-200 font-semibold">{activeTransfer.filename}</span>
-                  <span className="text-slate-500 text-[11px]">
+                  <span className="text-[var(--product-text-secondary)] font-semibold">{activeTransfer.filename}</span>
+                  <span className="text-[var(--product-text-dim)] text-[11px]">
                     ({(activeTransfer.size / 1024).toFixed(1)} KB)
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-cyan-400 font-bold">{activeTransfer.percent}%</span>
-                  <span className="text-slate-400 text-[11px]">
+                  <span className="text-[var(--product-text-tertiary)] text-[11px]">
                     {activeTransfer.status === "completed"
                       ? "Completed"
                       : activeTransfer.status === "verifying"
@@ -2156,7 +2156,7 @@ export const LiveDesktopView: React.FC = () => {
               </div>
 
               {/* Progress bar using compliant preset classes */}
-              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+              <div className="w-full bg-[var(--product-raised)] rounded-full h-2 overflow-hidden">
                 <div
                   className={`h-full bg-cyan-400 rounded-full transition-all duration-200 ${
                     activeTransfer.percent >= 100
@@ -2183,19 +2183,19 @@ export const LiveDesktopView: React.FC = () => {
           {/* Transferred Files on Remote Host */}
           <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
             {recentTransfers.length === 0 ? (
-              <div className="p-4 text-center text-slate-500 text-xs">
+              <div className="p-4 text-center text-[var(--product-text-dim)] text-xs">
                 No transferred files found on remote host. Drag and drop any file onto the stream or click Upload File.
               </div>
             ) : (
               recentTransfers.map((f) => (
                 <div
                   key={f.full_path}
-                  className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800/80 hover:border-slate-700 transition-colors"
+                  className="flex items-center justify-between p-2 rounded-xl bg-[var(--product-surface)]/60 border border-[var(--product-line)]/80 hover:border-[var(--product-line)] transition-colors"
                 >
                   <div className="flex items-center gap-2.5 truncate max-w-[70%]">
-                    <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span className="text-slate-200 truncate">{f.name}</span>
-                    <span className="text-slate-500 text-[10px] shrink-0">
+                    <FileText className="w-3.5 h-3.5 text-[var(--product-text-tertiary)] shrink-0" />
+                    <span className="text-[var(--product-text-secondary)] truncate">{f.name}</span>
+                    <span className="text-[var(--product-text-dim)] text-[10px] shrink-0">
                       {(f.size_bytes / 1024).toFixed(1)} KB
                     </span>
                   </div>
@@ -2203,7 +2203,7 @@ export const LiveDesktopView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => requestFileDownload(f)}
-                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] flex items-center gap-1 transition-colors"
+                      className="px-2 py-1 rounded-lg bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-cyan-300 text-[11px] flex items-center gap-1 transition-colors"
                       title="Download file to browser"
                     >
                       <Download className="w-3 h-3 text-cyan-400" />
@@ -2216,7 +2216,7 @@ export const LiveDesktopView: React.FC = () => {
                         setRecentMacroNotice(`Copied host path to clipboard: ${f.full_path}`);
                         setTimeout(() => setRecentMacroNotice(null), 2500);
                       }}
-                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] transition-colors"
+                      className="px-2 py-1 rounded-lg bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] text-[11px] transition-colors"
                       title="Copy absolute remote path"
                     >
                       Copy Path
@@ -2230,9 +2230,9 @@ export const LiveDesktopView: React.FC = () => {
       )}
 
       {/* Active Windows HUD Tray (Collapsible & Focusable) */}
-      <div className="p-3 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="p-3 rounded-2xl bg-[var(--product-surface)]/90 border border-[var(--product-line)] shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-          <span className="font-mono text-xs uppercase tracking-wider text-slate-400 pl-1 hidden sm:inline">
+          <span className="font-mono text-xs uppercase tracking-wider text-[var(--product-text-tertiary)] pl-1 hidden sm:inline">
             Windows
           </span>
           {windowsList.map((win) => {
@@ -2243,8 +2243,8 @@ export const LiveDesktopView: React.FC = () => {
                 onClick={() => focusWindow(win.id)}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-mono cursor-pointer transition-all ${
                   isFocused
-                    ? "bg-indigo-950/60 border-indigo-500 text-slate-100 shadow-md shadow-indigo-600/10"
-                    : "bg-slate-950/70 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700"
+                    ? "bg-indigo-950/60 border-indigo-500 text-[var(--product-text)] shadow-md shadow-indigo-600/10"
+                    : "bg-[var(--product-canvas)]/70 border-[var(--product-line)] text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)] hover:border-[var(--product-line)]"
                 }`}
               >
                 {win.icon === "terminal" && <Terminal className="w-3.5 h-3.5 text-emerald-400" />}
@@ -2252,8 +2252,8 @@ export const LiveDesktopView: React.FC = () => {
                 {win.icon === "docker" && <Layers className="w-3.5 h-3.5 text-cyan-400" />}
                 {win.icon === "monitor" && <Activity className="w-3.5 h-3.5 text-amber-400" />}
                 <div className="flex flex-col text-left">
-                  <span className="font-semibold text-slate-200">{win.name}</span>
-                  <span className="text-[10px] text-slate-500">{win.desc}</span>
+                  <span className="font-semibold text-[var(--product-text-secondary)]">{win.name}</span>
+                  <span className="text-[10px] text-[var(--product-text-dim)]">{win.desc}</span>
                 </div>
                 {isFocused && <span className="w-2 h-2 rounded-full bg-emerald-400 ml-1"></span>}
               </div>
@@ -2266,7 +2266,7 @@ export const LiveDesktopView: React.FC = () => {
           <button
             type="button"
             onClick={() => focusWindow(activeWindowId)}
-            className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-800 text-slate-200 font-mono text-xs flex items-center gap-1.5 transition-colors"
+            className="px-3 py-1.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] font-mono text-xs flex items-center gap-1.5 transition-colors"
           >
             <Crosshair className="w-3.5 h-3.5 text-indigo-400" />
             <span>Focus Active</span>
@@ -2274,7 +2274,7 @@ export const LiveDesktopView: React.FC = () => {
           <button
             type="button"
             onClick={() => dispatchMacro(`Minimize ${activeWindow.name}`)}
-            className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-800 text-slate-200 font-mono text-xs flex items-center gap-1.5 transition-colors"
+            className="px-3 py-1.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] font-mono text-xs flex items-center gap-1.5 transition-colors"
           >
             <Minimize2 className="w-3.5 h-3.5" />
             <span>Minimize</span>

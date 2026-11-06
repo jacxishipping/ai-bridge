@@ -263,9 +263,9 @@ export const DevicesView: React.FC = () => {
   return (
     <div className="w-full space-y-4">
       {/* Top Context & Header Ribbon */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-[var(--product-line)]">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-100 mt-1">
+          <h1 className="text-xl font-bold tracking-tight text-[var(--product-text)] mt-1">
             Devices
           </h1>
         </div>
@@ -320,13 +320,13 @@ export const DevicesView: React.FC = () => {
       )}
 
       {/* Filter Toolbar: Status Chips, Platform Segmented Controls, Search */}
-      <JXCard className="bg-slate-900/60 border-slate-800">
+      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
         <JXCardContent>
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
               {/* Status Filter Chips */}
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-mono text-slate-400 uppercase tracking-wider mr-1">
+                <span className="text-xs font-mono text-[var(--product-text-tertiary)] uppercase tracking-wider mr-1">
                   Status:
                 </span>
                 <JXButton
@@ -368,14 +368,14 @@ export const DevicesView: React.FC = () => {
               </div>
 
               {/* Platform Segmented Buttons */}
-              <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-850/80 border border-slate-700/60 flex-wrap">
+              <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[var(--product-raised)]/80 border border-[var(--product-line)] flex-wrap">
                 <button
                   type="button"
                   onClick={() => setPlatformFilter("all")}
                   className={`px-3 py-1 rounded-lg text-xs font-mono transition-all ${
                     platformFilter === "all"
                       ? "bg-indigo-600 text-white font-semibold"
-                      : "text-slate-400 hover:text-slate-200"
+                      : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                   }`}
                 >
                   All
@@ -386,7 +386,7 @@ export const DevicesView: React.FC = () => {
                   className={`px-3 py-1 rounded-lg text-xs font-mono transition-all ${
                     platformFilter === "windows"
                       ? "bg-indigo-600 text-white font-semibold"
-                      : "text-slate-400 hover:text-slate-200"
+                      : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                   }`}
                 >
                   Windows ({windowsCount})
@@ -397,7 +397,7 @@ export const DevicesView: React.FC = () => {
                   className={`px-3 py-1 rounded-lg text-xs font-mono transition-all ${
                     platformFilter === "linux"
                       ? "bg-indigo-600 text-white font-semibold"
-                      : "text-slate-400 hover:text-slate-200"
+                      : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                   }`}
                 >
                   Linux ({linuxCount})
@@ -408,7 +408,7 @@ export const DevicesView: React.FC = () => {
                   className={`px-3 py-1 rounded-lg text-xs font-mono transition-all ${
                     platformFilter === "darwin"
                       ? "bg-indigo-600 text-white font-semibold"
-                      : "text-slate-400 hover:text-slate-200"
+                      : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                   }`}
                 >
                   macOS ({macCount})
@@ -417,25 +417,25 @@ export const DevicesView: React.FC = () => {
             </div>
 
             {/* Monospace Search and Sorting Row */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center pt-1 border-t border-slate-800/60">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center pt-1 border-t border-[var(--product-line)]">
               <div className="md:col-span-8">
                 <JXTextField
                   value={searchQuery}
                   onChange={(val) => setSearchQuery(val)}
                   placeholder="Search devices…"
-                  startIcon={<Search className="w-4 h-4 text-slate-400" />}
+                  startIcon={<Search className="w-4 h-4 text-[var(--product-text-tertiary)]" />}
                   size="md"
                   clearable
                 />
               </div>
 
               <div className="md:col-span-4 flex items-center justify-end gap-2 text-xs font-mono">
-                <span className="text-slate-400">Sort by:</span>
+                <span className="text-[var(--product-text-tertiary)]">Sort by:</span>
                 <select
                   aria-label="Sort devices by"
                   value={sortField}
                   onChange={(e) => setSortField(e.target.value as any)}
-                  className="bg-slate-800 border border-slate-700 text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
+                  className="bg-[var(--product-raised)] border border-[var(--product-line)] text-[var(--product-text-secondary)] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
                 >
                   <option value="hostname">Hostname</option>
                   <option value="latency">Latency</option>
@@ -444,7 +444,7 @@ export const DevicesView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
-                  className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+                  className="px-2 py-1.5 rounded-lg bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] border border-[var(--product-line)]"
                 >
                   {sortOrder === "asc" ? "ASC ↑" : "DESC ↓"}
                 </button>
@@ -455,7 +455,7 @@ export const DevicesView: React.FC = () => {
       </JXCard>
 
       {/* SmartDataTable: 7 Columns Device Inventory */}
-      <JXCard className="bg-slate-900/60 border-slate-800 overflow-hidden">
+      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)] overflow-hidden">
         <JXCardHeader
           title={`Devices (${filteredDevices.length})`}
           icon={<Server className="w-4 h-4 text-indigo-400" />}
@@ -465,18 +465,18 @@ export const DevicesView: React.FC = () => {
             <div tabIndex={0} role="region" aria-label="Device inventory" className="overflow-x-auto scroll-shadow">
               <table className="w-full text-left border-collapse text-sm min-w-[640px]">
                 <thead>
-                  <tr className="border-b border-slate-800 text-xs text-slate-400">
+                  <tr className="border-b border-[var(--product-line)] text-xs text-[var(--product-text-tertiary)]">
                     <th className="py-3 px-3">Status</th>
                     <th className="py-3 px-3">Device</th>
                     <th className="py-3 px-3">OS</th>
                     <th className="py-3 px-3">Last seen</th>
-                    <th className="py-3 px-3 sticky right-0 bg-slate-850 text-right pr-4">Actions</th>
+                    <th className="py-3 px-3 sticky right-0 bg-[var(--product-raised)] text-right pr-4">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
                   {filteredDevices.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-12 text-center text-slate-400">
+                      <td colSpan={5} className="py-12 text-center text-[var(--product-text-tertiary)]">
                         No matching devices.
                       </td>
                     </tr>
@@ -489,7 +489,7 @@ export const DevicesView: React.FC = () => {
                       return (
                         <tr
                           key={device.id}
-                          className={`hover:bg-slate-850/70 transition-colors group ${
+                          className={`hover:bg-[var(--product-raised)]/70 transition-colors group ${
                             isSelected ? "bg-indigo-950/20" : ""
                           }`}
                         >
@@ -525,7 +525,7 @@ export const DevicesView: React.FC = () => {
                           <td className="py-3 px-3">
                             <div className="flex flex-col">
                               <div className="flex items-center gap-2">
-                                <span className="font-medium text-slate-100">
+                                <span className="font-medium text-[var(--product-text)]">
                                   {device.hostname}
                                 </span>
                               </div>
@@ -543,18 +543,18 @@ export const DevicesView: React.FC = () => {
                                 <Terminal className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                               )}
                               <div className="flex flex-col">
-                                <span className="text-slate-200 font-medium">{device.osRelease}</span>
+                                <span className="text-[var(--product-text-secondary)] font-medium">{device.osRelease}</span>
                               </div>
                             </div>
                           </td>
 
                           {/* 4. Cadence / Latency */}
                           <td className="py-3 px-3">
-                            <span className="text-xs tabular-nums text-slate-400">{new Date(device.lastHeartbeat).toLocaleTimeString()}</span>
+                            <span className="text-xs tabular-nums text-[var(--product-text-tertiary)]">{new Date(device.lastHeartbeat).toLocaleTimeString()}</span>
                           </td>
 
                           {/* 7. Sticky Actions (Right) */}
-                          <td className="py-3 px-3 sticky right-0 bg-slate-900 group-hover:bg-slate-850/70 transition-colors text-right pr-4">
+                          <td className="py-3 px-3 sticky right-0 bg-[var(--product-surface)] group-hover:bg-[var(--product-raised)]/70 transition-colors text-right pr-4">
                             <div className="flex items-center justify-end gap-1.5">
                               <JXButton
                                 variant="text"
@@ -576,7 +576,7 @@ export const DevicesView: React.FC = () => {
                                 size="sm"
                                 onClick={() => setDispatchModalDevice(device)}
                                 startIcon={<Play className="w-3 h-3 text-emerald-400" />}
-                                className="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-200"
+                                className="text-[11px] bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)]"
                               >
                                 Run task
                               </JXButton>
@@ -587,7 +587,7 @@ export const DevicesView: React.FC = () => {
                                 size="sm"
                                 onClick={() => handleRevokeDevice(device)}
                                 startIcon={<Ban className="w-3 h-3 text-amber-400" />}
-                                className="text-[11px] bg-slate-800 hover:bg-slate-700 text-amber-300"
+                                className="text-[11px] bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-amber-300"
                               >
                                 Revoke
                               </JXButton>
@@ -598,7 +598,7 @@ export const DevicesView: React.FC = () => {
                                 size="sm"
                                 onClick={() => handleDeleteDevice(device)}
                                 startIcon={<Trash2 className="w-3 h-3 text-rose-400" />}
-                                className="text-[11px] bg-slate-800 hover:bg-slate-700 text-rose-300"
+                                className="text-[11px] bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-rose-300"
                               >
                                 Delete
                               </JXButton>
@@ -623,7 +623,7 @@ export const DevicesView: React.FC = () => {
           title={isLive ? "Enroll new device" : "Preview device enrollment"}
         >
           <div className="space-y-4 max-w-xl w-full text-xs font-mono">
-            <p className="text-slate-400 text-xs">
+            <p className="text-[var(--product-text-tertiary)] text-xs">
               {isLive
                 ? "Generate a live enrollment token from the control plane and run the provisioning command on the target host."
                 : "This is an enrollment preview. The token and commands are examples, not valid credentials. Do not run these sample commands."}
@@ -633,7 +633,7 @@ export const DevicesView: React.FC = () => {
 
             {/* Device Name */}
             <div className="space-y-1">
-              <label className="text-slate-300 font-semibold text-xs block">
+              <label className="text-[var(--product-text-secondary)] font-semibold text-xs block">
                 Device Name
               </label>
               <JXTextField
@@ -649,7 +649,7 @@ export const DevicesView: React.FC = () => {
                 <div className="text-emerald-300 font-semibold">
                   Enrolled Device ID: {enrolledDeviceId}
                 </div>
-                <div className="text-slate-300 break-all">
+                <div className="text-[var(--product-text-secondary)] break-all">
                   Device Token: <span className="text-emerald-400">{enrolledToken}</span>
                 </div>
               </div>
@@ -657,14 +657,14 @@ export const DevicesView: React.FC = () => {
 
             {/* Target Architecture & Role selector */}
             <div className="space-y-1">
-              <label className="text-slate-300 font-semibold text-xs block">
+              <label className="text-[var(--product-text-secondary)] font-semibold text-xs block">
                 Target Architecture & Role
               </label>
               <select
                 aria-label="Target architecture and role"
                 value={enrollArchRole}
                 onChange={(e) => setEnrollArchRole(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 text-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
+                className="w-full bg-[var(--product-raised)] border border-[var(--product-line)] text-[var(--product-text-secondary)] rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
               >
                 <option value="Standard Worker (Linux x86_64 / arm64)">
                   Standard Worker (Linux x86_64 / arm64)
@@ -680,7 +680,7 @@ export const DevicesView: React.FC = () => {
 
             {/* Sandbox Path */}
             <div className="space-y-1">
-              <label className="text-slate-300 font-semibold text-xs block">
+              <label className="text-[var(--product-text-secondary)] font-semibold text-xs block">
                 Sandbox Home Directory
               </label>
               <JXTextField
@@ -689,14 +689,14 @@ export const DevicesView: React.FC = () => {
                 placeholder="/opt/ai-bridge/workspace"
                 size="md"
               />
-              <span className="text-[11px] text-slate-400">
+              <span className="text-[11px] text-[var(--product-text-tertiary)]">
                 Directory path where remote agent task processes will isolate execution.
               </span>
             </div>
 
             {/* Expiration choices */}
             <div className="space-y-1">
-              <label className="text-slate-300 font-semibold text-xs block">
+              <label className="text-[var(--product-text-secondary)] font-semibold text-xs block">
                 Token Expiration Window
               </label>
               <div className="grid grid-cols-3 gap-2">
@@ -708,7 +708,7 @@ export const DevicesView: React.FC = () => {
                     className={`py-2 px-3 rounded-xl border text-center transition-all ${
                       tokenExpiry === exp
                         ? "bg-indigo-600/30 border-indigo-500 text-indigo-200 font-bold"
-                        : "bg-slate-850 border-slate-700 text-slate-400 hover:text-slate-200"
+                        : "bg-[var(--product-raised)] border-[var(--product-line)] text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                     }`}
                   >
                     {exp === "1h" ? "1 Hour" : exp === "24h" ? "24 Hours" : "7 Days"}
@@ -718,19 +718,19 @@ export const DevicesView: React.FC = () => {
             </div>
 
             {/* Script Platform Tabs */}
-            <div className="space-y-2 pt-2 border-t border-slate-800">
+            <div className="space-y-2 pt-2 border-t border-[var(--product-line)]">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <span className="text-slate-300 font-semibold text-xs">
+                <span className="text-[var(--product-text-secondary)] font-semibold text-xs">
                   Provisioning One-Liner
                 </span>
-                <div className="flex items-center gap-1.5 p-1 rounded-lg bg-slate-850 border border-slate-700">
+                <div className="flex items-center gap-1.5 p-1 rounded-lg bg-[var(--product-raised)] border border-[var(--product-line)]">
                   <button
                     type="button"
                     onClick={() => setEnrollPlatformTab("linux")}
                     className={`px-2.5 py-1 rounded text-[11px] transition-all ${
                       enrollPlatformTab === "linux"
                         ? "bg-indigo-600 text-white font-semibold"
-                        : "text-slate-400 hover:text-slate-200"
+                        : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                     }`}
                   >
                     Linux / macOS
@@ -741,7 +741,7 @@ export const DevicesView: React.FC = () => {
                     className={`px-2.5 py-1 rounded text-[11px] transition-all ${
                       enrollPlatformTab === "windows"
                         ? "bg-indigo-600 text-white font-semibold"
-                        : "text-slate-400 hover:text-slate-200"
+                        : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                     }`}
                   >
                     Windows PowerShell
@@ -750,7 +750,7 @@ export const DevicesView: React.FC = () => {
               </div>
 
               {/* Command box */}
-              <div className="relative p-3.5 rounded-xl bg-slate-950 border border-slate-800">
+              <div className="relative p-3.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)]">
                 <pre className="text-emerald-400 whitespace-pre-wrap break-all text-[11px] pr-20 select-all font-mono">
                   {enrollPlatformTab === "linux" ? linuxEnrollCommand : windowsEnrollCommand}
                 </pre>
@@ -776,8 +776,8 @@ export const DevicesView: React.FC = () => {
             </div>
 
             {/* Modal Actions */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
-              <span className="text-[11px] text-slate-400">
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[var(--product-line)]">
+              <span className="text-[11px] text-[var(--product-text-tertiary)]">
                 {enrolledToken
                   ? `Token issued for ${enrolledDeviceId}`
                   : isLive
@@ -823,17 +823,17 @@ export const DevicesView: React.FC = () => {
           title={`Dispatch Tool: ${dispatchModalDevice.hostname}`}
         >
           <div className="space-y-4 max-w-md w-full text-xs font-mono">
-            <p className="text-slate-400">
+            <p className="text-[var(--product-text-tertiary)]">
               Execute a remote MCP diagnostic or automation tool invocation on node {dispatchModalDevice.id}.
             </p>
 
             <div className="space-y-1">
-              <label className="text-slate-300 font-semibold">Select Tool</label>
+              <label className="text-[var(--product-text-secondary)] font-semibold">Select Tool</label>
               <select
                 aria-label="Select dispatch tool"
                 value={dispatchTool}
                 onChange={(e) => setDispatchTool(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 text-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
+                className="w-full bg-[var(--product-raised)] border border-[var(--product-line)] text-[var(--product-text-secondary)] rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
               >
                 <option value="desktop.capture_screen">desktop.capture_screen (Tier 1 Safe)</option>
                 <option value="process.list">process.list (Tier 1 Safe)</option>
@@ -847,7 +847,7 @@ export const DevicesView: React.FC = () => {
               <JXAlert severity="success" title="Dispatch Status" description={dispatchSuccessMsg} />
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--product-line)]">
               <JXButton
                 variant="soft"
                 color="neutral"

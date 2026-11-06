@@ -183,9 +183,9 @@ export const App: React.FC = () => {
     <AppShell currentView={currentView} viewMeta={currentMeta}>
       <div className="w-full">
         {!VIEWS_WITH_OWN_HEADER.includes(currentView) && (
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/60 mb-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-[var(--product-line)] mb-6">
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-100 mt-1">
+              <h1 className="text-xl font-bold tracking-tight text-[var(--product-text)] mt-1">
                 {currentMeta.title}
               </h1>
             </div>

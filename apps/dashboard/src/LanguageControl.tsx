@@ -20,7 +20,7 @@ export function LanguageControl() {
     </JXButton>
     {open && <GlassModal title={t("Language")} closeLabel={t("Close")} onClose={() => setOpen(false)}>
       <div className="space-y-3">
-        <p lang="en" dir="ltr" className="text-xs text-slate-400">
+        <p lang="en" dir="ltr" className="text-xs text-[var(--product-text-tertiary)]">
           Navigation and sign-in translations (preview). Operational content, safety instructions and the demo remain in English. Native-speaker review is pending.
         </p>
         <label className="grid gap-1 text-sm">
@@ -37,11 +37,11 @@ export function LanguageControl() {
                 if (saved) setOpen(false);
               }}>
               <bdi lang={language.code}>{language.native}</bdi>
-              <span lang="en" dir="ltr" className="text-xs text-slate-400">{language.name}</span>
+              <span lang="en" dir="ltr" className="text-xs text-[var(--product-text-tertiary)]">{language.name}</span>
             </button>
           </li>)}
         </ul>
-        {!matches.length && <p role="status" lang="en" dir="ltr" className="text-sm text-slate-400">No matching translation is available yet.</p>}
+        {!matches.length && <p role="status" lang="en" dir="ltr" className="text-sm text-[var(--product-text-tertiary)]">No matching translation is available yet.</p>}
         {storageError && <p role="status" lang="en" dir="ltr" className="text-xs text-amber-300">Language changed for this visit only. Browser storage is unavailable.</p>}
         <div className="flex justify-end"><JXButton color="neutral" variant="outlined" onClick={() => setOpen(false)}>{t("Close")}</JXButton></div>
       </div>

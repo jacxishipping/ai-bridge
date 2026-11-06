@@ -258,7 +258,7 @@ export const AiApiHubView: React.FC = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-indigo-400" />
-            <h2 className="text-base font-semibold text-slate-100">Providers</h2>
+            <h2 className="text-base font-semibold text-[var(--product-text)]">Providers</h2>
           </div>
         </div>
 
@@ -267,9 +267,9 @@ export const AiApiHubView: React.FC = () => {
             <ul className="divide-y divide-slate-800">
               {providers.map((provider) => <li key={provider.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <div className="min-w-0">
-                  <h3 className="text-sm font-medium text-slate-200">{provider.name}</h3>
-                  <p className="mt-1 break-all text-xs text-slate-400">{provider.defaultModel}</p>
-                  <details className="mt-2 text-xs text-slate-400">
+                  <h3 className="text-sm font-medium text-[var(--product-text-secondary)]">{provider.name}</h3>
+                  <p className="mt-1 break-all text-xs text-[var(--product-text-tertiary)]">{provider.defaultModel}</p>
+                  <details className="mt-2 text-xs text-[var(--product-text-tertiary)]">
                     <summary>Connection details</summary>
                     <code className="mt-2 block break-all">{provider.endpoint}</code>
                     <p className="mt-1">{provider.status} · {provider.latencyMs}ms</p>
@@ -287,20 +287,20 @@ export const AiApiHubView: React.FC = () => {
       <JXGrid columns={12} gap="lg">
         {/* Multi-Language SDK Code Generator */}
         <JXGridItem colSpan={12}>
-          <JXCard className="bg-slate-900/60 border-slate-800">
+          <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
             <details>
-              <summary className="text-sm font-semibold text-slate-200">Code examples</summary>
+              <summary className="text-sm font-semibold text-[var(--product-text-secondary)]">Code examples</summary>
             <JXCardContent>
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-lg bg-slate-950 border border-slate-800">
+                  <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)]">
                     <button
                       type="button"
                       onClick={() => setSdkLang("python")}
                       className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
                         sdkLang === "python"
                           ? "bg-indigo-600 text-white font-semibold"
-                          : "text-slate-400 hover:text-slate-200"
+                          : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                       }`}
                     >
                       Python
@@ -311,7 +311,7 @@ export const AiApiHubView: React.FC = () => {
                       className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
                         sdkLang === "typescript"
                           ? "bg-indigo-600 text-white font-semibold"
-                          : "text-slate-400 hover:text-slate-200"
+                          : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                       }`}
                     >
                       TypeScript
@@ -322,7 +322,7 @@ export const AiApiHubView: React.FC = () => {
                       className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
                         sdkLang === "curl"
                           ? "bg-indigo-600 text-white font-semibold"
-                          : "text-slate-400 hover:text-slate-200"
+                          : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                       }`}
                     >
                       cURL
@@ -333,7 +333,7 @@ export const AiApiHubView: React.FC = () => {
                       className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
                         sdkLang === "mcp"
                           ? "bg-indigo-600 text-white font-semibold"
-                          : "text-slate-400 hover:text-slate-200"
+                          : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
                       }`}
                     >
                       MCP JSON-RPC
@@ -357,7 +357,7 @@ export const AiApiHubView: React.FC = () => {
                   </JXButton>
                 </div>
 
-                <div tabIndex={0} role="region" aria-label="SDK code example" className="rounded-xl bg-slate-950 border border-slate-800 p-4 font-mono text-xs overflow-x-auto text-slate-200 leading-relaxed max-h-[380px] overflow-y-auto">
+                <div tabIndex={0} role="region" aria-label="SDK code example" className="rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] p-4 font-mono text-xs overflow-x-auto text-[var(--product-text-secondary)] leading-relaxed max-h-[380px] overflow-y-auto">
                   <pre>
                     <code>{SDK_SNIPPETS[sdkLang]}</code>
                   </pre>
@@ -370,7 +370,7 @@ export const AiApiHubView: React.FC = () => {
 
         {/* Interactive Tool Execution Studio Sandbox */}
         <JXGridItem colSpan={12}>
-          <JXCard className="bg-slate-900/60 border-slate-800">
+          <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
             <JXCardHeader
               title="Try a tool"
               icon={<Terminal className="w-5 h-5 text-indigo-400" />}
@@ -379,14 +379,14 @@ export const AiApiHubView: React.FC = () => {
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-mono text-slate-400 mb-1">
+                    <label className="block text-xs font-mono text-[var(--product-text-tertiary)] mb-1">
                       Device
                     </label>
                     <select
                       aria-label="Target fleet node"
                       value={selectedNode}
                       onChange={(e) => setSelectedNode(e.target.value)}
-                      className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-200 focus:outline-none"
+                      className="w-full p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs font-mono text-[var(--product-text-secondary)] focus:outline-none"
                     >
                       {devices.map((d) => (
                         <option key={d.id} value={d.id}>
@@ -397,14 +397,14 @@ export const AiApiHubView: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-mono text-slate-400 mb-1">
+                    <label className="block text-xs font-mono text-[var(--product-text-tertiary)] mb-1">
                       Model
                     </label>
                     <select
                       aria-label="Reasoning model"
                       value={selectedModel}
                       onChange={(e) => setSelectedModel(e.target.value)}
-                      className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-200 focus:outline-none"
+                      className="w-full p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs font-mono text-[var(--product-text-secondary)] focus:outline-none"
                     >
                       <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
                       <option value="gpt-4o">OpenAI GPT-4o</option>
@@ -415,14 +415,14 @@ export const AiApiHubView: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">
+                  <label className="block text-xs font-mono text-[var(--product-text-tertiary)] mb-1">
                     Tool
                   </label>
                   <select
                     aria-label="Exposed tool primitive"
                     value={selectedTool}
                     onChange={(e) => setSelectedTool(e.target.value)}
-                    className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-200 focus:outline-none"
+                    className="w-full p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs font-mono text-[var(--product-text-secondary)] focus:outline-none"
                   >
                     <option value="desktop.capture_screen">desktop.capture_screen (SoM Visual)</option>
                     <option value="shell.exec">shell.exec (Arbitrary Command Execution)</option>
@@ -432,7 +432,7 @@ export const AiApiHubView: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-slate-400 mb-1">
+                  <label className="block text-xs font-mono text-[var(--product-text-tertiary)] mb-1">
                     Arguments (JSON)
                   </label>
                   <textarea
@@ -440,7 +440,7 @@ export const AiApiHubView: React.FC = () => {
                     rows={4}
                     value={promptText}
                     onChange={(e) => setPromptText(e.target.value)}
-                    className="w-full p-3 rounded-lg bg-slate-950 border border-slate-800 font-mono text-xs text-slate-200 focus:outline-none resize-none"
+                    className="w-full p-3 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] font-mono text-xs text-[var(--product-text-secondary)] focus:outline-none resize-none"
                   />
                 </div>
 
@@ -459,17 +459,17 @@ export const AiApiHubView: React.FC = () => {
 
                 {/* Return Schema Response Viewer */}
                 {executionResult && (
-                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                    <div className="flex items-center justify-between text-[11px] font-mono border-b border-slate-800/80 pb-2">
+                  <div className="p-3 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] space-y-2">
+                    <div className="flex items-center justify-between text-[11px] font-mono border-b border-[var(--product-line)]/80 pb-2">
                       <span className="text-emerald-400 font-semibold flex items-center gap-1.5">
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         Status: {executionResult.status} ({executionResult.durationMs}ms)
                       </span>
-                      <span className="text-slate-400">
+                      <span className="text-[var(--product-text-tertiary)]">
                         {executionResult.tokens.input} in / {executionResult.tokens.output} out ({executionResult.tokens.cost})
                       </span>
                     </div>
-                    <pre tabIndex={0} aria-label="Tool response" className="text-xs font-mono text-slate-300 overflow-x-auto max-h-40 overflow-y-auto">
+                    <pre tabIndex={0} aria-label="Tool response" className="text-xs font-mono text-[var(--product-text-secondary)] overflow-x-auto max-h-40 overflow-y-auto">
                       <code>{JSON.stringify(executionResult.output, null, 2)}</code>
                     </pre>
                   </div>

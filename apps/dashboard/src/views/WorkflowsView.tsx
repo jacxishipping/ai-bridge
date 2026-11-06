@@ -48,7 +48,7 @@ function statusClass(s: string) {
   if (s === "running") return "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40";
   if (s === "completed") return "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40";
   if (s === "failed") return "bg-rose-500/20 text-rose-300 border border-rose-500/40";
-  return "bg-slate-800 text-slate-400 border border-slate-700";
+  return "bg-[var(--product-raised)] text-[var(--product-text-tertiary)] border border-[var(--product-line)]";
 }
 const draftFromDef = (s: WfStepDef): DraftStep => ({
   name: s.name || "",
@@ -276,14 +276,14 @@ function WorkflowsLive() {
     setCopied(true); setTimeout(() => setCopied(false), 1500);
   };
 
-  const inputCls = "w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs font-mono outline-none focus:border-indigo-500";
+  const inputCls = "w-full px-3 py-2 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] text-xs font-mono outline-none focus:border-indigo-500";
 
   return (
     <div className="space-y-4" data-testid="workflows-live">
-      <div className="flex items-center justify-between gap-3 pb-2 border-b border-slate-800/60">
-        <div className="flex items-center gap-2 text-slate-100 font-semibold text-sm"><Workflow className="w-4 h-4 text-indigo-400" /> Workflows</div>
+      <div className="flex items-center justify-between gap-3 pb-2 border-b border-[var(--product-line)]">
+        <div className="flex items-center gap-2 text-[var(--product-text)] font-semibold text-sm"><Workflow className="w-4 h-4 text-indigo-400" /> Workflows</div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => void refresh()} className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs flex items-center gap-2">
+          <button type="button" onClick={() => void refresh()} className="px-3 py-2 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] text-xs flex items-center gap-2">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
           </button>
           <button type="button" onClick={() => openBuilder()} className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center gap-2">
@@ -306,46 +306,46 @@ function WorkflowsLive() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <section className="lg:col-span-4 rounded-2xl bg-slate-900/70 border border-slate-800 p-4 space-y-3" aria-label="Workflow directory">
+        <section className="lg:col-span-4 rounded-2xl bg-[var(--product-surface)]/70 border border-[var(--product-line)] p-4 space-y-3" aria-label="Workflow directory">
           <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3 pointer-events-none" />
+            <Search className="w-3.5 h-3.5 text-[var(--product-text-dim)] absolute left-3 top-3 pointer-events-none" />
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, id, device, tool..." aria-label="Search workflows" className={`${inputCls} pl-8`} />
           </div>
-          <div className="flex flex-wrap gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800 font-mono text-[11px]">
+          <div className="flex flex-wrap gap-1 p-1 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] font-mono text-[11px]">
             {FILTERS.map((f) => (
-              <button key={f} type="button" onClick={() => setFilter(f)} className={`flex-1 py-1 px-1.5 rounded-lg capitalize ${filter === f ? "bg-slate-800 text-slate-100 font-semibold" : "text-slate-400 hover:text-slate-200"}`}>
+              <button key={f} type="button" onClick={() => setFilter(f)} className={`flex-1 py-1 px-1.5 rounded-lg capitalize ${filter === f ? "bg-[var(--product-raised)] text-[var(--product-text)] font-semibold" : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"}`}>
                 {f} ({counts[f] || 0})
               </button>
             ))}
           </div>
           <div tabIndex={0} aria-label="Workflow plans" className="space-y-2 max-h-[580px] overflow-y-auto pr-1">
-            {loading && !workflows.length && <p className="text-xs text-slate-500">Loading workflows…</p>}
-            {!loading && !loadError && !workflows.length && <p className="text-xs text-slate-500">No workflows yet. Create one or start from a template.</p>}
-            {!loading && workflows.length > 0 && !filtered.length && <p className="text-xs text-slate-500">No workflows match this filter.</p>}
+            {loading && !workflows.length && <p className="text-xs text-[var(--product-text-dim)]">Loading workflows…</p>}
+            {!loading && !loadError && !workflows.length && <p className="text-xs text-[var(--product-text-dim)]">No workflows yet. Create one or start from a template.</p>}
+            {!loading && workflows.length > 0 && !filtered.length && <p className="text-xs text-[var(--product-text-dim)]">No workflows match this filter.</p>}
             {filtered.map((w) => (
               <button key={w.id} type="button" onClick={() => { setSelectedId(w.id); setSelectedStep(1); }}
-                className={`w-full text-left p-3 rounded-xl border text-xs ${w.id === selectedId ? "bg-indigo-950/50 border-indigo-500/60" : "bg-slate-950/70 border-slate-800 hover:border-slate-700"}`}>
+                className={`w-full text-left p-3 rounded-xl border text-xs ${w.id === selectedId ? "bg-indigo-950/50 border-indigo-500/60" : "bg-[var(--product-canvas)]/70 border-[var(--product-line)] hover:border-[var(--product-line)]"}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <span className="font-bold text-slate-100 block truncate">{w.name}</span>
+                    <span className="font-bold text-[var(--product-text)] block truncate">{w.name}</span>
                     <span className="font-mono text-[10px] text-indigo-400">{w.id} • {w.device_id || "local"}</span>
                   </div>
                   <span className={`font-mono text-[10px] px-2 py-0.5 rounded font-semibold uppercase shrink-0 ${statusClass(w.status)}`}>
                     {w.status === "running" ? `Step ${w.current_step}/${w.total_steps}` : w.status}
                   </span>
                 </div>
-                <div className="mt-2 text-[10px] font-mono text-slate-500">{w.total_steps} steps • {fmtTime(w.created_at)}</div>
+                <div className="mt-2 text-[10px] font-mono text-[var(--product-text-dim)]">{w.total_steps} steps • {fmtTime(w.created_at)}</div>
               </button>
             ))}
           </div>
 
-          <div className="pt-3 border-t border-slate-800 space-y-1.5">
-            <span className="text-[10px] uppercase text-slate-500 font-mono">Templates</span>
-            {!templates.length && <p className="text-xs text-slate-500">No templates available.</p>}
+          <div className="pt-3 border-t border-[var(--product-line)] space-y-1.5">
+            <span className="text-[10px] uppercase text-[var(--product-text-dim)] font-mono">Templates</span>
+            {!templates.length && <p className="text-xs text-[var(--product-text-dim)]">No templates available.</p>}
             {templates.map((t) => (
-              <button key={t.id} type="button" onClick={() => openBuilder(t)} className="w-full text-left p-2 rounded-lg bg-slate-950 border border-slate-800 hover:border-indigo-500/50 text-xs">
-                <span className="text-slate-200 font-semibold block">{t.name}</span>
-                <span className="text-[10px] text-slate-500">{t.description} ({t.steps.length} steps)</span>
+              <button key={t.id} type="button" onClick={() => openBuilder(t)} className="w-full text-left p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] hover:border-indigo-500/50 text-xs">
+                <span className="text-[var(--product-text-secondary)] font-semibold block">{t.name}</span>
+                <span className="text-[10px] text-[var(--product-text-dim)]">{t.description} ({t.steps.length} steps)</span>
               </button>
             ))}
           </div>
@@ -353,16 +353,16 @@ function WorkflowsLive() {
 
         <section className="lg:col-span-8 space-y-5" aria-label="Workflow detail">
           {!selected ? (
-            <div className="rounded-2xl bg-slate-900/70 border border-slate-800 p-8 text-center text-xs text-slate-500">
+            <div className="rounded-2xl bg-[var(--product-surface)]/70 border border-[var(--product-line)] p-8 text-center text-xs text-[var(--product-text-dim)]">
               {loading ? "Loading…" : "Select a workflow to inspect its steps and results."}
             </div>
           ) : (
             <>
-              <div className="rounded-2xl bg-slate-900/70 border border-slate-800 p-4 space-y-4">
+              <div className="rounded-2xl bg-[var(--product-surface)]/70 border border-[var(--product-line)] p-4 space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-sm font-bold text-slate-100">{selected.name}</h2>
-                    <p className="text-[11px] font-mono text-slate-500">{selected.id} • device {selected.device_id || "local"} • started {fmtTime(selected.created_at)}{selected.completed_at ? ` • finished ${fmtTime(selected.completed_at)}` : ""}</p>
+                    <h2 className="text-sm font-bold text-[var(--product-text)]">{selected.name}</h2>
+                    <p className="text-[11px] font-mono text-[var(--product-text-dim)]">{selected.id} • device {selected.device_id || "local"} • started {fmtTime(selected.created_at)}{selected.completed_at ? ` • finished ${fmtTime(selected.completed_at)}` : ""}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`font-mono text-[10px] px-2 py-0.5 rounded font-semibold uppercase ${statusClass(selected.status)}`}>{selected.status}</span>
@@ -374,51 +374,51 @@ function WorkflowsLive() {
                   </div>
                 </div>
                 {selectedActive && (
-                  <div className="font-mono text-[11px] text-slate-400" role="status">
+                  <div className="font-mono text-[11px] text-[var(--product-text-tertiary)]" role="status">
                     Step {selected.current_step} of {selected.total_steps} • progress via {streamMode === "stream" ? "live stream" : streamMode === "polling" ? "polling (stream unavailable)" : "connecting…"}
                   </div>
                 )}
                 {selected.error && <div role="alert" className="p-2 rounded-lg bg-rose-950/40 border border-rose-500/30 text-xs text-rose-300 font-mono">{selected.error}</div>}
-                {!stepRows.length && <p className="text-xs text-slate-500">This workflow has no recorded steps.</p>}
+                {!stepRows.length && <p className="text-xs text-[var(--product-text-dim)]">This workflow has no recorded steps.</p>}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
                   {stepRows.map((s) => (
                     <button key={s.number} type="button" onClick={() => setSelectedStep(s.number)}
-                      className={`text-left p-3 rounded-xl border text-xs min-h-[96px] ${activeStep?.number === s.number ? "bg-indigo-950/60 border-indigo-500 ring-1 ring-indigo-500/50" : "bg-slate-950/80 border-slate-800 hover:border-slate-700"}`}>
+                      className={`text-left p-3 rounded-xl border text-xs min-h-[96px] ${activeStep?.number === s.number ? "bg-indigo-950/60 border-indigo-500 ring-1 ring-indigo-500/50" : "bg-[var(--product-canvas)]/80 border-[var(--product-line)] hover:border-[var(--product-line)]"}`}>
                       <div className="flex items-center justify-between">
-                        <span className={`w-6 h-6 rounded-full flex items-center justify-center font-mono text-xs font-bold ${s.status === "completed" ? "bg-emerald-600 text-white" : s.status === "running" ? "bg-indigo-600 text-white" : s.status === "failed" ? "bg-rose-600 text-white" : "bg-slate-800 text-slate-400"}`}>{s.status === "completed" ? <Check className="w-3.5 h-3.5" /> : s.number}</span>
-                        <span className="font-mono text-[10px] text-slate-400">{s.res?.duration_seconds != null ? `${s.res.duration_seconds}s` : "--"}</span>
+                        <span className={`w-6 h-6 rounded-full flex items-center justify-center font-mono text-xs font-bold ${s.status === "completed" ? "bg-emerald-600 text-white" : s.status === "running" ? "bg-indigo-600 text-white" : s.status === "failed" ? "bg-rose-600 text-white" : "bg-[var(--product-raised)] text-[var(--product-text-tertiary)]"}`}>{s.status === "completed" ? <Check className="w-3.5 h-3.5" /> : s.number}</span>
+                        <span className="font-mono text-[10px] text-[var(--product-text-tertiary)]">{s.res?.duration_seconds != null ? `${s.res.duration_seconds}s` : "--"}</span>
                       </div>
-                      <span className="font-semibold text-slate-200 block truncate mt-2">{s.name}</span>
-                      <span className="font-mono text-[10px] text-slate-400 block truncate">{s.action}</span>
-                      <span className="font-mono text-[10px] text-slate-500">{s.status}</span>
+                      <span className="font-semibold text-[var(--product-text-secondary)] block truncate mt-2">{s.name}</span>
+                      <span className="font-mono text-[10px] text-[var(--product-text-tertiary)] block truncate">{s.action}</span>
+                      <span className="font-mono text-[10px] text-[var(--product-text-dim)]">{s.status}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
               {activeStep && (
-                <div className="rounded-2xl bg-slate-900/70 border border-slate-800 p-4 space-y-3 font-mono text-xs">
+                <div className="rounded-2xl bg-[var(--product-surface)]/70 border border-[var(--product-line)] p-4 space-y-3 font-mono text-xs">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-200 font-bold">Step {activeStep.number}: {activeStep.name} <span className="text-slate-500">({activeStep.action})</span></span>
-                    <button type="button" onClick={() => copy({ action: activeStep.action, args: activeStep.args, result: activeStep.res?.result })} className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 text-[11px] flex items-center gap-1.5">
-                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />} {copied ? "Copied" : "Copy step JSON"}
+                    <span className="text-[var(--product-text-secondary)] font-bold">Step {activeStep.number}: {activeStep.name} <span className="text-[var(--product-text-dim)]">({activeStep.action})</span></span>
+                    <button type="button" onClick={() => copy({ action: activeStep.action, args: activeStep.args, result: activeStep.res?.result })} className="px-2.5 py-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] text-[11px] flex items-center gap-1.5">
+                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-[var(--product-text-tertiary)]" />} {copied ? "Copied" : "Copy step JSON"}
                     </button>
                   </div>
                   <div>
-                    <span className="text-slate-400 block mb-1">Arguments</span>
-                    <pre className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 overflow-x-auto max-h-32"><code>{JSON.stringify(activeStep.args, null, 2)}</code></pre>
+                    <span className="text-[var(--product-text-tertiary)] block mb-1">Arguments</span>
+                    <pre className="p-2.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-[11px] text-[var(--product-text-secondary)] overflow-x-auto max-h-32"><code>{JSON.stringify(activeStep.args, null, 2)}</code></pre>
                   </div>
                   {activeStep.res?.error && <div role="alert" className="p-2 rounded-lg bg-rose-950/40 border border-rose-500/30 text-rose-300">{activeStep.res.error}</div>}
                   <div>
-                    <span className="text-slate-400 block mb-1">Result</span>
+                    <span className="text-[var(--product-text-tertiary)] block mb-1">Result</span>
                     {activeStep.res?.result !== undefined && activeStep.res?.result !== null ? (
-                      <pre className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 overflow-auto max-h-64"><code>{JSON.stringify(activeStep.res.result, null, 2)}</code></pre>
-                    ) : <p className="text-slate-500">{activeStep.status === "running" ? "Running…" : activeStep.status === "pending" ? "Not run yet." : "No result recorded."}</p>}
+                      <pre className="p-2.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-[11px] text-[var(--product-text-secondary)] overflow-auto max-h-64"><code>{JSON.stringify(activeStep.res.result, null, 2)}</code></pre>
+                    ) : <p className="text-[var(--product-text-dim)]">{activeStep.status === "running" ? "Running…" : activeStep.status === "pending" ? "Not run yet." : "No result recorded."}</p>}
                   </div>
                   {activeStep.res?.verification !== undefined && (
                     <div>
-                      <span className="text-slate-400 block mb-1">Verification</span>
-                      <pre className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 overflow-auto max-h-32"><code>{JSON.stringify(activeStep.res.verification, null, 2)}</code></pre>
+                      <span className="text-[var(--product-text-tertiary)] block mb-1">Verification</span>
+                      <pre className="p-2.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-[11px] text-[var(--product-text-secondary)] overflow-auto max-h-32"><code>{JSON.stringify(activeStep.res.verification, null, 2)}</code></pre>
                     </div>
                   )}
                 </div>
@@ -430,27 +430,27 @@ function WorkflowsLive() {
 
       {builderOpen && (
         <div role="dialog" aria-modal="true" aria-label="New workflow" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-slate-900 border border-slate-800 p-5 space-y-4 text-xs font-mono text-slate-200">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <h3 className="text-base font-bold text-slate-100">New workflow</h3>
-              <button type="button" aria-label="Close workflow builder" onClick={() => setBuilderOpen(false)}><X className="w-5 h-5 text-slate-400" /></button>
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-[var(--product-surface)] border border-[var(--product-line)] p-5 space-y-4 text-xs font-mono text-[var(--product-text-secondary)]">
+            <div className="flex items-center justify-between pb-2 border-b border-[var(--product-line)]">
+              <h3 className="text-base font-bold text-[var(--product-text)]">New workflow</h3>
+              <button type="button" aria-label="Close workflow builder" onClick={() => setBuilderOpen(false)}><X className="w-5 h-5 text-[var(--product-text-tertiary)]" /></button>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <label className="col-span-2 block"><span className="text-slate-400 uppercase text-[10px] block mb-1">Name</span>
+              <label className="col-span-2 block"><span className="text-[var(--product-text-tertiary)] uppercase text-[10px] block mb-1">Name</span>
                 <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} /></label>
-              <label className="block"><span className="text-slate-400 uppercase text-[10px] block mb-1">Target device</span>
+              <label className="block"><span className="text-[var(--product-text-tertiary)] uppercase text-[10px] block mb-1">Target device</span>
                 <select aria-label="Workflow target device" value={deviceId} onChange={(e) => setDeviceId(e.target.value)} className={inputCls}>
                   <option value="local">local (control plane host)</option>
                   {devices.map((d) => <option key={d.id} value={d.id}>{d.name || d.hostname || d.id}</option>)}
                 </select></label>
-              <label className="block"><span className="text-slate-400 uppercase text-[10px] block mb-1">Default retries per step</span>
+              <label className="block"><span className="text-[var(--product-text-tertiary)] uppercase text-[10px] block mb-1">Default retries per step</span>
                 <input type="number" min={0} max={5} value={maxRetries} onChange={(e) => setMaxRetries(Number(e.target.value))} className={inputCls} /></label>
               <label className="col-span-2 flex items-center gap-2"><input type="checkbox" checked={stopOnFailure} onChange={(e) => setStopOnFailure(e.target.checked)} /> Stop on first failed step</label>
             </div>
 
-            <div className="space-y-2 pt-2 border-t border-slate-800">
+            <div className="space-y-2 pt-2 border-t border-[var(--product-line)]">
               <div className="flex items-center justify-between">
-                <span className="text-slate-400 uppercase text-[10px]">Steps ({draft.length})</span>
+                <span className="text-[var(--product-text-tertiary)] uppercase text-[10px]">Steps ({draft.length})</span>
                 <button type="button" onClick={() => setDraft((p) => [...p, { name: "", action: tools[0]?.name || "", args: "{}", verifyText: "" }])} className="text-indigo-400 font-bold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Add step</button>
               </div>
               {!tools.length && <p className="text-amber-400">Tool catalog unavailable; step tools can only come from templates.</p>}
@@ -458,7 +458,7 @@ function WorkflowsLive() {
                 const t = toolMap.get(d.action);
                 const upd = (patch: Partial<DraftStep>) => setDraft((p) => p.map((s, j) => (j === i ? { ...s, ...patch } : s)));
                 return (
-                  <div key={i} className="p-2 rounded-lg bg-slate-950 border border-slate-800 space-y-2">
+                  <div key={i} className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] space-y-2">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-indigo-400">{i + 1}.</span>
                       <input aria-label={`Step ${i + 1} name`} placeholder={`Step ${i + 1}`} value={d.name} onChange={(e) => upd({ name: e.target.value })} className={inputCls} />
@@ -466,11 +466,11 @@ function WorkflowsLive() {
                         {d.action && !t && <option value={d.action}>{d.action}</option>}
                         {tools.map((tl) => <option key={tl.name} value={tl.name}>{tl.name} (tier {tl.tier ?? "?"})</option>)}
                       </select>
-                      <button type="button" aria-label={`Remove step ${i + 1}`} onClick={() => setDraft((p) => p.filter((_, j) => j !== i))}><Trash2 className="w-4 h-4 text-slate-500 hover:text-rose-400" /></button>
+                      <button type="button" aria-label={`Remove step ${i + 1}`} onClick={() => setDraft((p) => p.filter((_, j) => j !== i))}><Trash2 className="w-4 h-4 text-[var(--product-text-dim)] hover:text-rose-400" /></button>
                     </div>
-                    {t?.description && <p className="text-[10px] text-slate-500">{t.description}</p>}
+                    {t?.description && <p className="text-[10px] text-[var(--product-text-dim)]">{t.description}</p>}
                     <textarea aria-label={`Step ${i + 1} arguments`} rows={2} value={d.args} onChange={(e) => upd({ args: e.target.value })} className={inputCls} />
-                    {t?.parameters?.properties && <p className="text-[10px] text-slate-600">Params: {Object.keys(t.parameters.properties).join(", ") || "none"}{t.parameters.required?.length ? ` (required: ${t.parameters.required.join(", ")})` : ""}</p>}
+                    {t?.parameters?.properties && <p className="text-[10px] text-[var(--product-text-dim)]">Params: {Object.keys(t.parameters.properties).join(", ") || "none"}{t.parameters.required?.length ? ` (required: ${t.parameters.required.join(", ")})` : ""}</p>}
                     <input aria-label={`Step ${i + 1} verify text`} placeholder="Optional: verify this text appears on screen after the step" value={d.verifyText} onChange={(e) => upd({ verifyText: e.target.value })} className={inputCls} />
                   </div>
                 );
@@ -484,8 +484,8 @@ function WorkflowsLive() {
               </div>
             )}
             {builderError && <div role="alert" className="p-2 rounded-lg bg-rose-950/40 border border-rose-500/30 text-rose-300">{builderError}</div>}
-            <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
-              <button type="button" onClick={() => setBuilderOpen(false)} className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-400">Cancel</button>
+            <div className="pt-3 border-t border-[var(--product-line)] flex justify-end gap-2">
+              <button type="button" onClick={() => setBuilderOpen(false)} className="px-3 py-1.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-tertiary)]">Cancel</button>
               <button type="button" disabled={submitting} onClick={() => void submit()} className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold disabled:opacity-50">{submitting ? "Submitting…" : "Submit workflow"}</button>
             </div>
           </div>

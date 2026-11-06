@@ -16,12 +16,12 @@ export interface LiveApproval {
   requested_by?: string; created_at?: number;
 }
 
-export const fieldClass = "product-input w-full min-w-0 rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100";
+export const fieldClass = "product-input w-full min-w-0 rounded-lg border border-[var(--product-line)] bg-[var(--product-surface)] px-3 py-2 text-sm text-[var(--product-text)]";
 /** Keep label text separate from option text and editable/read-only values. */
 export function Field({ label, children, className = "" }:
   { label: string; children: React.ReactElement<{ id?: string }>; className?: string }) {
   const id = useId();
-  return <div className={`grid min-w-0 gap-1.5 text-sm text-slate-300 ${className}`}>
+  return <div className={`grid min-w-0 gap-1.5 text-sm text-[var(--product-text-secondary)] ${className}`}>
     <label htmlFor={id}>{label}</label>{React.cloneElement(children, { id })}
   </div>;
 }
@@ -74,7 +74,7 @@ export function useRead<T>(load: () => Promise<T>, poll = false) {
 export function ReadState({ loading, error, checkedAt }: { loading: boolean; error: string; checkedAt?: Date }) {
   const { date } = useLanguage();
   const updated = checkedAt ? date(checkedAt, { timeStyle: "medium" }) : "";
-  return <div role="status" className="text-xs text-slate-400">
+  return <div role="status" className="text-xs text-[var(--product-text-tertiary)]">
     {error ? <span className="text-amber-300">{error} Last successful update: {updated || "never"}. Refresh to reconnect.</span> :
       loading ? "Refreshing…" : checkedAt ? `Updated ${updated}` : "Not loaded"}
   </div>;
@@ -85,17 +85,17 @@ export function Pagination({ page, total, size = 25, onPage }: { page: number; t
   const pages = Math.max(1, Math.ceil(total / size));
   return <nav lang={locale} dir={languages.find(language => language.code === locale)!.dir}
     aria-label={t("{count} results · Page {page} of {pages}", { count: number(total), page: number(page), pages: number(pages) })}
-    className="flex flex-wrap items-center justify-end gap-3 text-xs text-slate-300">
+    className="flex flex-wrap items-center justify-end gap-3 text-xs text-[var(--product-text-secondary)]">
     <span>{t("{count} results · Page {page} of {pages}", { count: number(total), page: number(page), pages: number(pages) })}</span>
-    <button className="product-button rounded border border-slate-600 disabled:opacity-40" disabled={page <= 1} onClick={() => onPage(page - 1)}>{t("Previous page")}</button>
-    <button className="product-button rounded border border-slate-600 disabled:opacity-40" disabled={page >= pages} onClick={() => onPage(page + 1)}>{t("Next page")}</button>
+    <button className="product-button rounded border border-[var(--product-line)] disabled:opacity-40" disabled={page <= 1} onClick={() => onPage(page - 1)}>{t("Previous page")}</button>
+    <button className="product-button rounded border border-[var(--product-line)] disabled:opacity-40" disabled={page >= pages} onClick={() => onPage(page + 1)}>{t("Next page")}</button>
   </nav>;
 }
 
 export function Payload({ title = "Technical details", value }: { title?: string; value: unknown }) {
-  return <details className="min-w-0 rounded-lg border border-slate-700 p-3">
-    <summary className="cursor-pointer text-sm text-slate-300">{title}</summary>
-    <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs text-slate-300">{text(value)}</pre>
+  return <details className="min-w-0 rounded-lg border border-[var(--product-line)] p-3">
+    <summary className="cursor-pointer text-sm text-[var(--product-text-secondary)]">{title}</summary>
+    <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs text-[var(--product-text-secondary)]">{text(value)}</pre>
   </details>;
 }
 

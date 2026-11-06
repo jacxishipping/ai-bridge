@@ -80,21 +80,21 @@ export function LiveWorkspace({ devices, identity, role, stale, stopped, refresh
     <div className="min-w-0 space-y-3">
     {(route.section !== "devices" || !route.device) && <div className="flex items-center gap-3">
       <h2 className="text-base font-semibold tracking-tight">{t(sectionLabels[route.section])}</h2>
-      {route.section === "devices" && <span lang="en" dir="ltr" className="text-xs tabular-nums text-slate-400">{number(devices.length)} total</span>}
+      {route.section === "devices" && <span lang="en" dir="ltr" className="text-xs tabular-nums text-[var(--product-text-tertiary)]">{number(devices.length)} total</span>}
     </div>}
     {storageError && <p role="status" lang="en" dir="ltr" className="text-xs text-amber-300">{storageError}</p>}
-    {listVisible && <div lang="en" dir="ltr" className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-2">
+    {listVisible && <div lang="en" dir="ltr" className="flex flex-wrap items-center gap-2 border-b border-[var(--product-line)] pb-2">
       <JXButton color="neutral" variant="text" onClick={() => { setFilters({ ...defaultFilters, status: "offline" }); navigate({ section: "devices", tab: "details" }); }}>Offline devices</JXButton>
       <JXButton color="neutral" variant="text" onClick={() => { setFilters({ ...defaultFilters, taskStatus: "failed" }); navigate({ section: "tasks", tab: "details" }); }}>Failed tasks</JXButton>
       <details className="min-w-0 text-sm">
-        <summary className="cursor-pointer p-2 text-slate-300">Saved views ({views.length})</summary>
+        <summary className="cursor-pointer p-2 text-[var(--product-text-secondary)]">Saved views ({views.length})</summary>
         <ul className="space-y-2 py-2">{views.map((view, index) => <li key={`${view.name}:${index}`} className="flex flex-wrap items-center gap-2">
-          <button className="max-w-full break-all rounded-lg p-2 text-left text-slate-200 underline underline-offset-4" onClick={() => {
+          <button className="max-w-full break-all rounded-lg p-2 text-left text-[var(--product-text-secondary)] underline underline-offset-4" onClick={() => {
             setFilters(view.filters); navigate({ section: view.section, tab: "details" });
           }}>{view.name}</button>
-          <button className="rounded-lg p-2 text-xs text-slate-400" aria-label={`Remove saved view ${view.name}`} onClick={() => setViews(views.filter((_, i) => i !== index))}>Remove</button>
+          <button className="rounded-lg p-2 text-xs text-[var(--product-text-tertiary)]" aria-label={`Remove saved view ${view.name}`} onClick={() => setViews(views.filter((_, i) => i !== index))}>Remove</button>
         </li>)}</ul>
-        {!views.length && <p className="p-2 text-xs text-slate-400">Save your current filters for quick access.</p>}
+        {!views.length && <p className="p-2 text-xs text-[var(--product-text-tertiary)]">Save your current filters for quick access.</p>}
       </details>
       <JXButton color="neutral" variant="outlined" onClick={() => { setViewName(""); setSaveError(""); setSaving(true); }}>Save view</JXButton>
     </div>}
@@ -103,7 +103,7 @@ export function LiveWorkspace({ devices, identity, role, stale, stopped, refresh
       {route.section === "devices" ? route.device ?
         selected ? <DeviceWorkspace key={selected.id} device={selected} devices={devices} tab={route.tab} canAct={canAct} admin={!stale && role === "admin"} refreshFleet={refresh}
           setTab={(tab) => navigate({ ...route, tab })} back={() => navigate({ section: "devices", tab: "details" })} /> :
-          <Empty title="Device not available"><p className="text-sm text-slate-400">It may have been removed or be outside your account’s scope.</p><JXButton color="neutral" onClick={() => navigate({ section: "devices", tab: "details" })}>All devices</JXButton></Empty> :
+          <Empty title="Device not available"><p className="text-sm text-[var(--product-text-tertiary)]">It may have been removed or be outside your account’s scope.</p><JXButton color="neutral" onClick={() => navigate({ section: "devices", tab: "details" })}>All devices</JXButton></Empty> :
         <Inventory devices={devices} filters={filters} onFilters={setFilters} canAct={canAct} canEnroll={!stale && role === "admin"}
           openDevice={(device, tab = "details") => navigate({ section: "devices", device, tab })} refresh={refresh} /> :
         route.section === "tasks" ? <TasksPanel devices={devices} canAct={canAct} status={filters.taskStatus} onStatus={(taskStatus) => setFilters({ ...filters, taskStatus })} /> :
@@ -132,7 +132,7 @@ export function LiveWorkspace({ devices, identity, role, stale, stopped, refresh
         setViews([...views, { name, section: route.section, filters: { ...filters } }]); setSaving(false);
       }}>
         <Field label="View name"><input className={fieldClass} value={viewName} maxLength={40} required onChange={(e) => setViewName(e.target.value)} /></Field>
-        <p className="text-xs text-slate-400">Saved in this browser for this account and control plane. No credentials or task results are stored.</p>
+        <p className="text-xs text-[var(--product-text-tertiary)]">Saved in this browser for this account and control plane. No credentials or task results are stored.</p>
         {saveError && <p role="alert" className="text-sm text-amber-300">{saveError}</p>}
         <div className="flex justify-end gap-2"><JXButton type="button" color="neutral" variant="outlined" onClick={() => setSaving(false)}>Cancel</JXButton><JXButton type="submit" disabled={!viewName.trim()}>Save</JXButton></div>
       </form>

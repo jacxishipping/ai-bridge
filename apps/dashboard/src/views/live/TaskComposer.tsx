@@ -47,10 +47,10 @@ export function TaskComposer({ devices, initialTool = "get_system_info", initial
   return <GlassModal title={outcomes.length ? "Submission results" : review ? "Review task" : "New task"} onClose={() => { if (!busy) onClose(); }}>
     <div className="space-y-5">
       {outcomes.length > 0 ? <>
-        <p className="text-sm text-slate-300">{busy ? "Submitting…" : "Submission is not completion. Follow progress in Tasks."}</p>
+        <p className="text-sm text-[var(--product-text-secondary)]">{busy ? "Submitting…" : "Submission is not completion. Follow progress in Tasks."}</p>
         <ul aria-live="polite" className="divide-y divide-slate-700">{outcomes.map((outcome) => <li key={outcome.device.id} className="space-y-1 py-3 text-sm">
           <p className="break-all font-medium">{deviceName(outcome.device)} — {outcome.status}</p>
-          {outcome.id && <p className="break-all font-mono text-xs text-slate-400">Task {outcome.id}</p>}
+          {outcome.id && <p className="break-all font-mono text-xs text-[var(--product-text-tertiary)]">Task {outcome.id}</p>}
           {outcome.error && <p className="text-amber-300">{outcome.error}</p>}
         </li>)}</ul>
         <JXButton color="neutral" disabled={busy} onClick={onClose}>Done</JXButton>
@@ -60,16 +60,16 @@ export function TaskComposer({ devices, initialTool = "get_system_info", initial
           {taskTools.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
         </select></Field>}
         {!review && tool === "run_shell" && <Field label="Command"><textarea className={`${fieldClass} min-h-28 font-mono`} value={command} onChange={(e) => setCommand(e.target.value)} maxLength={4096} /></Field>}
-        <p className={`text-sm ${selectedTool?.risk === "Read-only" ? "text-slate-300" : "text-amber-300"}`}>{selectedTool?.risk || "Review the original task’s risk and arguments before retrying."}</p>
+        <p className={`text-sm ${selectedTool?.risk === "Read-only" ? "text-[var(--product-text-secondary)]" : "text-amber-300"}`}>{selectedTool?.risk || "Review the original task’s risk and arguments before retrying."}</p>
         <div><h3 className="mb-2 text-sm font-medium">Target devices ({devices.length})</h3>
           <ul className="max-h-48 space-y-2 overflow-auto text-sm">{devices.map((device) => <li key={device.id} className="break-all">
-            {deviceName(device)} <span className="text-xs text-slate-400">({device.id})</span>
+            {deviceName(device)} <span className="text-xs text-[var(--product-text-tertiary)]">({device.id})</span>
           </li>)}</ul>
         </div>
         {review && <>
           <p className="text-sm">Submit <strong>{tool}</strong> to these exact devices?</p>
-          {Object.keys(args).length > 0 && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-950 p-3 text-xs">{text(args)}</pre>}
-          <p className="text-sm text-slate-400">Device policy is checked for each request. Approval may be required.</p>
+          {Object.keys(args).length > 0 && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-[var(--product-canvas)] p-3 text-xs">{text(args)}</pre>}
+          <p className="text-sm text-[var(--product-text-tertiary)]">Device policy is checked for each request. Approval may be required.</p>
         </>}
         <div className="flex flex-wrap justify-end gap-2">
           <JXButton color="neutral" variant="outlined" disabled={busy} onClick={() => review ? setReview(false) : onClose()}>{review ? "Back" : "Cancel"}</JXButton>
