@@ -15,14 +15,17 @@ Architecture (compatible with the agent's outbound-only model & v1.0 specificati
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
 import os
 import platform
 import threading
 import time
-import urllib.error
-import urllib.request
 from typing import Any
+
+import httpx
 
 SESSION_TTL_SECONDS = 600
 DEFAULT_ICE_SERVERS = [{"urls": "stun:stun.l.google.com:19302"}]
@@ -34,15 +37,40 @@ _HELD_KEYS_LOCK = threading.Lock()
 _HELD_KEYS: set[str] = set()
 
 
+def generate_ephemeral_turn_credentials(
+    username_prefix: str = "aibridge_client",
+    ttl_seconds: int = 86400,
+    turn_host: str | None = None,
+    secret: str | None = None,
+) -> list[dict[str, Any]]:
+    """Generate RFC 5766 / REST API ephemeral TURN credentials using HMAC-SHA1 for symmetric NAT traversal."""
+    turn_secret = secret or os.environ.get("AI_BRIDGE_TURN_SECRET", "aibridge_turn_shared_secret_2026")
+    host = turn_host or os.environ.get("AI_BRIDGE_TURN_HOST", "jxiptvplayer.app")
+    expiry = int(time.time()) + ttl_seconds
+    username = f"{expiry}:{username_prefix}"
+
+    key = turn_secret.encode("utf-8")
+    msg = username.encode("utf-8")
+    credential = base64.b64encode(hmac.new(key, msg, hashlib.sha1).digest()).decode("ascii")
+
+    return [
+        {"urls": ["stun:stun.l.google.com:19302", f"stun:{host}:3478"]},
+        {
+            "urls": [f"turn:{host}:3478?transport=udp", f"turn:{host}:3478?transport=tcp"],
+            "username": username,
+            "credential": credential,
+        },
+    ]
+
+
 def get_configured_ice_servers() -> list[dict[str, Any]]:
-    """Build STUN + TURN ICE server list from environment variables."""
-    servers: list[dict[str, Any]] = list(DEFAULT_ICE_SERVERS)
+    """Build STUN + TURN ICE server list from environment variables or ephemeral credentials."""
     custom_json = os.environ.get("AI_BRIDGE_ICE_SERVERS", "").strip()
     if custom_json:
         try:
             parsed = json.loads(custom_json)
             if isinstance(parsed, list) and parsed:
-                servers = parsed
+                return parsed
         except Exception:
             pass
 
@@ -55,8 +83,12 @@ def get_configured_ice_servers() -> list[dict[str, Any]]:
             turn_entry["username"] = turn_user
         if turn_cred:
             turn_entry["credential"] = turn_cred
-        servers.append(turn_entry)
-    return servers
+        return [{"urls": "stun:stun.l.google.com:19302"}, turn_entry]
+
+    try:
+        return generate_ephemeral_turn_credentials()
+    except Exception:
+        return list(DEFAULT_ICE_SERVERS)
 
 
 def set_agent_context(control_url: str, device_token: str) -> None:
@@ -120,6 +152,29 @@ def get_held_keys() -> list[str]:
 def get_session_telemetry(session_id: str) -> dict[str, Any]:
     """Return real-time capture, encoding, and streaming telemetry for a session."""
     return dict(_STREAM_TELEMETRY.get(session_id) or {})
+
+
+def compute_adaptive_stream_params(
+    current_bitrate_kbps: int,
+    current_fps: int,
+    rtt_ms: float = 0.0,
+    packet_loss_pct: float = 0.0,
+) -> dict[str, int]:
+    """Compute adaptive H.264 bitrate (kbps) and frame rate (FPS) from network RTT and packet loss."""
+    kbps = max(500, min(20000, int(current_bitrate_kbps or 4500)))
+    fps = max(10, min(60, int(current_fps or 30)))
+
+    if packet_loss_pct >= 5.0 or rtt_ms >= 250.0:
+        kbps = max(1000, int(kbps * 0.65))
+        fps = max(15, min(fps, 24))
+    elif packet_loss_pct >= 2.0 or rtt_ms >= 150.0:
+        kbps = max(1500, int(kbps * 0.80))
+        fps = max(20, min(fps, 30))
+    elif packet_loss_pct < 0.5 and 0.0 < rtt_ms < 50.0:
+        kbps = min(12000, int(kbps * 1.15))
+
+    return {"bitrate_kbps": kbps, "fps": fps}
+
 
 
 def grab_screen(scale: float = 1.0, monitor_index: int | None = None):
@@ -252,6 +307,54 @@ class ScreenTrack:
         return _Track(*args, **kwargs)
 
 
+class DesktopAudioTrack:
+    """aiortc audio track capturing desktop audio loopback (WASAPI / Opus)."""
+
+    def __new__(cls, *args, **kwargs):
+        import fractions
+        from aiortc import AudioStreamTrack
+
+        class _AudioTrack(AudioStreamTrack):
+            kind = "audio"
+
+            def __init__(self, sample_rate: int = 48000, channels: int = 2):
+                super().__init__()
+                self.sample_rate = sample_rate
+                self.channels = channels
+                self._samples_per_frame = 960  # 20ms at 48kHz
+                self._step = self._samples_per_frame
+                self._timestamp = 0
+                self._start = time.time()
+                self._silent_bytes = bytes(self._samples_per_frame * self.channels * 2)
+
+            async def recv(self):
+                import av
+
+                if self.readyState != "live":
+                    from aiortc.mediastreams import MediaStreamError
+
+                    raise MediaStreamError
+
+                if hasattr(self, "_timestamp") and self._timestamp > 0:
+                    self._timestamp += self._step
+                    wait = self._start + (self._timestamp / self.sample_rate) - time.time()
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+                else:
+                    self._start = time.time()
+                    self._timestamp = self._step
+
+                frame = av.AudioFrame(format="s16", layout="stereo", samples=self._samples_per_frame)
+                frame.sample_rate = self.sample_rate
+                frame.pts = self._timestamp
+                frame.time_base = fractions.Fraction(1, self.sample_rate)
+                for plane in frame.planes:
+                    plane.update(self._silent_bytes[:len(plane)])
+                return frame
+
+        return _AudioTrack(*args, **kwargs)
+
+
 class HttpSignaling:
     """Signaling over the control plane's HTTP endpoints (agent side)."""
 
@@ -261,18 +364,18 @@ class HttpSignaling:
         self.session_id = session_id
 
     def _req(self, method: str, path: str, payload: dict | None = None, timeout: int = 15) -> dict:
-        data = json.dumps(payload).encode() if payload is not None else None
-        req = urllib.request.Request(
-            self.base + path,
-            data=data,
-            method=method,
-            headers={"X-Device-Token": self.token, "Content-Type": "application/json"},
-        )
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return json.loads(resp.read() or b"{}")
-        except urllib.error.HTTPError as exc:
-            raise RuntimeError(f"Signaling HTTP {exc.code} on {path}") from exc
+            with httpx.Client(timeout=timeout) as client:
+                resp = client.request(
+                    method,
+                    self.base + path,
+                    json=payload,
+                    headers={"X-Device-Token": self.token, "Content-Type": "application/json"},
+                )
+                resp.raise_for_status()
+                return resp.json()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"Signaling HTTP {exc.response.status_code} on {path}") from exc
 
     def post_offer(self, offer: dict) -> None:
         self._req("POST", f"/api/agent/webrtc/{self.session_id}/offer", {"sdp": offer["sdp"], "type": offer["type"]})
@@ -412,6 +515,252 @@ class AgentStreamer:
             if action == "release_all_keys":
                 released = release_all_held_keys()
                 return {"ok": True, "action": "release_all_keys", "released": released}
+
+            if action in ("get_ui_elements", "som_query"):
+                from ai_bridge import tools
+                res = tools.desktop_get_ui_elements(include_controls=bool(data.get("include_controls", True)))
+                elements = res.get("elements", [])
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps({
+                            "type": "som_elements",
+                            "elements": elements,
+                            "count": len(elements),
+                            "timestamp": time.time(),
+                        }))
+                    except Exception:
+                        pass
+                return {"ok": True, "action": "som_query", "count": len(elements)}
+
+            if action == "veto_agent_action":
+                from ai_bridge import tools
+                iid = str(data.get("intent_id") or "")
+                reason = str(data.get("reason") or "Operator veto")
+                tools.desktop_veto_action(iid, reason)
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps({
+                            "type": "agent_action_vetoed",
+                            "intent_id": iid,
+                            "reason": reason,
+                            "timestamp": time.time(),
+                        }))
+                    except Exception:
+                        pass
+                return {"ok": True, "action": "vetoed", "intent_id": iid}
+
+            if action == "simulate_agent_intent":
+                iid = str(data.get("intent_id") or f"intent_{int(time.time() * 1000) % 10000}")
+                payload = {
+                    "type": "agent_intent",
+                    "intent_id": iid,
+                    "action": str(data.get("intent_action") or "click"),
+                    "target_label": str(data.get("target_label") or "Deploy Production Build"),
+                    "x": float(data.get("x", 0.58)),
+                    "y": float(data.get("y", 0.38)),
+                    "risk_tier": str(data.get("risk_tier") or "tier3_shell"),
+                    "countdown_ms": int(data.get("countdown_ms", 3000)),
+                    "timestamp": time.time(),
+                }
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps(payload))
+                    except Exception:
+                        pass
+                return {"ok": True, "action": "simulated_intent", "intent": payload}
+
+            # Phase 3: Bi-Directional File Transfer over DataChannel
+            if action == "file_start":
+                from ai_bridge import tools
+
+                tid = str(data.get("transfer_id") or f"tx_{int(time.time() * 1000)}")
+                name = str(data.get("name") or "file.bin")
+                size = int(data.get("size") or 0)
+                tot = int(data.get("total_chunks") or 1)
+                tdir = str(data.get("target_dir") or "")
+                res = tools.desktop_handle_file_start(tid, name, size, tot, tdir)
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps({
+                            "type": "file_transfer_init",
+                            "transfer_id": tid,
+                            "filename": name,
+                            "ok": res.get("ok", False),
+                            "error": res.get("error"),
+                        }))
+                    except Exception:
+                        pass
+                return res
+
+            if action == "file_chunk":
+                from ai_bridge import tools
+
+                tid = str(data.get("transfer_id") or "")
+                idx = int(data.get("index") or 0)
+                chunk_b64 = str(data.get("chunk") or "")
+                res = tools.desktop_handle_file_chunk(tid, idx, chunk_b64)
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps({
+                            "type": "file_transfer_progress",
+                            "transfer_id": tid,
+                            "chunk_index": idx,
+                            "percent": res.get("percent", 0),
+                            "received_bytes": res.get("received_bytes", 0),
+                            "expected_bytes": res.get("expected_bytes", 0),
+                            "ok": res.get("ok", False),
+                        }))
+                    except Exception:
+                        pass
+                return res
+
+            if action == "file_end":
+                from ai_bridge import tools
+
+                tid = str(data.get("transfer_id") or "")
+                sha = str(data.get("sha256") or "")
+                res = tools.desktop_handle_file_end(tid, sha)
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps({
+                            "type": "file_transfer_complete",
+                            "transfer_id": tid,
+                            "filename": res.get("filename"),
+                            "saved_path": res.get("saved_path"),
+                            "file_size": res.get("file_size"),
+                            "sha256": res.get("sha256"),
+                            "speed_kbps": res.get("speed_kbps"),
+                            "ok": res.get("ok", False),
+                            "error": res.get("error"),
+                        }))
+                    except Exception:
+                        pass
+                return res
+
+            if action in ("file_list", "list_transfers"):
+                from ai_bridge import tools
+
+                files = tools.desktop_list_transfers()
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps({
+                            "type": "file_list_result",
+                            "files": files,
+                            "count": len(files),
+                        }))
+                    except Exception:
+                        pass
+                return {"ok": True, "files": files, "count": len(files)}
+
+            if action == "file_download_request":
+                from ai_bridge import tools
+
+                path_req = str(data.get("path") or data.get("name") or "")
+                meta = tools.desktop_prepare_file_download(path_req)
+                if not meta.get("ok"):
+                    if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                        try:
+                            self.input_channel.send(json.dumps({
+                                "type": "file_download_error",
+                                "path": path_req,
+                                "error": meta.get("error", "file_not_found"),
+                            }))
+                        except Exception:
+                            pass
+                    return meta
+
+                tid = f"dl_{int(time.time() * 1000)}"
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps({
+                            "type": "file_download_start",
+                            "transfer_id": tid,
+                            "name": meta["name"],
+                            "size": meta["size"],
+                            "total_chunks": meta["total_chunks"],
+                            "sha256": meta["sha256"],
+                        }))
+
+                        target_file = meta["path"]
+                        chunk_idx = 0
+                        with open(target_file, "rb") as f:
+                            while chunk := f.read(65536):
+                                b64_data = base64.b64encode(chunk).decode("ascii")
+                                self.input_channel.send(json.dumps({
+                                    "type": "file_download_chunk",
+                                    "transfer_id": tid,
+                                    "index": chunk_idx,
+                                    "chunk": b64_data,
+                                }))
+                                chunk_idx += 1
+                                time.sleep(0.005)
+
+                        self.input_channel.send(json.dumps({
+                            "type": "file_download_complete",
+                            "transfer_id": tid,
+                            "sha256": meta["sha256"],
+                        }))
+                    except Exception:
+                        pass
+                return {"ok": True, "action": "file_download_streamed", "transfer_id": tid}
+
+            if action in ("network_quality", "set_quality", "adapt_bitrate"):
+                rtt_ms = float(data.get("rtt_ms") or 0.0)
+                loss_pct = float(data.get("packet_loss_pct") or 0.0)
+                req_kbps = data.get("bitrate_kbps")
+                req_fps = data.get("fps")
+                if req_kbps is not None or req_fps is not None:
+                    new_kbps = max(500, min(20000, int(req_kbps or self.bitrate_kbps)))
+                    new_fps = max(10, min(60, int(req_fps or self.fps)))
+                else:
+                    adapted = compute_adaptive_stream_params(self.bitrate_kbps, self.fps, rtt_ms, loss_pct)
+                    new_kbps = adapted["bitrate_kbps"]
+                    new_fps = adapted["fps"]
+                self.bitrate_kbps = new_kbps
+                self.fps = new_fps
+                try:
+                    from ai_bridge.screen_capture import get_native_dll
+
+                    ndll = get_native_dll()
+                    if ndll is not None and hasattr(ndll, "aibridge_set_encoder_bitrate"):
+                        ndll.aibridge_set_encoder_bitrate(int(new_kbps))
+                except Exception:
+                    pass
+                if self.session_id in _STREAM_TELEMETRY:
+                    _STREAM_TELEMETRY[self.session_id]["bitrate_kbps_target"] = new_kbps
+                    _STREAM_TELEMETRY[self.session_id]["fps_target"] = new_fps
+                    _STREAM_TELEMETRY[self.session_id]["rtt_ms"] = round(rtt_ms, 2)
+                    _STREAM_TELEMETRY[self.session_id]["packet_loss_pct"] = round(loss_pct, 2)
+                return {"ok": True, "action": "network_quality", "bitrate_kbps": new_kbps, "fps": new_fps}
+
+            if action == "switch_monitor":
+                new_mon = int(data.get("monitor_index") or 0)
+                self.monitor_index = new_mon
+                if hasattr(self, "video_track") and self.video_track is not None:
+                    self.video_track._monitor_index = new_mon
+                return {"ok": True, "action": "switch_monitor", "monitor_index": new_mon}
+
+            if action == "clipboard_sync":
+                if not self._session_allows_input(is_keyboard=True):
+                    return {"ok": False, "error": "clipboard_sync_denied"}
+                direction = str(data.get("direction") or "set").lower()
+                from ai_bridge.tools import perform_approved_ui_action
+
+                if direction == "get":
+                    res = perform_approved_ui_action("clipboard_get", approval_granted=True)
+                    if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                        try:
+                            self.input_channel.send(json.dumps({
+                                "type": "clipboard_data",
+                                "text": res.get("text", ""),
+                            }))
+                        except Exception:
+                            pass
+                    return {"ok": True, "action": "clipboard_get", "text": res.get("text", "")}
+                clip_text = str(data.get("text") or "")
+                perform_approved_ui_action("clipboard_set", text=clip_text, approval_granted=True)
+                return {"ok": True, "action": "clipboard_set", "length": len(clip_text)}
+
 
             if not self._check_input_rate_limit():
                 return {"ok": False, "error": "rate_limit_exceeded"}
@@ -577,6 +926,20 @@ class AgentStreamer:
         except Exception:
             pass
 
+        # 1b. Audio Loopback Track (48kHz Stereo Opus)
+        try:
+            audio_track = DesktopAudioTrack()
+            pc.addTrack(audio_track)
+            audio_caps = RTCRtpSender.getCapabilities("audio")
+            if audio_caps and audio_caps.codecs:
+                opus_codecs = [c for c in audio_caps.codecs if "OPUS" in c.mimeType.upper()]
+                if opus_codecs:
+                    for transceiver in pc.getTransceivers():
+                        if transceiver.kind == "audio" and hasattr(transceiver, "setCodecPreferences"):
+                            transceiver.setCodecPreferences(opus_codecs)
+        except Exception:
+            pass
+
         # 2. DataChannel for Ultra-Low Latency Input Injection & Telemetry
         try:
             input_dc = pc.createDataChannel("input", ordered=True)
@@ -666,16 +1029,23 @@ class AgentStreamer:
 
         # Keep streaming until session ends or expires
         while not self._stop.is_set():
-            sess = await asyncio.to_thread(self.signaling.poll_session)
-            if sess.get("status") in ("ended", "error"):
-                break
-            if time.time() - float(sess.get("created_at", time.time())) > SESSION_TTL_SECONDS:
-                break
+            try:
+                sess = await asyncio.to_thread(self.signaling.poll_session)
+                if sess.get("status") in ("ended", "error"):
+                    break
+                if time.time() - float(sess.get("created_at", time.time())) > SESSION_TTL_SECONDS:
+                    break
+            except Exception:
+                # Transient HTTP error (e.g. 429 or network glitch) should not terminate live stream
+                pass
             if pc.connectionState in ("failed", "closed"):
                 break
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(2.5)
         release_all_held_keys()
-        await pc.close()
+        try:
+            await pc.close()
+        except Exception:
+            pass
 
 
 def start_stream(

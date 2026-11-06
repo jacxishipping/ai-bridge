@@ -718,7 +718,7 @@ export const Device360View: React.FC = () => {
                   <div className="flex justify-between items-center">
                     <span className="text-slate-400">PUBLIC IP:</span>
                     <span className="text-slate-200">
-                      {isOffline ? "—" : "18.188.153.166"}
+                      {isOffline ? "—" : (import.meta as any).env?.VITE_PUBLIC_IP || "your-aws-ip"}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">

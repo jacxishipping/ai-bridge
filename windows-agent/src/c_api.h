@@ -36,12 +36,38 @@ typedef struct AIBridgeCaptureMetrics {
     char encoder_name[128];
 } AIBridgeCaptureMetrics;
 
+typedef struct AIBridgeMonitorInfo {
+    int index;
+    int left;
+    int top;
+    int right;
+    int bottom;
+    int width;
+    int height;
+    int rotation_degrees;
+    int is_primary;
+    char name[64];
+    char device_name[64];
+    char adapter_name[128];
+} AIBridgeMonitorInfo;
+
 AIBRIDGE_API int aibridge_capture_init(int monitor_index);
 AIBRIDGE_API void aibridge_capture_shutdown(void);
+
+// Enumerate attached displays via DXGI/Win32 (returns count written to out_monitors)
+AIBRIDGE_API int aibridge_enumerate_monitors(AIBridgeMonitorInfo* out_monitors, int max_monitors);
 
 // Captures desktop BGRA pixels into caller buffer (if max_bytes >= width * height * 4) and fills metrics
 AIBRIDGE_API int aibridge_capture_frame(
     int monitor_index,
+    uint8_t* out_bgra_buffer,
+    int max_bytes,
+    AIBridgeCaptureMetrics* out_metrics
+);
+
+// Captures a specific application window by HWND using PrintWindow(PW_RENDERFULLCONTENT) / DWM
+AIBRIDGE_API int aibridge_capture_window(
+    uint64_t hwnd_value,
     uint8_t* out_bgra_buffer,
     int max_bytes,
     AIBridgeCaptureMetrics* out_metrics
@@ -59,6 +85,10 @@ AIBRIDGE_API int aibridge_encode_h264_frame(
     int max_nal_bytes,
     AIBridgeCaptureMetrics* io_metrics
 );
+
+// Dynamically adjusts the active H.264 encoder target bitrate (in kbps) without resetting the stream
+AIBRIDGE_API int aibridge_set_encoder_bitrate(int bitrate_kbps);
+
 
 // SendInput mouse & keyboard controls with DPI / multi-monitor coordinate normalization & disconnect key-up safety
 AIBRIDGE_API int aibridge_send_mouse_move(double x, double y, int is_normalized, int mon_x, int mon_y, int mon_w, int mon_h);

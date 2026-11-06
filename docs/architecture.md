@@ -1,4 +1,4 @@
-# AI Bridge Architecture (v1.0)
+# AI Bridge Architecture (v1.0 & v2.0)
 
 ```
 Browser Dashboard (React / TypeScript / WebRTC)
@@ -16,21 +16,23 @@ AI Bridge Backend (FastAPI + FastMCP)
         ▼
 Windows Agent (windows-agent/ C++20)
   ├── Process A: Windows Service (Session 0 — ai_bridge_service.exe)
-  │     └── Outbound Heartbeat, System Monitoring, Service Supervision
+  │     └── Outbound Heartbeat, System Monitoring, Multi-Session Tracking
   │     └── ACL-Restricted Named Pipe (\\.\pipe\AIBridgeDesktopPipe)
   └── Process B: Interactive Desktop Agent (User Session — ai_bridge_desktop.exe)
-        ├── DXGI Desktop Duplication / Windows Graphics Capture
+        ├── DXGI Desktop Duplication / Window Capture (PrintWindow RenderFullContent)
         ├── Media Foundation H.264 Encoder (NVENC / QSV / AMF / Software Fallback)
-        ├── WebRTC Video Track + RTCDataChannel("input")
+        ├── Dynamic Adaptive Bitrate Adaptation & Multi-Monitor Switching
+        ├── WebRTC Video Track + RTCDataChannel("input") + Clipboard Synchronization
         └── Windows SendInput Controller (Per-Monitor DPI v2 + Key-Release Safety)
 ```
 
 ## Core Architectural Principle
 Separate **video transport**, **input transport**, **AI execution**, and **device management**. They share authentication and session identity (`session_id`, `device_id`, `user_id`), but do not depend on one another to function:
-- **Video Transport**: DXGI Desktop Duplication -> GPU Texture -> H.264 Encoder -> WebRTC Video Track -> Browser `<video>` element.
+- **Video Transport**: DXGI Desktop Duplication / Window Capture -> GPU Texture -> H.264 Encoder with Dynamic Bitrate Adaptation -> WebRTC Video Track -> Browser `<video>` element.
 - **Input Transport**: Browser DOM events -> WebRTC DataChannel (`input`) -> Windows `SendInput` API with normalized `[0.0, 1.0]` and multi-monitor virtual desktop coordinate transformation.
 - **AI Execution**: MCP Gateway (`desktop_*` tools) -> Policy Engine -> Session Arbiter (respects Human Takeover) -> Target Agent.
-- **Device Management**: Outbound agent heartbeat -> Device Registry -> System Telemetry (CPU, RAM, disk, session state, encoder health).
+- **Device Management**: Outbound agent heartbeat -> Device Registry -> System Telemetry (CPU, RAM, disk, active interactive sessions, encoder health).
+- **Clipboard Transport**: Bidirectional clipboard synchronization across WebRTC DataChannel and REST endpoints (`desktop_clipboard_get`, `desktop_clipboard_set`).
 
 ## Key Design Decisions
 - No `run_any_command`. Every executable operation is an allowlisted, argument-array task with timeout, output cap, and cancellation.

@@ -124,13 +124,22 @@ int main() {
         pipeline.StopSession();
     }
 
-    std::cout << "[6/6] Testing Windows System Monitor & Window Enumeration..." << std::endl;
+    std::cout << "[6/6] Testing Windows System Monitor, Multi-Session & Window Enumeration..." << std::endl;
     {
         aibridge::monitoring::WindowsSystemMonitor mon;
         auto snap = mon.CollectSnapshot();
         assert(snap.memory_total_gb > 0.0);
         assert(snap.disk_total_gb > 0.0);
         assert(!snap.hostname.empty());
+        assert(snap.interactive_session_count >= 0);
+
+        auto wins = aibridge::mcp::DesktopMcpExecutor::GetVisibleWindows();
+        if (!wins.empty()) {
+            aibridge::capture::DxgiDesktopCapturer cap;
+            aibridge::capture::CapturedFrame wframe;
+            bool w_ok = cap.CaptureWindow(reinterpret_cast<HWND>(static_cast<uintptr_t>(wins[0].hwnd)), wframe);
+            assert(w_ok && wframe.valid && wframe.width > 0 && wframe.height > 0);
+        }
     }
 
     std::cout << "ALL NATIVE WINDOWS AGENT C++ TESTS PASSED!" << std::endl;

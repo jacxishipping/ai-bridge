@@ -6,7 +6,7 @@
 #  - Automatically detects OS & Linux Distribution (Debian, Ubuntu, RHEL, CentOS,
 #    AlmaLinux, Rocky Linux, Fedora, Arch Linux, Alpine, openSUSE, macOS)
 #  - Detects architecture (x86_64, aarch64/ARM64)
-#  - Checks and installs all missing system packages, build toolchains & Python 3.10+
+#  - Checks and installs all missing system packages, build toolchains & Python 3.11+
 #  - Auto-configures swapfile on low-memory VPS (<1GB RAM) to prevent OOM errors
 #  - Sets up Python virtual environment with all required dependencies
 #  - Provisions Xvfb & headless GUI automation packages for visual verification
@@ -302,7 +302,7 @@ install_system_packages() {
 
     # Ensure Python 3 is available
     if ! command -v python3 >/dev/null 2>&1; then
-        log_error "Python 3 could not be installed automatically. Please install Python 3.10+ manually."
+        log_error "Python 3 could not be installed automatically. Please install Python 3.11+ manually."
         exit 1
     fi
 

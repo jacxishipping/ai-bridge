@@ -7,6 +7,7 @@ export default defineConfig({
   server: { port: 5173 },
   define: {
     "import.meta.env.VITE_API_URL": JSON.stringify(process.env.VITE_API_URL || ""),
+    "import.meta.env.VITE_PUBLIC_IP": JSON.stringify(process.env.VITE_PUBLIC_IP || "your-aws-ip"),
   },
   build: {
     chunkSizeWarningLimit: 800,

@@ -24,7 +24,8 @@ import json
 import os
 import secrets
 import time
-import urllib.request
+
+import httpx
 
 _DISCOVERY_CACHE: dict = {"at": 0.0, "doc": None}
 _PENDING: dict[str, dict] = {}
@@ -53,8 +54,10 @@ def discovery() -> dict:
     if _DISCOVERY_CACHE["doc"] and now - _DISCOVERY_CACHE["at"] < 3600:
         return _DISCOVERY_CACHE["doc"]
     url = cfg["issuer"] + "/.well-known/openid-configuration"
-    with urllib.request.urlopen(url, timeout=15) as resp:
-        doc = json.loads(resp.read().decode())
+    with httpx.Client(timeout=15) as client:
+        resp = client.get(url)
+        resp.raise_for_status()
+        doc = resp.json()
     _DISCOVERY_CACHE["at"] = now
     _DISCOVERY_CACHE["doc"] = doc
     return doc
@@ -105,8 +108,10 @@ def verify_id_token(id_token: str, expected_nonce: str) -> dict:
     if header.get("alg") != "RS256":
         raise ValueError("unsupported ID token alg")
     doc = discovery()
-    with urllib.request.urlopen(doc["jwks_uri"], timeout=15) as resp:
-        jwks = json.loads(resp.read().decode())
+    with httpx.Client(timeout=15) as client:
+        jwks_resp = client.get(doc["jwks_uri"])
+        jwks_resp.raise_for_status()
+        jwks = jwks_resp.json()
     key = None
     for candidate in jwks.get("keys", []):
         if candidate.get("kid") == header.get("kid") and candidate.get("kty") == "RSA":

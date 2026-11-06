@@ -320,7 +320,7 @@ def attach_v1_routes(
             "windows_version": row["os"],
             "status": row["status"],
             "last_seen": row["last_seen"],
-            "agent_version": meta.get("agent_version", "1.0.0"),
+            "agent_version": meta.get("agent_version", "2.0.0"),
             "active_user": meta.get("active_user", "Interactive User"),
             "ip_address": meta.get("ip_address", ""),
             "cpu_percent": telem["cpu_percent"] if telem else 0.0,
@@ -328,6 +328,108 @@ def attach_v1_routes(
             "disk_percent": telem["disk_percent"] if telem else 0.0,
             "human_takeover_active": is_device_human_takeover_active(device_id),
         }
+
+    @app.get("/api/v1/devices/{device_id}/monitors")
+    def v1_get_device_monitors(
+        device_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        if device_id == "local":
+            from ..screen_capture import get_monitors
+            mons = get_monitors()
+            return {"device_id": "local", "monitors": mons, "count": len(mons)}
+        row = conn.execute("SELECT id FROM devices WHERE id=? AND revoked=0", (device_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Device not found.")
+        meta = (getattr(app.state, "device_live_meta", {}) or {}).get(device_id) or {}
+        mons = meta.get("monitors") or [{"index": 0, "name": "Display 1 (Primary)", "width": 1920, "height": 1080, "is_primary": True}]
+        return {"device_id": device_id, "monitors": mons, "count": len(mons)}
+
+    @app.get("/api/v1/devices/{device_id}/ui-elements")
+    def v1_get_device_ui_elements(
+        device_id: str,
+        include_controls: bool = True,
+        max_elements: int = 25,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        from .. import tools
+        return tools.desktop_get_ui_elements(include_controls=include_controls, max_elements=max_elements)
+
+    @app.get("/api/v1/devices/{device_id}/files")
+    def v1_list_device_files(
+        device_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        from .. import tools
+        files = tools.desktop_list_transfers()
+        return {"device_id": device_id, "files": files, "count": len(files)}
+
+    @app.post("/api/v1/devices/{device_id}/files/upload")
+    def v1_upload_device_file(
+        device_id: str,
+        body: dict = Body(...),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("operator", x_admin_token, x_session_token, authorization)
+        filename = str(body.get("filename") or f"upload_{int(time.time())}.bin")
+        content_b64 = str(body.get("content_b64") or "")
+        expected_sha = str(body.get("sha256") or "")
+        target_dir = str(body.get("target_dir") or "")
+
+        from .. import tools
+        tid = f"rest_{uuid.uuid4().hex[:8]}"
+        try:
+            raw_data = base64.b64decode(content_b64)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid base64 payload: {exc}")
+
+        init_res = tools.desktop_handle_file_start(tid, filename, len(raw_data), 1, target_dir)
+        if not init_res.get("ok"):
+            raise HTTPException(status_code=500, detail=init_res.get("error", "Init failed"))
+
+        chunk_res = tools.desktop_handle_file_chunk(tid, 0, content_b64)
+        if not chunk_res.get("ok"):
+            raise HTTPException(status_code=500, detail=chunk_res.get("error", "Write failed"))
+
+        fin_res = tools.desktop_handle_file_end(tid, expected_sha)
+        if not fin_res.get("ok"):
+            raise HTTPException(status_code=400, detail=fin_res.get("error", "Finalize failed"))
+        return fin_res
+
+    @app.get("/api/v1/devices/{device_id}/files/download")
+    def v1_download_device_file(
+        device_id: str,
+        path: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        from .. import tools
+        meta = tools.desktop_prepare_file_download(path)
+        if not meta.get("ok"):
+            raise HTTPException(status_code=404, detail=meta.get("error", "File not found"))
+        target_path = Path(meta["path"])
+        raw = target_path.read_bytes()
+        b64 = base64.b64encode(raw).decode("ascii")
+        return {
+            "name": meta["name"],
+            "size": meta["size"],
+            "sha256": meta["sha256"],
+            "content_b64": b64,
+        }
+
 
     # ------------------------------------------------------------------
     # 2. Agent Gateway (/api/v1/agents/{device_id}/heartbeat)
@@ -554,6 +656,57 @@ def attach_v1_routes(
         await _broadcast_ws(session_id, {"type": "session_updated", "session": formatted})
         return formatted
 
+    @app.patch("/api/v1/sessions/{session_id}/quality")
+    async def v1_update_session_quality(
+        session_id: str,
+        body: dict = Body(default={}),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        sess = load_webrtc_session_db(conn, app.state, session_id)
+        if sess is None:
+            raise HTTPException(status_code=404, detail="Session not found.")
+        req_kbps = body.get("bitrate_kbps")
+        req_fps = body.get("fps")
+        req_mon = body.get("monitor_index")
+        video = sess.setdefault("video", {})
+        if req_kbps is not None:
+            video["bitrate_kbps"] = max(500, min(20000, int(req_kbps)))
+        if req_fps is not None:
+            video["fps"] = max(10, min(60, int(req_fps)))
+        if req_mon is not None:
+            video["monitor_index"] = int(req_mon)
+        save_webrtc_session_db(conn, app.state, sess)
+        await _broadcast_ws(session_id, {"type": "quality_updated", "video": video})
+        return {"ok": True, "session_id": session_id, "video": video}
+
+    @app.post("/api/v1/sessions/{session_id}/clipboard")
+    def v1_session_clipboard(
+        session_id: str,
+        body: dict = Body(default={}),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        actor, _role = auth_context(x_admin_token, x_session_token, authorization)
+        sess = load_webrtc_session_db(conn, app.state, session_id)
+        if sess is None:
+            raise HTTPException(status_code=404, detail="Session not found.")
+        perms = sess.get("permissions") or {}
+        if not perms.get("clipboard_sync", True):
+            raise HTTPException(status_code=403, detail="Clipboard synchronization is disabled for this session.")
+        action = str(body.get("action") or "get").lower()
+        from .. import tools
+
+        if action == "get":
+            res = tools.get_clipboard()
+            return {"ok": True, "action": "get", "text": res.get("text", "")}
+        text = str(body.get("text") or "")
+        res = tools.set_clipboard(text=text, paste=bool(body.get("paste", False)), approval_granted=True)
+        return {"ok": True, "action": "set", "length": len(text)}
+
     @app.post("/api/v1/sessions/{session_id}/terminate")
     async def v1_terminate_session(
         session_id: str,
@@ -640,6 +793,50 @@ def attach_v1_routes(
             save_webrtc_session_db(conn, app.state, sess)
             await _broadcast_ws(session_id, {"type": "ice", "from": from_side, "candidate": cand})
         return {"ok": True, "session_id": session_id}
+
+    @app.get("/api/v1/sessions/ice-servers")
+    def v1_get_ice_servers(
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        return {"ice_servers": webrtc_stream.get_configured_ice_servers()}
+
+    @app.get("/api/v1/sessions/{session_id}/recording")
+    def v1_get_session_recording(
+        session_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        from .. import tools
+        return tools.desktop_get_session_recording(session_id)
+
+    @app.post("/api/v1/sessions/{session_id}/recording/seal")
+    def v1_seal_session_recording(
+        session_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        actor, _role = auth_context(x_admin_token, x_session_token, authorization)
+        from .. import tools
+        res = tools.desktop_seal_session_recording(session_id)
+        if res.get("ok"):
+            audit(
+                actor,
+                "local",
+                "SESSION_RECORDING_SEALED",
+                {
+                    "session_id": session_id,
+                    "merkle_leaf": res.get("merkle_leaf"),
+                    "sha256": res.get("sha256_hash"),
+                },
+                "allowed",
+            )
+        return res
 
     @app.websocket("/api/v1/ws/sessions/{session_id}")
     async def v1_session_websocket(websocket: WebSocket, session_id: str):

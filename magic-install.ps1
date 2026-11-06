@@ -53,7 +53,7 @@ Write-Host "[INFO] Target Install Directory: $InstallDir" -ForegroundColor Cyan
 
 # --- 2. Check / Install Python ---
 function Ensure-Python {
-    Write-Host "[CHECK] Checking for Python 3.10+..." -ForegroundColor Cyan
+    Write-Host "[CHECK] Checking for Python 3.11+..." -ForegroundColor Cyan
     $PythonExe = $null
 
     # Check PATH

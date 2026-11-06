@@ -7,9 +7,18 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace aibridge {
 namespace monitoring {
+
+struct InteractiveSessionInfo {
+    uint32_t session_id = 0;
+    std::string username;
+    std::string station_name;
+    std::string state;
+    bool is_active = false;
+};
 
 struct SystemHealthSnapshot {
     double cpu_percent = 0.0;
@@ -24,12 +33,14 @@ struct SystemHealthSnapshot {
     std::string windows_version;
     std::string active_user;
     uint32_t active_session_id = 0;
+    int interactive_session_count = 1;
 };
 
 class WindowsSystemMonitor {
 public:
     WindowsSystemMonitor();
     SystemHealthSnapshot CollectSnapshot();
+    std::vector<InteractiveSessionInfo> EnumerateSessions() const;
 
 private:
     uint64_t prev_idle_ticks_ = 0;

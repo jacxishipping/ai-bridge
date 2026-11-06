@@ -210,7 +210,11 @@ DESKTOP_ROUTING_TOOLS = {
     "get_clipboard",
     "set_clipboard",
     "desktop_get_screenshot",
+    "desktop_get_window_screenshot",
     "desktop_get_status",
+    "desktop_get_monitors",
+    "desktop_clipboard_get",
+    "desktop_clipboard_set",
     "desktop_mouse_move",
     "desktop_click",
     "desktop_keyboard",
@@ -1146,6 +1150,41 @@ def desktop_get_screenshot(device: str | None = None) -> dict:
     device (optional): Target Windows device name/ID, or 'local'."""
     approved = _consume_local_approval("desktop_get_screenshot")
     return tools.desktop_get_screenshot(approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("desktop_get_window_screenshot")
+def desktop_get_window_screenshot(hwnd: int | None = None, title: str = "", scale: float = 1.0, device: str | None = None) -> dict:
+    """Return a screenshot of a specific application window by HWND or title.
+    device (optional): Target Windows device name/ID, or 'local'."""
+    approved = _consume_local_approval("desktop_get_window_screenshot")
+    return tools.desktop_get_window_screenshot(hwnd=hwnd, title=title, scale=scale, approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("desktop_get_monitors")
+def desktop_get_monitors(device: str | None = None) -> dict:
+    """Return list of connected displays with dimensions, offsets, and primary status.
+    device (optional): Target Windows device name/ID, or 'local'."""
+    return tools.desktop_get_monitors()
+
+
+@mcp.tool()
+@device_aware("desktop_clipboard_get")
+def desktop_clipboard_get(device: str | None = None) -> dict:
+    """Read the current system clipboard text.
+    device (optional): Target Windows device name/ID, or 'local'."""
+    return tools.desktop_clipboard_get()
+
+
+@mcp.tool()
+@device_aware("desktop_clipboard_set")
+def desktop_clipboard_set(text: str, paste: bool = False, device: str | None = None) -> dict:
+    """Write text to the system clipboard and optionally trigger Ctrl+V paste.
+    device (optional): Target Windows device name/ID, or 'local'."""
+    approved = _consume_local_approval("desktop_clipboard_set")
+    return tools.desktop_clipboard_set(text=text, paste=paste, approval_granted=approved)
+
 
 
 @mcp.tool()

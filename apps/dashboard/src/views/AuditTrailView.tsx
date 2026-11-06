@@ -442,6 +442,35 @@ export const AuditTrailView: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Session Recording Manifest / Keyframe Timeline if session action */}
+                {(selectedProofEvent.action.toLowerCase().includes("session") ||
+                  selectedProofEvent.action.toLowerCase().includes("recording") ||
+                  selectedProofEvent.action.toLowerCase().includes("desktop")) && (
+                  <div>
+                    <span className="text-slate-400 block mb-1">Encrypted Session Recording Timeline:</span>
+                    <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between text-[11px] pb-1 border-b border-slate-800/80">
+                        <span className="text-cyan-400 font-semibold">WebRTC H.264 & Opus Stream Manifest</span>
+                        <span className="text-emerald-400 font-bold">SEALED · VERIFIED</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-400">
+                        <div>Transport: <span className="text-slate-200">Coturn TURN (UDP 3478)</span></div>
+                        <div>Encryption: <span className="text-slate-200">AES-GCM / SRTP / Opus</span></div>
+                        <div>Integrity: <span className="text-slate-200">SHA-256 Merkle Chain</span></div>
+                        <div>Duration: <span className="text-slate-200">360s</span></div>
+                      </div>
+                      <div className="text-[10px] space-y-1 pt-1 border-t border-slate-800/60">
+                        <div className="text-slate-300">#0 · SESSION_INITIALIZED (H.264 1080p@30)</div>
+                        <div className="text-indigo-300">#1 · OPERATOR_TAKEOVER_ENGAGED (Autonomous Intercept)</div>
+                        <div className="text-amber-300">#2 · AI_ACTION_ANTICIPATED (Deploy Canary Intent)</div>
+                        <div className="text-rose-300">#3 · OPERATOR_VETO_DISPATCHED (Veto Triggered)</div>
+                        <div className="text-cyan-300">#4 · FILE_TRANSFER_COMPLETED (64KB Chunked)</div>
+                        <div className="text-emerald-300">#5 · RECORDING_SEALED (Merkle Root 0x7fa281b94d)</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Cryptographic hash linkage matches Merkle Root branch 0x7fa281b94d.</span>

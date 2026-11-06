@@ -83,6 +83,11 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_device_time ON telemetry(device_id, rec
 CREATE INDEX IF NOT EXISTS idx_triggers_tenant ON triggers(tenant, enabled);
 CREATE INDEX IF NOT EXISTS idx_schedules_next_run ON schedules(enabled, next_run_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_policies_version ON policies(version);
+CREATE TABLE IF NOT EXISTS task_submissions (
+  actor TEXT NOT NULL, request_key TEXT NOT NULL,
+  request_hash TEXT NOT NULL, task_id TEXT NOT NULL,
+  created_at REAL NOT NULL DEFAULT (strftime('%s','now')),
+  PRIMARY KEY (actor, request_key));
 """
 
 
