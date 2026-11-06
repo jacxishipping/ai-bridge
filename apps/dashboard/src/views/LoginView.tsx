@@ -1,11 +1,25 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ArrowRight, KeyRound, UserRound } from "lucide-react";
-import { JXAlert, JXButton, JXCard, JXCardContent, JXTextField } from "../ui";
+import { JXAlert, JXButton, JXCard, JXCardContent, JXTextField, JXLinearProgress } from "../ui";
 import { Brand, BrandArt } from "../Brand";
 import { api, authenticate } from "../api";
 import { dashboardStore, useDashboardStore } from "../state/dashboardStore";
 import { LanguageControl } from "../LanguageControl";
 import { useLanguage } from "../i18n";
+
+function passwordStrength(password: string): { score: number; label: string; color: string } {
+  let score = 0;
+  if (password.length >= 8) score++;
+  if (password.length >= 12) score++;
+  if (/[A-Z]/.test(password)) score++;
+  if (/[a-z]/.test(password)) score++;
+  if (/[0-9]/.test(password)) score++;
+  if (/[^A-Za-z0-9]/.test(password)) score++;
+  const clamped = Math.min(4, Math.floor(score / 1.5));
+  const labels = ["Very weak", "Weak", "Fair", "Strong", "Very strong"];
+  const colors = ["rose", "rose", "amber", "emerald", "emerald"];
+  return { score: clamped, label: labels[clamped], color: colors[clamped] };
+}
 
 export const LoginView: React.FC = () => {
   const { t } = useLanguage();
@@ -59,7 +73,18 @@ export const LoginView: React.FC = () => {
                 <p lang="en" dir="ltr" className="text-xs text-slate-400">Use the AI_BRIDGE_ADMIN_TOKEN configured on your server.</p></> :
                 <>
                   <JXTextField label={t("Username")} value={username} onChange={setUsername} required autoComplete="username" clearable={false} />
-                  <JXTextField label={t("Password")} type="password" value={password} onChange={setPassword} required autoComplete="current-password" clearable={false} />
+                  <div className="space-y-1">
+                    <JXTextField label={t("Password")} type="password" value={password} onChange={setPassword} required autoComplete="current-password" clearable={false} />
+                    {method === "password" && password.length > 0 && (
+                      <div className="space-y-1" aria-live="polite">
+                        <JXLinearProgress
+                          value={(passwordStrength(password).score + 1) * 20}
+                          className={passwordStrength(password).color === "rose" ? "[&::-webkit-progress-value]:bg-rose-500 [&::-moz-progress-bar]:bg-rose-500" : passwordStrength(password).color === "amber" ? "[&::-webkit-progress-value]:bg-amber-500 [&::-moz-progress-bar]:bg-amber-500" : "[&::-webkit-progress-value]:bg-emerald-500 [&::-moz-progress-bar]:bg-emerald-500"}
+                        />
+                        <p className="text-[11px] text-slate-400">{passwordStrength(password).label}</p>
+                      </div>
+                    )}
+                  </div>
                 </>}
               <JXButton type="submit" fullWidth loading={busy} loadingLabel={t("Signing in…")} disabled={busy}
                 endIcon={<ArrowRight className="h-4 w-4 rtl:rotate-180" />}>{t("Sign in")}</JXButton>

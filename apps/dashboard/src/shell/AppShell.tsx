@@ -5,8 +5,9 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { GlassModal } from "../ui";
+import { GlassModal, JXButton } from "../ui";
 import { motion } from "motion/react";
+import { Keyboard, X } from "lucide-react";
 import { SidebarNav } from "./SidebarNav";
 import { TopHeader } from "./TopHeader";
 import { CommandPaletteModal } from "./CommandPaletteModal";
@@ -27,12 +28,24 @@ export interface AppShellProps {
 
 export const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
   const view = window.location.hash;
   useEffect(() => {
     mainRef.current?.scrollTo(0, 0);
     mainRef.current?.focus({ preventScroll: true });
   }, [view]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "?" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const target = e.target as HTMLElement;
+        if (target && ("value" in target || target.isContentEditable)) return;
+        setHelpOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   return (
     <div lang="en" dir="ltr" className="product-shell h-dvh w-full flex text-slate-100 overflow-hidden">
       <a href="#main-content" onClick={(event) => { event.preventDefault(); mainRef.current?.focus(); }}
@@ -42,6 +55,14 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
       <aside className="hidden lg:block shrink-0"><SidebarNav /></aside>
       <GlassModal open={menuOpen} onClose={() => setMenuOpen(false)} title="Navigation">
         <div className="h-[65dvh]"><SidebarNav onNavigate={() => setMenuOpen(false)} /></div>
+      </GlassModal>
+      <GlassModal open={helpOpen} onClose={() => setHelpOpen(false)} title="Keyboard shortcuts">
+        <div className="space-y-3 text-sm text-slate-300">
+          <div className="flex items-center justify-between gap-4"><span>Search / Command palette</span><kbd className="rounded border border-slate-700 px-1.5 py-0.5 text-xs">Ctrl K</kbd></div>
+          <div className="flex items-center justify-between gap-4"><span>Skip to main content</span><kbd className="rounded border border-slate-700 px-1.5 py-0.5 text-xs">Tab</kbd></div>
+          <div className="flex items-center justify-between gap-4"><span>Toggle this help</span><kbd className="rounded border border-slate-700 px-1.5 py-0.5 text-xs">?</kbd></div>
+          <div className="flex items-center justify-between gap-4"><span>Close modal / menu</span><kbd className="rounded border border-slate-700 px-1.5 py-0.5 text-xs">Esc</kbd></div>
+        </div>
       </GlassModal>
 
       {/* Primary Viewport Column */}

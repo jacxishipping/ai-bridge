@@ -462,7 +462,7 @@ export const DevicesView: React.FC = () => {
         />
         <JXCardContent>
           <div className="space-y-2">
-            <div tabIndex={0} role="region" aria-label="Device inventory" className="overflow-x-auto">
+            <div tabIndex={0} role="region" aria-label="Device inventory" className="overflow-x-auto scroll-shadow">
               <table className="w-full text-left border-collapse text-sm min-w-[640px]">
                 <thead>
                   <tr className="border-b border-slate-800 text-xs text-slate-400">

@@ -46,6 +46,21 @@
   }
 }
 
+@layer utilities {
+  /* Scroll-shadow indicator for horizontally scrollable tables on mobile */
+  .scroll-shadow {
+    background:
+      linear-gradient(to right, var(--product-surface, #111b29) 30%, transparent),
+      linear-gradient(to left, var(--product-surface, #111b29) 30%, transparent),
+      linear-gradient(to right, rgba(0,0,0,0.2), transparent 15%),
+      linear-gradient(to left, rgba(0,0,0,0.2), transparent 15%);
+    background-position: left center, right center, left center, right center;
+    background-repeat: no-repeat;
+    background-size: 20px 100%, 20px 100%, 20px 100%, 20px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+}
+
 .product-brand { position: relative; display: flex; align-items: center; gap: 9px; flex-shrink: 0; }
 .product-brand img { flex-shrink: 0; width: 28px; height: 28px; }
 .product-brand > span { color: var(--product-text); font-size: 16px; font-weight: 700; letter-spacing: -.045em; }

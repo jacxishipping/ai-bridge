@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { ArrowUpRight, RefreshCw, ShieldCheck } from "lucide-react";
-import { api, clearCredentials } from "../api";
+import { api, clearCredentials, token, sessionToken } from "../api";
 import { GlassModal, JXAlert, JXBadge, JXButton } from "../ui";
 import { Brand } from "../Brand";
 import { DensityControl } from "../DensityControl";
@@ -22,15 +22,24 @@ export function LiveControlView() {
   const [confirm, setConfirm] = useState(false);
   const [acting, setActing] = useState(false);
   const [actionError, setActionError] = useState("");
+  const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const [identity, health, devices] = await Promise.all([api.me(), api.health(), api.devices()]);
       setSnapshot({ identity, health, devices: Array.isArray(devices) ? devices : devices.devices || [], checkedAt: new Date() });
-    } catch (err) { setError(err instanceof Error ? err.message : "Unable to load the control plane."); }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to load the control plane.";
+      // Suppress expected demo-mode errors from console to reduce noise
+      if (!isLive && typeof console !== "undefined") {
+        // eslint-disable-next-line no-console
+        console.info("[Demo mode] Control plane fetch skipped — no credentials.");
+      }
+      setError(message);
+    }
     finally { setLoading(false); }
-  }, []);
+  }, [isLive]);
   useEffect(() => { void refresh(); }, [refresh]);
   const signOut = async () => {
     try { await api.logout(); } catch { /* Local credentials must still be cleared if the API is offline. */ }
@@ -72,8 +81,12 @@ export function LiveControlView() {
         </div>}
       </div>
       {error && <div lang="en" dir="ltr" className="space-y-3">
-        <JXAlert severity="error" title="Control plane unavailable" description={`${error} Previously loaded data, if shown, may be stale.`} />
-        <JXButton color="neutral" variant="outlined" onClick={signOut}>Return to sign in</JXButton>
+        {isLive ? (
+          <JXAlert severity="error" title="Control plane unavailable" description={`${error} Previously loaded data, if shown, may be stale.`} />
+        ) : (
+          <JXAlert severity="info" title="Demo workspace" description="You are viewing sample data. Connect a control plane to see live devices and fleet status." />
+        )}
+        <JXButton color="neutral" variant="outlined" onClick={signOut}>{isLive ? "Return to sign in" : "Connect server"}</JXButton>
       </div>}
       {loading && !snapshot && <p role="status" lang="en" dir="ltr" className="py-8 text-sm text-slate-400">Loading your control plane…</p>}
       {snapshot && <>
