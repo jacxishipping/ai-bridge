@@ -261,6 +261,8 @@ export const api = {
   },
   getDeviceMonitorsV1: (deviceId: string) =>
     call(`/api/v1/devices/${encodeURIComponent(deviceId)}/monitors`),
+  getDeviceUiElementsV1: (deviceId: string) =>
+    call(`/api/v1/devices/${encodeURIComponent(deviceId)}/ui-elements`),
   updateSessionQualityV1: (
     sessionId: string,
     quality: { bitrate_kbps?: number; fps?: number; monitor_index?: number }

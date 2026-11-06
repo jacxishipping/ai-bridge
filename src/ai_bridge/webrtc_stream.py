@@ -436,6 +436,59 @@ class AgentStreamer:
                 released = release_all_held_keys()
                 return {"ok": True, "action": "release_all_keys", "released": released}
 
+            if action in ("get_ui_elements", "som_query"):
+                from ai_bridge import tools
+                res = tools.desktop_get_ui_elements(include_controls=bool(data.get("include_controls", True)))
+                elements = res.get("elements", [])
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps({
+                            "type": "som_elements",
+                            "elements": elements,
+                            "count": len(elements),
+                            "timestamp": time.time(),
+                        }))
+                    except Exception:
+                        pass
+                return {"ok": True, "action": "som_query", "count": len(elements)}
+
+            if action == "veto_agent_action":
+                from ai_bridge import tools
+                iid = str(data.get("intent_id") or "")
+                reason = str(data.get("reason") or "Operator veto")
+                tools.desktop_veto_action(iid, reason)
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps({
+                            "type": "agent_action_vetoed",
+                            "intent_id": iid,
+                            "reason": reason,
+                            "timestamp": time.time(),
+                        }))
+                    except Exception:
+                        pass
+                return {"ok": True, "action": "vetoed", "intent_id": iid}
+
+            if action == "simulate_agent_intent":
+                iid = str(data.get("intent_id") or f"intent_{int(time.time() * 1000) % 10000}")
+                payload = {
+                    "type": "agent_intent",
+                    "intent_id": iid,
+                    "action": str(data.get("intent_action") or "click"),
+                    "target_label": str(data.get("target_label") or "Deploy Production Build"),
+                    "x": float(data.get("x", 0.58)),
+                    "y": float(data.get("y", 0.38)),
+                    "risk_tier": str(data.get("risk_tier") or "tier3_shell"),
+                    "countdown_ms": int(data.get("countdown_ms", 3000)),
+                    "timestamp": time.time(),
+                }
+                if self.input_channel and getattr(self.input_channel, "readyState", "") == "open":
+                    try:
+                        self.input_channel.send(json.dumps(payload))
+                    except Exception:
+                        pass
+                return {"ok": True, "action": "simulated_intent", "intent": payload}
+
             if action in ("network_quality", "set_quality", "adapt_bitrate"):
                 rtt_ms = float(data.get("rtt_ms") or 0.0)
                 loss_pct = float(data.get("packet_loss_pct") or 0.0)

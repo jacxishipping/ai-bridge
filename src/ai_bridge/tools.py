@@ -12,6 +12,7 @@ import platform
 import re
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 import zipfile
@@ -1823,6 +1824,229 @@ def desktop_verify_action(
         "expected_window": expected_window,
         "evidence": evidence,
     }
+
+
+_VETOED_INTENTS: set[str] = set()
+
+
+def desktop_get_ui_elements(
+    *,
+    include_controls: bool = True,
+    max_elements: int = 25,
+    approval_granted: bool = True,
+    policy: Policy | None = None,
+) -> dict:
+    """Extract interactive UI elements (windows, buttons, inputs) with normalized bounding coordinates for Vision Set-of-Marks (SoM)."""
+    eff_policy = policy or default_policy()
+    _check("desktop_get_windows", approval_granted=approval_granted, policy=eff_policy)
+
+    elements: list[dict[str, Any]] = []
+    screen_w, screen_h = 1920, 1080
+
+    try:
+        from . import screen_capture
+        mons = screen_capture.get_monitors()
+        if mons:
+            screen_w = int(mons[0].get("width") or 1920)
+            screen_h = int(mons[0].get("height") or 1080)
+    except Exception:
+        pass
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            u = ctypes.windll.user32
+
+            class RECT(ctypes.Structure):
+                _fields_ = [
+                    ("left", wintypes.LONG),
+                    ("top", wintypes.LONG),
+                    ("right", wintypes.LONG),
+                    ("bottom", wintypes.LONG),
+                ]
+
+            WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+            def _enum_win_cb(hwnd: Any, _lparam: Any) -> bool:
+                if not u.IsWindowVisible(hwnd) or u.IsIconic(hwnd):
+                    return True
+                length = u.GetWindowTextLengthW(hwnd)
+                if length == 0:
+                    return True
+                buf = ctypes.create_unicode_buffer(length + 1)
+                u.GetWindowTextW(hwnd, buf, length + 1)
+                title = buf.value.strip()
+                if not title:
+                    return True
+
+                rect = RECT()
+                u.GetWindowRect(hwnd, ctypes.byref(rect))
+                w = rect.right - rect.left
+                h = rect.bottom - rect.top
+                if w < 60 or h < 30:
+                    return True
+
+                norm_x = max(0.0, min(1.0, rect.left / screen_w))
+                norm_y = max(0.0, min(1.0, rect.top / screen_h))
+                norm_w = max(0.01, min(1.0, w / screen_w))
+                norm_h = max(0.01, min(1.0, h / screen_h))
+
+                idx = len(elements) + 1
+                elements.append({
+                    "id": idx,
+                    "label": title[:40],
+                    "type": "window",
+                    "hwnd": int(hwnd),
+                    "bounds": [rect.left, rect.top, w, h],
+                    "norm_x": round(norm_x, 4),
+                    "norm_y": round(norm_y, 4),
+                    "norm_width": round(norm_w, 4),
+                    "norm_height": round(norm_h, 4),
+                    "center_x": round(norm_x + norm_w / 2.0, 4),
+                    "center_y": round(norm_y + norm_h / 2.0, 4),
+                })
+                if len(elements) >= max_elements:
+                    return False
+
+                # Child controls if enabled
+                if include_controls and len(elements) < max_elements:
+                    def _child_cb(chwnd: Any, _clparam: Any) -> bool:
+                        if not u.IsWindowVisible(chwnd):
+                            return True
+                        crect = RECT()
+                        u.GetWindowRect(chwnd, ctypes.byref(crect))
+                        cw = crect.right - crect.left
+                        ch = crect.bottom - crect.top
+                        if cw < 30 or ch < 15 or cw > screen_w * 0.9 or ch > screen_h * 0.9:
+                            return True
+
+                        c_len = u.GetWindowTextLengthW(chwnd)
+                        c_buf = ctypes.create_unicode_buffer(c_len + 1)
+                        if c_len > 0:
+                            u.GetWindowTextW(chwnd, c_buf, c_len + 1)
+                        c_title = c_buf.value.strip()
+
+                        cls_buf = ctypes.create_unicode_buffer(128)
+                        u.GetClassNameW(chwnd, cls_buf, 128)
+                        cls_name = cls_buf.value.strip()
+
+                        label = c_title or cls_name or "Control"
+                        cnx = max(0.0, min(1.0, crect.left / screen_w))
+                        cny = max(0.0, min(1.0, crect.top / screen_h))
+                        cnw = max(0.01, min(1.0, cw / screen_w))
+                        cnh = max(0.01, min(1.0, ch / screen_h))
+
+                        cidx = len(elements) + 1
+                        elements.append({
+                            "id": cidx,
+                            "label": label[:30],
+                            "type": cls_name.lower() or "control",
+                            "hwnd": int(chwnd),
+                            "bounds": [crect.left, crect.top, cw, ch],
+                            "norm_x": round(cnx, 4),
+                            "norm_y": round(cny, 4),
+                            "norm_width": round(cnw, 4),
+                            "norm_height": round(cnh, 4),
+                            "center_x": round(cnx + cnw / 2.0, 4),
+                            "center_y": round(cny + cnh / 2.0, 4),
+                        })
+                        return len(elements) < max_elements
+
+                    u.EnumChildWindows(hwnd, WNDENUMPROC(_child_cb), 0)
+
+                return len(elements) < max_elements
+
+            cb = WNDENUMPROC(_enum_win_cb)
+            u.EnumWindows(cb, 0)
+        except Exception:
+            pass
+
+    # Fallback or synthetic default marks if headless or no visible windows
+    if not elements:
+        elements = [
+            {
+                "id": 1,
+                "label": "Active Workspace",
+                "type": "editor",
+                "bounds": [60, 80, 1500, 850],
+                "norm_x": 0.04,
+                "norm_y": 0.12,
+                "norm_width": 0.62,
+                "norm_height": 0.58,
+                "center_x": 0.35,
+                "center_y": 0.41,
+            },
+            {
+                "id": 2,
+                "label": "Terminal Shell",
+                "type": "terminal",
+                "bounds": [1300, 80, 560, 950],
+                "norm_x": 0.68,
+                "norm_y": 0.12,
+                "norm_width": 0.29,
+                "norm_height": 0.82,
+                "center_x": 0.825,
+                "center_y": 0.53,
+            },
+            {
+                "id": 3,
+                "label": "System Telemetry Vitals",
+                "type": "telemetry",
+                "bounds": [60, 780, 1200, 240],
+                "norm_x": 0.04,
+                "norm_y": 0.74,
+                "norm_width": 0.62,
+                "norm_height": 0.22,
+                "center_x": 0.35,
+                "center_y": 0.85,
+            },
+        ]
+
+    return {
+        "ok": True,
+        "count": len(elements),
+        "screen_width": screen_w,
+        "screen_height": screen_h,
+        "elements": elements,
+    }
+
+
+def desktop_anticipate_action(
+    action: str,
+    x: float,
+    y: float,
+    label: str = "",
+    risk_tier: str = "tier2_workspace",
+    countdown_ms: int = 2000,
+    *,
+    approval_granted: bool = True,
+    policy: Policy | None = None,
+) -> dict:
+    """Registers an anticipated autonomous agent action with a grace period for operator veto."""
+    intent_id = f"intent_{uuid.uuid4().hex[:8]}"
+    return {
+        "ok": True,
+        "intent_id": intent_id,
+        "action": action,
+        "target_label": label or f"Action {action}",
+        "x": max(0.0, min(1.0, float(x))),
+        "y": max(0.0, min(1.0, float(y))),
+        "risk_tier": risk_tier,
+        "countdown_ms": max(500, int(countdown_ms)),
+        "vetoed": False,
+    }
+
+
+def desktop_veto_action(intent_id: str, reason: str = "Operator override") -> dict:
+    """Cancels a pending anticipated agent action."""
+    _VETOED_INTENTS.add(intent_id)
+    return {"ok": True, "intent_id": intent_id, "vetoed": True, "reason": reason}
+
+
+def desktop_is_action_vetoed(intent_id: str) -> bool:
+    """Check whether a pending agent action was vetoed by human operator."""
+    return intent_id in _VETOED_INTENTS
 
 
 

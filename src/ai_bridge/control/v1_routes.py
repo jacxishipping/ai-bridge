@@ -348,6 +348,19 @@ def attach_v1_routes(
         mons = meta.get("monitors") or [{"index": 0, "name": "Display 1 (Primary)", "width": 1920, "height": 1080, "is_primary": True}]
         return {"device_id": device_id, "monitors": mons, "count": len(mons)}
 
+    @app.get("/api/v1/devices/{device_id}/ui-elements")
+    def v1_get_device_ui_elements(
+        device_id: str,
+        include_controls: bool = True,
+        max_elements: int = 25,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        from .. import tools
+        return tools.desktop_get_ui_elements(include_controls=include_controls, max_elements=max_elements)
+
 
     # ------------------------------------------------------------------
     # 2. Agent Gateway (/api/v1/agents/{device_id}/heartbeat)

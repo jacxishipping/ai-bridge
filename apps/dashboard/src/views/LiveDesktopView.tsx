@@ -72,6 +72,42 @@ const INITIAL_WINDOWS: WindowItem[] = [
   { id: "win-4", name: "System Monitor", desc: "24% CPU", icon: "monitor", active: false, pid: 3410 },
 ];
 
+export interface SomElement {
+  id: number;
+  label: string;
+  type: string;
+  bounds: [number, number, number, number];
+  norm_x: number;
+  norm_y: number;
+  norm_width: number;
+  norm_height: number;
+  center_x: number;
+  center_y: number;
+  positionClass?: string;
+}
+
+export interface PendingAgentIntent {
+  intent_id: string;
+  action: string;
+  target_label: string;
+  x: number;
+  y: number;
+  risk_tier: string;
+  countdown_ms: number;
+  start_time_ms: number;
+}
+
+const SOM_POSITION_PRESETS = [
+  "left-[4%] top-[10%] w-[60%] h-[56%]",
+  "left-[66%] top-[10%] w-[30%] h-[80%]",
+  "left-[4%] top-[70%] w-[60%] h-[24%]",
+  "left-[8%] top-[14%] w-[40%] h-[35%]",
+  "left-[52%] top-[14%] w-[42%] h-[40%]",
+  "left-[10%] top-[55%] w-[45%] h-[35%]",
+  "left-[58%] top-[58%] w-[38%] h-[32%]",
+  "left-[20%] top-[25%] w-[60%] h-[50%]",
+];
+
 export const LiveDesktopView: React.FC = () => {
   const devices = useDashboardStore((s) => s.devices);
   const selectedDeviceId = useDashboardStore((s) => s.selectedDeviceId);
@@ -126,6 +162,9 @@ export const LiveDesktopView: React.FC = () => {
   const [targetBitrateKbps, setTargetBitrateKbps] = useState<number>(4500);
   const [pointerLockActive, setPointerLockActive] = useState<boolean>(false);
   const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
+  const [somElements, setSomElements] = useState<SomElement[]>([]);
+  const [pendingIntent, setPendingIntent] = useState<PendingAgentIntent | null>(null);
+  const [countdownRemainingMs, setCountdownRemainingMs] = useState<number>(0);
 
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
   const isMouseDownRef = useRef<boolean>(false);
@@ -267,6 +306,97 @@ export const LiveDesktopView: React.FC = () => {
       window.removeEventListener("mousemove", handleGlobalMouseMove);
     };
   }, [controlMode, mouseLinked, sendDataChannelEvent, selectedMonitorIndex]);
+
+  // Veto active agent anticipation intent
+  const handleVetoAction = useCallback(() => {
+    if (!pendingIntent) return;
+    sendDataChannelEvent({
+      action: "veto_agent_action",
+      intent_id: pendingIntent.intent_id,
+      reason: "Operator manual override",
+    });
+    setPendingIntent(null);
+    setRecentMacroNotice(`Intercepted & vetoed agent action: [${pendingIntent.target_label}]`);
+    setTimeout(() => setRecentMacroNotice(null), 3000);
+  }, [pendingIntent, sendDataChannelEvent]);
+
+  // Global keydown veto listener for Space or Esc
+  useEffect(() => {
+    if (!pendingIntent) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" || e.code === "Escape") {
+        e.preventDefault();
+        handleVetoAction();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pendingIntent, handleVetoAction]);
+
+  // Grace period countdown timer for pending agent intent
+  useEffect(() => {
+    if (!pendingIntent) return;
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - pendingIntent.start_time_ms;
+      const remaining = Math.max(0, pendingIntent.countdown_ms - elapsed);
+      setCountdownRemainingMs(remaining);
+      if (remaining <= 0) {
+        clearInterval(interval);
+        setPendingIntent(null);
+      }
+    }, 50);
+    return () => clearInterval(interval);
+  }, [pendingIntent]);
+
+  // Toggle Vision SoM and query real UI elements
+  const toggleSomOverlay = useCallback(() => {
+    const next = !somOverlay;
+    setSomOverlay(next);
+    if (next) {
+      if (inputDcRef.current?.readyState === "open") {
+        sendDataChannelEvent({ action: "som_query" });
+      } else if (selectedDevice?.id && isLiveMode()) {
+        api
+          .getDeviceUiElementsV1(selectedDevice.id)
+          .then((res) => {
+            if (res && Array.isArray(res.elements)) {
+              setSomElements(res.elements);
+              setRecentMacroNotice(`Vision SoM synchronized with ${res.elements.length} interactive elements`);
+              setTimeout(() => setRecentMacroNotice(null), 2500);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [somOverlay, sendDataChannelEvent, selectedDevice?.id]);
+
+  // Test simulation of agent action anticipation
+  const handleSimulateIntent = useCallback(() => {
+    if (inputDcRef.current?.readyState === "open") {
+      sendDataChannelEvent({
+        action: "simulate_agent_intent",
+        target_label: "Deploy Canary Release",
+        x: 0.58,
+        y: 0.38,
+        risk_tier: "tier3_shell",
+        countdown_ms: 3000,
+      });
+    } else {
+      setPendingIntent({
+        intent_id: `intent_${Date.now() % 10000}`,
+        action: "click",
+        target_label: "Deploy Canary Release",
+        x: 0.58,
+        y: 0.38,
+        risk_tier: "tier3_shell",
+        countdown_ms: 3000,
+        start_time_ms: Date.now(),
+      });
+      setCountdownRemainingMs(3000);
+    }
+    setRecentMacroNotice("Triggered AI Agent Intent anticipation preview (3.0s countdown)");
+    setTimeout(() => setRecentMacroNotice(null), 3000);
+  }, [sendDataChannelEvent]);
 
   // Automatically release held keys on window blur or visibility loss
   useEffect(() => {
@@ -766,12 +896,42 @@ export const LiveDesktopView: React.FC = () => {
 
           const setupDc = (channel: RTCDataChannel) => {
             inputDcRef.current = channel;
+            channel.onopen = () => {
+              if (somOverlay) {
+                try {
+                  channel.send(JSON.stringify({ action: "som_query" }));
+                } catch {}
+              }
+            };
             channel.onmessage = (event) => {
               try {
                 const data = JSON.parse(event.data);
                 if (data.type === "clipboard_data" && data.text) {
                   void navigator.clipboard?.writeText(data.text).catch(() => {});
                   setRecentMacroNotice(`Synced clipboard from remote (${data.text.length} chars)`);
+                  setTimeout(() => setRecentMacroNotice(null), 3000);
+                }
+                if (data.type === "som_elements" && Array.isArray(data.elements)) {
+                  setSomElements(data.elements);
+                  setRecentMacroNotice(`Vision SoM synchronized with ${data.elements.length} interactive targets`);
+                  setTimeout(() => setRecentMacroNotice(null), 2500);
+                }
+                if (data.type === "agent_intent") {
+                  setPendingIntent({
+                    intent_id: String(data.intent_id || "intent_1"),
+                    action: String(data.action || "click"),
+                    target_label: String(data.target_label || "Autonomous Action"),
+                    x: Number(data.x ?? 0.58),
+                    y: Number(data.y ?? 0.38),
+                    risk_tier: String(data.risk_tier || "tier2_workspace"),
+                    countdown_ms: Number(data.countdown_ms || 3000),
+                    start_time_ms: Date.now(),
+                  });
+                  setCountdownRemainingMs(Number(data.countdown_ms || 3000));
+                }
+                if (data.type === "agent_action_vetoed") {
+                  setPendingIntent(null);
+                  setRecentMacroNotice(`Vetoed agent action [${data.intent_id}]: ${data.reason || "Interception successful"}`);
                   setTimeout(() => setRecentMacroNotice(null), 3000);
                 }
               } catch {}
@@ -1128,7 +1288,7 @@ export const LiveDesktopView: React.FC = () => {
           {/* SoM Toggle */}
           <button
             type="button"
-            onClick={() => setSomOverlay(!somOverlay)}
+            onClick={toggleSomOverlay}
             className={`px-3 py-1.5 rounded-xl text-xs font-mono font-semibold flex items-center gap-1.5 border transition-all ${
               somOverlay
                 ? "bg-indigo-600/20 text-indigo-300 border-indigo-500/40"
@@ -1180,6 +1340,15 @@ export const LiveDesktopView: React.FC = () => {
             >
               <Unlock className="w-3 h-3 text-emerald-400" />
               <span>Unlock Screen</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleSimulateIntent}
+              className="px-2.5 py-1 rounded-lg bg-indigo-950/70 border border-indigo-500/50 hover:border-indigo-400 text-indigo-300 font-mono text-xs transition-all active:scale-95 flex items-center gap-1"
+              title="Test the AI action anticipation ghost trajectory and grace period veto arbiter"
+            >
+              <Zap className="w-3 h-3 text-indigo-400" />
+              <span>Preview Agent Intent</span>
             </button>
           </div>
         </div>
@@ -1364,36 +1533,68 @@ export const LiveDesktopView: React.FC = () => {
 
         {/* Set-of-Marks (SoM) Bounding Visual Segmentation Map */}
         {somOverlay && (
-          <div className="absolute inset-0 pointer-events-none">
-            {/* SoM Mark #101: Code Editor Workspace */}
-            <div className="absolute left-[4%] top-[12%] w-[62%] h-[56%] border-2 border-indigo-400/70 bg-indigo-500/5 rounded-xl flex items-start justify-between p-2">
-              <span className="px-2 py-0.5 rounded bg-indigo-600 text-white font-mono text-[10px] font-bold shadow-md">
-                SoM #101 • Editor Workspace
-              </span>
-              <span className="font-mono text-[10px] text-indigo-300 bg-slate-950/80 px-1.5 py-0.5 rounded border border-indigo-500/30">
-                Target: active_buffer
-              </span>
-            </div>
-
-            {/* SoM Mark #102: Command Shell */}
-            <div className="absolute left-[68%] top-[12%] w-[29%] h-[82%] border-2 border-emerald-400/70 bg-emerald-500/5 rounded-xl flex items-start justify-between p-2">
-              <span className="px-2 py-0.5 rounded bg-emerald-800 text-white font-mono text-[10px] font-bold shadow-md">
-                SoM #102 • Command Shell
-              </span>
-              <span className="font-mono text-[10px] text-emerald-300 bg-slate-950/80 px-1.5 py-0.5 rounded border border-emerald-500/30">
-                Target: bash_pty
-              </span>
-            </div>
-
-            {/* SoM Mark #103: Performance Bar */}
-            <div className="absolute left-[4%] top-[72%] w-[62%] h-[22%] border-2 border-cyan-400/70 bg-cyan-500/5 rounded-xl flex items-start justify-between p-2">
-              <span className="px-2 py-0.5 rounded bg-cyan-800 text-white font-mono text-[10px] font-bold shadow-md">
-                SoM #103 • Telemetry Metrics
-              </span>
-              <span className="font-mono text-[10px] text-cyan-300 bg-slate-950/80 px-1.5 py-0.5 rounded border border-cyan-500/30">
-                Target: gpu_vitals
-              </span>
-            </div>
+          <div className="absolute inset-0 pointer-events-none z-30">
+            {somElements.length > 0 ? (
+              somElements.slice(0, 8).map((elem, idx) => {
+                const posClass = SOM_POSITION_PRESETS[idx % SOM_POSITION_PRESETS.length];
+                return (
+                  <div
+                    key={elem.id}
+                    onClick={() => {
+                      if (controlMode === "takeover" && mouseLinked && selectedDevice?.id) {
+                        sendDataChannelEvent({
+                          type: "mouse_button",
+                          action: "click",
+                          button: "left",
+                          x: elem.center_x,
+                          y: elem.center_y,
+                          normalized: true,
+                        });
+                        setRecentMacroNotice(`Dispatched click to SoM #${elem.id} [${elem.label}]`);
+                        setTimeout(() => setRecentMacroNotice(null), 2500);
+                      }
+                    }}
+                    className={`absolute ${posClass} border-2 border-indigo-400/80 bg-indigo-500/10 rounded-xl flex items-start justify-between p-1.5 transition-all pointer-events-auto cursor-pointer hover:bg-indigo-500/25 hover:border-indigo-300 shadow-lg`}
+                    title={`Click to target SoM #${elem.id}: ${elem.label} (${elem.type})`}
+                  >
+                    <span className="px-1.5 py-0.5 rounded bg-indigo-600 text-white font-mono text-[10px] font-bold shadow-md">
+                      #{elem.id}
+                    </span>
+                    <span className="font-mono text-[9px] text-indigo-200 bg-slate-950/90 px-1.5 py-0.5 rounded border border-indigo-500/30 truncate max-w-[130px]">
+                      {elem.label}
+                    </span>
+                  </div>
+                );
+              })
+            ) : (
+              <>
+                {/* Fallback default initial grounding targets */}
+                <div className="absolute left-[4%] top-[10%] w-[60%] h-[56%] border-2 border-indigo-400/70 bg-indigo-500/5 rounded-xl flex items-start justify-between p-2">
+                  <span className="px-2 py-0.5 rounded bg-indigo-600 text-white font-mono text-[10px] font-bold shadow-md">
+                    SoM #1 • Editor Workspace
+                  </span>
+                  <span className="font-mono text-[10px] text-indigo-300 bg-slate-950/80 px-1.5 py-0.5 rounded border border-indigo-500/30">
+                    Target: active_buffer
+                  </span>
+                </div>
+                <div className="absolute left-[66%] top-[10%] w-[30%] h-[80%] border-2 border-emerald-400/70 bg-emerald-500/5 rounded-xl flex items-start justify-between p-2">
+                  <span className="px-2 py-0.5 rounded bg-emerald-800 text-white font-mono text-[10px] font-bold shadow-md">
+                    SoM #2 • Command Shell
+                  </span>
+                  <span className="font-mono text-[10px] text-emerald-300 bg-slate-950/80 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                    Target: bash_pty
+                  </span>
+                </div>
+                <div className="absolute left-[4%] top-[70%] w-[60%] h-[24%] border-2 border-cyan-400/70 bg-cyan-500/5 rounded-xl flex items-start justify-between p-2">
+                  <span className="px-2 py-0.5 rounded bg-cyan-800 text-white font-mono text-[10px] font-bold shadow-md">
+                    SoM #3 • Telemetry Metrics
+                  </span>
+                  <span className="font-mono text-[10px] text-cyan-300 bg-slate-950/80 px-1.5 py-0.5 rounded border border-cyan-500/30">
+                    Target: gpu_vitals
+                  </span>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -1417,6 +1618,53 @@ export const LiveDesktopView: React.FC = () => {
             Operator: Sarah J. (X: {operatorCoords.x}, Y: {operatorCoords.y})
           </div>
         </div>
+
+        {/* AI Action Anticipation (Ghost Trajectory & Grace Period) */}
+        {pendingIntent && (
+          <div className="absolute inset-0 pointer-events-none z-40">
+            {/* Trajectory Guide Line linking Agent to Target */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none stroke-cyan-400 stroke-2 opacity-80">
+              <line x1="36%" y1="34%" x2="58%" y2="38%" strokeDasharray="4 4" />
+            </svg>
+
+            {/* Target Ring at Destination */}
+            <div className="absolute left-[58%] top-[38%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2">
+              <div className="relative flex items-center justify-center">
+                <span className="w-12 h-12 rounded-full border-2 border-cyan-400 bg-cyan-500/20 animate-ping absolute"></span>
+                <span className="w-8 h-8 rounded-full border-2 border-cyan-300 bg-cyan-400/40 flex items-center justify-center shadow-lg shadow-cyan-500/50">
+                  <Crosshair className="w-4 h-4 text-white" />
+                </span>
+              </div>
+
+              {/* Action Intent Banner with Countdown & Veto Action */}
+              <div className="pointer-events-auto p-2.5 rounded-xl bg-slate-950/95 border border-cyan-500/60 shadow-2xl flex flex-col items-center gap-1.5 min-w-[220px]">
+                <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-cyan-300">
+                  <Zap className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                  <span>Anticipated AI Action</span>
+                </div>
+                <div className="text-[11px] font-mono text-slate-200 font-semibold truncate max-w-[200px]">
+                  {pendingIntent.target_label}
+                </div>
+                {/* Countdown progress indicator */}
+                <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                  <div className="bg-gradient-to-r from-cyan-500 to-indigo-500 h-full animate-pulse w-full" />
+                </div>
+                <div className="flex items-center justify-between w-full pt-1 gap-2">
+                  <span className="font-mono text-[10px] text-slate-400">
+                    Executing in {(countdownRemainingMs / 1000).toFixed(1)}s
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleVetoAction}
+                    className="px-2.5 py-0.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-mono text-[10px] font-bold shadow-md transition-all active:scale-95 flex items-center gap-1"
+                  >
+                    <span>Veto [Esc]</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Takeover Active Warning Banner if Takeover Mode */}
         {controlMode === "takeover" && (
