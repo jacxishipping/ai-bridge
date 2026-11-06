@@ -31,7 +31,8 @@ export const TopHeader: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
         className="product-search min-w-0! flex-1! max-w-xl! justify-start!"
         style={{ color: "var(--product-text-tertiary)" }}
         startIcon={<Search className="h-4 w-4 shrink-0" />}>
-        <span className="flex items-center justify-between gap-2"><span>Search</span>
+        <span className="flex items-center justify-between gap-2">
+          <span className="hidden min-[480px]:inline">Search</span>
           <kbd className="hidden md:inline rounded border px-1.5 py-0.5 text-xs" style={{ borderColor: "var(--product-line)", color: "var(--product-text-dim)" }}>{shortcut}</kbd>
         </span>
       </JXButton>
