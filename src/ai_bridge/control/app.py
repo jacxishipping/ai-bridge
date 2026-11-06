@@ -2660,12 +2660,21 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     def _webrtc_sessions() -> dict:
         return app.state.__dict__.setdefault("webrtc_sessions", {})
 
+    def _load_sess(session_id: str) -> dict | None:
+        from . import v1_routes
+        return v1_routes.load_webrtc_session_db(conn, app.state, session_id)
+
+    def _save_sess(sess: dict) -> dict:
+        from . import v1_routes
+        return v1_routes.save_webrtc_session_db(conn, app.state, sess)
+
     def _get_webrtc_session(device_id: str, session_id: str) -> dict:
-        sess = _webrtc_sessions().get(session_id)
+        sess = _load_sess(session_id)
         if sess is None or sess.get("device_id") != device_id:
             raise HTTPException(status_code=404, detail="WebRTC session not found.")
         if time.time() - float(sess.get("created_at", 0)) > 600:
             sess["status"] = "ended"
+            _save_sess(sess)
             raise HTTPException(status_code=410, detail="WebRTC session expired.")
         return sess
 
@@ -2734,7 +2743,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             "offer": None, "answer": None, "agent_candidates": [], "viewer_candidates": [],
             "created_at": time.time(), "scale": scale, "fps": fps, "monitor_index": monitor_index, "error": None,
         }
-        _webrtc_sessions()[session_id] = sess
+        _save_sess(sess)
         audit(actor, device_id, "start_webrtc_stream", {"session_id": session_id, "monitor_index": monitor_index}, "allowed")
         if device_id == "local":
             try:
@@ -2744,6 +2753,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             except Exception as exc:
                 sess["status"] = "error"
                 sess["error"] = str(exc)
+            _save_sess(sess)
         else:
             _queue_webrtc_task(device_id, session_id, scale, fps, monitor_index=monitor_index)
         return {"session_id": session_id, "status": sess["status"], "scale": scale, "fps": fps, "monitor_index": monitor_index, "mode": mode, "video": sess["video"], "permissions": sess["permissions"]}
@@ -2772,6 +2782,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         sess = _get_webrtc_session(device_id, session_id)
         sess["answer"] = {"sdp": body.get("sdp"), "type": body.get("type", "answer")}
         sess["status"] = "answered"
+        _save_sess(sess)
         return {"ok": True}
 
     @app.post("/api/devices/{device_id}/desktop/webrtc/{session_id}/candidates")
@@ -2784,6 +2795,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         sess = _get_webrtc_session(device_id, session_id)
         if body.get("candidate"):
             sess.setdefault("viewer_candidates", []).append(body["candidate"])
+            _save_sess(sess)
         return {"ok": True}
 
     @app.delete("/api/devices/{device_id}/desktop/webrtc/{session_id}")
@@ -2795,6 +2807,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         require_role("viewer", x_admin_token, x_session_token)
         sess = _get_webrtc_session(device_id, session_id)
         sess["status"] = "ended"
+        _save_sess(sess)
         if device_id != "local":
             try:
                 _queue_webrtc_task(device_id, session_id, 0.75, 10, tool="stop_webrtc_stream")
@@ -2812,7 +2825,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     @app.get("/api/agent/webrtc/{session_id}")
     def agent_get_webrtc_session(session_id: str, x_device_token: str | None = Header(default=None)):
         row = device_row(x_device_token)
-        sess = _webrtc_sessions().get(session_id)
+        sess = _load_sess(session_id)
         if sess is None or sess.get("device_id") != row["id"]:
             raise HTTPException(status_code=404, detail="WebRTC session not found.")
         return {k: sess.get(k) for k in ("id", "device_id", "status", "offer", "answer", "agent_candidates", "viewer_candidates", "error", "scale", "fps", "created_at")}
@@ -2820,31 +2833,34 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     @app.post("/api/agent/webrtc/{session_id}/offer")
     def agent_post_webrtc_offer(session_id: str, body: dict = Body(default={}), x_device_token: str | None = Header(default=None)):
         row = device_row(x_device_token)
-        sess = _webrtc_sessions().get(session_id)
+        sess = _load_sess(session_id)
         if sess is None or sess.get("device_id") != row["id"]:
             raise HTTPException(status_code=404, detail="WebRTC session not found.")
         sess["offer"] = {"sdp": body.get("sdp"), "type": body.get("type", "offer")}
         sess["status"] = "offered"
+        _save_sess(sess)
         return {"ok": True}
 
     @app.post("/api/agent/webrtc/{session_id}/candidates")
     def agent_post_webrtc_candidate(session_id: str, body: dict = Body(default={}), x_device_token: str | None = Header(default=None)):
         row = device_row(x_device_token)
-        sess = _webrtc_sessions().get(session_id)
+        sess = _load_sess(session_id)
         if sess is None or sess.get("device_id") != row["id"]:
             raise HTTPException(status_code=404, detail="WebRTC session not found.")
         if body.get("candidate"):
             sess.setdefault("agent_candidates", []).append(body["candidate"])
+            _save_sess(sess)
         return {"ok": True}
 
     @app.post("/api/agent/webrtc/{session_id}/error")
     def agent_post_webrtc_error(session_id: str, body: dict = Body(default={}), x_device_token: str | None = Header(default=None)):
         row = device_row(x_device_token)
-        sess = _webrtc_sessions().get(session_id)
+        sess = _load_sess(session_id)
         if sess is None or sess.get("device_id") != row["id"]:
             raise HTTPException(status_code=404, detail="WebRTC session not found.")
         sess["status"] = "error"
         sess["error"] = body.get("error", "Stream failed.")
+        _save_sess(sess)
         return {"ok": True}
 
     # --- Option C: Interactive Live Terminal Endpoints ---
@@ -3655,7 +3671,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             auth_hdr = request.headers.get("authorization")
             token_val = admin_hdr or dev_hdr or sess_hdr or auth_hdr
             key = f"tok:{dbmod.hash_token(token_val)[:16]}" if token_val else f"ip:{client_ip}"
-            limit = 120
+            limit = 1200 if token_val else 300
         with _RATE_LOCK:
             if len(_RATE) > 4096:
                 _RATE.clear()

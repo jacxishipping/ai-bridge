@@ -240,16 +240,16 @@ export const LiveDesktopView: React.FC = () => {
     }
 
     const timer = setInterval(() => {
-      if (!cancelled && isLiveMode()) {
+      if (!cancelled && isLiveMode() && !webrtcConnected) {
         void fetchLiveFrame(0.75, 70);
       }
-    }, 2500);
+    }, 3000);
 
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [selectedDevice?.id, selectedDevice?.status, selectedDevice?.hostname, isStreamActive, fetchLiveFrame]);
+  }, [selectedDevice?.id, selectedDevice?.status, selectedDevice?.hostname, isStreamActive, webrtcConnected, fetchLiveFrame]);
 
   // Mouse move handler over canvas
   const handleCanvasMouseMove = useCallback(
@@ -498,10 +498,34 @@ export const LiveDesktopView: React.FC = () => {
         setRecentMacroNotice(`WebRTC session [${sid}] initialized (${sess.status || "waiting"})`);
         setTimeout(() => setRecentMacroNotice(null), 3000);
 
-        if (typeof RTCPeerConnection !== "undefined" && sess.offer_sdp) {
+        let currentSess = sess;
+        let offerSdp: string | undefined =
+          currentSess.offer_sdp || currentSess.offer?.sdp;
+        let offerType: string =
+          currentSess.offer_type || currentSess.offer?.type || "offer";
+
+        // If the remote Windows Agent is generating the SDP offer asynchronously, poll until it arrives
+        for (let attempt = 0; attempt < 30 && !offerSdp; ++attempt) {
+          await new Promise((r) => setTimeout(r, 500));
+          try {
+            const polled = await api.getSessionV1(sid);
+            if (polled) {
+              currentSess = polled;
+              offerSdp = polled.offer_sdp || polled.offer?.sdp;
+              offerType = polled.offer_type || polled.offer?.type || "offer";
+              if (polled.status === "error" || polled.status === "ended") {
+                break;
+              }
+            }
+          } catch {
+            // Continue polling
+          }
+        }
+
+        if (typeof RTCPeerConnection !== "undefined" && offerSdp) {
           const pc = new RTCPeerConnection({
-            iceServers: Array.isArray(sess.ice_servers)
-              ? sess.ice_servers
+            iceServers: Array.isArray(currentSess.ice_servers)
+              ? currentSess.ice_servers
               : [{ urls: "stun:stun.l.google.com:19302" }],
           });
           pcRef.current = pc;
@@ -527,6 +551,8 @@ export const LiveDesktopView: React.FC = () => {
             setWebrtcStats((prev) => ({ ...prev, state: st }));
             if (st === "connected") {
               setWebrtcConnected(true);
+              setRecentMacroNotice(`WebRTC live H.264 stream connected [${sid.slice(0, 8)}]`);
+              setTimeout(() => setRecentMacroNotice(null), 3000);
             } else if (st === "disconnected" || st === "failed") {
               setWebrtcConnected(false);
               releaseAllRemoteKeys();
@@ -540,8 +566,8 @@ export const LiveDesktopView: React.FC = () => {
           };
 
           await pc.setRemoteDescription({
-            type: (sess.offer_type || "offer") as RTCSdpType,
-            sdp: sess.offer_sdp,
+            type: offerType as RTCSdpType,
+            sdp: offerSdp,
           });
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);

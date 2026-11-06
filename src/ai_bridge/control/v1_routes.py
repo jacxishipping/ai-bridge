@@ -103,6 +103,43 @@ def derive_session_permissions(mode: str, effective_policy: dict[str, Any]) -> d
     }
 
 
+def save_webrtc_session_db(conn: Any, app_state: Any, sess: dict[str, Any]) -> dict[str, Any]:
+    """Persist a WebRTC session in the shared database (`settings` table) so all Gunicorn workers share state."""
+    sid = str(sess.get("session_id") or sess.get("id") or "")
+    if not sid:
+        return sess
+    store = app_state.__dict__.setdefault("webrtc_sessions", {})
+    store[sid] = sess
+    try:
+        key = f"webrtc_session:{sid}"
+        val = json.dumps(sess)
+        existing = conn.execute("SELECT key FROM settings WHERE key=?", (key,)).fetchone()
+        if existing:
+            conn.execute("UPDATE settings SET value=? WHERE key=?", (val, key))
+        else:
+            conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", (key, val))
+        conn.commit()
+    except Exception:
+        pass
+    return sess
+
+
+def load_webrtc_session_db(conn: Any, app_state: Any, session_id: str) -> dict[str, Any] | None:
+    """Load a WebRTC session from the shared database (`settings` table) across Gunicorn workers."""
+    store = app_state.__dict__.setdefault("webrtc_sessions", {})
+    try:
+        key = f"webrtc_session:{session_id}"
+        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        if row and row["value"]:
+            data = json.loads(row["value"])
+            if isinstance(data, dict):
+                store[session_id] = data
+                return data
+    except Exception:
+        pass
+    return store.get(session_id)
+
+
 def format_session_v1(sess: dict[str, Any]) -> dict[str, Any]:
     """Format a session record into the canonical Section 11 Session Data Model."""
     sid = str(sess.get("session_id") or sess.get("id") or "")
@@ -114,6 +151,9 @@ def format_session_v1(sess: dict[str, Any]) -> dict[str, Any]:
         "fps": int(sess.get("fps") or 30),
         "bitrate_kbps": int(sess.get("bitrate_kbps") or 4500),
     }
+    offer_obj = sess.get("offer")
+    offer_sdp = offer_obj.get("sdp") if isinstance(offer_obj, dict) else None
+    offer_type = offer_obj.get("type", "offer") if isinstance(offer_obj, dict) else "offer"
     return {
         "session_id": sid,
         "device_id": str(sess.get("device_id") or "local"),
@@ -127,8 +167,11 @@ def format_session_v1(sess: dict[str, Any]) -> dict[str, Any]:
             "execute_commands": False,
         },
         "human_takeover_active": bool(sess.get("human_takeover_active", False)),
+        "human_takeover": bool(sess.get("human_takeover_active", False)),
         "status": str(sess.get("status") or "connected"),
-        "offer": sess.get("offer"),
+        "offer": offer_obj,
+        "offer_sdp": offer_sdp,
+        "offer_type": offer_type,
         "answer": sess.get("answer"),
         "agent_candidates": sess.get("agent_candidates", []),
         "viewer_candidates": sess.get("viewer_candidates", []),
@@ -406,7 +449,7 @@ def attach_v1_routes(
             "monitor_index": body.monitor_index,
             "error": None,
         }
-        _sessions_store()[session_id] = sess
+        save_webrtc_session_db(conn, app.state, sess)
         audit(
             actor,
             body.device_id,
@@ -428,6 +471,7 @@ def attach_v1_routes(
             except Exception as exc:
                 sess["status"] = "error"
                 sess["error"] = str(exc)
+            save_webrtc_session_db(conn, app.state, sess)
         else:
             dev_row = conn.execute("SELECT * FROM devices WHERE id=? AND revoked=0", (body.device_id,)).fetchone()
             if dev_row is None:
@@ -458,46 +502,52 @@ def attach_v1_routes(
         authorization: str | None = Header(default=None),
     ):
         require_role("viewer", x_admin_token, x_session_token, authorization)
-        sess = _sessions_store().get(session_id)
+        sess = load_webrtc_session_db(conn, app.state, session_id)
         if sess is None:
             raise HTTPException(status_code=404, detail="Session not found.")
         return format_session_v1(sess)
 
+    @app.post("/api/v1/sessions/{session_id}/mode")
     @app.patch("/api/v1/sessions/{session_id}/mode")
     async def v1_update_session_mode(
         session_id: str,
-        body: UpdateSessionModeV1In,
+        body: dict = Body(default={}),
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
         authorization: str | None = Header(default=None),
     ):
         actor, _role = auth_context(x_admin_token, x_session_token, authorization)
-        sess = _sessions_store().get(session_id)
+        sess = load_webrtc_session_db(conn, app.state, session_id)
         if sess is None:
             raise HTTPException(status_code=404, detail="Session not found.")
-        if body.mode not in VALID_SESSION_MODES:
-            raise HTTPException(status_code=400, detail=f"Invalid mode '{body.mode}'. Must be one of {sorted(VALID_SESSION_MODES)}.")
+        req_mode = str(body.get("mode") or "")
+        if req_mode not in VALID_SESSION_MODES:
+            raise HTTPException(status_code=400, detail=f"Invalid mode '{req_mode}'. Must be one of {sorted(VALID_SESSION_MODES)}.")
 
         device_id = str(sess.get("device_id") or "local")
         eff_policy = get_effective_device_policy(device_id)
         if device_id == "local":
             eff_policy = {**eff_policy, "desktop_enabled": True}
 
-        sess["mode"] = body.mode
-        sess["permissions"] = derive_session_permissions(body.mode, eff_policy)
+        sess["mode"] = req_mode
+        sess["permissions"] = derive_session_permissions(req_mode, eff_policy)
 
-        takeover = body.human_takeover_active if body.human_takeover_active is not None else (body.mode == "human_control")
+        raw_takeover = body.get("human_takeover_active")
+        if raw_takeover is None:
+            raw_takeover = body.get("human_takeover")
+        takeover = raw_takeover if raw_takeover is not None else (req_mode == "human_control")
         sess["human_takeover_active"] = bool(takeover)
         set_device_human_takeover(device_id, bool(takeover), actor=actor, session_id=session_id)
+        save_webrtc_session_db(conn, app.state, sess)
 
-        if body.mode == "view_only":
+        if req_mode == "view_only":
             webrtc_stream.release_all_held_keys()
 
         audit(
             actor,
             device_id,
             "v1_update_session_mode",
-            {"session_id": session_id, "mode": body.mode, "human_takeover_active": bool(takeover)},
+            {"session_id": session_id, "mode": req_mode, "human_takeover_active": bool(takeover)},
             "allowed",
         )
         formatted = format_session_v1(sess)
@@ -512,10 +562,11 @@ def attach_v1_routes(
         authorization: str | None = Header(default=None),
     ):
         actor, _role = auth_context(x_admin_token, x_session_token, authorization)
-        sess = _sessions_store().get(session_id)
+        sess = load_webrtc_session_db(conn, app.state, session_id)
         if sess is None:
             raise HTTPException(status_code=404, detail="Session not found.")
         sess["status"] = "ended"
+        save_webrtc_session_db(conn, app.state, sess)
         device_id = str(sess.get("device_id") or "local")
         set_device_human_takeover(device_id, False, actor=actor, session_id=session_id)
         webrtc_stream.stop_stream(session_id)
@@ -536,11 +587,12 @@ def attach_v1_routes(
             device_row(x_device_token)
         else:
             require_role("viewer", x_admin_token, x_session_token, authorization)
-        sess = _sessions_store().get(session_id)
+        sess = load_webrtc_session_db(conn, app.state, session_id)
         if sess is None:
             raise HTTPException(status_code=404, detail="Session not found.")
         sess["offer"] = {"sdp": body.get("sdp"), "type": body.get("type", "offer")}
         sess["status"] = "offered"
+        save_webrtc_session_db(conn, app.state, sess)
         await _broadcast_ws(session_id, {"type": "offer", "offer": sess["offer"]})
         return {"ok": True, "session_id": session_id, "status": sess["status"]}
 
@@ -553,11 +605,12 @@ def attach_v1_routes(
         authorization: str | None = Header(default=None),
     ):
         require_role("viewer", x_admin_token, x_session_token, authorization)
-        sess = _sessions_store().get(session_id)
+        sess = load_webrtc_session_db(conn, app.state, session_id)
         if sess is None:
             raise HTTPException(status_code=404, detail="Session not found.")
         sess["answer"] = {"sdp": body.get("sdp"), "type": body.get("type", "answer")}
         sess["status"] = "answered"
+        save_webrtc_session_db(conn, app.state, sess)
         await _broadcast_ws(session_id, {"type": "answer", "answer": sess["answer"]})
         return {"ok": True, "session_id": session_id, "status": sess["status"]}
 
@@ -575,7 +628,7 @@ def attach_v1_routes(
             device_row(x_device_token)
         else:
             require_role("viewer", x_admin_token, x_session_token, authorization)
-        sess = _sessions_store().get(session_id)
+        sess = load_webrtc_session_db(conn, app.state, session_id)
         if sess is None:
             raise HTTPException(status_code=404, detail="Session not found.")
         cand = body.get("candidate")
@@ -584,6 +637,7 @@ def attach_v1_routes(
                 sess.setdefault("agent_candidates", []).append(cand)
             else:
                 sess.setdefault("viewer_candidates", []).append(cand)
+            save_webrtc_session_db(conn, app.state, sess)
             await _broadcast_ws(session_id, {"type": "ice", "from": from_side, "candidate": cand})
         return {"ok": True, "session_id": session_id}
 
