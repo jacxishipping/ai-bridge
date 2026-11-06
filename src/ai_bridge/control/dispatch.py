@@ -183,6 +183,15 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
             approval_granted=approval_granted,
             policy=policy,
         ),
+        "get_clipboard": lambda a: tools.get_clipboard(
+            policy=policy,
+        ),
+        "set_clipboard": lambda a: tools.set_clipboard(
+            str(a.get("text", "")),
+            paste=bool(a.get("paste", False)),
+            approval_granted=approval_granted,
+            policy=policy,
+        ),
         "execute_workflow": lambda a: tools.execute_workflow(
             a.get("steps", []),
             stop_on_failure=bool(a.get("stop_on_failure", True)),

@@ -68,6 +68,8 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "list_desktop_windows": RiskTier.READ_ONLY,
     "focus_window": RiskTier.SENSITIVE,
     "get_screen_size": RiskTier.READ_ONLY,
+    "get_clipboard": RiskTier.READ_ONLY,
+    "set_clipboard": RiskTier.SENSITIVE,
     "install_package": RiskTier.SENSITIVE,
     "run_shell": RiskTier.SENSITIVE, "write_file": RiskTier.SENSITIVE,
     "delete_workspace_file": RiskTier.HIGH_RISK, "submit_task": RiskTier.SENSITIVE,

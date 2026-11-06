@@ -524,8 +524,8 @@ export const TerminalView: React.FC = () => {
       )}
       {live && (
         <div role="note" className="rounded-xl border border-sky-700/50 bg-sky-950/30 px-4 py-2 text-xs text-sky-300">
-          <strong className="font-semibold">Live session.</strong> Commands run in a real shell opened by the control plane for the selected device
-          ({targetHostname}). Sessions are audited. Note: the current backend starts the shell on the control-plane host; relaying to a remote agent is not implemented yet.
+          <strong className="font-semibold">Live session.</strong> Commands run in a real shell relayed by the control plane to the selected device
+          ({targetHostname}). All sessions and commands are audited.
         </div>
       )}
       {live && devicesError && (

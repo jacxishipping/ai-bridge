@@ -824,6 +824,45 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 "token_ttl_days": device_ttl_days,
                 "note": "Store the device token securely; it will not be shown again. It expires and must be rotated."}
 
+    app.state.device_live_meta = {}
+
+    def _get_device_live_meta(dev_id: str) -> dict:
+        meta = dict(app.state.device_live_meta.get(dev_id) or {})
+        if not meta.get("memory_total_gb") or not meta.get("disk_total_gb"):
+            try:
+                r_row = conn.execute(
+                    "SELECT result FROM tasks WHERE device_id=? AND tool='get_resource_usage' AND status='completed' ORDER BY updated_at DESC LIMIT 1",
+                    (dev_id,),
+                ).fetchone()
+                if r_row and r_row["result"]:
+                    rp = json.loads(r_row["result"])
+                    if isinstance(rp, dict):
+                        if rp.get("memory_total_bytes") and not meta.get("memory_total_gb"):
+                            meta["memory_total_gb"] = round(float(rp["memory_total_bytes"]) / (1024 ** 3), 1)
+                        if rp.get("disk_total_bytes") and not meta.get("disk_total_gb"):
+                            meta["disk_total_gb"] = round(float(rp["disk_total_bytes"]) / (1024 ** 3), 1)
+                        if rp.get("uptime_seconds") and not meta.get("uptime_hours"):
+                            meta["uptime_hours"] = round(float(rp["uptime_seconds"]) / 3600.0, 1)
+            except Exception:
+                pass
+        if not meta.get("ip_address"):
+            try:
+                n_row = conn.execute(
+                    "SELECT result FROM tasks WHERE device_id=? AND tool='get_network_info' AND status='completed' ORDER BY updated_at DESC LIMIT 1",
+                    (dev_id,),
+                ).fetchone()
+                if n_row and n_row["result"]:
+                    np_data = json.loads(n_row["result"])
+                    if isinstance(np_data, dict):
+                        for iface in np_data.get("interfaces") or []:
+                            addr = iface.get("ip") or iface.get("address")
+                            if addr and not str(addr).startswith("127."):
+                                meta["ip_address"] = str(addr)
+                                break
+            except Exception:
+                pass
+        return meta
+
     @app.get("/api/devices")
     def list_devices(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None), tenant: str = "default"):
         require_role("viewer", x_admin_token, x_session_token)
@@ -844,6 +883,9 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 parsed_p = {}
             d["has_custom_policy"] = bool(parsed_p)
             d["policy"] = parsed_p
+            live_meta = _get_device_live_meta(d["id"])
+            if live_meta.get("ip_address"):
+                d["ip_address"] = live_meta["ip_address"]
             result.append(d)
         return result
 
@@ -2104,7 +2146,11 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 (d["id"],),
             ).fetchone()
             tel_data = dict(latest_tel) if latest_tel else None
+            live_meta = _get_device_live_meta(d["id"])
             if tel_data:
+                for k in ("memory_total_gb", "disk_total_gb", "uptime_hours"):
+                    if live_meta.get(k) is not None:
+                        tel_data[k] = live_meta[k]
                 if tel_data.get("cpu_percent") is not None:
                     cpu_vals.append(tel_data["cpu_percent"])
                 if tel_data.get("memory_percent") is not None:
@@ -2795,6 +2841,33 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
     # --- Option C: Interactive Live Terminal Endpoints ---
 
+    def _remote_terminal_exec(target_dev_id: str, command: str, cwd: str) -> dict:
+        dev_row = conn.execute("SELECT * FROM devices WHERE id=? AND revoked=0", (target_dev_id,)).fetchone()
+        if not dev_row:
+            raise RuntimeError(f"Device '{target_dev_id}' not found or revoked.")
+        task_id = f"term-{uuid.uuid4().hex[:10]}"
+        now_ts = dbmod.now()
+        args = {"command": command, "working_directory": cwd or "", "timeout": 35}
+        conn.execute(
+            "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, created_at, updated_at) VALUES (?,?,?,?,?,3,'queued',?,?)",
+            (task_id, target_dev_id, dev_row["tenant"], "run_shell", json.dumps(args), now_ts, now_ts),
+        )
+        conn.commit()
+        notify_tasks()
+        deadline = time.time() + 40.0
+        while time.time() < deadline:
+            time.sleep(0.2)
+            t_row = conn.execute("SELECT status, result FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if t_row and t_row["status"] in ("completed", "failed", "cancelled", "timed_out"):
+                if t_row["status"] != "completed":
+                    return {"stdout": "", "stderr": str(t_row["result"] or f"Task {t_row['status']}"), "returncode": 1}
+                try:
+                    parsed = json.loads(t_row["result"] or "{}")
+                    return parsed if isinstance(parsed, dict) else {"stdout": str(parsed), "stderr": "", "returncode": 0}
+                except Exception:
+                    return {"stdout": str(t_row["result"] or ""), "stderr": "", "returncode": 0}
+        raise TimeoutError(f"Remote device '{dev_row['name']}' did not respond within 40s.")
+
     @app.post("/api/devices/{device_id}/terminal/sessions")
     def create_terminal_endpoint(
         device_id: str,
@@ -2805,8 +2878,24 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         actor = require_role("operator", x_admin_token, x_session_token)
         cols = int(body.get("cols", 120))
         rows = int(body.get("rows", 35))
-        sess = terminal_manager.create_terminal_session(device_id=device_id, cols=cols, rows=rows)
-        audit(actor, device_id, "create_terminal_session", {"session_id": sess.session_id, "cols": cols, "rows": rows}, "allowed")
+        dev_label = "local"
+        dev_os = ""
+        remote_fn = None
+        if device_id and device_id != "local":
+            dev_row = conn.execute("SELECT name, hostname, os FROM devices WHERE id=? AND revoked=0", (device_id,)).fetchone()
+            if dev_row:
+                dev_label = dev_row["hostname"] or dev_row["name"] or device_id
+                dev_os = dev_row["os"] or ""
+                remote_fn = _remote_terminal_exec
+        sess = terminal_manager.create_terminal_session(
+            device_id=device_id,
+            cols=cols,
+            rows=rows,
+            remote_exec=remote_fn,
+            device_label=dev_label,
+            device_os=dev_os,
+        )
+        audit(actor, device_id, "create_terminal_session", {"session_id": sess.session_id, "cols": cols, "rows": rows, "remote_relay": bool(remote_fn)}, "allowed")
         return {"session_id": sess.session_id, "device_id": device_id, "cols": cols, "rows": rows, "is_alive": sess.is_alive}
 
     @app.get("/api/devices/{device_id}/terminal/sessions")
@@ -3357,7 +3446,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
     # --- Agent polling (outbound only) -----------------------------------
     @app.post("/api/agent/heartbeat")
-    def heartbeat(body: dict = Body(default={}), x_device_token: str | None = Header(default=None)):
+    def heartbeat(request: Request, body: dict = Body(default={}), x_device_token: str | None = Header(default=None)):
         row = device_row(x_device_token)
         now_ts = dbmod.now()
         hostname = (body.get("hostname") or "").strip() if isinstance(body, dict) else ""
@@ -3371,10 +3460,26 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         conn.commit()
 
         metrics = body.get("metrics") if isinstance(body, dict) else None
+        meta_entry = dict(app.state.device_live_meta.get(row["id"]) or {})
+        client_ip = (
+            (metrics.get("ip_address") if isinstance(metrics, dict) else None)
+            or (body.get("ip_address") if isinstance(body, dict) else None)
+            or request.headers.get("x-real-ip")
+            or (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+            or (request.client.host if request.client else "")
+        )
+        if client_ip and not str(client_ip).startswith("127.") and not str(client_ip).startswith("172."):
+            meta_entry["ip_address"] = str(client_ip)
+        elif client_ip and not meta_entry.get("ip_address"):
+            meta_entry["ip_address"] = str(client_ip)
+
         if metrics and isinstance(metrics, dict):
             cpu_p = metrics.get("cpu_percent")
             mem_p = metrics.get("memory_percent")
             disk_p = metrics.get("disk_percent")
+            for k in ("memory_total_gb", "disk_total_gb", "uptime_hours"):
+                if isinstance(metrics.get(k), (int, float)):
+                    meta_entry[k] = round(float(metrics[k]), 1)
             conn.execute(
                 "INSERT INTO telemetry (device_id, tenant, cpu_percent, memory_percent, disk_percent, recorded_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (row["id"], row["tenant"], cpu_p, mem_p, disk_p, now_ts),
@@ -3385,6 +3490,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             )
             conn.commit()
             _evaluate_device_triggers(row, metrics, now_ts)
+        app.state.device_live_meta[row["id"]] = meta_entry
 
         return {
             "device_id": row["id"],
@@ -3482,6 +3588,8 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 and (ap_row["expires_at"] is None or ap_row["expires_at"] > now_ts)
                 and ap_row["tool"] == out["tool"]
             )
+        elif str(out.get("id") or "").startswith("term-"):
+            out["approval_granted"] = True
         else:
             out["approval_granted"] = False
         out["policy"] = get_effective_device_policy(row)

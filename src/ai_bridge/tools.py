@@ -917,6 +917,89 @@ def set_of_marks_screenshot(
         "marks": marks,
     }
 
+
+def get_clipboard(*, policy: Policy | None = None) -> dict:
+    """Read the current system clipboard text on Windows, Linux, or macOS."""
+    eff_policy = policy or default_policy()
+    _check("get_clipboard", policy=eff_policy)
+    current_os = platform.system()
+    if current_os == "Windows":
+        proc = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Get-Clipboard -Raw"],
+            shell=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=8,
+        )
+        text = (proc.stdout or "").rstrip("\r\n")
+        return {"ok": proc.returncode == 0, "text": text, "length": len(text), "system": current_os}
+
+    for argv in (
+        ["wl-paste", "--no-newline"],
+        ["xclip", "-selection", "clipboard", "-o"],
+        ["xsel", "--clipboard", "--output"],
+        ["pbpaste"],
+    ):
+        if shutil.which(argv[0]):
+            proc = subprocess.run(argv, shell=False, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=8)
+            if proc.returncode == 0:
+                text = proc.stdout or ""
+                return {"ok": True, "text": text, "length": len(text), "system": current_os}
+    return {"ok": False, "text": "", "length": 0, "system": current_os, "note": "No clipboard utility available."}
+
+
+def set_clipboard(
+    text: str,
+    *,
+    paste: bool = False,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Write text to the system clipboard and optionally trigger Ctrl+V paste into the active window."""
+    eff_policy = policy or default_policy()
+    _check("set_clipboard", approval_granted=approval_granted, policy=eff_policy)
+    content = str(text or "")
+    current_os = platform.system()
+    ok = False
+
+    if current_os == "Windows":
+        proc = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "$input | Set-Clipboard"],
+            input=content,
+            shell=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=8,
+        )
+        ok = proc.returncode == 0
+    else:
+        for argv in (
+            ["wl-copy"],
+            ["xclip", "-selection", "clipboard"],
+            ["xsel", "--clipboard", "--input"],
+            ["pbcopy"],
+        ):
+            if shutil.which(argv[0]):
+                proc = subprocess.run(argv, input=content, shell=False, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=8)
+                if proc.returncode == 0:
+                    ok = True
+                    break
+
+    pasted = False
+    if ok and paste:
+        time.sleep(0.15)
+        try:
+            press_hotkey("ctrl+v", approval_granted=approval_granted, policy=eff_policy)
+            pasted = True
+        except Exception:
+            pasted = False
+
+    return {"ok": ok, "length": len(content), "pasted": pasted, "system": current_os}
+
 # --- Software installation & shell execution (approval-gated, Tier-3) -----
 _PACKAGE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+$")
 _LINUX_PKG_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._+-]*$")

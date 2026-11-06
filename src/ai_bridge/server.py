@@ -173,6 +173,7 @@ DESKTOP_ROUTING_TOOLS = {
     "take_screenshot",
     "capture_desktop_frame",
     "view_live_screen",
+    "interact_and_view_screen",
     "launch_approved_application",
     "perform_approved_ui_action",
     "mouse_click",
@@ -184,6 +185,16 @@ DESKTOP_ROUTING_TOOLS = {
     "list_desktop_windows",
     "focus_window",
     "get_screen_size",
+    "ocr_screen",
+    "click_text",
+    "click_element",
+    "list_ui_elements",
+    "set_of_marks_screenshot",
+    "wait_for_text",
+    "verify_screen_contains",
+    "press_hotkey",
+    "get_clipboard",
+    "set_clipboard",
 }
 
 
@@ -545,12 +556,15 @@ def capture_desktop_screenshot(device: str | None = None) -> dict:
 
 
 def _to_vision_content(res: dict) -> list:
-    """Convert a frame/screenshot dict with base64_data into native MCP ImageContent + TextContent metadata."""
-    if not isinstance(res, dict) or not res.get("base64_data"):
+    """Convert a frame/screenshot dict with base64_data or image_base64 into native MCP ImageContent + TextContent metadata."""
+    if not isinstance(res, dict):
         return [TextContent(type="text", text=json.dumps(res))]
-    b64 = str(res["base64_data"])
+    b64_val = res.get("base64_data") or res.get("image_base64")
+    if not b64_val:
+        return [TextContent(type="text", text=json.dumps(res))]
+    b64 = str(b64_val)
     mime = str(res.get("mime_type") or "image/jpeg")
-    meta = {k: v for k, v in res.items() if k != "base64_data"}
+    meta = {k: v for k, v in res.items() if k not in ("base64_data", "image_base64")}
     return [
         ImageContent(type="image", data=b64, mimeType=mime),
         TextContent(type="text", text=json.dumps(meta)),
@@ -569,13 +583,102 @@ def capture_desktop_frame(scale: float = 0.75, quality: int = 70, device: str | 
 
 
 @mcp.tool()
-def view_live_screen(scale: float = 0.75, quality: int = 75, device: str | None = None) -> list:
+def view_live_screen(
+    scale: float = 0.75,
+    quality: int = 75,
+    annotate: bool = False,
+    max_marks: int = 40,
+    device: str | None = None,
+) -> list:
     """Stream/capture a live visual frame of the Windows desktop as a native MCP ImageContent block so ChatGPT, Claude, and Grok vision models can directly see the screen.
     scale: Image scale factor between 0.2 and 1.0 (default 0.75).
     quality: JPEG compression quality between 20 and 95 (default 75).
+    annotate: When True, overlays numbered Set-of-Mark badges ([1], [2], [3]) on interactive UI controls and returns the marks table.
+    max_marks: Maximum numbered UI badges when annotate=True (default 40).
     device (optional): Target Windows device name/ID, or automatically routes to the active Windows machine."""
-    res = capture_desktop_frame(scale=scale, quality=quality, device=device)
+    if annotate:
+        res = set_of_marks_screenshot(max_marks=max_marks, device=device)
+    else:
+        res = capture_desktop_frame(scale=scale, quality=quality, device=device)
     return _to_vision_content(res)
+
+
+@mcp.tool()
+def interact_and_view_screen(
+    action: str,
+    x: int | None = None,
+    y: int | None = None,
+    text: str | None = None,
+    key: str | None = None,
+    mark_id: str | None = None,
+    button: str = "left",
+    clicks: int = 1,
+    delta: int = -120,
+    settle_ms: int = 600,
+    annotate: bool = False,
+    scale: float = 0.75,
+    quality: int = 75,
+    device: str | None = None,
+) -> list:
+    """Execute a GUI action on the Windows desktop, wait briefly for the UI to settle, and immediately return the updated live screen as a native MCP ImageContent block in a single round-trip.
+    action: 'click', 'double_click', 'right_click', 'move', 'scroll', 'type', 'press', 'hotkey', 'click_text', 'click_element', 'focus_window', 'launch_app', or 'none'.
+    x, y: Pixel coordinates for mouse actions.
+    text: Text to type (for 'type'), text on screen to click (for 'click_text'), window title (for 'focus_window'), or app name (for 'launch_app').
+    key: Key or hotkey combo (e.g. 'enter', 'ctrl+l', 'alt+tab') for 'press' / 'hotkey'.
+    mark_id: Numbered Set-of-Mark badge ID (e.g. '1', '2') for 'click_element'.
+    settle_ms: Milliseconds to wait after the action before capturing the screen (default 600ms).
+    annotate: When True, overlays numbered Set-of-Mark badges on the returned screenshot.
+    device (optional): Target Windows device name/ID, or automatically routes to the active Windows machine."""
+    import time as _time
+
+    act = (action or "none").strip().lower()
+    action_res: dict = {"action": act}
+    try:
+        if act in ("click", "double_click", "right_click", "middle_click"):
+            if x is None or y is None:
+                raise ValueError(f"Action '{act}' requires x and y coordinates.")
+            btn = "right" if act == "right_click" else ("middle" if act == "middle_click" else button)
+            c_cnt = 2 if act == "double_click" else clicks
+            action_res = mouse_click(x=int(x), y=int(y), button=btn, clicks=c_cnt, device=device)
+        elif act == "move":
+            if x is None or y is None:
+                raise ValueError("Action 'move' requires x and y coordinates.")
+            action_res = mouse_move(x=int(x), y=int(y), device=device)
+        elif act == "scroll":
+            action_res = mouse_scroll(delta=delta, x=x, y=y, device=device)
+        elif act == "type":
+            action_res = keyboard_type(text=text or "", device=device)
+            if key:
+                action_res["key_result"] = press_hotkey(combo=key, device=device)
+        elif act in ("press", "hotkey"):
+            action_res = press_hotkey(combo=key or text or "enter", device=device)
+        elif act == "click_text":
+            action_res = click_text(text=text or "", button=button, clicks=clicks, device=device)
+        elif act == "click_element":
+            action_res = click_element(mark_id=mark_id, name=text, button=button, clicks=clicks, device=device)
+        elif act == "focus_window":
+            action_res = focus_window(title=text or "", device=device)
+        elif act == "launch_app":
+            action_res = launch_approved_application(app_name=text or "", url=key, device=device)
+        elif act in ("none", "wait", "view"):
+            action_res = {"ok": True, "action": act}
+        else:
+            raise ValueError(f"Unsupported action: '{action}'.")
+    except Exception as exc:
+        action_res = {"ok": False, "action": act, "error": str(exc)}
+
+    wait_s = max(0.0, min(float(settle_ms or 0), 5000.0)) / 1000.0
+    if wait_s > 0:
+        _time.sleep(wait_s)
+
+    if annotate:
+        frame = set_of_marks_screenshot(max_marks=40, device=device)
+    else:
+        frame = capture_desktop_frame(scale=scale, quality=quality, device=device)
+
+    if isinstance(frame, dict):
+        frame = {**frame, "action_executed": act, "action_result": action_res}
+    return _to_vision_content(frame)
 
 
 @mcp.tool()
@@ -947,6 +1050,25 @@ def press_hotkey(combo: str, device: str | None = None) -> dict:
     device (optional): Target device name (e.g. 'windows-pc') or 'local'."""
     approved = _consume_local_approval("press_hotkey")
     return tools.press_hotkey(combo, approval_granted=approved)
+
+
+@mcp.tool()
+@device_aware("get_clipboard")
+def get_clipboard(device: str | None = None) -> dict:
+    """Read the current clipboard text from the Windows desktop or target fleet device.
+    device (optional): Target Windows device name/ID, or automatically routes to active Windows machine."""
+    return tools.get_clipboard()
+
+
+@mcp.tool()
+@device_aware("set_clipboard")
+def set_clipboard(text: str, paste: bool = False, device: str | None = None) -> dict:
+    """Copy text/code directly to the Windows desktop clipboard, optionally pasting it immediately (Ctrl+V) into the active window.
+    text: Text content to place into the clipboard.
+    paste: When True, automatically presses Ctrl+V after setting the clipboard so long code blocks or URLs paste instantaneously.
+    device (optional): Target Windows device name/ID, or automatically routes to active Windows machine."""
+    approved = _consume_local_approval("set_clipboard")
+    return tools.set_clipboard(text, paste=paste, approval_granted=approved)
 
 
 @mcp.tool()

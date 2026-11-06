@@ -25,11 +25,27 @@ _LOCK = threading.Lock()
 class TerminalSession:
     """Manages an active interactive shell process and its real-time I/O streams."""
 
-    def __init__(self, session_id: str, device_id: str = "local", cols: int = 120, rows: int = 35):
+    def __init__(
+        self,
+        session_id: str,
+        device_id: str = "local",
+        cols: int = 120,
+        rows: int = 35,
+        remote_exec=None,
+        device_label: str = "",
+        device_os: str = "",
+    ):
         self.session_id = session_id
         self.device_id = device_id
         self.cols = cols
         self.rows = rows
+        self.remote_exec = remote_exec
+        self.device_label = device_label or device_id
+        self.device_os = device_os or ""
+        self._is_remote = bool(remote_exec is not None and device_id and device_id != "local")
+        self._is_windows_remote = "win" in self.device_os.lower()
+        self._remote_cwd = ""
+        self._line_buf = ""
         self.created_at = time.time()
         self.last_active = time.time()
         self.is_alive = True
@@ -44,8 +60,22 @@ class TerminalSession:
 
         self._start_process()
 
+    def _prompt(self) -> str:
+        cwd_disp = self._remote_cwd or ("~" if not self._is_windows_remote else "C:\\")
+        if self._is_windows_remote:
+            return f"PS {self.device_label} {cwd_disp}> "
+        return f"{self.device_label}:{cwd_disp}$ "
+
     def _start_process(self):
-        """Spawn the platform shell (PTY on Linux, piped PowerShell on Windows)."""
+        """Spawn the platform shell (PTY on Linux, piped PowerShell on Windows) or start Remote Agent Relay."""
+        if self._is_remote:
+            os_tag = f" ({self.device_os})" if self.device_os else ""
+            self._broadcast(
+                f"Connected to {self.device_label}{os_tag} via AI Bridge Agent Shell Relay.\r\n"
+                f"{self._prompt()}"
+            )
+            return
+
         system = platform.system()
 
         if system == "Linux" or system == "Darwin":
@@ -160,11 +190,89 @@ class TerminalSession:
             self.is_alive = False
             self._broadcast("\r\n[Session Disconnected]\r\n")
 
+    def _exec_remote_line(self, cmd: str):
+        """Execute a submitted command line on the remote agent and broadcast output."""
+        try:
+            stripped = cmd.strip()
+            if not stripped:
+                self._broadcast(self._prompt())
+                return
+            if stripped.lower() in ("exit", "logout"):
+                self._broadcast("logout\r\n[Session Disconnected]\r\n")
+                self.is_alive = False
+                return
+            if stripped.startswith("cd ") or stripped == "cd":
+                target_dir = stripped[3:].strip().strip('"').strip("'") if len(stripped) > 2 else ""
+                probe_cmd = (
+                    f'cd "{target_dir}" && pwd'
+                    if (target_dir and not self._is_windows_remote)
+                    else (
+                        f'Set-Location -LiteralPath "{target_dir}"; (Get-Location).Path'
+                        if (target_dir and self._is_windows_remote)
+                        else ("pwd" if not self._is_windows_remote else "(Get-Location).Path")
+                    )
+                )
+                res = self.remote_exec(self.device_id, probe_cmd, self._remote_cwd)
+                out = str((res or {}).get("stdout") or "").strip()
+                err = str((res or {}).get("stderr") or "").strip()
+                rc = (res or {}).get("returncode", 0)
+                if rc == 0 and out:
+                    self._remote_cwd = out.splitlines()[-1].strip()
+                elif err:
+                    self._broadcast(f"{err}\r\n")
+                self._broadcast(self._prompt())
+                return
+
+            res = self.remote_exec(self.device_id, stripped, self._remote_cwd)
+            if isinstance(res, dict):
+                stdout = str(res.get("stdout") or "")
+                stderr = str(res.get("stderr") or "")
+                combined = stdout
+                if stderr:
+                    combined = f"{combined.rstrip()}\r\n{stderr}" if combined.strip() else stderr
+                if combined:
+                    norm = combined.replace("\r\n", "\n").replace("\n", "\r\n")
+                    if not norm.endswith("\r\n"):
+                        norm += "\r\n"
+                    self._broadcast(norm)
+            elif res is not None:
+                self._broadcast(f"{res}\r\n")
+        except Exception as exc:
+            self._broadcast(f"[Remote execution error: {exc}]\r\n")
+        if self.is_alive:
+            self._broadcast(self._prompt())
+
     def write(self, data: str):
         """Write user input to the terminal."""
         if not self.is_alive or not data:
             return
         self.last_active = time.time()
+
+        if self._is_remote:
+            for ch in data:
+                if ch == "\x03":
+                    self._line_buf = ""
+                    self._broadcast(f"^C\r\n{self._prompt()}")
+                elif ch == "\x04":
+                    self._line_buf = ""
+                    self._broadcast("^D\r\n[Session Disconnected]\r\n")
+                    self.is_alive = False
+                    return
+                elif ch in ("\x7f", "\b"):
+                    if self._line_buf:
+                        self._line_buf = self._line_buf[:-1]
+                elif ch in ("\r", "\n"):
+                    cmd = self._line_buf
+                    self._line_buf = ""
+                    if cmd.strip():
+                        self._broadcast(f"{cmd}\r\n")
+                        threading.Thread(target=self._exec_remote_line, args=(cmd,), daemon=True).start()
+                    else:
+                        self._broadcast(f"\r\n{self._prompt()}")
+                else:
+                    self._line_buf += ch
+            return
+
         raw = data.encode("utf-8", errors="replace")
 
         try:
@@ -243,10 +351,25 @@ class TerminalSession:
 # Manager API
 # ============================================================================
 
-def create_terminal_session(device_id: str = "local", cols: int = 120, rows: int = 35) -> TerminalSession:
+def create_terminal_session(
+    device_id: str = "local",
+    cols: int = 120,
+    rows: int = 35,
+    remote_exec=None,
+    device_label: str = "",
+    device_os: str = "",
+) -> TerminalSession:
     """Create a new live terminal session."""
     session_id = uuid.uuid4().hex[:12]
-    sess = TerminalSession(session_id, device_id=device_id, cols=cols, rows=rows)
+    sess = TerminalSession(
+        session_id,
+        device_id=device_id,
+        cols=cols,
+        rows=rows,
+        remote_exec=remote_exec,
+        device_label=device_label,
+        device_os=device_os,
+    )
     with _LOCK:
         _TERMINAL_SESSIONS[session_id] = sess
     return sess

@@ -28,7 +28,18 @@ ROTATE_THRESHOLD_SECONDS = 2 * 86400  # Rotate when < 48h remaining
 
 
 def _collect_metrics() -> dict:
-    metrics = {}
+    metrics: dict = {}
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            metrics["ip_address"] = s.getsockname()[0]
+        finally:
+            s.close()
+    except Exception:
+        pass
+
     try:
         import psutil
         vm = psutil.virtual_memory()
@@ -39,7 +50,12 @@ def _collect_metrics() -> dict:
         disk = psutil.disk_usage(root)
         metrics["cpu_percent"] = round(float(cpu), 1)
         metrics["memory_percent"] = round(float(vm.percent), 1)
+        metrics["memory_total_gb"] = round(float(vm.total) / (1024 ** 3), 1)
         metrics["disk_percent"] = round(float(disk.percent), 1)
+        metrics["disk_total_gb"] = round(float(disk.total) / (1024 ** 3), 1)
+        boot_ts = psutil.boot_time()
+        if boot_ts:
+            metrics["uptime_hours"] = round(max(0.0, time.time() - float(boot_ts)) / 3600.0, 1)
     except Exception:
         try:
             import shutil
@@ -49,8 +65,16 @@ def _collect_metrics() -> dict:
             tot, used, free = shutil.disk_usage(root)
             if tot > 0:
                 metrics["disk_percent"] = round((used / tot) * 100.0, 1)
+                metrics["disk_total_gb"] = round(float(tot) / (1024 ** 3), 1)
         except Exception:
             pass
+        if os.path.exists("/proc/uptime"):
+            try:
+                with open("/proc/uptime", encoding="utf-8") as f:
+                    up_sec = float(f.read().split()[0])
+                    metrics["uptime_hours"] = round(up_sec / 3600.0, 1)
+            except Exception:
+                pass
     return metrics
 
 
