@@ -5,6 +5,7 @@ import { Brand, BrandArt } from "../Brand";
 import { api, authenticate } from "../api";
 import { dashboardStore, useDashboardStore } from "../state/dashboardStore";
 import { LanguageControl } from "../LanguageControl";
+import { ThemeControl } from "../ThemeControl";
 import { useLanguage } from "../i18n";
 
 function passwordStrength(password: string): { score: number; label: string; color: string } {
@@ -51,7 +52,7 @@ export const LoginView: React.FC = () => {
   };
 
   return <main className="product-auth">
-    <header className="product-container flex flex-wrap items-center justify-between gap-2 py-4"><Brand /><LanguageControl /></header>
+    <header className="product-container flex flex-wrap items-center justify-between gap-2 py-4"><Brand /><div className="flex items-center gap-2"><ThemeControl /><LanguageControl /></div></header>
     <div className="product-auth-content">
     <div className="product-auth-form space-y-4">
       <div className="space-y-3">
