@@ -1371,7 +1371,7 @@ export const LiveDesktopView: React.FC = () => {
           <div className="w-72">
             <JXSelect
               options={devices.map((d) => ({
-                value: d.id,
+                id: d.id,
                 label: `${d.hostname} (${d.name})`,
               }))}
               value={selectedDeviceId}
