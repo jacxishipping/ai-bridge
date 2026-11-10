@@ -523,6 +523,10 @@ TOOL_CATALOG: dict[str, dict[str, Any]] = {
 }
 
 # Add aliases and additional mapped tools
+from ..connectors import microsoft365 as _m365  # noqa: E402
+
+TOOL_CATALOG.update(_m365.TOOL_SPECS)
+
 TOOL_CATALOG["capture_desktop_screenshot"] = {
     **TOOL_CATALOG["take_screenshot"],
     "description": "Alias for take_screenshot: captures desktop display on target device.",

@@ -91,6 +91,16 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "desktop_get_windows": RiskTier.READ_ONLY,
     "desktop_wait": RiskTier.SENSITIVE,
     "desktop_verify_action": RiskTier.SENSITIVE,
+    # Microsoft 365 connector (Graph). Reads are Tier 1; sending mail is Tier 4.
+    "m365_get_profile": RiskTier.READ_ONLY,
+    "m365_list_mail": RiskTier.READ_ONLY,
+    "m365_search_mail": RiskTier.READ_ONLY,
+    "m365_get_mail": RiskTier.READ_ONLY,
+    "m365_list_events": RiskTier.READ_ONLY,
+    "m365_list_files": RiskTier.READ_ONLY,
+    "m365_search_files": RiskTier.READ_ONLY,
+    "m365_create_event": RiskTier.SENSITIVE,
+    "m365_send_mail": RiskTier.HIGH_RISK,
 }
 
 @dataclass(frozen=True)

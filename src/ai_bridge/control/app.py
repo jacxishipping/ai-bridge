@@ -3241,6 +3241,51 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         dashboard = cfg["dashboard_url"].rstrip("/") + "/"
         return RedirectResponse(dashboard + "#" + urlencode({"session_token": session_token}), status_code=302)
 
+    # --- Connector: Microsoft 365 (dormant unless AI_BRIDGE_M365_* are set) ---
+    @app.get("/api/connectors/m365/status")
+    def m365_status(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        from ..connectors import microsoft365 as m365
+
+        require_role("viewer", x_admin_token, x_session_token)
+        return m365.status()
+
+    @app.post("/api/connectors/m365/login")
+    def m365_login(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        from ..connectors import microsoft365 as m365
+
+        actor = require_admin(x_admin_token, x_session_token)
+        try:
+            url = m365.new_login()
+        except m365.M365Error as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        audit(actor, "", "m365_login_start", {}, "allowed")
+        return {"authorize_url": url}
+
+    @app.get("/api/connectors/m365/callback")
+    def m365_callback(code: str = "", state: str = ""):
+        from fastapi.responses import RedirectResponse
+
+        from ..connectors import microsoft365 as m365
+
+        try:
+            m365.complete_login(code, state)
+        except m365.M365Error as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        audit("m365", "", "m365_connected", {}, "allowed")
+        return RedirectResponse(os.environ.get("AI_BRIDGE_OIDC_DASHBOARD_URL", "/"), status_code=302)
+
+    @app.delete("/api/connectors/m365")
+    def m365_disconnect(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        from ..connectors import microsoft365 as m365
+
+        actor = require_admin(x_admin_token, x_session_token)
+        try:
+            removed = m365.disconnect()
+        except m365.M365Error as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        audit(actor, "", "m365_disconnect", {}, "allowed")
+        return {"disconnected": removed}
+
     @app.post("/api/auth/users")
     def create_user(body: UserIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         with conn.transaction():
@@ -3676,7 +3721,8 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     async def rate_limit_middleware(request: Request, call_next):
         client_ip = request.client.host if request.client else "anon"
         path = request.url.path
-        if path in ("/api/auth/login", "/api/auth/oidc/login", "/api/auth/oidc/callback"):
+        if path in ("/api/auth/login", "/api/auth/oidc/login", "/api/auth/oidc/callback",
+                    "/api/connectors/m365/callback"):
             key = f"auth:{client_ip}"
             limit = 30
         else:

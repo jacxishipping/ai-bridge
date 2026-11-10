@@ -297,6 +297,9 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
             policy=policy,
         ),
     }
+    from ..connectors import microsoft365
+
+    handlers.update({name: (lambda a, _fn=fn: _fn(a)) for name, fn in microsoft365.TOOLS.items()})
     handler = handlers.get(tool)
     if handler is None:
         raise ValueError(f"Tool not executable via the control plane: {tool}")

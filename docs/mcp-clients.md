@@ -6,6 +6,8 @@
 - **ChatGPT web**: no local stdio support. Use remote Streamable HTTP
   where your plan supports remote MCP/developer connectors, behind TLS
   + bearer auth (docs/remote-access.md). See integrations/chatgpt/.
+- **Microsoft 365 Copilot / Copilot Studio**: remote Streamable HTTP MCP
+  with the OAuth gateway (dynamic discovery). See integrations/copilot365/.
 - **Remote HTTP server**: `python -m ai_bridge.server --http --port 8001`
   (binds 127.0.0.1 by default). A bearer-token check in front of it is
   required for any non-loopback exposure; the control plane's admin
