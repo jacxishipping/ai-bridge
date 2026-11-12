@@ -10,6 +10,9 @@
 # Usage (Interactive GUI):
 #   powershell -ExecutionPolicy Bypass -File .\Install-AIBridge.ps1
 #   (or double-click Setup.bat)
+#
+# Usage (Support report, installs nothing):
+#   powershell -ExecutionPolicy Bypass -File .\Install-AIBridge.ps1 -Diagnose
 # ==============================================================================
 
 [CmdletBinding()]
@@ -17,6 +20,7 @@ param(
     [string]$ControlUrl = "https://jxiptvplayer.app",
     [string]$DeviceToken = "",
     [string]$InstallDir = "",
+    [switch]$Diagnose,
     [switch]$AutoStart,
     [switch]$CreateShortcuts,
     [switch]$NoGui,
@@ -50,6 +54,86 @@ function Write-Header {
     Write-Host " Control Server:  $ControlUrl"
     Write-Host "=====================================================================" -ForegroundColor DarkGray
     Write-Host ""
+}
+
+# --- Failure diagnostics -----------------------------------------------------
+# Any failure runs the desktop client's headless report, so the operator gets
+# platform / token-backend / config / connectivity state instead of only a stack
+# trace. Best effort: never throws and never changes the installer's exit code.
+function Invoke-AiBridgeDiagnose {
+    param([string]$Reason = "Installation failed", [string]$RepoRoot = "", [string]$PythonExe = "")
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        Write-Host ""
+        Write-Host "=============== AI Bridge diagnostics ===============" -ForegroundColor Yellow
+        Write-Host "Reason: $Reason" -ForegroundColor Yellow
+
+        $roots = @()
+        if ($RepoRoot) { $roots += $RepoRoot }
+        foreach ($relative in @("..\..", ".")) {
+            $resolved = Resolve-Path (Join-Path $PSScriptRoot $relative) -ErrorAction SilentlyContinue
+            if ($resolved) { $roots += $resolved.Path }
+        }
+
+        $GuiScript = ""
+        foreach ($root in $roots) {
+            $candidateScript = Join-Path $root "agents\windows\gui_app.py"
+            if (Test-Path $candidateScript) { $GuiScript = $candidateScript; break }
+        }
+
+        $candidates = @()
+        if ($PythonExe) { $candidates += $PythonExe }
+        foreach ($root in $roots) {
+            $candidates += (Join-Path $root ".venv\Scripts\python.exe")
+            $candidates += (Join-Path $root "venv\Scripts\python.exe")
+        }
+        if ($env:ProgramData) { $candidates += (Join-Path $env:ProgramData "ai-bridge\.venv\Scripts\python.exe") }
+
+        $python = $null
+        foreach ($candidate in $candidates) {
+            if ($candidate -and (Test-Path $candidate)) { $python = $candidate; break }
+        }
+        if (-not $python) {
+            $onPath = Get-Command python.exe -ErrorAction SilentlyContinue
+            if ($onPath) { $python = $onPath.Source }
+        }
+
+        if (-not $python) {
+            Write-Host "No Python interpreter found, so the report cannot be generated." -ForegroundColor DarkYellow
+            return
+        }
+        if (-not $GuiScript) {
+            Write-Host "gui_app.py not found under: $($roots -join ', ')" -ForegroundColor DarkYellow
+            Write-Host "Interpreter available at: $python"
+            return
+        }
+
+        Write-Host "Interpreter: $python"
+        Write-Host "Command:     $GuiScript --diagnose"
+        $report = & $python $GuiScript --diagnose 2>&1 | Out-String
+        if ($report.Trim()) {
+            Write-Host $report.Trim()
+        } else {
+            Write-Host "The diagnose command produced no output (exit code $LASTEXITCODE)." -ForegroundColor DarkYellow
+        }
+        Write-Host "=====================================================" -ForegroundColor Yellow
+    } catch {
+        Write-Host "Diagnostics could not be collected: $($_.Exception.Message)" -ForegroundColor DarkYellow
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+}
+
+trap {
+    Invoke-AiBridgeDiagnose -Reason "Install-AIBridge.ps1 failed: $($_.Exception.Message)" -RepoRoot $RepoRoot -PythonExe $PythonExe
+    exit 1
+}
+
+# On-demand report, before the wizard can launch and before anything is installed.
+if ($Diagnose) {
+    Invoke-AiBridgeDiagnose -Reason "Requested with -Diagnose; no installation was performed" -RepoRoot $RepoRoot
+    exit 0
 }
 
 # If run interactively with no token and not suppressed, launch the GUI installer wizard
@@ -140,6 +224,7 @@ if (-not $PythonExe) {
     }
     if (-not $PythonExe -or -not (Test-Path $PythonExe)) {
         Write-Host "Error: Python 3.11+ is required. Please install Python from https://www.python.org/downloads/ and rerun." -ForegroundColor Red
+        Invoke-AiBridgeDiagnose -Reason "Python 3.11+ is required but was not found or installed" -RepoRoot $RepoRoot
         exit 1
     }
 }
@@ -167,6 +252,7 @@ $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 $VenvPythonW = Join-Path $VenvDir "Scripts\pythonw.exe"
 if (-not (Test-Path $VenvPython)) {
     Write-Host "Error: Virtual environment python executable not found at $VenvPython" -ForegroundColor Red
+    Invoke-AiBridgeDiagnose -Reason "Virtual environment is incomplete at $VenvDir" -RepoRoot $RepoRoot -PythonExe $PythonExe
     exit 1
 }
 

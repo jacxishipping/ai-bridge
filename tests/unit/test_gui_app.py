@@ -96,9 +96,9 @@ def test_gui_app_headless_init(monkeypatch, tmp_path):
     # Disable auto-start and tray thread for test
     monkeypatch.setattr(gui_app.SystemTrayManager, "start", lambda self: None)
 
-    import tkinter as tk
-
     try:
+        import tkinter as tk
+
         root = tk.Tk()
         root.withdraw()
     except Exception:
@@ -166,8 +166,9 @@ def test_gui_app_headless_init(monkeypatch, tmp_path):
 
 
 def test_poller_effective_policy_merging():
-    from ai_bridge.policy import Policy
     from common.poller import Poller
+
+    from ai_bridge.policy import Policy
 
     local_pol = Policy(
         allow_writes=True,

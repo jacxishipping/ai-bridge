@@ -16,6 +16,7 @@ Launch with:
 """
 from __future__ import annotations
 
+import argparse
 import ctypes
 import json
 import os
@@ -28,17 +29,23 @@ import subprocess
 import sys
 import threading
 import time
-import tkinter as tk
 import urllib.error
 import urllib.request
 import webbrowser
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+
+try:  # Keep this module importable for --diagnose on hosts without Tk/Tcl.
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, ttk
+except ImportError:  # pragma: no cover - headless support hosts
+    tk = None  # type: ignore[assignment]
+    filedialog = messagebox = ttk = None  # type: ignore[assignment]
 
 # Insert source paths
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import diagnose  # noqa: E402
 from common.poller import Poller  # noqa: E402
 
 # Configuration paths & registry constants
@@ -3040,12 +3047,34 @@ class AgentGuiApp:
         self.root.destroy()
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="ai-bridge-gui", description="AI Bridge Windows desktop agent")
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="print a JSON support report (platform, token backend, config, control-plane reachability) and exit",
+    )
+    args = parser.parse_args(argv)
+
+    if args.diagnose:
+        report = diagnose.build_report(load_agent_config, gui_available=tk is not None)
+        print(json.dumps(report, indent=2, default=str))
+        return 0
+
+    if tk is None:
+        print(
+            "Tkinter is unavailable on this host, so the window cannot open.\n"
+            "Re-run with --diagnose for a headless report, or install the python3-tk package.",
+            file=sys.stderr,
+        )
+        return 1
+
     _enable_dpi_awareness()
     root = tk.Tk()
     AgentGuiApp(root)
     root.mainloop()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
