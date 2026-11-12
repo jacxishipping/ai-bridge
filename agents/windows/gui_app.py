@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
+import logging
 import os
 import platform
 import queue
@@ -45,8 +46,13 @@ except ImportError:  # pragma: no cover - headless support hosts
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import app_runtime as runtime  # noqa: E402
 import diagnose  # noqa: E402
 from common.poller import Poller  # noqa: E402
+
+# Shared with the on-disk log written by app_runtime.configure_file_logging().
+_LOGGER = logging.getLogger("ai_bridge.gui")
+_LOG_LEVELS = {"err": logging.ERROR, "warn": logging.WARNING, "ok": logging.INFO, "info": logging.INFO}
 
 # Configuration paths & registry constants
 CONFIG_DIR = Path.home() / ".ai-bridge"
@@ -348,9 +354,13 @@ def load_agent_config() -> dict:
             pass
     if TOKEN_FILE.exists():
         try:
-            saved_tok = TOKEN_FILE.read_text(encoding="utf-8").strip()
+            saved_tok = runtime.load_token(TOKEN_FILE)
             if saved_tok:
                 cfg["device_token"] = saved_tok
+            # Upgrade a legacy plaintext token to DPAPI on first successful load.
+            runtime.migrate_token_file(TOKEN_FILE)
+        except runtime.TokenStoreError as exc:
+            _LOGGER.warning("Stored device token is unreadable: %s", exc)
         except Exception:
             pass
     if not cfg.get("device_token"):
@@ -378,11 +388,14 @@ def save_agent_config(cfg: dict) -> None:
     """Persist settings to ~/.ai-bridge/agent_gui.json and device.token."""
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-        if cfg.get("device_token"):
-            TOKEN_FILE.write_text(cfg["device_token"].strip(), encoding="utf-8")
-    except OSError:
-        pass
+        # The bearer token never goes into the JSON config: it lives in its own
+        # DPAPI-sealed file, so a copied config leaks nothing usable.
+        CONFIG_FILE.write_text(json.dumps(runtime.strip_token_from_config(cfg), indent=2), encoding="utf-8")
+        token = (cfg.get("device_token") or "").strip()
+        if token:
+            runtime.save_token(token, TOKEN_FILE)
+    except (OSError, runtime.TokenStoreError) as exc:
+        _LOGGER.warning("Could not persist agent configuration: %s", exc)
 
 
 class SystemTrayManager:
@@ -2698,11 +2711,11 @@ class AgentGuiApp:
         """Reload device token from ~/.ai-bridge/device.token."""
         if TOKEN_FILE.exists():
             try:
-                tok = TOKEN_FILE.read_text(encoding="utf-8").strip()
+                tok = runtime.load_token(TOKEN_FILE)
                 if tok:
                     self.token_var.set(tok)
                     self.save_current_config()
-                    self.log(f"Reloaded valid device token from disk: {tok[:8]}...", "ok")
+                    self.log(f"Reloaded valid device token from disk: {runtime.mask_secret(tok)}", "ok")
                     messagebox.showinfo("Token Loaded", f"Device token reloaded successfully from {TOKEN_FILE}!")
                     return
             except Exception as exc:
@@ -2794,6 +2807,7 @@ class AgentGuiApp:
     def log(self, message: str, tag: str = "info") -> None:
         ts = time.strftime("%H:%M:%S")
         self.log_queue.put((f"[{ts}] {message}\n", tag))
+        _LOGGER.log(_LOG_LEVELS.get(tag, logging.INFO), "%s", message)
 
     def _drain_logs(self) -> None:
         try:
@@ -2823,10 +2837,10 @@ class AgentGuiApp:
         # If token in memory is empty or a dummy test token, automatically reload valid token from disk
         if TOKEN_FILE.exists():
             try:
-                disk_tok = TOKEN_FILE.read_text(encoding="utf-8").strip()
+                disk_tok = runtime.load_token(TOKEN_FILE)
                 if disk_tok and (not self.token_var.get().strip() or "test-token" in self.token_var.get()):
                     self.token_var.set(disk_tok)
-                    self.log(f"Loaded valid device token from disk: {disk_tok[:8]}...", "ok")
+                    self.log(f"Loaded valid device token from disk: {runtime.mask_secret(disk_tok)}", "ok")
             except Exception:
                 pass
         url = self.url_var.get().strip()
@@ -2863,7 +2877,15 @@ class AgentGuiApp:
 
     def _poll_loop(self, url: str, tok: str) -> None:
         local_policy = self.get_current_policy()
-        poller = Poller(url, tok, policy=local_policy, token_file=TOKEN_FILE)
+        poller = Poller(
+            url,
+            tok,
+            policy=local_policy,
+            token_file=TOKEN_FILE,
+            # Keep rotated tokens sealed instead of letting the poller write plaintext.
+            token_saver=lambda t: runtime.save_token(t, TOKEN_FILE),
+            token_loader=lambda: runtime.load_token(TOKEN_FILE, default="") or None,
+        )
         self.poller = poller
         wait_s = max(5, min(self.poll_wait_var.get(), 60))
         self.log(f"Agent started polling {url} (long-poll wait={wait_s}s)", "ok")
@@ -3070,9 +3092,30 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     _enable_dpi_awareness()
+    log_path = runtime.configure_file_logging()
+    runtime.install_excepthook()
+    guard = runtime.SingleInstanceGuard()
+
     root = tk.Tk()
-    AgentGuiApp(root)
-    root.mainloop()
+    root.withdraw()
+    if not guard.acquire():
+        messagebox.showwarning(
+            "AI Bridge is already running",
+            "Another AI Bridge window is already open.\n\n"
+            "Restore it from the system tray, or close it before starting a second copy.",
+        )
+        root.destroy()
+        return 0
+
+    root.deiconify()
+    try:
+        AgentGuiApp(root)
+        _LOGGER.info(
+            "Desktop app started (log=%s, token backend=%s)", log_path, runtime.token_backend(TOKEN_FILE)
+        )
+        root.mainloop()
+    finally:
+        guard.release()
     return 0
 
 

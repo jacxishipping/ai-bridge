@@ -15,12 +15,14 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from ai_bridge.control.dispatch import dispatch
 from ai_bridge.policy import Policy
 from ai_bridge.tools import default_policy
+
 from .spool import TaskSpooler
 
 MAX_RESULT_CHARS = 512_000
@@ -86,6 +88,8 @@ class Poller:
         *,
         policy: Policy | None = None,
         token_file: Path | None = None,
+        token_saver: Callable[[str], None] | None = None,
+        token_loader: Callable[[], str | None] | None = None,
     ):
         self.control_url = control_url.rstrip("/")
         self.device_token = device_token
@@ -99,6 +103,10 @@ class Poller:
         self._explicit_policy = policy
         self.policy = policy if policy is not None else default_policy()
         self.token_file = token_file or (Path.home() / ".ai-bridge" / "device.token")
+        # Optional persistence hooks: the Windows desktop app uses these to keep
+        # rotated tokens DPAPI-sealed instead of writing plaintext.
+        self._token_saver = token_saver
+        self._token_loader = token_loader
         spool_path = self.token_file.parent / "agent_spool.db" if self.token_file else None
         self.spooler = TaskSpooler(spool_path)
         self.backoff = 2.0
@@ -121,6 +129,12 @@ class Poller:
             raise RuntimeError(f"Control plane returned HTTP {exc.code}")
 
     def _save_token(self, token: str) -> None:
+        if self._token_saver is not None:
+            try:
+                self._token_saver(token)
+                return
+            except Exception:
+                pass
         try:
             self.token_file.parent.mkdir(parents=True, exist_ok=True)
             tmp_file = self.token_file.with_name(f"{self.token_file.name}.tmp")
@@ -138,6 +152,11 @@ class Poller:
             pass
 
     def _load_saved_token(self) -> str | None:
+        if self._token_loader is not None:
+            try:
+                return self._token_loader()
+            except Exception:
+                return None
         try:
             if self.token_file.exists():
                 tok = self.token_file.read_text(encoding="utf-8").strip()
