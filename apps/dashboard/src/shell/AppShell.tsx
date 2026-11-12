@@ -47,7 +47,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   return (
-    <div lang="en" dir="ltr" className="product-shell h-dvh w-full flex overflow-hidden" style={{ color: "var(--product-text)" }}>
+    <div lang="en" dir="ltr" className="product-shell h-dvh w-full flex overflow-hidden text-[color:var(--product-text)]!">
       <a href="#main-content" onClick={(event) => { event.preventDefault(); mainRef.current?.focus(); }}
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-indigo-600 focus:p-3 focus:text-white">
         Skip to content
@@ -66,19 +66,18 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
             animate={{ x: 0 }}
             exit={{ x: "-100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="fixed left-0 top-0 z-50 h-dvh w-72 max-w-[85vw] shadow-2xl"
-            style={{ backgroundColor: "var(--product-sidebar-bg)" }}
+            className="fixed left-0 top-0 z-50 h-dvh w-72 max-w-[85vw] bg-[var(--product-sidebar-bg)] shadow-2xl"
           >
             <SidebarNav onNavigate={() => setMenuOpen(false)} />
           </motion.aside>
         </>
       )}
       <GlassModal open={helpOpen} onClose={() => setHelpOpen(false)} title="Keyboard shortcuts">
-        <div className="space-y-3 text-sm" style={{ color: "var(--product-text-secondary)" }}>
-          <div className="flex items-center justify-between gap-4"><span>Search / Command palette</span><kbd className="rounded border px-1.5 py-0.5 text-xs" style={{ borderColor: "var(--product-line)", color: "var(--product-text-tertiary)" }}>Ctrl K</kbd></div>
-          <div className="flex items-center justify-between gap-4"><span>Skip to main content</span><kbd className="rounded border px-1.5 py-0.5 text-xs" style={{ borderColor: "var(--product-line)", color: "var(--product-text-tertiary)" }}>Tab</kbd></div>
-          <div className="flex items-center justify-between gap-4"><span>Toggle this help</span><kbd className="rounded border px-1.5 py-0.5 text-xs" style={{ borderColor: "var(--product-line)", color: "var(--product-text-tertiary)" }}>?</kbd></div>
-          <div className="flex items-center justify-between gap-4"><span>Close modal / menu</span><kbd className="rounded border px-1.5 py-0.5 text-xs" style={{ borderColor: "var(--product-line)", color: "var(--product-text-tertiary)" }}>Esc</kbd></div>
+        <div className="space-y-3 text-sm text-[color:var(--product-text-secondary)]">
+          <div className="flex items-center justify-between gap-4"><span>Search / Command palette</span><kbd className="rounded border border-[color:var(--product-line)] px-1.5 py-0.5 text-xs text-[color:var(--product-text-tertiary)]">Ctrl K</kbd></div>
+          <div className="flex items-center justify-between gap-4"><span>Skip to main content</span><kbd className="rounded border border-[color:var(--product-line)] px-1.5 py-0.5 text-xs text-[color:var(--product-text-tertiary)]">Tab</kbd></div>
+          <div className="flex items-center justify-between gap-4"><span>Toggle this help</span><kbd className="rounded border border-[color:var(--product-line)] px-1.5 py-0.5 text-xs text-[color:var(--product-text-tertiary)]">?</kbd></div>
+          <div className="flex items-center justify-between gap-4"><span>Close modal / menu</span><kbd className="rounded border border-[color:var(--product-line)] px-1.5 py-0.5 text-xs text-[color:var(--product-text-tertiary)]">Esc</kbd></div>
         </div>
       </GlassModal>
 

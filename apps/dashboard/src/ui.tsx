@@ -49,10 +49,10 @@ export function JXCard(props: React.ComponentProps<typeof Card>) {
 export function JXCardHeader({ title, subheader, icon }: { title: string; subheader?: string; icon?: React.ReactNode }) {
   return <div className="mb-3 flex items-start justify-between gap-3">
     <div className="min-w-0">
-      <h2 className="text-sm font-semibold" style={{ color: "var(--product-text)" }}>{title}</h2>
-      {subheader && <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--product-text-tertiary)" }}>{subheader}</p>}
+      <h2 className="text-sm font-semibold text-[color:var(--product-text)]">{title}</h2>
+      {subheader && <p className="mt-1 text-xs leading-relaxed text-[color:var(--product-text-tertiary)]">{subheader}</p>}
     </div>
-    {icon && <span aria-hidden="true" className="shrink-0" style={{ color: "var(--product-text-tertiary)" }}>{icon}</span>}
+    {icon && <span aria-hidden="true" className="shrink-0 text-[color:var(--product-text-tertiary)]">{icon}</span>}
   </div>;
 }
 
@@ -71,8 +71,7 @@ export function JXTabs({ tabs = [], value, defaultValue, onChange, className = "
   const [local, setLocal] = useState(defaultValue || tabs[0]?.id);
   const current = value ?? local;
   return <div className={`space-y-3 ${className}`}>
-    <div role="group" aria-label="View sections" className="flex flex-wrap gap-2 rounded-xl p-1"
-      style={{ backgroundColor: "var(--product-raised)" }}
+    <div role="group" aria-label="View sections" className="flex flex-wrap gap-2 rounded-xl bg-[var(--product-raised)] p-1"
       onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         const buttons = Array.from(event.currentTarget.querySelectorAll("button"));
@@ -123,15 +122,13 @@ export function GlassModal({ open = true, onClose, title, children, closeLabel =
   return <dialog ref={ref} aria-labelledby={titleId}
     onCancel={(event) => { event.preventDefault(); close.current?.(); }}
     onClick={(event) => { if (event.target === event.currentTarget) close.current?.(); }}
-    className="product-dialog m-auto w-[calc(100%-2rem)] max-w-2xl max-h-[90dvh] overflow-y-auto rounded-2xl border p-0 shadow-2xl backdrop:backdrop-blur-sm"
-    style={{ borderColor: "var(--product-line)", color: "var(--product-text)" }}
+    className="product-dialog m-auto w-[calc(100%-2rem)] max-w-2xl max-h-[90dvh] overflow-y-auto rounded-2xl border border-[color:var(--product-line)]! p-0 text-[color:var(--product-text)]! shadow-2xl backdrop:backdrop-blur-sm"
     data-dialog-backdrop>
     <JXBox padding="lg" border={false} className="min-w-0">
       <div className="mb-5 flex items-center justify-between gap-4">
         <h2 id={titleId} className="text-base font-semibold">{title}</h2>
         <button type="button" onClick={onClose} aria-label={closeLabel}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg hover:bg-[var(--product-raised)]"
-          style={{ color: "var(--product-text-tertiary)" }}>
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[color:var(--product-text-tertiary)] hover:bg-[var(--product-raised)]">
           <X className="h-5 w-5" aria-hidden="true" />
         </button>
       </div>

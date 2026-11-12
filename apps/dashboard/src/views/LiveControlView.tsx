@@ -73,10 +73,10 @@ export function LiveControlView() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <h1>{t("Control plane")}</h1>
-          {snapshot && <p lang="en" dir="ltr" className="text-xs" style={{ color: "var(--product-text-tertiary)" }}>Updated <bdi>{date(snapshot.checkedAt, { timeStyle: "medium" })}</bdi></p>}
+          {snapshot && <p lang="en" dir="ltr" className="text-xs text-[color:var(--product-text-tertiary)]">Updated <bdi>{date(snapshot.checkedAt, { timeStyle: "medium" })}</bdi></p>}
         </div>
         {snapshot && <div className="flex min-w-0 flex-wrap items-center gap-4">
-          <p lang="en" dir="ltr" className="max-w-full break-words text-xs [overflow-wrap:anywhere]" style={{ color: "var(--product-text-secondary)" }}>Signed in as <bdi>{snapshot.identity.actor || snapshot.identity.username || "operator"}</bdi> · {snapshot.identity.role}</p>
+          <p lang="en" dir="ltr" className="max-w-full break-words text-xs [overflow-wrap:anywhere] text-[color:var(--product-text-secondary)]">Signed in as <bdi>{snapshot.identity.actor || snapshot.identity.username || "operator"}</bdi> · {snapshot.identity.role}</p>
           <JXBadge color={error ? "warning" : "success"} statusText={t(error ? "Stale data" : "Connected")} />
         </div>}
       </div>
@@ -88,33 +88,33 @@ export function LiveControlView() {
         )}
         <JXButton color="neutral" variant="outlined" onClick={signOut}>{isLive ? "Return to sign in" : "Connect server"}</JXButton>
       </div>}
-      {loading && !snapshot && <p role="status" lang="en" dir="ltr" className="py-8 text-sm" style={{ color: "var(--product-text-tertiary)" }}>Loading your control plane…</p>}
+      {loading && !snapshot && <p role="status" lang="en" dir="ltr" className="py-8 text-sm text-[color:var(--product-text-tertiary)]">Loading your control plane…</p>}
       {snapshot && <>
         <section lang="en" dir="ltr" aria-label="Fleet safety" className="product-safety relative px-3 py-2" data-stopped={snapshot.health.emergency_stop}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
-                <ShieldCheck className="h-4 w-4 shrink-0" aria-hidden="true" style={{ color: "var(--product-text-tertiary)" }} />
-                <p role="status" className="text-sm" style={{ color: "var(--product-text-secondary)" }}>{snapshot.health.emergency_stop ? "Emergency stop is active." : "Emergency stop is not active."}</p>
+                <ShieldCheck className="h-4 w-4 shrink-0 text-[color:var(--product-text-tertiary)]" aria-hidden="true" />
+                <p role="status" className="text-sm text-[color:var(--product-text-secondary)]">{snapshot.health.emergency_stop ? "Emergency stop is active." : "Emergency stop is not active."}</p>
               </div>
               <JXButton variant="outlined" color={snapshot.health.emergency_stop ? "success" : "error"}
                 disabled={Boolean(error) || snapshot.identity.role !== "admin"}
                 onClick={() => { setActionError(""); setConfirm(true); }}>{snapshot.health.emergency_stop ? "Clear emergency stop" : "Stop fleet"}</JXButton>
             </div>
-            {snapshot.identity.role !== "admin" && <p className="mt-2 text-xs" style={{ color: "var(--product-text-tertiary)" }}>An administrator is required to change the emergency stop.</p>}
+            {snapshot.identity.role !== "admin" && <p className="mt-2 text-xs text-[color:var(--product-text-tertiary)]">An administrator is required to change the emergency stop.</p>}
         </section>
         <LiveWorkspace key={`${snapshot.identity.actor || snapshot.identity.username}:${snapshot.identity.role}`}
           identity={`${snapshot.identity.actor || snapshot.identity.username || "operator"}:${snapshot.identity.role}`}
           role={snapshot.identity.role || "viewer"} devices={snapshot.devices} stale={Boolean(error) || loading}
           stopped={snapshot.health.emergency_stop} refresh={() => { void refresh(); }} />
       </>}
-      <footer lang="en" dir="ltr" className="flex flex-wrap items-center justify-between gap-3 border-t pt-5" style={{ borderColor: "var(--product-line)" }}>
-        <p className="text-xs leading-relaxed" style={{ color: "var(--product-text-tertiary)" }}>Operations Dashboard: view complete fleet telemetry, charts, and device execution.</p>
+      <footer lang="en" dir="ltr" className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--product-line)] pt-5">
+        <p className="text-xs leading-relaxed text-[color:var(--product-text-tertiary)]">Operations Dashboard: view complete fleet telemetry, charts, and device execution.</p>
         <JXButton color="neutral" variant="text" onClick={() => navigate("overview")} endIcon={<ArrowUpRight className="h-4 w-4" />}>Explore full dashboard</JXButton>
       </footer>
     </div>
     <div lang="en" dir="ltr"><GlassModal open={confirm} onClose={() => { if (!acting) setConfirm(false); }} title={snapshot?.health.emergency_stop ? "Clear the real emergency stop?" : "Stop the real fleet?"}>
       <div className="space-y-5">
-        <p className="text-sm leading-relaxed" style={{ color: "var(--product-text-secondary)" }}>This sends an authenticated request to your control plane and affects real devices. Continue only if you are authorized.</p>
+        <p className="text-sm leading-relaxed text-[color:var(--product-text-secondary)]">This sends an authenticated request to your control plane and affects real devices. Continue only if you are authorized.</p>
         {actionError && <JXAlert severity="error" title="Change not confirmed" description={actionError} />}
         <div className="flex flex-wrap justify-end gap-3">
           <JXButton color="neutral" variant="outlined" disabled={acting} onClick={() => setConfirm(false)}>Cancel</JXButton>
