@@ -91,6 +91,7 @@ export interface TaskInvocation {
   args: Record<string, unknown>;
   riskTier: TaskRiskTier;
   status: TaskStatus;
+  approvalId?: string;
   invoker: string;
   createdAt: string;
   startedAt?: string;

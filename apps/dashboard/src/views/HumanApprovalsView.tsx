@@ -94,6 +94,14 @@ export const HumanApprovalsView: React.FC = () => {
   const [showDenyModal, setShowDenyModal] = useState<boolean>(false);
   const [rejectionReason, setRejectionReason] = useState<string>("");
   const [rePlanMessage, setRePlanMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!approvals.some((a) => a.id === selectedId)) {
+      const next = approvals.find((a) => a.status === "pending")?.id || approvals[0]?.id;
+      if (next) setSelectedId(next);
+    }
+  }, [approvals, selectedId]);
 
   // Decision history archive
   const [historyRecords, setHistoryRecords] = useState<DecisionRecord[]>([
@@ -145,11 +153,17 @@ export const HumanApprovalsView: React.FC = () => {
 
   const handleAuthorize = async () => {
     if (!activeApproval || !allChecklistSatisfied) return;
-    await resolveApproval(
-      activeApproval.id,
-      "approved",
-      "Operator validated blast radius and target node scope."
-    );
+    setActionError(null);
+    try {
+      await resolveApproval(
+        activeApproval.id,
+        "approved",
+        "Operator validated blast radius and target node scope."
+      );
+    } catch (err: any) {
+      setActionError(err?.message || "Failed to approve request.");
+      return;
+    }
 
     setHistoryRecords((prev) => [
       {
@@ -173,7 +187,13 @@ export const HumanApprovalsView: React.FC = () => {
 
   const handleDeny = async () => {
     if (!activeApproval || !rejectionReason.trim()) return;
-    await resolveApproval(activeApproval.id, "denied", rejectionReason);
+    setActionError(null);
+    try {
+      await resolveApproval(activeApproval.id, "denied", rejectionReason);
+    } catch (err: any) {
+      setActionError(err?.message || "Failed to deny request.");
+      return;
+    }
 
     setHistoryRecords((prev) => [
       {
@@ -481,6 +501,12 @@ export const HumanApprovalsView: React.FC = () => {
                           </span>
                         </label>
                       </div>
+
+                      {actionError && (
+                        <div role="alert" className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-mono">
+                          {actionError}
+                        </div>
+                      )}
 
                       {rePlanMessage && (
                         <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-mono">

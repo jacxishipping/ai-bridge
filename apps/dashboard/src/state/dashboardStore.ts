@@ -838,6 +838,7 @@ class DashboardStore {
           args: typeof t.args_json === "string" ? JSON.parse(t.args_json || "{}") : (t.args || {}),
           riskTier: (t.tier === 1 ? "tier1_safe" : t.tier === 2 ? "tier2_workspace" : t.tier === 3 ? "tier3_shell" : "tier4_kernel") as TaskRiskTier,
           status: (t.status || "pending") as TaskStatus,
+          approvalId: t.approval_id || undefined,
           invoker: t.tenant ? `tenant:${t.tenant}` : "operator:admin",
           createdAt: t.created_at ? new Date(t.created_at * 1000).toISOString() : new Date().toISOString(),
           startedAt: t.created_at ? new Date(t.created_at * 1000).toISOString() : undefined,
@@ -1111,6 +1112,7 @@ class DashboardStore {
         void this.syncWithBackend();
       } catch (err) {
         console.warn("Live approval resolution failed:", err);
+        throw err;
       }
     }
     const approval = this.state.approvals.find((a) => a.id === id);

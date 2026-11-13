@@ -152,6 +152,8 @@ export const TaskQueueVisionView: React.FC = () => {
   const devices = useDashboardStore((s) => s.devices);
   const selectedDeviceId = useDashboardStore((s) => s.selectedDeviceId);
   const tasks = useDashboardStore((s) => s.tasks);
+  const approvals = useDashboardStore((s) => s.approvals);
+  const resolveApproval = useDashboardStore((s) => s.resolveApproval);
   const dispatchTask = useDashboardStore((s) => s.dispatchTask);
   const refreshLive = useDashboardStore((s) => s.refreshLive);
   const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
@@ -307,6 +309,45 @@ export const TaskQueueVisionView: React.FC = () => {
     setTaskActionNotice("Simulated clearing finished tasks.");
     setTimeout(() => setTaskActionNotice(null), 3000);
   }, [statusFilter, refreshLive]);
+
+  const findApprovalIdForTask = useCallback(
+    (task: TaskInvocation): string | undefined => {
+      if (task.approvalId) return task.approvalId;
+      return approvals.find((a) => a.taskId === task.id && a.status === "pending")?.id;
+    },
+    [approvals]
+  );
+
+  const handleDecideTask = useCallback(
+    async (task: TaskInvocation, verdict: "approved" | "denied", e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      const approvalId = findApprovalIdForTask(task);
+      if (!approvalId) {
+        setTaskActionNotice(`No pending approval record found for task #${task.id}.`);
+        setTimeout(() => setTaskActionNotice(null), 4000);
+        return;
+      }
+      try {
+        await resolveApproval(
+          approvalId,
+          verdict,
+          verdict === "approved"
+            ? "Approved from Task Queue"
+            : "Denied from Task Queue"
+        );
+        await refreshLive?.();
+        setTaskActionNotice(
+          `${verdict === "approved" ? "Approved" : "Denied"} task #${task.id}.`
+        );
+        setTimeout(() => setTaskActionNotice(null), 3000);
+      } catch (err: any) {
+        setTaskActionNotice(
+          `${verdict === "approved" ? "Approve" : "Deny"} failed: ${err?.message || "Unknown error"}`
+        );
+      }
+    },
+    [findApprovalIdForTask, resolveApproval, refreshLive]
+  );
 
   // Filtered task list
   const filteredTasks = useMemo(() => {
@@ -616,8 +657,9 @@ export const TaskQueueVisionView: React.FC = () => {
               />
               <JXCardContent>
               <div className="space-y-3">
-                {/* Status Filter Chips */}
-                <div className="flex flex-wrap items-center gap-2 pb-1">
+                {/* Status Filter Chips & Queue Actions */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
+                  <div className="flex flex-wrap items-center gap-2">
                   {[
                     { id: "all", label: "All", count: tasks.length },
                     { id: "completed", label: "Completed", count: tasks.filter((t) => t.status === "completed").length },
@@ -644,7 +686,36 @@ export const TaskQueueVisionView: React.FC = () => {
                       </button>
                     );
                   })}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void refreshLive?.()}
+                      title="Refresh tasks"
+                      className="px-2.5 py-1.5 rounded-xl bg-[var(--product-canvas)]/80 border border-[var(--product-line)] text-[var(--product-text-secondary)] hover:text-[var(--product-text)] text-xs font-mono flex items-center gap-1.5"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Refresh</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleClearTasks()}
+                      title="Clear finished tasks"
+                      className="px-2.5 py-1.5 rounded-xl bg-[var(--product-canvas)]/80 border border-[var(--product-line)] text-[var(--product-text-secondary)] hover:text-rose-300 text-xs font-mono flex items-center gap-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Clear finished</span>
+                    </button>
+                  </div>
                 </div>
+
+                {taskActionNotice && (
+                  <div role="status" className="px-3 py-2 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-200 text-xs font-mono flex items-center justify-between gap-2">
+                    <span>{taskActionNotice}</span>
+                    <button type="button" onClick={() => setTaskActionNotice(null)} className="text-[11px] opacity-75 hover:opacity-100">Dismiss</button>
+                  </div>
+                )}
 
                 {/* Task Table */}
                 <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]/80 bg-[var(--product-canvas)]/60">
@@ -655,12 +726,13 @@ export const TaskQueueVisionView: React.FC = () => {
                         <th className="py-2.5 px-3">Target & Tool</th>
                         <th className="py-2.5 px-3">Status</th>
                         <th className="py-2.5 px-3">Invoker</th>
-                        <th className="py-2.5 px-3 text-right">Inspect</th>
+                        <th className="py-2.5 px-3 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-mono">
                       {filteredTasks.map((t) => {
                         const isSelected = selectedTaskId === t.id;
+                        const canCancel = t.status === "pending" || t.status === "running" || t.status === "needs_approval" || (t.status as string) === "queued";
                         return (
                           <tr
                             key={t.id}
@@ -683,16 +755,58 @@ export const TaskQueueVisionView: React.FC = () => {
                             <td className="py-2.5 px-3">{getStatusBadge(t.status)}</td>
                             <td className="py-2.5 px-3 text-[var(--product-text-tertiary)] text-[11px]">{t.invoker}</td>
                             <td className="py-2.5 px-3 text-right">
-                              <button
-                                type="button"
-                                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
-                                  isSelected
-                                    ? "bg-indigo-600 text-white"
-                                    : "bg-[var(--product-raised)] text-[var(--product-text-secondary)] hover:bg-[var(--product-raised)]"
-                                }`}
-                              >
-                                View
-                              </button>
+                              <div className="inline-flex items-center justify-end gap-1.5">
+                                {t.status === "needs_approval" && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => void handleDecideTask(t, "approved", e)}
+                                      title="Approve task"
+                                      className="px-2 py-1 rounded-lg bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30 text-[11px] font-semibold inline-flex items-center gap-1"
+                                    >
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      <span>Approve</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => void handleDecideTask(t, "denied", e)}
+                                      title="Deny task"
+                                      className="px-2 py-1 rounded-lg bg-rose-600/20 border border-rose-500/40 text-rose-300 hover:bg-rose-600/30 text-[11px] font-semibold inline-flex items-center gap-1"
+                                    >
+                                      <XCircle className="w-3 h-3" />
+                                      <span>Deny</span>
+                                    </button>
+                                  </>
+                                )}
+                                {canCancel && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => void handleCancelTask(t.id, e)}
+                                    title="Cancel task"
+                                    className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20"
+                                  >
+                                    <Ban className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => void handleDeleteTask(t.id, e)}
+                                  title="Delete task"
+                                  className="p-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 hover:bg-rose-500/20"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                                    isSelected
+                                      ? "bg-indigo-600 text-white"
+                                      : "bg-[var(--product-raised)] text-[var(--product-text-secondary)] hover:bg-[var(--product-raised)]"
+                                  }`}
+                                >
+                                  View
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -712,15 +826,55 @@ export const TaskQueueVisionView: React.FC = () => {
               />
               <JXCardContent>
               <div className="space-y-4">
-                {/* Control bar: Zoom, SoM toggle, Download */}
+                {/* Control bar: Zoom, SoM toggle, Task actions */}
                 <div className="flex flex-wrap items-center justify-between gap-3 p-2 rounded-xl bg-[var(--product-canvas)]/80 border border-[var(--product-line)]">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-xs font-semibold text-indigo-400">
                       {activeTask?.tool}
                     </span>
                     <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-[var(--product-raised)] text-[var(--product-text-secondary)]">
                       {activeTask?.deviceHostname || activeTask?.deviceId}
                     </span>
+                    {activeTask?.status === "needs_approval" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void handleDecideTask(activeTask, "approved")}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 text-xs font-mono font-semibold flex items-center gap-1"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Approve</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDecideTask(activeTask, "denied")}
+                          className="px-2.5 py-1 rounded-lg bg-rose-600/20 border border-rose-500/40 text-rose-300 hover:bg-rose-600/30 text-xs font-mono font-semibold flex items-center gap-1"
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                          <span>Deny</span>
+                        </button>
+                      </>
+                    )}
+                    {activeTask && (activeTask.status === "pending" || activeTask.status === "running" || activeTask.status === "needs_approval" || (activeTask.status as string) === "queued") && (
+                      <button
+                        type="button"
+                        onClick={() => void handleCancelTask(activeTask.id)}
+                        className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 text-xs font-mono font-semibold flex items-center gap-1"
+                      >
+                        <Ban className="w-3.5 h-3.5" />
+                        <span>Cancel</span>
+                      </button>
+                    )}
+                    {activeTask && (
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteTask(activeTask.id)}
+                        className="px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 hover:bg-rose-500/20 text-xs font-mono font-semibold flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete</span>
+                      </button>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -925,17 +1079,22 @@ export const TaskQueueVisionView: React.FC = () => {
                   <pre tabIndex={0} aria-label="Task output" className="p-3 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] font-mono text-xs text-[var(--product-text-secondary)] overflow-x-auto max-h-36">
                     <code>
                       {JSON.stringify(
-                        {
-                          status: "success",
-                          taskId: activeTask?.id,
-                          tool: activeTask?.tool,
-                          targetNode: activeTask?.deviceHostname || activeTask?.deviceId,
-                          captureTimeMs: activeTask?.durationMs || 28.4,
-                          resolution: "3840x2160",
-                          elementsDetected: 14,
-                          somCount: 4,
-                          sha256: "sha256:7f83b1657ff1709bcfa488b0a501a399d91f28b49911e3b2e5a8f4c",
-                        },
+                        activeTask?.result
+                          ? {
+                              status: activeTask.status,
+                              taskId: activeTask.id,
+                              tool: activeTask.tool,
+                              targetNode: activeTask.deviceHostname || activeTask.deviceId,
+                              args: activeTask.args,
+                              result: activeTask.result,
+                            }
+                          : {
+                              status: activeTask?.status || "pending",
+                              taskId: activeTask?.id,
+                              tool: activeTask?.tool,
+                              targetNode: activeTask?.deviceHostname || activeTask?.deviceId,
+                              args: activeTask?.args || {},
+                            },
                         null,
                         2
                       )}
