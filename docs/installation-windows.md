@@ -1,7 +1,30 @@
 # Installation — Windows
-1. Install Python 3.11+ from python.org (tick "Add to PATH").
+1. Install Python **3.12, 3.13 or 3.14** from python.org (tick "Add python.exe to
+   PATH"). Those are the versions the agent is exercised on: this manual path and
+   `install-agent.ps1` both refuse anything else, including newer builds such as
+   3.15 that `py -3` would otherwise select silently.
 2. Copy this repo to e.g. `C:\ai-bridge`.
-3. `py -3 -m venv C:\ai-bridge\.venv` then `C:\ai-bridge\.venv\Scripts\pip install -e C:\ai-bridge`.
+3. Create the virtualenv with an explicitly chosen interpreter, then install the
+   project into it:
+
+   ```powershell
+   $supported = @("3.12", "3.13", "3.14")
+   $minor = $null
+   foreach ($candidate in $supported) {
+       py "-$candidate" -c "import sys" 2>$null
+       if ($LASTEXITCODE -eq 0) { $minor = "-$candidate"; break }
+   }
+   if (-not $minor) {
+       throw "No supported Python ($($supported -join ', ')) found. Install Python 3.12 from https://www.python.org/downloads/windows/ and rerun."
+   }
+   py $minor -m venv C:\ai-bridge\.venv
+   C:\ai-bridge\.venv\Scripts\pip install -e C:\ai-bridge
+   C:\ai-bridge\.venv\Scripts\python.exe -c "import sys; print(sys.version.split()[0])"
+   ```
+
+   The last line must print `3.12.x`, `3.13.x` or `3.14.x`. Do not run
+   `py -3 -m venv`: `-3` resolves to the newest installed build, so it silently
+   builds the agent's environment on an interpreter nothing was tested against.
 4. Create a workspace folder, e.g. `C:\Users\YOUR_USER\ai-bridge-workspace`, and set
    `AI_BRIDGE_WORKSPACE` to it in the agent's environment.
 5. Choose the account the agent runs as: your own main account (default),
