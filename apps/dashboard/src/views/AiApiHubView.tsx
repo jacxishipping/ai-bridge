@@ -49,6 +49,7 @@ import {
   Pencil,
   X,
   Send,
+  MessageSquare,
 } from "lucide-react";
 import { useDashboardStore } from "../state/dashboardStore";
 import { api, sessionToken, token } from "../api";
@@ -378,6 +379,106 @@ export const AiApiHubView: React.FC = () => {
   const [memoryDraft, setMemoryDraft] = useState("");
   const [agentRuns, setAgentRuns] = useState<Record<string, any[]>>({});
   const [agentRunsLoading, setAgentRunsLoading] = useState<Record<string, boolean>>({});
+
+  // Interactive AI Copilot Chat state (persisted in localStorage)
+  interface CopilotMessage {
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    steps?: any[];
+    provider?: string;
+    model?: string;
+    createdAt: string;
+  }
+  const [copilotMessages, setCopilotMessages] = useState<CopilotMessage[]>(() => {
+    try {
+      const raw = window.localStorage.getItem("ai_bridge_copilot_messages");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore localStorage read errors
+    }
+    return [];
+  });
+  const [copilotInput, setCopilotInput] = useState("");
+  const [copilotDevice, setCopilotDevice] = useState("");
+  const [copilotProvider, setCopilotProvider] = useState("");
+  const [copilotBusy, setCopilotBusy] = useState(false);
+  const [copilotError, setCopilotError] = useState<string | null>(null);
+  const [copilotExpandedSteps, setCopilotExpandedSteps] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        "ai_bridge_copilot_messages",
+        JSON.stringify(copilotMessages.slice(-40))
+      );
+    } catch {
+      // ignore localStorage quota errors
+    }
+  }, [copilotMessages]);
+
+  const handleCopilotSend = async (e?: React.FormEvent): Promise<void> => {
+    if (e) e.preventDefault();
+    const prompt = copilotInput.trim();
+    if (!prompt || copilotBusy) return;
+    const userMsg: CopilotMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: prompt,
+      createdAt: new Date().toISOString(),
+    };
+    const nextHistory = [...copilotMessages, userMsg];
+    setCopilotMessages(nextHistory);
+    setCopilotInput("");
+    setCopilotError(null);
+    setCopilotBusy(true);
+    try {
+      const payloadMessages = nextHistory.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+      const res = (await api.aiChat({
+        messages: payloadMessages,
+        provider: copilotProvider || undefined,
+        device: copilotDevice || undefined,
+      })) as {
+        ok?: boolean;
+        message?: { role?: string; content?: string };
+        steps?: any[];
+        provider?: string;
+        model?: string;
+      };
+      const replyContent =
+        res?.message?.content?.trim() || "(No response returned)";
+      const assistantMsg: CopilotMessage = {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        content: replyContent,
+        steps: Array.isArray(res?.steps) ? res.steps : [],
+        provider: res?.provider,
+        model: res?.model,
+        createdAt: new Date().toISOString(),
+      };
+      setCopilotMessages((prev) => [...prev, assistantMsg]);
+    } catch (error) {
+      setCopilotError(describeError(error));
+    } finally {
+      setCopilotBusy(false);
+    }
+  };
+
+  const handleCopilotClear = (): void => {
+    setCopilotMessages([]);
+    setCopilotError(null);
+    try {
+      window.localStorage.removeItem("ai_bridge_copilot_messages");
+    } catch {
+      // ignore
+    }
+  };
 
   // MCP Services state
   const [mcpServers, setMcpServers] = useState<McpServerItem[]>([]);
@@ -1912,6 +2013,169 @@ export const AiApiHubView: React.FC = () => {
               </div>
             </JXCardContent>
             </details>
+          </JXCard>
+        </JXGridItem>
+
+        {/* Interactive AI Copilot Chat (Devices + OAuth2 MCP Connectors) */}
+        <JXGridItem colSpan={12}>
+          <JXCard className="bg-[var(--product-surface)]/70 border-[var(--product-line)]">
+            <JXCardHeader
+              title="AI Copilot Chat"
+              subheader="Multi-turn troubleshooting & research across connected devices and active OAuth2/MCP servers"
+              icon={<MessageSquare className="w-5 h-5 text-cyan-400" />}
+            />
+            <JXCardContent>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <JXBadge color="info">
+                    {mcpServers.filter((s) => s.enabled).length} active MCP
+                  </JXBadge>
+                  {copilotMessages.length > 0 && (
+                    <JXButton
+                      variant="text"
+                      size="sm"
+                      onClick={handleCopilotClear}
+                      disabled={copilotBusy}
+                    >
+                      <Trash2 className="w-3.5 h-3.5 mr-1" />
+                      Clear
+                    </JXButton>
+                  )}
+                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] uppercase tracking-wider text-neutral-400 mb-1">
+                    Target Device (Optional)
+                  </label>
+                  <select
+                    aria-label="Copilot Target Device"
+                    value={copilotDevice}
+                    onChange={(e) => setCopilotDevice(e.target.value)}
+                    className="w-full rounded-xl bg-black/40 border border-[var(--product-line)] px-3 py-2 text-xs text-neutral-200 focus:outline-none focus:border-cyan-400/60"
+                  >
+                    <option value="">Auto / All fleet & MCP tools</option>
+                    {devices.map((dev) => (
+                      <option key={dev.id} value={dev.id}>
+                        {dev.hostname || dev.id} ({dev.status})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] uppercase tracking-wider text-neutral-400 mb-1">
+                    Model Provider Override
+                  </label>
+                  <select
+                    aria-label="Copilot Provider"
+                    value={copilotProvider}
+                    onChange={(e) => setCopilotProvider(e.target.value)}
+                    className="w-full rounded-xl bg-black/40 border border-[var(--product-line)] px-3 py-2 text-xs text-neutral-200 focus:outline-none focus:border-cyan-400/60"
+                  >
+                    <option value="">Default configured provider</option>
+                    <option value="anthropic">Anthropic Claude</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="custom">Custom OpenAI-Compatible</option>
+                  </select>
+                </div>
+              </div>
+
+              {mcpServers.filter((s) => s.enabled).length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-400">
+                  <span>Active MCP connectors:</span>
+                  {mcpServers
+                    .filter((s) => s.enabled)
+                    .map((srv) => (
+                      <JXBadge key={srv.id} color="default">
+                        {srv.name} ({srv.tools_count || 0} tools)
+                      </JXBadge>
+                    ))}
+                </div>
+              )}
+
+              {copilotError && (
+                <JXAlert severity="error" title="Copilot request failed" description={copilotError} />
+              )}
+
+              <div className="rounded-xl border border-[var(--product-line)] bg-black/35 p-3 max-h-96 overflow-y-auto space-y-3">
+                {copilotMessages.length === 0 ? (
+                  <p className="text-xs text-neutral-500 text-center py-6">
+                    Ask the Copilot to inspect a device, search docs via Firecrawl MCP, or run diagnostics.
+                  </p>
+                ) : (
+                  copilotMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`rounded-xl p-3 text-xs border ${
+                        msg.role === "user"
+                          ? "bg-indigo-500/10 border-indigo-500/30 text-neutral-100 ml-6"
+                          : "bg-neutral-900/80 border-[var(--product-line)] text-neutral-200 mr-6"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1 text-[10px] uppercase tracking-wider text-neutral-400">
+                        <span>{msg.role === "user" ? "You" : "Copilot"}</span>
+                        {msg.model && (
+                          <span className="font-mono text-neutral-500">
+                            {msg.provider ? `${msg.provider}: ` : ""}
+                            {msg.model}
+                          </span>
+                        )}
+                      </div>
+                      <div className="whitespace-pre-wrap leading-relaxed">
+                        {msg.content}
+                      </div>
+                      {msg.steps && msg.steps.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-[var(--product-line)]/60">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCopilotExpandedSteps((prev) => ({
+                                ...prev,
+                                [msg.id]: !prev[msg.id],
+                              }))
+                            }
+                            className="inline-flex items-center gap-1 text-[11px] text-cyan-300 hover:text-cyan-200"
+                          >
+                            {copilotExpandedSteps[msg.id] ? (
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            )}
+                            {msg.steps.length} tool call{msg.steps.length === 1 ? "" : "s"}
+                          </button>
+                          {copilotExpandedSteps[msg.id] && (
+                            <pre className="mt-2 p-2 rounded-lg bg-black/60 text-[11px] text-neutral-300 overflow-x-auto max-h-48">
+                              {JSON.stringify(msg.steps, null, 2)}
+                            </pre>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <form onSubmit={handleCopilotSend} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={copilotInput}
+                  onChange={(e) => setCopilotInput(e.target.value)}
+                  placeholder="Ask Copilot anything (uses connected devices & enabled MCP servers)..."
+                  disabled={copilotBusy}
+                  className="flex-1 rounded-xl bg-black/40 border border-[var(--product-line)] px-3 py-2 text-xs text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:border-cyan-400/60"
+                />
+                <JXButton
+                  type="submit"
+                  variant="contained"
+                  size="sm"
+                  disabled={copilotBusy || !copilotInput.trim()}
+                >
+                  <Send className="w-3.5 h-3.5 mr-1.5" />
+                  {copilotBusy ? "Thinking..." : "Send"}
+                </JXButton>
+              </form>
+              </div>
+            </JXCardContent>
           </JXCard>
         </JXGridItem>
 

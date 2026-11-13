@@ -1907,16 +1907,22 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         interval = max(60, int(body.interval_seconds or 3600))
         sched_id = uuid.uuid4().hex[:12]
         now_ts = dbmod.now()
-        first_step = steps[0]
         sched_name = (body.name or f"Workflow: {row['name']}").strip()
         dev_id = body.device_id if body.device_id is not None else (row["device_id"] or "")
+        wf_payload = {
+            "source_workflow_id": workflow_id,
+            "name": row["name"],
+            "steps": steps,
+            "stop_on_failure": True,
+            "max_retries": 1,
+        }
         conn.execute(
             "INSERT INTO schedules (id, name, tenant, device_id, interval_seconds, tool, args_json, next_run_at, enabled, created_at) VALUES (?,?,?,?,?,?,?,?,1,?)",
-            (sched_id, sched_name, row["tenant"], dev_id, interval, first_step.get("action", "get_system_info"), json.dumps(first_step.get("args") or {}), now_ts + interval, now_ts),
+            (sched_id, sched_name, row["tenant"], dev_id, interval, "__workflow__", json.dumps(wf_payload), now_ts + interval, now_ts),
         )
         conn.commit()
-        audit(actor, dev_id, "schedule_workflow", {"workflow_id": workflow_id, "schedule_id": sched_id, "interval_seconds": interval}, "allowed", tenant=row["tenant"])
-        return {"schedule_id": sched_id, "name": sched_name, "interval_seconds": interval}
+        audit(actor, dev_id, "schedule_workflow", {"workflow_id": workflow_id, "schedule_id": sched_id, "interval_seconds": interval, "steps": len(steps)}, "allowed", tenant=row["tenant"])
+        return {"schedule_id": sched_id, "name": sched_name, "interval_seconds": interval, "total_steps": len(steps)}
 
     @app.get("/api/workflows")
     def list_workflows(
@@ -2361,7 +2367,24 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                         args = {}
                     target = job["device_id"]
                     try:
-                        _execute_workflow_step_sync(tool_name, args, target, job["tenant"], f"scheduler:{job['name']}")
+                        if tool_name == "__workflow__":
+                            wf_steps = args.get("steps") or []
+                            if wf_steps and not getattr(app.state, "emergency_stop", False):
+                                wf_id = uuid.uuid4().hex[:12]
+                                wf_name = str(args.get("name") or job["name"] or "Scheduled Workflow")
+                                conn.execute(
+                                    "INSERT INTO workflows (id, name, tenant, device_id, steps_json, status, current_step, total_steps, results_json, created_at, updated_at) "
+                                    "VALUES (?, ?, ?, ?, ?, 'running', 0, ?, '[]', ?, ?)",
+                                    (wf_id, wf_name, job["tenant"], target or "local", json.dumps(wf_steps), len(wf_steps), now_ts, now_ts),
+                                )
+                                conn.commit()
+                                threading.Thread(
+                                    target=_run_workflow_worker,
+                                    args=(wf_id, target or None, job["tenant"], wf_steps, bool(args.get("stop_on_failure", True)), int(args.get("max_retries", 1)), f"scheduler:{job['name']}"),
+                                    daemon=True,
+                                ).start()
+                        else:
+                            _execute_workflow_step_sync(tool_name, args, target, job["tenant"], f"scheduler:{job['name']}")
                     except Exception:
                         pass
             except Exception:
@@ -2742,6 +2765,23 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         conn.execute("UPDATE schedules SET last_run_at=?, next_run_at=? WHERE id=?", (now_ts, next_run, schedule_id))
         conn.commit()
         args = json.loads(row["args_json"] or "{}")
+        if row["tool"] == "__workflow__":
+            wf_steps = args.get("steps") or []
+            wf_id = uuid.uuid4().hex[:12]
+            wf_name = str(args.get("name") or row["name"] or "Scheduled Workflow")
+            conn.execute(
+                "INSERT INTO workflows (id, name, tenant, device_id, steps_json, status, current_step, total_steps, results_json, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 'running', 0, ?, '[]', ?, ?)",
+                (wf_id, wf_name, row["tenant"], row["device_id"] or "local", json.dumps(wf_steps), len(wf_steps), now_ts, now_ts),
+            )
+            conn.commit()
+            threading.Thread(
+                target=_run_workflow_worker,
+                args=(wf_id, row["device_id"] or None, row["tenant"], wf_steps, bool(args.get("stop_on_failure", True)), int(args.get("max_retries", 1)), actor),
+                daemon=True,
+            ).start()
+            audit(actor, row["device_id"] or "", "run_schedule_now", {"schedule_id": schedule_id, "workflow_id": wf_id}, "executed", tenant=row["tenant"])
+            return {"schedule_id": schedule_id, "status": "executed", "workflow_id": wf_id}
         res = _execute_workflow_step_sync(row["tool"], args, row["device_id"], row["tenant"], f"schedule_manual:{row['name']}")
         audit(actor, row["device_id"] or "", "run_schedule_now", {"schedule_id": schedule_id}, "executed", tenant=row["tenant"])
         return {"schedule_id": schedule_id, "status": "executed", "result": res}
@@ -4184,14 +4224,14 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             if p.is_file() and p.suffix in (".db", ".json"):
                 st = p.stat()
                 items.append({"filename": p.name, "size_bytes": st.st_size, "created_at": st.st_mtime})
-        return {"items": items, "backend": "postgres" if dbmod.is_postgres(conn) else "sqlite"}
+        return {"items": items, "backend": getattr(conn, "dialect", "sqlite")}
 
     @app.post("/api/admin/backups")
     def create_backup(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         actor = require_admin(x_admin_token, x_session_token)
         backup_dir.mkdir(parents=True, exist_ok=True)
         stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
-        if not dbmod.is_postgres(conn) and db_path and Path(str(db_path)).exists():
+        if getattr(conn, "dialect", "sqlite") != "postgres" and db_path and Path(str(db_path)).exists():
             from ai_bridge.control.backup import verified_backup
             dest = backup_dir / f"aibridge-backup-{stamp}.db"
             verified_backup(Path(str(db_path)), dest)

@@ -223,10 +223,67 @@ _AGENT_NATIVE_TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "agent_delegate",
+            "description": "Delegate a subtask to another specialized custom agent (by id or name) and receive its response.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_agent": {"type": "string", "description": "Target agent id or exact name."},
+                    "prompt": {"type": "string", "description": "Task or question for the target agent."},
+                },
+                "required": ["target_agent", "prompt"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agent_run_workflow",
+            "description": "Create and execute a deterministic multi-step workflow and record it in Workflows.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Workflow name."},
+                    "device": {"type": "string", "description": "Target device id (optional)."},
+                    "stop_on_failure": {"type": "boolean"},
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "action": {"type": "string"},
+                                "args": {"type": "object"},
+                            },
+                            "required": ["action"],
+                        },
+                    },
+                },
+                "required": ["name", "steps"],
+            },
+        },
+    },
 ]
 
 
-def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]], mcp_servers: list[dict[str, Any]] | None = None, fleet_context: str = "") -> str:
+def _peer_agents_block(conn: Any, agent: dict[str, Any]) -> str:
+    try:
+        rows = conn.execute(
+            "SELECT id, name, instruction FROM custom_agents WHERE id!=? AND enabled=1 ORDER BY name LIMIT 12",
+            (agent.get("id") or "",),
+        ).fetchall()
+        if not rows:
+            return ""
+        lines = [f"- {r['name']} (id {r['id']}): {str(r['instruction'] or '')[:100]}" for r in rows]
+        return "\nPeer Agents available via agent_delegate:\n" + "\n".join(lines) + "\n"
+    except Exception:
+        return ""
+
+
+def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]], mcp_servers: list[dict[str, Any]] | None = None, fleet_context: str = "", peer_agents: str = "") -> str:
     listing = "\n".join(
         f"- {d.get('name')} (id {d['id']}, {d.get('os') or 'unknown OS'}, {d.get('status') or 'unknown'})"
         for d in devices
@@ -252,6 +309,7 @@ def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]], mcp_ser
         f"Objective:\n{agent.get('instruction')}\n\n"
         f"Bound devices (pass one of these ids in the `device` argument):\n{listing}\n\n"
         f"{mcp_block}"
+        f"{peer_agents}"
         f"{fleet_context}"
         f"{memory_block}"
         "Rules:\n"
@@ -286,6 +344,7 @@ def execute_agent(
     *,
     max_steps: int = MAX_STEPS,
     user_prompt: str | None = None,
+    _depth: int = 0,
 ) -> dict[str, Any]:
     """Run one reasoning cycle for an agent. Raises on provider/transport errors."""
     provider, base_url, api_key, model = resolve_llm(
@@ -324,13 +383,14 @@ def execute_agent(
             mcp_dispatch_map[q_name] = (srv, t.get("name") or "tool")
 
     fleet_ctx = _fleet_context_block(conn, devices)
+    peer_ctx = _peer_agents_block(conn, agent) if _depth < 2 else ""
     default_prompt = (
         "Run one work cycle now "
         f"({time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC). "
         "Act on the objective, then summarise what you did."
     )
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": _system_prompt(agent, devices, mcp_servers, fleet_ctx)},
+        {"role": "system", "content": _system_prompt(agent, devices, mcp_servers, fleet_ctx, peer_ctx)},
         {"role": "user", "content": (user_prompt or "").strip() or default_prompt},
     ]
     steps: list[dict[str, Any]] = []
@@ -417,7 +477,7 @@ def execute_agent(
             except Exception:
                 tool_args = {}
 
-            if tool_name in {"agent_remember", "agent_notify", "agent_request_approval"}:
+            if tool_name in {"agent_remember", "agent_notify", "agent_request_approval", "agent_delegate", "agent_run_workflow"}:
                 try:
                     if tool_name == "agent_remember":
                         fact = str(tool_args.get("fact") or "").strip()
@@ -441,6 +501,70 @@ def execute_agent(
                             sev = "info"
                         res = alertsmod.dispatch_alert("agent_alert", sev, title, {"agent": agent.get("name"), "message": msg}, async_dispatch=False)
                         result = {"ok": True, "dispatched": res}
+                    elif tool_name == "agent_delegate":
+                        if _depth >= 2:
+                            result = {"ok": False, "error": "Maximum agent delegation depth (2) reached."}
+                        else:
+                            target_key = str(tool_args.get("target_agent") or "").strip()
+                            sub_prompt = str(tool_args.get("prompt") or "").strip()
+                            t_row = conn.execute(
+                                "SELECT * FROM custom_agents WHERE id=? OR LOWER(name)=LOWER(?) LIMIT 1",
+                                (target_key, target_key),
+                            ).fetchone()
+                            if t_row is None:
+                                result = {"ok": False, "error": f"Target agent '{target_key}' not found."}
+                            elif t_row["id"] == agent.get("id"):
+                                result = {"ok": False, "error": "Cannot delegate to self."}
+                            else:
+                                sub_res = execute_agent(conn, dict(t_row), tool_executor, user_prompt=sub_prompt, _depth=_depth + 1)
+                                result = {
+                                    "ok": True,
+                                    "agent_id": t_row["id"],
+                                    "agent_name": t_row["name"],
+                                    "response": sub_res.get("response"),
+                                    "steps_count": len(sub_res.get("steps") or []),
+                                }
+                    elif tool_name == "agent_run_workflow":
+                        wf_name = str(tool_args.get("name") or f"Agent Workflow ({agent.get('name')})").strip()
+                        wf_steps = tool_args.get("steps") if isinstance(tool_args.get("steps"), list) else []
+                        wf_dev = _resolve_device(devices, tool_args.get("device")) or (devices[0]["id"] if devices else "local")
+                        stop_on_fail = bool(tool_args.get("stop_on_failure", True))
+                        if not wf_steps:
+                            result = {"ok": False, "error": "Workflow steps list is required."}
+                        else:
+                            wf_id = uuid.uuid4().hex[:12]
+                            now_ts = _now()
+                            conn.execute(
+                                "INSERT INTO workflows (id, name, tenant, device_id, steps_json, status, current_step, total_steps, results_json, created_at, updated_at) VALUES (?,?,?,?,?,'running',0,?,'[]',?,?)",
+                                (wf_id, wf_name, tenant, wf_dev, json.dumps(wf_steps), len(wf_steps), now_ts, now_ts),
+                            )
+                            conn.commit()
+                            wf_results = []
+                            wf_ok = True
+                            wf_err = ""
+                            for s_idx, st in enumerate(wf_steps):
+                                st_action = str(st.get("action") or "").strip()
+                                st_args = st.get("args") if isinstance(st.get("args"), dict) else {}
+                                st_name = str(st.get("name") or f"Step {s_idx + 1}")
+                                conn.execute("UPDATE workflows SET current_step=?, updated_at=? WHERE id=?", (s_idx + 1, _now(), wf_id))
+                                conn.commit()
+                                t0 = _now()
+                                try:
+                                    st_res = tool_executor(st_action, st_args, wf_dev, tenant, actor)
+                                    wf_results.append({"index": s_idx + 1, "name": st_name, "action": st_action, "args": st_args, "status": "completed", "duration_seconds": round(_now() - t0, 2), "result": st_res, "error": None})
+                                except Exception as st_exc:
+                                    wf_ok = False
+                                    wf_err = str(st_exc)
+                                    wf_results.append({"index": s_idx + 1, "name": st_name, "action": st_action, "args": st_args, "status": "failed", "duration_seconds": round(_now() - t0, 2), "result": None, "error": wf_err})
+                                    if stop_on_fail:
+                                        break
+                            fin_status = "completed" if wf_ok else "failed"
+                            conn.execute(
+                                "UPDATE workflows SET status=?, error=?, results_json=?, completed_at=?, updated_at=? WHERE id=?",
+                                (fin_status, wf_err, json.dumps(wf_results, default=str), _now(), _now(), wf_id),
+                            )
+                            conn.commit()
+                            result = {"ok": wf_ok, "workflow_id": wf_id, "status": fin_status, "steps_executed": len(wf_results), "error": wf_err or None}
                     else:
                         req_dev = _resolve_device(devices, tool_args.get("device")) or (devices[0]["id"] if devices else "local")
                         req_tool = str(tool_args.get("tool") or "").strip()
