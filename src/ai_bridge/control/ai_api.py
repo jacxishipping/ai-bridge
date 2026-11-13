@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from ..policy import TOOL_TIERS, RiskTier
 from .dispatch import dispatch
+from .mcp_client import execute_mcp_tool, format_mcp_tool_for_llm
 
 # Set of tools specifically for desktop GUI automation
 DESKTOP_TOOLS = {
@@ -1517,6 +1518,31 @@ def attach_ai_routes(
 
         is_anthropic = provider == "anthropic"
         tools_spec = build_tool_specs(tool_format="openai")
+
+        # Dynamically attach tools from enabled external MCP servers
+        mcp_dispatch_map: dict[str, tuple[dict[str, Any], str]] = {}
+        try:
+            mcp_rows = conn.execute(
+                "SELECT id, name, url, transport, auth_header, auth_token, headers_json, tools_json "
+                "FROM mcp_servers WHERE tenant=? AND enabled=1",
+                (body.tenant,),
+            ).fetchall()
+            for srv_row in mcp_rows:
+                s_dict = dict(srv_row)
+                try:
+                    s_tools = json.loads(s_dict.get("tools_json") or "[]")
+                except Exception:
+                    s_tools = []
+                for t in s_tools:
+                    if not isinstance(t, dict) or not t.get("name"):
+                        continue
+                    formatted = format_mcp_tool_for_llm(t, s_dict["id"], s_dict["name"], tool_format="openai")
+                    q_name = formatted["function"]["name"]
+                    tools_spec.append(formatted)
+                    mcp_dispatch_map[q_name] = (s_dict, t["name"])
+        except Exception:
+            pass
+
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": body.prompt},
@@ -1607,29 +1633,62 @@ def attach_ai_routes(
                 except Exception:
                     t_args = {}
 
-                t_device = t_args.pop("device", None) or body.device
-                exec_in = AIExecuteIn(tool=t_name, device=t_device, args=t_args, tenant=body.tenant)
-                exec_res = await execute_ai_tool(exec_in, req, x_admin_token=x_admin_token, x_session_token=x_session_token)
+                if t_name in mcp_dispatch_map:
+                    srv, orig_tool = mcp_dispatch_map[t_name]
+                    try:
+                        extra_h = json.loads(srv.get("headers_json") or "{}")
+                    except Exception:
+                        extra_h = {}
+                    try:
+                        mcp_res = execute_mcp_tool(
+                            url=srv["url"],
+                            tool_name=orig_tool,
+                            arguments=t_args,
+                            auth_header=srv.get("auth_header") or "",
+                            auth_token=srv.get("auth_token") or "",
+                            extra_headers=extra_h,
+                        )
+                        exec_res = mcp_res.get("result", mcp_res)
+                    except Exception as exc:
+                        exec_res = {"ok": False, "error": f"MCP execution error: {exc}"}
 
-                steps_taken.append({
-                    "step": step_idx + 1,
-                    "tool": t_name,
-                    "device": t_device or "local",
-                    "args": t_args,
-                    "result": exec_res,
-                })
+                    steps_taken.append({
+                        "step": step_idx + 1,
+                        "tool": t_name,
+                        "device": f"mcp:{srv['name']}",
+                        "args": t_args,
+                        "result": exec_res,
+                    })
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id"),
+                        "name": t_name,
+                        "content": json.dumps(_strip_image_fields(exec_res), default=str)[:20000],
+                    })
+                else:
+                    t_device = t_args.pop("device", None) or body.device
+                    exec_in = AIExecuteIn(tool=t_name, device=t_device, args=t_args, tenant=body.tenant)
+                    exec_res = await execute_ai_tool(exec_in, req, x_admin_token=x_admin_token, x_session_token=x_session_token)
 
-                image = _extract_image(exec_res) if isinstance(exec_res, dict) else None
-                if image:
-                    images.append((image[0], image[1], image[2], image[3], t_name))
+                    steps_taken.append({
+                        "step": step_idx + 1,
+                        "tool": t_name,
+                        "device": t_device or "local",
+                        "args": t_args,
+                        "result": exec_res,
+                    })
 
-                # Text-only tool response: base64 stays out of the model context.
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.get("id"),
-                    "name": t_name,
-                    "content": json.dumps(_strip_image_fields(exec_res), default=str)[:20000],
-                })
+                    image = _extract_image(exec_res) if isinstance(exec_res, dict) else None
+                    if image:
+                        images.append((image[0], image[1], image[2], image[3], t_name))
+
+                    # Text-only tool response: base64 stays out of the model context.
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id"),
+                        "name": t_name,
+                        "content": json.dumps(_strip_image_fields(exec_res), default=str)[:20000],
+                    })
 
             if images and vision_enabled:
                 messages.append(_image_user_message(images))

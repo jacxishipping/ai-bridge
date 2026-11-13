@@ -31,6 +31,7 @@ from .ai_api import (
     _strip_image_fields,
     build_tool_specs,
 )
+from .mcp_client import execute_mcp_tool, format_mcp_tool_for_llm
 
 PROVIDERS = ("openai", "anthropic", "gemini", "groq", "deepseek", "ollama", "custom")
 DEFAULT_INTERVAL_S = 300
@@ -142,24 +143,55 @@ def _resolve_device(devices: list[dict[str, Any]], requested: Any) -> str | None
     return str(devices[0]["id"])
 
 
-def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]]) -> str:
+def _resolve_agent_mcp_servers(conn: Any, agent: dict[str, Any]) -> list[dict[str, Any]]:
+    try:
+        raw_ids = json.loads(agent.get("mcp_server_ids_json") or "[]")
+    except Exception:
+        raw_ids = []
+
+    if raw_ids:
+        placeholders = ",".join("?" for _ in raw_ids)
+        rows = conn.execute(
+            f"SELECT * FROM mcp_servers WHERE id IN ({placeholders}) AND enabled=1",
+            tuple(raw_ids),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    return []
+
+
+def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]], mcp_servers: list[dict[str, Any]] | None = None) -> str:
     listing = "\n".join(
         f"- {d.get('name')} (id {d['id']}, {d.get('os') or 'unknown OS'}, {d.get('status') or 'unknown'})"
         for d in devices
     ) or "- local (the control-plane host)"
     memory = str(agent.get("memory") or "").strip()
     memory_block = f"\nMemory from previous cycles (most recent last):\n{memory}\n" if memory else ""
+
+    mcp_block = ""
+    if mcp_servers:
+        srv_lines = []
+        for s in mcp_servers:
+            try:
+                tools_list = json.loads(s.get("tools_json") or "[]")
+                names = [t.get("name") for t in tools_list if isinstance(t, dict) and t.get("name")]
+                t_summary = f"({len(names)} tool{'s' if len(names) != 1 else ''}: {', '.join(names[:6])}{'...' if len(names) > 6 else ''})"
+            except Exception:
+                t_summary = ""
+            srv_lines.append(f"- {s.get('name')} {t_summary}")
+        mcp_block = f"\nConnected MCP Services (use their mcp__* tools when relevant):\n" + "\n".join(srv_lines) + "\n"
+
     return (
         f"You are '{agent.get('name')}', an autonomous operator agent managed by AI Bridge.\n"
         f"Objective:\n{agent.get('instruction')}\n\n"
         f"Bound devices (pass one of these ids in the `device` argument):\n{listing}\n\n"
+        f"{mcp_block}"
         f"{memory_block}"
         "Rules:\n"
         "1. Move the objective forward every cycle; do not repeat work already completed.\n"
         "2. Prefer read-only inspection before changes, and verify what you changed.\n"
         "3. For GUI work, call take_screenshot first and act on the returned image; "
         "screenshot coordinates are native screen pixels.\n"
-        "4. Stay inside the objective's scope and use only the bound devices.\n"
+        "4. Stay inside the objective's scope and use only the bound devices and connected MCP tools.\n"
         "5. When the objective is satisfied, or it needs a human, reply in plain text "
         "starting with DONE and explain why."
     )
@@ -194,9 +226,35 @@ def execute_agent(
     if not devices:
         raise RuntimeError("The agent has no bound devices. Assign at least one device.")
 
+    mcp_servers = _resolve_agent_mcp_servers(conn, agent)
+
+    # 1. Device tools (with optional allowed_tools filter)
+    try:
+        allowed_tools = json.loads(agent.get("allowed_tools_json") or "[]")
+    except Exception:
+        allowed_tools = []
+
     tools_spec = build_tool_specs(tool_format="openai")
+    if allowed_tools and isinstance(allowed_tools, list) and len(allowed_tools) > 0:
+        tools_spec = [t for t in tools_spec if t.get("function", {}).get("name") in allowed_tools]
+
+    # 2. External MCP tools
+    mcp_dispatch_map: dict[str, tuple[dict[str, Any], str]] = {}
+    for srv in mcp_servers:
+        try:
+            srv_tools = json.loads(srv.get("tools_json") or "[]")
+        except Exception:
+            srv_tools = []
+        for t in srv_tools:
+            if not isinstance(t, dict):
+                continue
+            formatted = format_mcp_tool_for_llm(t, srv["id"], srv["name"], tool_format="openai")
+            q_name = formatted["function"]["name"]
+            tools_spec.append(formatted)
+            mcp_dispatch_map[q_name] = (srv, t.get("name") or "tool")
+
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": _system_prompt(agent, devices)},
+        {"role": "system", "content": _system_prompt(agent, devices, mcp_servers)},
         {
             "role": "user",
             "content": (
@@ -289,31 +347,68 @@ def execute_agent(
                 tool_args = json.loads(function.get("arguments") or "{}")
             except Exception:
                 tool_args = {}
-            requested_device = tool_args.pop("device", None)
-            device_id = _resolve_device(devices, requested_device)
-            try:
-                result = tool_executor(tool_name, tool_args, device_id, tenant, actor)
-            except Exception as exc:  # noqa: BLE001 - tool errors feed back to the model
-                result = {"ok": False, "error": str(exc)}
-            steps.append(
-                {
-                    "tool": tool_name,
-                    "device": device_id or "local",
-                    "args": tool_args,
-                    "result": result,
-                }
-            )
-            image = _extract_image(result) if isinstance(result, dict) else None
-            if image:
-                images.append((image[0], image[1], image[2], image[3], tool_name))
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": call.get("id"),
-                    "name": tool_name,
-                    "content": json.dumps(_strip_image_fields(result), default=str)[:20000],
-                }
-            )
+
+            if tool_name in mcp_dispatch_map:
+                srv, orig_tool = mcp_dispatch_map[tool_name]
+                try:
+                    extra_h = json.loads(srv.get("headers_json") or "{}")
+                except Exception:
+                    extra_h = {}
+                try:
+                    mcp_res = execute_mcp_tool(
+                        url=srv["url"],
+                        tool_name=orig_tool,
+                        arguments=tool_args,
+                        auth_header=srv.get("auth_header") or "",
+                        auth_token=srv.get("auth_token") or "",
+                        extra_headers=extra_h,
+                    )
+                    result = mcp_res.get("result", mcp_res)
+                except Exception as exc:
+                    result = {"ok": False, "error": f"MCP execution error: {exc}"}
+
+                steps.append(
+                    {
+                        "tool": tool_name,
+                        "device": f"mcp:{srv['name']}",
+                        "args": tool_args,
+                        "result": result,
+                    }
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.get("id"),
+                        "name": tool_name,
+                        "content": json.dumps(_strip_image_fields(result), default=str)[:20000],
+                    }
+                )
+            else:
+                requested_device = tool_args.pop("device", None)
+                device_id = _resolve_device(devices, requested_device)
+                try:
+                    result = tool_executor(tool_name, tool_args, device_id, tenant, actor)
+                except Exception as exc:  # noqa: BLE001 - tool errors feed back to the model
+                    result = {"ok": False, "error": str(exc)}
+                steps.append(
+                    {
+                        "tool": tool_name,
+                        "device": device_id or "local",
+                        "args": tool_args,
+                        "result": result,
+                    }
+                )
+                image = _extract_image(result) if isinstance(result, dict) else None
+                if image:
+                    images.append((image[0], image[1], image[2], image[3], tool_name))
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.get("id"),
+                        "name": tool_name,
+                        "content": json.dumps(_strip_image_fields(result), default=str)[:20000],
+                    }
+                )
         if images and vision_enabled:
             messages.append(_image_user_message(images))
 
@@ -616,8 +711,9 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
         interval = min(MAX_INTERVAL_S, max(MIN_INTERVAL_S, int(body.interval_seconds)))
         conn.execute(
             "INSERT INTO custom_agents (id, name, instruction, tenant, provider, model, base_url, "
-            "device_ids_json, interval_seconds, enabled, status, next_run_at, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "device_ids_json, interval_seconds, enabled, status, next_run_at, allowed_tools_json, "
+            "mcp_server_ids_json, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 agent_id,
                 body.name.strip(),
@@ -631,6 +727,8 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
                 1 if body.enabled else 0,
                 "idle",
                 now if body.enabled else now + interval,
+                json.dumps(body.allowed_tools or []),
+                json.dumps(body.mcp_server_ids or []),
                 now,
                 now,
             ),
@@ -673,10 +771,12 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
         # Reset failure counter on manual resume.
         reset_failures = 0 if (body.enabled is True) else current.get("consecutive_failures", 0)
         memory = current.get("memory") if body.memory is None else body.memory
+        allowed_tools = body.allowed_tools if body.allowed_tools is not None else json.loads(current.get("allowed_tools_json") or "[]")
+        mcp_server_ids = body.mcp_server_ids if body.mcp_server_ids is not None else json.loads(current.get("mcp_server_ids_json") or "[]")
         conn.execute(
             "UPDATE custom_agents SET name=?, instruction=?, provider=?, model=?, base_url=?, "
             "device_ids_json=?, interval_seconds=?, enabled=?, status=?, next_run_at=?, "
-            "memory=?, consecutive_failures=?, updated_at=? WHERE id=?",
+            "memory=?, consecutive_failures=?, allowed_tools_json=?, mcp_server_ids_json=?, updated_at=? WHERE id=?",
             (
                 (body.name or current["name"]).strip(),
                 (body.instruction or current["instruction"]).strip(),
@@ -690,6 +790,8 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
                 next_run,
                 memory,
                 reset_failures,
+                json.dumps(allowed_tools),
+                json.dumps(mcp_server_ids),
                 _now(),
                 agent_id,
             ),
@@ -767,6 +869,8 @@ class AgentIn(BaseModel):
     device_ids: list[str] = Field(default_factory=list)
     interval_seconds: int = DEFAULT_INTERVAL_S
     enabled: bool = True
+    allowed_tools: list[str] = Field(default_factory=list)
+    mcp_server_ids: list[str] = Field(default_factory=list)
 
 
 class AgentPatch(BaseModel):
@@ -779,6 +883,8 @@ class AgentPatch(BaseModel):
     interval_seconds: int | None = None
     enabled: bool | None = None
     memory: str | None = None
+    allowed_tools: list[str] | None = None
+    mcp_server_ids: list[str] | None = None
 
 
 def _serialize(conn: Any, agent: dict[str, Any]) -> dict[str, Any]:
@@ -796,6 +902,38 @@ def _serialize(conn: Any, agent: dict[str, Any]) -> dict[str, Any]:
         ).fetchone()
         devices.append(dict(row) if row else {"id": device_id, "name": device_id, "status": "missing"})
     out["devices"] = devices
+
+    try:
+        allowed_tools = json.loads(out.pop("allowed_tools_json", "[]") or "[]")
+    except Exception:
+        allowed_tools = []
+    out["allowed_tools"] = allowed_tools
+
+    try:
+        mcp_server_ids = json.loads(out.pop("mcp_server_ids_json", "[]") or "[]")
+    except Exception:
+        mcp_server_ids = []
+    out["mcp_server_ids"] = mcp_server_ids
+
+    # Attach detailed MCP servers metadata
+    mcp_servers = []
+    if mcp_server_ids:
+        placeholders = ",".join("?" for _ in mcp_server_ids)
+        rows = conn.execute(
+            f"SELECT id, name, url, transport, status, tools_json, enabled FROM mcp_servers WHERE id IN ({placeholders})",
+            tuple(mcp_server_ids),
+        ).fetchall()
+        for r in rows:
+            m = dict(r)
+            try:
+                t_list = json.loads(m.pop("tools_json", "[]") or "[]")
+            except Exception:
+                t_list = []
+            m["tools_count"] = len(t_list)
+            m["tools"] = t_list
+            mcp_servers.append(m)
+    out["mcp_servers"] = mcp_servers
+
     return out
 
 

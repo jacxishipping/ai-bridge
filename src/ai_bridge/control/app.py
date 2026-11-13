@@ -3782,7 +3782,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
         return await call_next(request)
 
-    from . import ai_api, v1_routes
+    from . import ai_api, v1_routes, mcp_routes
     from .custom_agents import AgentRunner, install_custom_agent_routes
     ai_api.attach_ai_routes(
         app,
@@ -3806,6 +3806,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         get_effective_device_policy,
         audit,
     )
+    mcp_routes.install_mcp_routes(app, conn, require_role, audit)
 
     # Persistent 24/7 custom agents: CRUD endpoints plus the background runner.
     def _agent_failure_notify(event: dict) -> None:

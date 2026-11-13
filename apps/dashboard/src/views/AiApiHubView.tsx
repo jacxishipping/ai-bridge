@@ -41,6 +41,11 @@ import {
   Clock3,
   ChevronDown,
   ChevronUp,
+  Network,
+  Plus,
+  Wrench,
+  Globe,
+  Link2,
 } from "lucide-react";
 import { useDashboardStore } from "../state/dashboardStore";
 import { api, sessionToken, token } from "../api";
@@ -79,6 +84,53 @@ const AI_PROVIDER_OPTIONS = [
   { id: "ollama", label: "Ollama / local" },
 ];
 
+interface McpServerTool {
+  name: string;
+  description: string;
+  inputSchema?: any;
+}
+
+interface McpServerItem {
+  id: string;
+  name: string;
+  url: string;
+  transport: string;
+  enabled: boolean;
+  status: "healthy" | "offline" | "unknown";
+  last_checked_at?: number | null;
+  last_error?: string;
+  tools_count: number;
+  tools: McpServerTool[];
+  token_masked?: string;
+}
+
+interface McpTemplate {
+  id: string;
+  name: string;
+  url: string;
+  description: string;
+  category: string;
+  requires_auth?: boolean;
+  auth_placeholder?: string;
+}
+
+const DEVICE_TOOL_OPTIONS = [
+  { id: "take_screenshot", label: "Desktop Screenshot", category: "gui" },
+  { id: "set_of_marks_screenshot", label: "Set-of-Marks Screenshot", category: "gui" },
+  { id: "click_element", label: "GUI Click Element", category: "gui" },
+  { id: "mouse_click", label: "Mouse Click", category: "gui" },
+  { id: "keyboard_type", label: "Keyboard Type Text", category: "gui" },
+  { id: "launch_approved_application", label: "Launch Application", category: "gui" },
+  { id: "run_shell", label: "Run Shell / Terminal", category: "system" },
+  { id: "list_processes", label: "Process Inventory", category: "system" },
+  { id: "get_system_info", label: "System Info", category: "system" },
+  { id: "get_network_info", label: "Network Telemetry", category: "system" },
+  { id: "file_read", label: "Read Workspace File", category: "files" },
+  { id: "file_write", label: "Write Workspace File", category: "files" },
+  { id: "file_list", label: "List Directory Files", category: "files" },
+  { id: "git_status", label: "Git Repository Status", category: "git" },
+];
+
 interface CustomAgent {
   id: string;
   name: string;
@@ -97,6 +149,9 @@ interface CustomAgent {
   run_count: number;
   consecutive_failures?: number;
   memory?: string;
+  allowed_tools?: string[];
+  mcp_server_ids?: string[];
+  mcp_servers?: McpServerItem[];
 }
 
 function describeError(error: unknown): string {
@@ -297,11 +352,26 @@ export const AiApiHubView: React.FC = () => {
   const [agentBaseUrl, setAgentBaseUrl] = useState("");
   const [agentInterval, setAgentInterval] = useState("300");
   const [agentDeviceIds, setAgentDeviceIds] = useState<string[]>([]);
+  const [agentMcpServerIds, setAgentMcpServerIds] = useState<string[]>([]);
+  const [agentAllowedTools, setAgentAllowedTools] = useState<string[]>([]);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentNotice, setAgentNotice] = useState<{ severity: "success" | "error" | "info"; text: string } | null>(null);
   const [agentRunsOpen, setAgentRunsOpen] = useState<Record<string, boolean>>({});
   const [agentRuns, setAgentRuns] = useState<Record<string, any[]>>({});
   const [agentRunsLoading, setAgentRunsLoading] = useState<Record<string, boolean>>({});
+
+  // MCP Services state
+  const [mcpServers, setMcpServers] = useState<McpServerItem[]>([]);
+  const [mcpTemplates, setMcpTemplates] = useState<McpTemplate[]>([]);
+  const [mcpLoading, setMcpLoading] = useState(false);
+  const [mcpFormOpen, setMcpFormOpen] = useState(false);
+  const [mcpName, setMcpName] = useState("");
+  const [mcpUrl, setMcpUrl] = useState("");
+  const [mcpAuthToken, setMcpAuthToken] = useState("");
+  const [mcpAuthHeader, setMcpAuthHeader] = useState("");
+  const [mcpSyncing, setMcpSyncing] = useState<Record<string, boolean>>({});
+  const [mcpNotice, setMcpNotice] = useState<{ severity: "success" | "error" | "info"; text: string } | null>(null);
+  const [mcpToolsExpanded, setMcpToolsExpanded] = useState<Record<string, boolean>>({});
 
   const loadAiSettings = async (): Promise<void> => {
     if (!isLive) return;
@@ -377,10 +447,38 @@ export const AiApiHubView: React.FC = () => {
     }
   };
 
+  const loadMcpServers = async (): Promise<void> => {
+    if (!isLive) return;
+    setMcpLoading(true);
+    try {
+      const res = await api.mcpServers();
+      setMcpServers(res.servers || []);
+    } catch (error) {
+      setMcpNotice({ severity: "error", text: describeError(error) });
+    } finally {
+      setMcpLoading(false);
+    }
+  };
+
+  const loadMcpTemplates = async (): Promise<void> => {
+    if (!isLive) return;
+    try {
+      const res = await api.mcpTemplates();
+      setMcpTemplates(res.templates || []);
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     if (!isLive) return;
     void loadAgents(true);
-    const timer = window.setInterval(() => void loadAgents(true), 10000);
+    void loadMcpServers();
+    void loadMcpTemplates();
+    const timer = window.setInterval(() => {
+      void loadAgents(true);
+      void loadMcpServers();
+    }, 10000);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLive]);
@@ -390,8 +488,66 @@ export const AiApiHubView: React.FC = () => {
     setAgentProvider(provider);
     setAgentModel(provider === "custom" ? aiSettings?.custom_model || "" : aiSettings?.model || "");
     setAgentBaseUrl(aiSettings?.custom_base_url || "");
+    setAgentMcpServerIds(mcpServers.filter((s) => s.enabled).map((s) => s.id));
+    setAgentAllowedTools([]);
     setAgentFormOpen(true);
     setAgentNotice(null);
+  };
+
+  const handleCreateMcpServer = async (): Promise<void> => {
+    if (!mcpName.trim() || !mcpUrl.trim()) {
+      setMcpNotice({ severity: "error", text: "MCP service name and URL are required." });
+      return;
+    }
+    setMcpLoading(true);
+    setMcpNotice(null);
+    try {
+      const res = await api.createMcpServer({
+        name: mcpName.trim(),
+        url: mcpUrl.trim(),
+        auth_token: mcpAuthToken.trim() || undefined,
+        auth_header: mcpAuthHeader.trim() || undefined,
+        enabled: true,
+      });
+      setMcpNotice({ severity: "success", text: res.message || `Connected to ${mcpName}. Discovered ${res.tools_count} tools.` });
+      setMcpName("");
+      setMcpUrl("");
+      setMcpAuthToken("");
+      setMcpAuthHeader("");
+      setMcpFormOpen(false);
+      await loadMcpServers();
+    } catch (error) {
+      setMcpNotice({ severity: "error", text: describeError(error) });
+    } finally {
+      setMcpLoading(false);
+    }
+  };
+
+  const handleSyncMcpServer = async (serverId: string): Promise<void> => {
+    setMcpSyncing((prev) => ({ ...prev, [serverId]: true }));
+    try {
+      const res = await api.syncMcpServer(serverId);
+      setMcpNotice({ severity: res.ok ? "success" : "error", text: res.message || "MCP server synchronized." });
+      await loadMcpServers();
+    } catch (error) {
+      setMcpNotice({ severity: "error", text: describeError(error) });
+    } finally {
+      setMcpSyncing((prev) => ({ ...prev, [serverId]: false }));
+    }
+  };
+
+  const handleDeleteMcpServer = async (server: McpServerItem): Promise<void> => {
+    if (!window.confirm(`Disconnect MCP service "${server.name}"? Agents using it will lose access to its tools.`)) return;
+    setMcpLoading(true);
+    try {
+      await api.deleteMcpServer(server.id);
+      setMcpNotice({ severity: "success", text: `MCP service "${server.name}" removed.` });
+      await loadMcpServers();
+    } catch (error) {
+      setMcpNotice({ severity: "error", text: describeError(error) });
+    } finally {
+      setMcpLoading(false);
+    }
   };
 
   const handleCreateAgent = async (): Promise<void> => {
@@ -415,11 +571,15 @@ export const AiApiHubView: React.FC = () => {
         device_ids: agentDeviceIds,
         interval_seconds: Math.max(30, parseInt(agentInterval, 10) || 300),
         enabled: true,
+        allowed_tools: agentAllowedTools.length > 0 ? agentAllowedTools : undefined,
+        mcp_server_ids: agentMcpServerIds,
       });
       setAgentNotice({ severity: "success", text: `${agentName.trim()} is live and will run on its interval.` });
       setAgentName("");
       setAgentInstruction("");
       setAgentDeviceIds([]);
+      setAgentMcpServerIds([]);
+      setAgentAllowedTools([]);
       setAgentFormOpen(false);
       await loadAgents(true);
     } catch (error) {
@@ -700,6 +860,237 @@ export const AiApiHubView: React.FC = () => {
           </JXCardContent>
         </JXCard>
 
+        {/* SECTION: Connected MCP Services & Tools */}
+        <JXCard>
+          <JXCardHeader
+            title="Connected MCP Services & Tools"
+            subheader="Connect external services (GitHub, Slack, Databases, Brave Search, or custom endpoints) using Model Context Protocol. Connected tools are callable by your 24/7 custom agents and AI copilot."
+            icon={<Network className="w-4 h-4 text-emerald-400" />}
+          />
+          <JXCardContent>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-[var(--product-text-tertiary)]">
+                {isLive
+                  ? `${mcpServers.length} MCP service${mcpServers.length === 1 ? "" : "s"} connected (${mcpServers.reduce((sum, s) => sum + (s.tools_count || 0), 0)} tools discovered)`
+                  : "Sign in with an admin token to manage MCP services."}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <JXButton
+                  variant="contained"
+                  color="primary"
+                  size="sm"
+                  disabled={!isLive || mcpLoading}
+                  onClick={() => {
+                    setMcpFormOpen((prev) => !prev);
+                    setMcpNotice(null);
+                  }}
+                  startIcon={<Plus className="w-4 h-4" />}
+                >
+                  {mcpFormOpen ? "Close form" : "Connect MCP service"}
+                </JXButton>
+                <JXButton
+                  variant="soft"
+                  color="neutral"
+                  size="sm"
+                  disabled={!isLive || mcpLoading}
+                  onClick={() => void loadMcpServers()}
+                  startIcon={<RefreshCw className="w-3.5 h-3.5" />}
+                >
+                  Reload
+                </JXButton>
+              </div>
+            </div>
+
+            {mcpFormOpen && (
+              <div className="mt-4 space-y-3 rounded-lg border border-[var(--product-line)] bg-[var(--product-canvas)] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-xs font-semibold text-[var(--product-text-secondary)]">Add MCP Connector</h3>
+                  {mcpTemplates.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                      <span className="text-[var(--product-text-tertiary)]">Presets:</span>
+                      {mcpTemplates.slice(0, 4).map((tpl) => (
+                        <button
+                          key={tpl.id}
+                          type="button"
+                          onClick={() => {
+                            setMcpName(tpl.name);
+                            setMcpUrl(tpl.url);
+                            if (!tpl.requires_auth) setMcpAuthToken("");
+                          }}
+                          className="rounded px-2 py-0.5 text-[11px] bg-[var(--product-surface)] border border-[var(--product-line)] text-[var(--product-text-secondary)] hover:text-indigo-400"
+                        >
+                          {tpl.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <JXTextField
+                    label="Service Name"
+                    value={mcpName}
+                    onChange={setMcpName}
+                    placeholder="GitHub MCP, Slack MCP, Database MCP"
+                  />
+                  <JXTextField
+                    label="MCP Endpoint URL (HTTP or SSE)"
+                    value={mcpUrl}
+                    onChange={setMcpUrl}
+                    placeholder="http://mcp-http:8001 or https://api.service.com/mcp"
+                  />
+                  <div className="md:col-span-2">
+                    <JXTextField
+                      label="Authentication Token (Optional)"
+                      type="password"
+                      value={mcpAuthToken}
+                      onChange={setMcpAuthToken}
+                      clearable={false}
+                      placeholder="Bearer token or API key if the MCP server requires authorization"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <JXButton
+                    variant="contained"
+                    color="primary"
+                    size="sm"
+                    loading={mcpLoading}
+                    disabled={!isLive || mcpLoading || !mcpName.trim() || !mcpUrl.trim()}
+                    onClick={() => void handleCreateMcpServer()}
+                    startIcon={<CheckCircle2 className="w-4 h-4" />}
+                  >
+                    Connect &amp; probe tools
+                  </JXButton>
+                  <JXButton variant="text" color="neutral" size="sm" onClick={() => setMcpFormOpen(false)}>
+                    Cancel
+                  </JXButton>
+                </div>
+              </div>
+            )}
+
+            {mcpNotice && (
+              <div className="mt-3">
+                <JXAlert
+                  severity={mcpNotice.severity}
+                  title={mcpNotice.severity === "success" ? "MCP Service" : "MCP Service Notice"}
+                  description={mcpNotice.text}
+                />
+              </div>
+            )}
+
+            {mcpServers.length === 0 ? (
+              <div className="mt-4 rounded-lg border border-dashed border-[var(--product-line)] p-4 text-center">
+                <p className="text-xs text-[var(--product-text-tertiary)]">
+                  No external MCP services connected. Click <strong>Connect MCP service</strong> to add GitHub, Slack, local AI Bridge Fleet, or custom tool endpoints.
+                </p>
+                <div className="mt-2 flex flex-wrap justify-center gap-2">
+                  <JXButton
+                    variant="soft"
+                    color="primary"
+                    size="sm"
+                    disabled={!isLive}
+                    onClick={() => {
+                      setMcpName("Local AI Bridge Fleet MCP");
+                      setMcpUrl("http://mcp-http:8001");
+                      setMcpFormOpen(true);
+                    }}
+                    startIcon={<Plus className="w-3.5 h-3.5" />}
+                  >
+                    Add Built-in Fleet MCP
+                  </JXButton>
+                </div>
+              </div>
+            ) : (
+              <ul className="mt-4 divide-y divide-slate-800">
+                {mcpServers.map((srv) => (
+                  <li key={srv.id} className="py-3 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-medium text-[var(--product-text-secondary)]">{srv.name}</h3>
+                        <JXBadge
+                          color={srv.status === "healthy" ? "success" : srv.status === "offline" ? "error" : "neutral"}
+                          statusText={srv.status === "healthy" ? "Connected" : srv.status === "offline" ? "Offline" : "Unknown"}
+                        />
+                        <JXBadge
+                          color="primary"
+                          statusText={`${srv.tools_count || 0} tool${srv.tools_count === 1 ? "" : "s"}`}
+                        />
+                        <span className="font-mono text-xs text-[var(--product-text-tertiary)] break-all">{srv.url}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <JXButton
+                          variant="outlined"
+                          color="neutral"
+                          size="sm"
+                          loading={mcpSyncing[srv.id]}
+                          disabled={mcpLoading}
+                          onClick={() => void handleSyncMcpServer(srv.id)}
+                          startIcon={<RefreshCw className="w-3.5 h-3.5" />}
+                        >
+                          Sync tools
+                        </JXButton>
+                        <JXButton
+                          variant="text"
+                          color="neutral"
+                          size="sm"
+                          onClick={() =>
+                            setMcpToolsExpanded((prev) => ({ ...prev, [srv.id]: !prev[srv.id] }))
+                          }
+                          startIcon={
+                            mcpToolsExpanded[srv.id] ? (
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            )
+                          }
+                        >
+                          {mcpToolsExpanded[srv.id] ? "Hide tools" : "View tools"}
+                        </JXButton>
+                        <JXButton
+                          variant="text"
+                          color="error"
+                          size="sm"
+                          disabled={mcpLoading}
+                          onClick={() => void handleDeleteMcpServer(srv)}
+                          startIcon={<Trash2 className="w-3.5 h-3.5" />}
+                        >
+                          Remove
+                        </JXButton>
+                      </div>
+                    </div>
+
+                    {srv.last_error && <p className="text-xs text-red-400">{srv.last_error}</p>}
+
+                    {mcpToolsExpanded[srv.id] && (
+                      <div className="mt-2 rounded-lg border border-[var(--product-line)] bg-[var(--product-canvas)] p-3 space-y-2">
+                        <h4 className="text-xs font-semibold text-[var(--product-text-secondary)]">
+                          Discovered Tools ({srv.tools?.length || 0})
+                        </h4>
+                        {(!srv.tools || srv.tools.length === 0) ? (
+                          <p className="text-xs text-[var(--product-text-tertiary)]">No tools discovered yet. Click Sync tools to probe.</p>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-56 overflow-y-auto">
+                            {srv.tools.map((t) => (
+                              <div key={t.name} className="p-2 rounded border border-[var(--product-line)] bg-[var(--product-surface)]">
+                                <p className="font-mono text-xs font-semibold text-indigo-300">
+                                  mcp__{srv.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}__{t.name}
+                                </p>
+                                <p className="text-xs text-[var(--product-text-tertiary)] mt-0.5 line-clamp-2">{t.description}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </JXCardContent>
+        </JXCard>
+
         <JXCard>
           <JXCardHeader
             title="Custom 24/7 agents"
@@ -783,6 +1174,20 @@ export const AiApiHubView: React.FC = () => {
                       {" \u00b7 "}{agent.run_count} run{agent.run_count === 1 ? "" : "s"}
                       {" \u00b7 "}last {relativeTime(agent.last_run_at)}
                     </p>
+                    {agent.mcp_servers && agent.mcp_servers.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                        <span className="text-[11px] text-[var(--product-text-tertiary)] flex items-center gap-1">
+                          <Network className="w-3 h-3 text-emerald-400" /> MCP:
+                        </span>
+                        {agent.mcp_servers.map((s) => (
+                          <JXBadge
+                            key={s.id}
+                            color="primary"
+                            statusText={`${s.name} (${s.tools_count} tools)`}
+                          />
+                        ))}
+                      </div>
+                    )}
                     {agent.last_error ? (
                       <p className="text-xs text-red-400">Last error: {agent.last_error}</p>
                     ) : agent.last_result ? (
@@ -936,6 +1341,89 @@ export const AiApiHubView: React.FC = () => {
                           {device.name}{" "}
                           <span className="text-[var(--product-text-tertiary)]">({device.hostname})</span>
                         </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {mcpServers.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-mono text-[var(--product-text-tertiary)] flex items-center gap-1">
+                        <Network className="w-3.5 h-3.5 text-emerald-400" />
+                        Connected MCP Services ({agentMcpServerIds.length} enabled)
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAgentMcpServerIds(
+                            agentMcpServerIds.length === mcpServers.length
+                              ? []
+                              : mcpServers.map((s) => s.id)
+                          )
+                        }
+                        className="text-[11px] text-indigo-400 hover:underline"
+                      >
+                        {agentMcpServerIds.length === mcpServers.length ? "Deselect all" : "Select all"}
+                      </button>
+                    </div>
+                    <div className="grid max-h-36 grid-cols-1 gap-1 overflow-y-auto md:grid-cols-2">
+                      {mcpServers.map((srv) => (
+                        <label key={srv.id} className="flex items-center gap-2 rounded px-2 py-1 text-xs text-[var(--product-text-secondary)] hover:bg-[var(--product-surface)]">
+                          <input
+                            type="checkbox"
+                            checked={agentMcpServerIds.includes(srv.id)}
+                            onChange={(e) =>
+                              setAgentMcpServerIds((prev) =>
+                                e.target.checked ? [...prev, srv.id] : prev.filter((id) => id !== srv.id)
+                              )
+                            }
+                          />
+                          <span className="truncate">
+                            {srv.name}{" "}
+                            <span className="text-[var(--product-text-tertiary)]">({srv.tools_count} tools)</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-xs font-mono text-[var(--product-text-tertiary)] flex items-center gap-1">
+                      <Wrench className="w-3.5 h-3.5 text-indigo-400" />
+                      Device Tools Scope ({agentAllowedTools.length === 0 ? "All 49 device tools (default)" : `${agentAllowedTools.length} selected`})
+                    </p>
+                    {agentAllowedTools.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setAgentAllowedTools([])}
+                        className="text-[11px] text-indigo-400 hover:underline"
+                      >
+                        Reset to All Tools
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid max-h-36 grid-cols-1 gap-1 overflow-y-auto md:grid-cols-2">
+                    {DEVICE_TOOL_OPTIONS.map((t) => (
+                      <label key={t.id} className="flex items-center gap-2 rounded px-2 py-1 text-xs text-[var(--product-text-secondary)] hover:bg-[var(--product-surface)]">
+                        <input
+                          type="checkbox"
+                          checked={agentAllowedTools.length === 0 || agentAllowedTools.includes(t.id)}
+                          onChange={(e) => {
+                            if (agentAllowedTools.length === 0) {
+                              if (!e.target.checked) {
+                                setAgentAllowedTools(DEVICE_TOOL_OPTIONS.filter((item) => item.id !== t.id).map((item) => item.id));
+                              }
+                            } else {
+                              setAgentAllowedTools((prev) =>
+                                e.target.checked ? [...prev, t.id] : prev.filter((id) => id !== t.id)
+                              );
+                            }
+                          }}
+                        />
+                        <span className="truncate font-mono text-[11px]">{t.id} <span className="text-[var(--product-text-tertiary)] font-sans">({t.label})</span></span>
                       </label>
                     ))}
                   </div>
