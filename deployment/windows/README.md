@@ -48,7 +48,9 @@ python deployment/windows/installer_gui.py
 ```
 
 ### Method 2: 1-Click PowerShell (Unattended / Scripted)
-Run an elevated or unprivileged PowerShell session with ExecutionPolicy bypass:
+`Install-AIBridge.ps1` is a **compatibility shim**: it resolves a tested Python
+and forwards to `installer_gui.py`, which is the only implementation. Its
+parameters are translated to the wizard's own flags.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\deployment\windows\Install-AIBridge.ps1 `
@@ -61,11 +63,13 @@ powershell -ExecutionPolicy Bypass -File .\deployment\windows\Install-AIBridge.p
 #### Parameters:
 * `-ControlUrl <string>`: The URL of the control plane (default: `https://jxiptvplayer.app`).
 * `-DeviceToken <string>`: The device enrollment token obtained from the dashboard.
-* `-InstallDir <string>`: Target directory for the virtualenv (default: repository root).
-* `-AutoStart`: Registers the agent to start on Windows login under `HKCU:\Software\Microsoft\Windows\CurrentVersion\Run`.
+* `-InstallDir <string>`: Where the virtualenv is created (default: `%LOCALAPPDATA%\AIBridge`, as in the wizard).
+* `-AutoStart`: Starts the desktop client at sign-in (HKCU Run).
 * `-CreateShortcuts`: Creates Desktop and Start Menu `.lnk` shortcuts.
-* `-HeadlessService`: Registers a Windows Scheduled Task instead of a GUI client.
-* `-Silent`: Runs completely headlessly without GUI prompts.
+* `-HeadlessService`: Installs the background agent so it runs at sign-in under your own account.
+* `-Silent`: Runs completely headlessly without GUI prompts (the wizard's `--silent`).
+* `-HeadlessService`: registers the agent at sign-in as your own limited account.
+  For a boot-time service install use `install-agent.ps1` instead.
 
 ---
 

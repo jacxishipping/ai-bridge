@@ -1,17 +1,22 @@
 # ==============================================================================
-# AI Bridge Windows Agent — Complete Standalone All-In-One Installer
+# AI Bridge Windows — compatibility shim
 # ==============================================================================
-# Installs all required packages, runtime dependencies, creates shortcuts,
-# configures credentials, and sets up Windows auto-start.
+# CANONICAL INSTALLER: deployment/windows/installer_gui.py, launched by
+# Setup.bat (double-click) or `installer_gui.py --silent` for automation.
+# It is the only implementation: this file no longer installs anything itself.
 #
-# Usage (Unattended / Scripted):
-#   powershell -ExecutionPolicy Bypass -File .\Install-AIBridge.ps1 -ControlUrl "https://jxiptvplayer.app" -DeviceToken "YOUR_TOKEN" -AutoStart -CreateShortcuts
+# This shim exists so existing scripted call sites keep working. It accepts the
+# historical parameters, resolves a tested Python, and forwards to the wizard.
+# Behaviour differences worth knowing:
+#   * -HeadlessService registers the agent at SIGN-IN as your own limited
+#     account. The old script created an on-boot task running as your user.
+#     For a boot-time service install, use deployment/windows/install-agent.ps1.
+#   * -LaunchAfterInstall only applies with -Silent/-NoGui; the interactive
+#     wizard asks the operator instead.
 #
-# Usage (Interactive GUI):
+# Usage:
 #   powershell -ExecutionPolicy Bypass -File .\Install-AIBridge.ps1
-#   (or double-click Setup.bat)
-#
-# Usage (Support report, installs nothing):
+#   powershell -ExecutionPolicy Bypass -File .\Install-AIBridge.ps1 -ControlUrl "https://jxiptvplayer.app" -DeviceToken "YOUR_TOKEN" -Silent -HeadlessService -CreateShortcuts -AutoStart
 #   powershell -ExecutionPolicy Bypass -File .\Install-AIBridge.ps1 -Diagnose
 # ==============================================================================
 
@@ -32,387 +37,130 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Resolve Repository Root
 $RepoRoot = (Resolve-Path "$PSScriptRoot\..\..").Path
-if (-not $InstallDir) {
-    $InstallDir = $RepoRoot
-}
+$Wizard = Join-Path $PSScriptRoot "installer_gui.py"
+$AgentInstaller = Join-Path $PSScriptRoot "install-agent.ps1"
 
-function Write-Badge {
-    param([string]$Badge, [string]$Message, [string]$Color = "Cyan")
-    Write-Host "[$Badge] " -ForegroundColor $Color -NoNewline
-    Write-Host $Message
-}
-
-function Write-Header {
-    Write-Host ""
-    Write-Host "=====================================================================" -ForegroundColor Cyan
-    Write-Host "         AI Bridge — Complete Windows Agent Installer                " -ForegroundColor White
-    Write-Host "=====================================================================" -ForegroundColor Cyan
-    Write-Host " Repository Root: $RepoRoot"
-    Write-Host " Install Target:  $InstallDir"
-    Write-Host " Control Server:  $ControlUrl"
-    Write-Host "=====================================================================" -ForegroundColor DarkGray
-    Write-Host ""
-}
-
-# --- Failure diagnostics -----------------------------------------------------
-# Any failure runs the desktop client's headless report, so the operator gets
-# platform / token-backend / config / connectivity state instead of only a stack
-# trace. Best effort: never throws and never changes the installer's exit code.
-function Invoke-AiBridgeDiagnose {
-    param([string]$Reason = "Installation failed", [string]$RepoRoot = "", [string]$PythonExe = "")
-    $previousPreference = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        Write-Host ""
-        Write-Host "=============== AI Bridge diagnostics ===============" -ForegroundColor Yellow
-        Write-Host "Reason: $Reason" -ForegroundColor Yellow
-
-        $roots = @()
-        if ($RepoRoot) { $roots += $RepoRoot }
-        foreach ($relative in @("..\..", ".")) {
-            $resolved = Resolve-Path (Join-Path $PSScriptRoot $relative) -ErrorAction SilentlyContinue
-            if ($resolved) { $roots += $resolved.Path }
-        }
-
-        $GuiScript = ""
-        foreach ($root in $roots) {
-            $candidateScript = Join-Path $root "agents\windows\gui_app.py"
-            if (Test-Path $candidateScript) { $GuiScript = $candidateScript; break }
-        }
-
-        $candidates = @()
-        if ($PythonExe) { $candidates += $PythonExe }
-        foreach ($root in $roots) {
-            $candidates += (Join-Path $root ".venv\Scripts\python.exe")
-            $candidates += (Join-Path $root "venv\Scripts\python.exe")
-        }
-        if ($env:ProgramData) { $candidates += (Join-Path $env:ProgramData "ai-bridge\.venv\Scripts\python.exe") }
-
-        $python = $null
-        foreach ($candidate in $candidates) {
-            if ($candidate -and (Test-Path $candidate)) { $python = $candidate; break }
-        }
-        if (-not $python) {
-            $onPath = Get-Command python.exe -ErrorAction SilentlyContinue
-            if ($onPath) { $python = $onPath.Source }
-        }
-
-        if (-not $python) {
-            Write-Host "No Python interpreter found, so the report cannot be generated." -ForegroundColor DarkYellow
-            return
-        }
-        if (-not $GuiScript) {
-            Write-Host "gui_app.py not found under: $($roots -join ', ')" -ForegroundColor DarkYellow
-            Write-Host "Interpreter available at: $python"
-            return
-        }
-
-        Write-Host "Interpreter: $python"
-        Write-Host "Command:     $GuiScript --diagnose"
-        $report = & $python $GuiScript --diagnose 2>&1 | Out-String
-        if ($report.Trim()) {
-            Write-Host $report.Trim()
-        } else {
-            Write-Host "The diagnose command produced no output (exit code $LASTEXITCODE)." -ForegroundColor DarkYellow
-        }
-        Write-Host "=====================================================" -ForegroundColor Yellow
-    } catch {
-        Write-Host "Diagnostics could not be collected: $($_.Exception.Message)" -ForegroundColor DarkYellow
-    } finally {
-        $ErrorActionPreference = $previousPreference
-    }
-}
-
-trap {
-    Invoke-AiBridgeDiagnose -Reason "Install-AIBridge.ps1 failed: $($_.Exception.Message)" -RepoRoot $RepoRoot -PythonExe $PythonExe
+if (-not (Test-Path $Wizard)) {
+    Write-Host "[FAIL] The setup wizard is missing: $Wizard" -ForegroundColor Red
+    Write-Host "       This shim forwards to it; reinstall the repository and retry." -ForegroundColor Red
     exit 1
 }
 
-# On-demand report, before the wizard can launch and before anything is installed.
+# The support report lives with the agent installer, so delegate rather than
+# duplicate it. It installs nothing and exits 0.
 if ($Diagnose) {
-    Invoke-AiBridgeDiagnose -Reason "Requested with -Diagnose; no installation was performed" -RepoRoot $RepoRoot
-    exit 0
-}
-
-# If run interactively with no token and not suppressed, launch the GUI installer wizard
-if (-not $Silent -and -not $NoGui -and -not $DeviceToken -and [Environment]::UserInteractive) {
-    Write-Host "Launching graphical Fluent 2 setup wizard..." -ForegroundColor Cyan
-    $GuiInstaller = Join-Path $PSScriptRoot "installer_gui.py"
-    if (Test-Path $GuiInstaller) {
-        # Check if Python is available to launch GUI
-        $PyCmd = Get-Command pythonw.exe -ErrorAction SilentlyContinue
-        if (-not $PyCmd) { $PyCmd = Get-Command python.exe -ErrorAction SilentlyContinue }
-        if ($PyCmd) {
-            Start-Process -FilePath $PyCmd.Source -ArgumentList "`"$GuiInstaller`""
-            exit 0
-        }
-    }
-}
-
-Write-Header
-
-# ------------------------------------------------------------------------------
-# STEP 1: Verify / Provision Python Runtime (3.11+)
-# ------------------------------------------------------------------------------
-Write-Badge "1/6" "Detecting Python Runtime (Python 3.11+ required)..." "Cyan"
-
-$PythonExe = $null
-
-# Check current python in PATH
-$CheckExe = Get-Command python.exe -ErrorAction SilentlyContinue
-if ($CheckExe) {
-    try {
-        $VerOutput = & $CheckExe.Source -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
-        $Parts = $VerOutput.Split('.')
-        if ([int]$Parts[0] -ge 3 -and [int]$Parts[1] -ge 11) {
-            $PythonExe = $CheckExe.Source
-            Write-Badge "OK" "Found compatible Python $VerOutput at $PythonExe" "Green"
-        }
-    } catch {}
-}
-
-# Check py launcher
-if (-not $PythonExe) {
-    $PyLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
-    if ($PyLauncher) {
-        try {
-            $PathFromPy = & $PyLauncher.Source -3.11 -c "import sys; print(sys.executable)" 2>$null
-            if ($PathFromPy -and (Test-Path $PathFromPy)) {
-                $PythonExe = $PathFromPy
-                Write-Badge "OK" "Found Python via py launcher: $PythonExe" "Green"
-            }
-        } catch {}
-    }
-}
-
-# Check standard installation directories
-if (-not $PythonExe) {
-    $CandidateDirs = @(
-        "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe",
-        "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
-        "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
-        "C:\Python313\python.exe",
-        "C:\Python312\python.exe",
-        "C:\Python311\python.exe",
-        "C:\Program Files\Python312\python.exe",
-        "C:\Program Files\Python311\python.exe"
-    )
-    foreach ($Cand in $CandidateDirs) {
-        if (Test-Path $Cand) {
-            $PythonExe = $Cand
-            Write-Badge "OK" "Located Python at $PythonExe" "Green"
-            break
-        }
-    }
-}
-
-# If still not found, offer or perform auto-installation via winget
-if (-not $PythonExe) {
-    Write-Badge "WARN" "Python 3.11+ was not detected on this system." "Yellow"
-    $Winget = Get-Command winget.exe -ErrorAction SilentlyContinue
-    if ($Winget) {
-        Write-Badge "INSTALL" "Installing Python 3.12 via winget (unattended)..." "Cyan"
-        Start-Process winget -ArgumentList "install Python.Python.3.12 --silent --accept-source-agreements --accept-package-agreements" -Wait -NoNewWindow
-        # Refresh path
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        $PythonExe = "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
-        if (-not (Test-Path $PythonExe)) {
-            $PythonExe = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
-        }
-    }
-    if (-not $PythonExe -or -not (Test-Path $PythonExe)) {
-        Write-Host "Error: Python 3.11+ is required. Please install Python from https://www.python.org/downloads/ and rerun." -ForegroundColor Red
-        Invoke-AiBridgeDiagnose -Reason "Python 3.11+ is required but was not found or installed" -RepoRoot $RepoRoot
+    if (-not (Test-Path $AgentInstaller)) {
+        Write-Host "[FAIL] Cannot produce a report: $AgentInstaller is missing." -ForegroundColor Red
         exit 1
     }
+    & $AgentInstaller -Diagnose
+    exit $LASTEXITCODE
 }
 
-# ------------------------------------------------------------------------------
-# STEP 2: Create Isolated Virtual Environment
-# ------------------------------------------------------------------------------
-Write-Badge "2/6" "Setting up isolated virtual environment..." "Cyan"
-$VenvDir = Join-Path $InstallDir "venv"
-if (-not (Test-Path $VenvDir)) {
-    # Check if local .venv exists
-    $LocalVenv = Join-Path $InstallDir ".venv"
-    if (Test-Path $LocalVenv) {
-        $VenvDir = $LocalVenv
-        Write-Badge "INFO" "Reusing existing virtual environment at $VenvDir" "Gray"
-    } else {
-        Write-Badge "CREATE" "Creating virtualenv at $VenvDir" "Cyan"
-        & $PythonExe -m venv $VenvDir
+# --- Interpreter selection ---------------------------------------------------
+# Mirrors install-agent.ps1: only 3.12-3.14 are tested, and 'py -3' would
+# otherwise resolve to the newest installed build whatever that is.
+$SupportedPythons = @("3.12", "3.13", "3.14")
+
+function Get-PythonMinor {
+    param([string]$Exe, [string[]]$Prefix = @())
+    try {
+        $probe = @()
+        if ($Prefix) { $probe += $Prefix }
+        $probe += @("-c", "import sys; print('%d.%d' % sys.version_info[:2])")
+        $out = & $Exe @probe 2>$null
+        if ($LASTEXITCODE -eq 0 -and $out) {
+            $line = @($out | Where-Object { $_ } | Select-Object -Last 1)
+            if ($line.Count -gt 0) { return $line[0].ToString().Trim() }
+        }
+    } catch { }
+    return $null
+}
+
+function Resolve-WizardPython {
+    $launcher = Get-Command py.exe -ErrorAction SilentlyContinue
+    foreach ($minor in $SupportedPythons) {
+        if ($launcher) {
+            $found = Get-PythonMinor -Exe $launcher.Source -Prefix @("-$minor")
+            if ($found -eq $minor) {
+                return [pscustomobject]@{ Exe = $launcher.Source; Args = @("-$minor") }
+            }
+        }
+        $tag = "Python" + ($minor -replace '\.', '')
+        $candidates = @()
+        if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA "Programs\Python\$tag\python.exe") }
+        if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles "$tag\python.exe") }
+        foreach ($exe in $candidates) {
+            if ((Test-Path $exe) -and ((Get-PythonMinor -Exe $exe) -eq $minor)) {
+                return [pscustomobject]@{ Exe = $exe; Args = @() }
+            }
+        }
     }
-} else {
-    Write-Badge "INFO" "Using virtual environment at $VenvDir" "Gray"
+    foreach ($name in @("python.exe", "python3.exe")) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($cmd) {
+            $found = Get-PythonMinor -Exe $cmd.Source
+            if ($SupportedPythons -contains $found) {
+                return [pscustomobject]@{ Exe = $cmd.Source; Args = @() }
+            }
+        }
+    }
+    return $null
 }
 
-$VenvPython = Join-Path $VenvDir "Scripts\python.exe"
-$VenvPythonW = Join-Path $VenvDir "Scripts\pythonw.exe"
-if (-not (Test-Path $VenvPython)) {
-    Write-Host "Error: Virtual environment python executable not found at $VenvPython" -ForegroundColor Red
-    Invoke-AiBridgeDiagnose -Reason "Virtual environment is incomplete at $VenvDir" -RepoRoot $RepoRoot -PythonExe $PythonExe
+$selection = Resolve-WizardPython
+if (-not $selection) {
+    $installed = "none detected"
+    $launcher = Get-Command py.exe -ErrorAction SilentlyContinue
+    if ($launcher) {
+        try {
+            $listing = & $launcher.Source -0 2>$null
+            $seen = foreach ($line in $listing) { if ($line -match '-V:(\d+\.\d+)') { $Matches[1] } }
+            if ($seen) { $installed = $seen -join ", " }
+        } catch { }
+    }
+    Write-Host "[FAIL] No supported Python interpreter (3.12, 3.13 or 3.14) was found." -ForegroundColor Red
+    Write-Host "       Installed versions seen: $installed" -ForegroundColor Red
+    Write-Host "       'py -3' would silently pick the newest build, which is not tested, so this refuses to guess." -ForegroundColor Red
+    Write-Host "       Install Python 3.12 from https://www.python.org/downloads/windows/ and rerun." -ForegroundColor Red
     exit 1
 }
 
-# ------------------------------------------------------------------------------
-# STEP 3: Install All Required Packages
-# ------------------------------------------------------------------------------
-if (-not $SkipPackageInstall) {
-    Write-Badge "3/6" "Installing all required packages into virtual environment..." "Cyan"
-    Write-Host "  -> Upgrading pip, setuptools, wheel..." -ForegroundColor DarkGray
-    & $VenvPython -m pip install --quiet --upgrade pip setuptools wheel
+# --- Forward to the wizard ---------------------------------------------------
+$forward = @($Wizard)
+$interactive = -not ($Silent -or $NoGui)
 
-    $ReqFile = Join-Path $PSScriptRoot "requirements.txt"
-    if (Test-Path $ReqFile) {
-        Write-Host "  -> Installing dependencies from requirements.txt..." -ForegroundColor DarkGray
-        Write-Host "     (fastapi, uvicorn, pydantic, psutil, Pillow, aiortc, av, cryptography, pystray)" -ForegroundColor DarkCyan
-        & $VenvPython -m pip install --upgrade -r $ReqFile
-    } else {
-        Write-Host "  -> Installing dependencies directly..." -ForegroundColor DarkGray
-        & $VenvPython -m pip install "fastapi>=0.110" "uvicorn>=0.29" "pydantic>=2.6" "psutil>=5.9" "Pillow>=10.0" "aiortc>=1.8" "av>=11.0" "cryptography>=42.0" "pystray>=0.19.5"
-    }
-
-    # Install local ai-bridge package
-    if (Test-Path (Join-Path $RepoRoot "pyproject.toml")) {
-        Write-Host "  -> Registering ai-bridge package..." -ForegroundColor DarkGray
-        & $VenvPython -m pip install --no-deps -e $RepoRoot
-    }
-
-    Write-Badge "OK" "Packages successfully installed and linked." "Green"
+if ($interactive) {
+    Write-Host "[INFO] Launching the AI Bridge setup wizard (canonical installer)." -ForegroundColor Cyan
 } else {
-    Write-Badge "3/6" "Skipping package installation as requested." "Yellow"
+    $forward += @("--silent")
+    # Native commands drop zero-length arguments, so an unset token would make
+    # '--token' swallow the next flag. Only forward values that exist.
+    if ($ControlUrl) { $forward += @("--url", $ControlUrl) }
+    if ($DeviceToken) { $forward += @("--token", $DeviceToken) }
+    if ($InstallDir) { $forward += @("--install-dir", $InstallDir) }
+    if (-not $CreateShortcuts) { $forward += "--no-shortcuts" }
+    if (-not $AutoStart) { $forward += "--no-autostart" }
+    if (-not $HeadlessService) { $forward += "--no-agent" }
+    if ($SkipPackageInstall) { $forward += "--no-packages" }
+    if (-not $LaunchAfterInstall) { $forward += "--no-launch" }
+
+    Write-Host "[INFO] Forwarding to the wizard:" -ForegroundColor Cyan
+    Write-Host ("       {0} {1}" -f $selection.Exe, (($selection.Args + $forward) -join " ")) -ForegroundColor DarkGray
+    Write-Host "[INFO] -HeadlessService registers the agent at SIGN-IN as your own limited account." -ForegroundColor DarkGray
+    Write-Host "       For a boot-time service install, use install-agent.ps1 instead." -ForegroundColor DarkGray
 }
 
-# ------------------------------------------------------------------------------
-# STEP 4: Configure Agent Credentials & Settings
-# ------------------------------------------------------------------------------
-Write-Badge "4/6" "Configuring agent credentials & settings..." "Cyan"
-$ConfigDir = Join-Path $HOME ".ai-bridge"
-if (-not (Test-Path $ConfigDir)) {
-    New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
+Push-Location $RepoRoot
+try {
+    & $selection.Exe @($selection.Args + $forward)
+    $exitCode = $LASTEXITCODE
+} finally {
+    Pop-Location
 }
 
-$ConfigFile = Join-Path $ConfigDir "agent_gui.json"
-$TokenFile = Join-Path $ConfigDir "device.token"
-
-# Read existing or generate config
-$ConfigObj = @{
-    control_url = $ControlUrl.Trim().TrimEnd('/')
-    device_token = $DeviceToken.Trim()
-    auto_start = $true
-    theme = "dark"
-    poll_wait_s = 10
-    minimize_to_tray = $true
-    desktop_notifications = $true
-    autostart_windows = [bool]$AutoStart
-    desktop_enabled = $true
-    allow_tier3 = $true
-    max_tier_unattended = 3
-    allow_writes = $true
-    allow_shell = $true
-    allow_package_install = $true
-    allowed_apps = @("chrome", "msedge", "notepad", "calc", "code", "powershell", "cmd", "explorer", "mspaint", "wt")
+if ($exitCode -ne 0) {
+    Write-Host "[FAIL] Setup exited with code $exitCode." -ForegroundColor Red
 }
-
-# If file exists, update while preserving user customizations
-if (Test-Path $ConfigFile) {
-    try {
-        $ExistingJson = Get-Content $ConfigFile -Raw | ConvertFrom-Json
-        if ($ExistingJson.control_url -and -not $PSBoundParameters.ContainsKey('ControlUrl')) {
-            $ConfigObj.control_url = $ExistingJson.control_url
-        }
-        if (-not $DeviceToken -and $ExistingJson.device_token) {
-            $ConfigObj.device_token = $ExistingJson.device_token
-        }
-    } catch {}
-}
-
-if (-not $ConfigObj.device_token -and (Test-Path $TokenFile)) {
-    $ConfigObj.device_token = (Get-Content $TokenFile -Raw).Trim()
-}
-
-$ConfigObj | ConvertTo-Json -Depth 5 | Set-Content $ConfigFile -Encoding UTF8
-if ($ConfigObj.device_token) {
-    $ConfigObj.device_token | Set-Content $TokenFile -Encoding UTF8
-}
-Write-Badge "OK" "Saved configuration to $ConfigFile" "Green"
-
-# ------------------------------------------------------------------------------
-# STEP 5: Shortcuts, Autostart & Service Registration
-# ------------------------------------------------------------------------------
-Write-Badge "5/6" "Setting up Windows shortcuts & autostart..." "Cyan"
-
-$GuiScript = Join-Path $RepoRoot "agents\windows\gui_app.py"
-$IcoPath = Join-Path $RepoRoot "assets\ai-bridge.ico"
-
-# Shortcuts
-if ($CreateShortcuts -or -not $Silent) {
-    $WshShell = New-Object -ComObject WScript.Shell
-    $DesktopDir = [Environment]::GetFolderPath("Desktop")
-    $StartMenuDir = [Environment]::GetFolderPath("Programs")
-
-    foreach ($Dir in @($DesktopDir, $StartMenuDir)) {
-        if ($Dir -and (Test-Path $Dir)) {
-            $LnkPath = Join-Path $Dir "AI Bridge Agent.lnk"
-            $S = $WshShell.CreateShortcut($LnkPath)
-            $S.TargetPath = if (Test-Path $VenvPythonW) { $VenvPythonW } else { $VenvPython }
-            $S.Arguments = "`"$GuiScript`""
-            $S.WorkingDirectory = $RepoRoot
-            $S.Description = "AI Bridge Windows Agent (Fluent 2 Desktop Client)"
-            if (Test-Path $IcoPath) {
-                $S.IconLocation = "$IcoPath,0"
-            } else {
-                $S.IconLocation = "$env:SystemRoot\System32\shell32.dll,18"
-            }
-            $S.Save()
-            Write-Badge "SHORTCUT" "Created $LnkPath" "Green"
-        }
-    }
-}
-
-# Auto-start with Windows Login (HKCU)
-if ($AutoStart) {
-    $RegRunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-    $TargetExe = if (Test-Path $VenvPythonW) { $VenvPythonW } else { $VenvPython }
-    $RunCmd = "`"$TargetExe`" `"$GuiScript`""
-    Set-ItemProperty -Path $RegRunKey -Name "AIBridgeWindowsClient" -Value $RunCmd -Type String
-    Write-Badge "AUTOSTART" "Registered Windows sign-in auto-start in HKCU" "Green"
-}
-
-# Headless service option (Scheduled Task)
-if ($HeadlessService) {
-    $AgentMain = Join-Path $RepoRoot "agents\windows\agent_main.py"
-    $TaskCmd = "`"$VenvPython`" `"$AgentMain`" --control-url $($ConfigObj.control_url) --device-token $($ConfigObj.device_token)"
-    schtasks /create /tn "AI Bridge Agent" /tr $TaskCmd /sc onstart /ru $env:USERNAME /rl limited /f | Out-Null
-    Write-Badge "SERVICE" "Registered headless Scheduled Task 'AI Bridge Agent'" "Green"
-}
-
-# ------------------------------------------------------------------------------
-# STEP 6: Package Verification & Health Check
-# ------------------------------------------------------------------------------
-Write-Badge "6/6" "Verifying installed packages & health check..." "Cyan"
-
-$VerifyScript = Join-Path $PSScriptRoot "installer_gui.py"
-if (Test-Path $VerifyScript) {
-    & $VenvPython $VerifyScript --verify-only
-}
-
-Write-Host ""
-Write-Host "=====================================================================" -ForegroundColor Green
-Write-Host "              AI BRIDGE INSTALLATION COMPLETE!                       " -ForegroundColor Green
-Write-Host "=====================================================================" -ForegroundColor Green
-Write-Host "  Control Server: $($ConfigObj.control_url)" -ForegroundColor White
-Write-Host "  Virtualenv:     $VenvDir" -ForegroundColor White
-Write-Host "  Agent Client:   $GuiScript" -ForegroundColor White
-Write-Host ""
-Write-Host "  To launch the agent client now, run:" -ForegroundColor Cyan
-Write-Host "    & '$VenvPythonW' '$GuiScript'" -ForegroundColor Yellow
-Write-Host ""
-
-if ($LaunchAfterInstall -or (-not $Silent -and -not $HeadlessService)) {
-    Write-Badge "LAUNCH" "Starting AI Bridge Windows Client..." "Cyan"
-    Start-Process -FilePath (if (Test-Path $VenvPythonW) { $VenvPythonW } else { $VenvPython }) -ArgumentList "`"$GuiScript`"" -WorkingDirectory $RepoRoot
-}
-
+exit $exitCode

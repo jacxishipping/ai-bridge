@@ -12,9 +12,13 @@ import pytest
 
 SCRIPTS = (
     Path("deployment/windows/install-agent.ps1"),
-    Path("deployment/windows/Install-AIBridge.ps1"),
     Path("magic-install.ps1"),
 )
+
+# Install-AIBridge.ps1 is a compatibility shim: it installs nothing and delegates
+# -Diagnose to install-agent.ps1, so it is asserted separately below instead of
+# being required to carry a second copy of the report helper.
+SHIM = Path("deployment/windows/Install-AIBridge.ps1")
 
 
 def _text(path: Path) -> str:
@@ -53,16 +57,36 @@ def test_trap_calls_the_helper_and_is_registered_after_it(script: Path):
     assert "Invoke-AiBridgeDiagnose" in trap_block
 
 
-def test_install_aibridge_diagnoses_before_each_hard_exit():
-    text = _text(Path("deployment/windows/Install-AIBridge.ps1"))
+def test_install_aibridge_shim_delegates_the_report():
+    text = _text(SHIM)
 
-    for marker in (
-        "Python 3.11+ is required. Please install Python",
-        "Virtual environment python executable not found",
-    ):
-        index = text.index(marker)
-        window = text[index : index + 600]
-        assert "Invoke-AiBridgeDiagnose" in window, f"missing diagnostics before exit near: {marker}"
+    branch_at = text.index("if ($Diagnose)")
+    branch = text[branch_at : branch_at + 500]
+    assert "install-agent.ps1" in branch, "the report lives with the agent installer"
+    assert "-Diagnose" in branch
+    assert "exit $LASTEXITCODE" in branch, "the report's own exit code must survive"
+
+
+def test_install_aibridge_shim_installs_nothing_itself():
+    text = _text(SHIM)
+
+    # One implementation only: the shim must not carry its own provisioning.
+    assert "-m venv" not in text
+    assert "pip install" not in text
+    assert "schtasks" not in text
+    assert "Register-ScheduledTask" not in text
+    assert "installer_gui.py" in text, "it must forward to the canonical installer"
+
+
+def test_install_aibridge_shim_explains_every_hard_exit():
+    text = _text(SHIM)
+
+    position = text.find("exit 1")
+    assert position != -1, "the shim should still fail with a non-zero code"
+    while position != -1:
+        window = text[max(0, position - 600) : position]
+        assert "[FAIL]" in window, "every hard exit must be preceded by an explained failure"
+        position = text.find("exit 1", position + 1)
 
 
 def test_install_agent_diagnoses_when_the_account_is_missing():
@@ -102,10 +126,9 @@ def test_diagnose_switch_prints_the_report_and_exits_clean(script: Path):
 
 def test_diagnose_switch_runs_before_any_side_effect():
     """Each switch must short-circuit ahead of the step that would touch the machine."""
-    install_aibridge = _text(Path("deployment/windows/Install-AIBridge.ps1"))
-    assert install_aibridge.index("if ($Diagnose)") < install_aibridge.index(
-        "Launching graphical Fluent 2 setup wizard"
-    )
+    shim = _text(SHIM)
+    # -Diagnose must be handled before the shim resolves a Python or forwards.
+    assert shim.index("if ($Diagnose)") < shim.index("$selection = Resolve-WizardPython")
 
     magic = _text(Path("magic-install.ps1"))
     assert magic.index("if ($Diagnose)") < magic.index("Requesting Administrator elevation")

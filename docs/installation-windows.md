@@ -1,4 +1,12 @@
 # Installation — Windows
+
+The canonical installer is the setup wizard: double-click
+`deployment\windows\Setup.bat`, or run
+`python deployment\windows\installer_gui.py --silent` for automation.
+`Install-AIBridge.ps1` is kept only as a compatibility shim that forwards to the
+wizard, and `install-agent.ps1` remains the low-level registrar for headless or
+service installs.
+
 1. Install Python **3.12, 3.13 or 3.14** from python.org (tick "Add python.exe to
    PATH"). Those are the versions the agent is exercised on: this manual path and
    `install-agent.ps1` both refuse anything else, including newer builds such as
@@ -63,7 +71,7 @@ line, immediately before the installer exits 1:
 | Installer | Prints the report when |
 | :--- | :--- |
 | `install-agent.ps1` | the `-User` account does not exist, `-ControlUrl`/`-DeviceToken` are missing, or any terminating error occurs |
-| `Install-AIBridge.ps1` | Python 3.11+ is unavailable, the virtualenv is incomplete, or any terminating error occurs |
+| `Install-AIBridge.ps1` | only with `-Diagnose`, which forwards to `install-agent.ps1`; as a shim it installs nothing itself |
 | `magic-install.ps1` | the enrollment call fails, or any terminating error occurs |
 
 Diagnostics never mask the real outcome: the report exits 0 on its own, and a
