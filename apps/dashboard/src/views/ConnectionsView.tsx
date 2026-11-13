@@ -4,8 +4,9 @@
  * ZERO inline styles. ZERO custom CSS.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { useScrollShadow } from "../hooks/useScrollShadow";
 import {
   GlassModal,
   JXCard,
@@ -100,6 +101,8 @@ export const ConnectionsView: React.FC = () => {
     typeof window !== "undefined" && window.location?.origin
       ? window.location.origin
       : "http://127.0.0.1:8000";
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const scrollShadow = useScrollShadow(tableScrollRef);
 
   // Live backend connection state
   const [liveConn, setLiveConn] = useState<LiveConnectionsResponse | null>(null);
@@ -599,7 +602,7 @@ export const ConnectionsView: React.FC = () => {
           icon={<Terminal className="w-5 h-5 text-indigo-400" />}
         />
         <JXCardContent>
-          <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]">
+          <div ref={tableScrollRef} tabIndex={0} role="region" aria-label="Client sessions" className="overflow-x-auto scroll-shadow rounded-xl border border-[var(--product-line)]" data-scroll-left={scrollShadow.left} data-scroll-right={scrollShadow.right}>
             <table className="w-full text-left text-xs border-collapse font-mono">
               <thead>
                 <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] uppercase">

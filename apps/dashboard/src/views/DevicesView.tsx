@@ -4,8 +4,9 @@
  * Pure @jacxishippingorg/jx-ui-react, motion/react, and lucide-react. ZERO inline styles.
  */
 
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { motion } from "motion/react";
+import { useScrollShadow } from "../hooks/useScrollShadow";
 import {
   JXContainer,
   JXStack,
@@ -61,6 +62,8 @@ export const DevicesView: React.FC = () => {
   const dispatchTask = useDashboardStore((s) => s.dispatchTask);
   const refreshLive = useDashboardStore((s) => s.refreshLive);
   const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const scrollShadow = useScrollShadow(tableScrollRef);
 
   // Filter toolbar state
   const [statusFilter, setStatusFilter] = useState<"all" | "online" | "offline" | "unresponsive">("all");
@@ -323,10 +326,10 @@ export const DevicesView: React.FC = () => {
       <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
         <JXCardContent>
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              {/* Status Filter Chips */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-mono text-[var(--product-text-tertiary)] uppercase tracking-wider mr-1">
+            <div className="flex flex-col gap-3">
+              {/* Status Filter Chips — horizontally scrollable on mobile */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
+                <span className="text-xs font-mono text-[var(--product-text-tertiary)] uppercase tracking-wider flex-shrink-0">
                   Status:
                 </span>
                 <JXButton
@@ -334,7 +337,7 @@ export const DevicesView: React.FC = () => {
                   color={statusFilter === "all" ? "primary" : "neutral"}
                   size="sm"
                   onClick={() => setStatusFilter("all")}
-                  className="text-xs"
+                  className="text-xs flex-shrink-0"
                 >
                   All ({totalCount})
                 </JXButton>
@@ -343,7 +346,7 @@ export const DevicesView: React.FC = () => {
                   color={statusFilter === "online" ? "success" : "neutral"}
                   size="sm"
                   onClick={() => setStatusFilter("online")}
-                  className="text-xs"
+                  className="text-xs flex-shrink-0"
                 >
                   Online ({onlineCount})
                 </JXButton>
@@ -352,7 +355,7 @@ export const DevicesView: React.FC = () => {
                   color={statusFilter === "unresponsive" ? "warning" : "neutral"}
                   size="sm"
                   onClick={() => setStatusFilter("unresponsive")}
-                  className="text-xs"
+                  className="text-xs flex-shrink-0"
                 >
                   Unresponsive ({unresponsiveCount})
                 </JXButton>
@@ -361,18 +364,18 @@ export const DevicesView: React.FC = () => {
                   color={statusFilter === "offline" ? "error" : "neutral"}
                   size="sm"
                   onClick={() => setStatusFilter("offline")}
-                  className="text-xs"
+                  className="text-xs flex-shrink-0"
                 >
                   Offline ({offlineCount})
                 </JXButton>
               </div>
 
-              {/* Platform Segmented Buttons */}
-              <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[var(--product-raised)]/80 border border-[var(--product-line)] flex-wrap">
+              {/* Platform Segmented Buttons — horizontally scrollable on mobile */}
+              <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[var(--product-raised)]/80 border border-[var(--product-line)] overflow-x-auto -mx-1 px-1 scrollbar-hide">
                 <button
                   type="button"
                   onClick={() => setPlatformFilter("all")}
-                  className={`px-3 py-1 rounded-lg text-xs font-mono transition-all ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all flex-shrink-0 ${
                     platformFilter === "all"
                       ? "bg-indigo-600 text-white font-semibold"
                       : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
@@ -383,7 +386,7 @@ export const DevicesView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setPlatformFilter("windows")}
-                  className={`px-3 py-1 rounded-lg text-xs font-mono transition-all ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all flex-shrink-0 ${
                     platformFilter === "windows"
                       ? "bg-indigo-600 text-white font-semibold"
                       : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
@@ -394,7 +397,7 @@ export const DevicesView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setPlatformFilter("linux")}
-                  className={`px-3 py-1 rounded-lg text-xs font-mono transition-all ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all flex-shrink-0 ${
                     platformFilter === "linux"
                       ? "bg-indigo-600 text-white font-semibold"
                       : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
@@ -405,7 +408,7 @@ export const DevicesView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setPlatformFilter("darwin")}
-                  className={`px-3 py-1 rounded-lg text-xs font-mono transition-all ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all flex-shrink-0 ${
                     platformFilter === "darwin"
                       ? "bg-indigo-600 text-white font-semibold"
                       : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
@@ -417,7 +420,7 @@ export const DevicesView: React.FC = () => {
             </div>
 
             {/* Monospace Search and Sorting Row */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center pt-1 border-t border-[var(--product-line)]">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center pt-3 border-t border-[var(--product-line)]">
               <div className="md:col-span-8">
                 <JXTextField
                   value={searchQuery}
@@ -429,13 +432,13 @@ export const DevicesView: React.FC = () => {
                 />
               </div>
 
-              <div className="md:col-span-4 flex items-center justify-end gap-2 text-xs font-mono">
-                <span className="text-[var(--product-text-tertiary)]">Sort by:</span>
+              <div className="md:col-span-4 flex items-center gap-2 text-xs font-mono flex-wrap">
+                <span className="text-[var(--product-text-tertiary)] flex-shrink-0">Sort by:</span>
                 <select
                   aria-label="Sort devices by"
                   value={sortField}
                   onChange={(e) => setSortField(e.target.value as any)}
-                  className="bg-[var(--product-raised)] border border-[var(--product-line)] text-[var(--product-text-secondary)] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
+                  className="bg-[var(--product-raised)] border border-[var(--product-line)] text-[var(--product-text-secondary)] rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500 flex-1 min-w-[100px]"
                 >
                   <option value="hostname">Hostname</option>
                   <option value="latency">Latency</option>
@@ -444,7 +447,7 @@ export const DevicesView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
-                  className="px-2 py-1.5 rounded-lg bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] border border-[var(--product-line)]"
+                  className="px-2.5 py-1.5 rounded-lg bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] border border-[var(--product-line)] flex-shrink-0"
                 >
                   {sortOrder === "asc" ? "ASC ↑" : "DESC ↓"}
                 </button>
@@ -462,7 +465,7 @@ export const DevicesView: React.FC = () => {
         />
         <JXCardContent>
           <div className="space-y-2">
-            <div tabIndex={0} role="region" aria-label="Device inventory" className="overflow-x-auto scroll-shadow">
+            <div ref={tableScrollRef} tabIndex={0} role="region" aria-label="Device inventory" className="overflow-x-auto scroll-shadow" data-scroll-left={scrollShadow.left} data-scroll-right={scrollShadow.right}>
               <table className="w-full text-left border-collapse text-sm min-w-[640px]">
                 <thead>
                   <tr className="border-b border-[var(--product-line)] text-xs text-[var(--product-text-tertiary)]">
@@ -555,7 +558,7 @@ export const DevicesView: React.FC = () => {
 
                           {/* 7. Sticky Actions (Right) */}
                           <td className="py-3 px-3 sticky right-0 bg-[var(--product-surface)] group-hover:bg-[var(--product-raised)]/70 transition-colors text-right pr-4">
-                            <div className="flex items-center justify-end gap-1.5">
+                            <div className="flex items-center justify-end gap-1.5 sm:gap-2">
                               <JXButton
                                 variant="text"
                                 color="neutral"
@@ -564,10 +567,23 @@ export const DevicesView: React.FC = () => {
                                   setSelectedDeviceId(device.id);
                                   setCurrentView("device-360-system");
                                 }}
-                                endIcon={<ArrowRight className="w-3 h-3" />}
-                                className="text-xs"
+                                endIcon={<ArrowRight className="w-3 h-3 sm:w-4 sm:h-4" />}
+                                className="text-xs sm:text-sm hidden sm:inline-flex"
                               >
                                 Details
+                              </JXButton>
+                              <JXButton
+                                variant="text"
+                                color="neutral"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedDeviceId(device.id);
+                                  setCurrentView("device-360-system");
+                                }}
+                                aria-label="Details"
+                                className="sm:hidden p-2"
+                              >
+                                <ArrowRight className="w-4 h-4" />
                               </JXButton>
 
                               <JXButton
@@ -575,10 +591,20 @@ export const DevicesView: React.FC = () => {
                                 color="neutral"
                                 size="sm"
                                 onClick={() => setDispatchModalDevice(device)}
-                                startIcon={<Play className="w-3 h-3 text-emerald-400" />}
-                                className="text-[11px] bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)]"
+                                startIcon={<Play className="w-3 h-3 sm:w-4 sm:h-4 text-emerald-400" />}
+                                className="text-[11px] sm:text-xs bg-[var(--product-raised)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] hidden sm:inline-flex"
                               >
                                 Run task
+                              </JXButton>
+                              <JXButton
+                                variant="soft"
+                                color="neutral"
+                                size="sm"
+                                onClick={() => setDispatchModalDevice(device)}
+                                aria-label="Run task"
+                                className="sm:hidden p-2 bg-[var(--product-raised)] hover:bg-[var(--product-raised)]"
+                              >
+                                <Play className="w-4 h-4 text-emerald-400" />
                               </JXButton>
 
                               <JXButton
@@ -586,10 +612,20 @@ export const DevicesView: React.FC = () => {
                                 color="warning"
                                 size="sm"
                                 onClick={() => handleRevokeDevice(device)}
-                                startIcon={<Ban className="w-3 h-3" />}
-                                className="text-[11px]"
+                                startIcon={<Ban className="w-3 h-3 sm:w-4 sm:h-4" />}
+                                className="text-[11px] sm:text-xs hidden sm:inline-flex"
                               >
                                 Revoke
+                              </JXButton>
+                              <JXButton
+                                variant="soft"
+                                color="warning"
+                                size="sm"
+                                onClick={() => handleRevokeDevice(device)}
+                                aria-label="Revoke"
+                                className="sm:hidden p-2"
+                              >
+                                <Ban className="w-4 h-4" />
                               </JXButton>
 
                               <JXButton
@@ -597,10 +633,20 @@ export const DevicesView: React.FC = () => {
                                 color="error"
                                 size="sm"
                                 onClick={() => handleDeleteDevice(device)}
-                                startIcon={<Trash2 className="w-3 h-3" />}
-                                className="text-[11px]"
+                                startIcon={<Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />}
+                                className="text-[11px] sm:text-xs hidden sm:inline-flex"
                               >
                                 Delete
+                              </JXButton>
+                              <JXButton
+                                variant="soft"
+                                color="error"
+                                size="sm"
+                                onClick={() => handleDeleteDevice(device)}
+                                aria-label="Delete"
+                                className="sm:hidden p-2"
+                              >
+                                <Trash2 className="w-4 h-4" />
                               </JXButton>
                             </div>
                           </td>

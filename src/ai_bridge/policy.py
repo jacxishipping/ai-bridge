@@ -102,6 +102,23 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "m365_search_files": RiskTier.READ_ONLY,
     "m365_create_event": RiskTier.SENSITIVE,
     "m365_send_mail": RiskTier.HIGH_RISK,
+    # Web browser automation tools
+    "browser_navigate": RiskTier.SENSITIVE,
+    "browser_screenshot": RiskTier.SENSITIVE,
+    "browser_click": RiskTier.SENSITIVE,
+    "browser_type": RiskTier.SENSITIVE,
+    "browser_get_text": RiskTier.READ_ONLY,
+    "browser_evaluate": RiskTier.SENSITIVE,
+    "browser_get_url": RiskTier.READ_ONLY,
+    "browser_go_back": RiskTier.SENSITIVE,
+    "browser_go_forward": RiskTier.SENSITIVE,
+    "browser_scroll": RiskTier.SENSITIVE,
+    "browser_close": RiskTier.SENSITIVE,
+    "browser_new_page": RiskTier.SENSITIVE,
+    "browser_get_elements": RiskTier.READ_ONLY,
+    "browser_wait_for_selector": RiskTier.SENSITIVE,
+    "browser_select_option": RiskTier.SENSITIVE,
+    "browser_download_file": RiskTier.SENSITIVE,
 }
 
 @dataclass(frozen=True)

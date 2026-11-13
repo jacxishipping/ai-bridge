@@ -6,7 +6,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { GlassModal } from "../ui";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { Keyboard } from "lucide-react";
 import { SidebarNav } from "./SidebarNav";
 import { TopHeader } from "./TopHeader";
@@ -54,24 +54,30 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
       </a>
       <aside className="hidden lg:block shrink-0"><SidebarNav /></aside>
       {/* Mobile slide-out drawer */}
-      {menuOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
-            onClick={() => setMenuOpen(false)}
-            aria-hidden="true"
-          />
-          <motion.aside
-            initial={{ x: "-100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "-100%" }}
-            transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="fixed left-0 top-0 z-50 h-dvh w-72 max-w-[85vw] bg-[var(--product-sidebar-bg)] shadow-2xl"
-          >
-            <SidebarNav onNavigate={() => setMenuOpen(false)} />
-          </motion.aside>
-        </>
-      )}
+      <AnimatePresence>
+        {menuOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+              onClick={() => setMenuOpen(false)}
+              aria-hidden="true"
+            />
+            <motion.aside
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="fixed left-0 top-0 z-50 h-dvh w-72 max-w-[85vw] bg-[var(--product-sidebar-bg)] shadow-2xl"
+            >
+              <SidebarNav onNavigate={() => setMenuOpen(false)} />
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
       <GlassModal open={helpOpen} onClose={() => setHelpOpen(false)} title="Keyboard shortcuts">
         <div className="space-y-3 text-sm text-[color:var(--product-text-secondary)]">
           <div className="flex items-center justify-between gap-4"><span>Search / Command palette</span><kbd className="rounded border border-[color:var(--product-line)] px-1.5 py-0.5 text-xs text-[color:var(--product-text-tertiary)]">Ctrl K</kbd></div>

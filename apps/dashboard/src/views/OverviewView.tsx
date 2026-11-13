@@ -26,8 +26,8 @@ export const OverviewView: React.FC = () => {
         endIcon={<ArrowRight className="h-4 w-4" />}>View devices</JXButton>
     </header>
 
-    <dl className="grid grid-cols-1 divide-y divide-slate-800 rounded-xl border border-[var(--product-line)] bg-[var(--product-surface)]/40 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-      {summary.map((item) => <div key={item.label} className="p-3.5">
+    <dl className="grid grid-cols-1 rounded-xl border border-[var(--product-line)] bg-[var(--product-surface)]/40 sm:grid-cols-3">
+      {summary.map((item, idx) => <div key={item.label} className={`p-3.5 ${idx > 0 ? "border-t border-[var(--product-line)]/60 sm:border-t-0 sm:border-l sm:border-[var(--product-line)]" : ""}`}>
         <dt className="text-sm text-[var(--product-text-tertiary)]">{item.label}</dt>
         <dd className="mt-1">
           <button type="button" onClick={() => navigate(item.view)}

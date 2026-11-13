@@ -4,8 +4,9 @@
  * ZERO inline styles. ZERO custom CSS.
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { useScrollShadow } from "../hooks/useScrollShadow";
 import {
   GlassModal,
   JXCard,
@@ -54,6 +55,8 @@ export const HumanApprovalsView: React.FC = () => {
   const approvals = useDashboardStore((s) => s.approvals);
   const resolveApproval = useDashboardStore((s) => s.resolveApproval);
   const operatorProfile = useDashboardStore((s) => s.operatorProfile);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const scrollShadow = useScrollShadow(tableScrollRef);
 
   // Active selected approval for inspection
   const [selectedId, setSelectedId] = useState<string>(
@@ -541,7 +544,7 @@ export const HumanApprovalsView: React.FC = () => {
           icon={<History className="w-5 h-5 text-indigo-400" />}
         />
         <JXCardContent>
-          <div tabIndex={0} role="region" aria-label="Approval decision history" className="overflow-x-auto rounded-xl border border-[var(--product-line)]">
+          <div ref={tableScrollRef} tabIndex={0} role="region" aria-label="Approval decision history" className="overflow-x-auto scroll-shadow rounded-xl border border-[var(--product-line)]" data-scroll-left={scrollShadow.left} data-scroll-right={scrollShadow.right}>
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase">

@@ -5,8 +5,9 @@
  * ZERO inline styles. ZERO custom CSS.
  */
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { useScrollShadow } from "../hooks/useScrollShadow";
 import {
   GlassModal,
   JXCard,
@@ -79,6 +80,10 @@ interface WebhookChannel {
 export const SecurityPoliciesDemo: React.FC = () => {
   // 4-Tab Policy Rule Matrix
   const [activeTab, setActiveTab] = useState<"binaries" | "paths" | "tiers" | "diff">("binaries");
+  const binariesScrollRef = useRef<HTMLDivElement>(null);
+  const binariesScrollShadow = useScrollShadow(binariesScrollRef);
+  const pathsScrollRef = useRef<HTMLDivElement>(null);
+  const pathsScrollShadow = useScrollShadow(pathsScrollRef);
 
   // Versioned Policy state
   const [policyVersion, setPolicyVersion] = useState<string>("v3.4.1");
@@ -349,12 +354,12 @@ export const SecurityPoliciesDemo: React.FC = () => {
   return (
     <div className="space-y-4">      {/* 4-Tab Policy Rule Matrix */}
       <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
-        <div className="p-4 border-b border-[var(--product-line)]/80 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2 p-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)]">
+<div className="p-4 border-b border-[var(--product-line)]/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 p-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] overflow-x-auto -mx-1 px-1 scrollbar-hide">
             <button
               type="button"
               onClick={() => setActiveTab("binaries")}
-              className={`px-3 py-1.5 rounded text-xs font-mono transition-colors ${
+              className={`px-3 py-1.5 rounded text-xs font-mono transition-colors flex-shrink-0 ${
                 activeTab === "binaries"
                   ? "bg-indigo-600 text-white font-semibold"
                   : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
@@ -365,7 +370,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab("paths")}
-              className={`px-3 py-1.5 rounded text-xs font-mono transition-colors ${
+              className={`px-3 py-1.5 rounded text-xs font-mono transition-colors flex-shrink-0 ${
                 activeTab === "paths"
                   ? "bg-indigo-600 text-white font-semibold"
                   : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
@@ -376,7 +381,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab("tiers")}
-              className={`px-3 py-1.5 rounded text-xs font-mono transition-colors ${
+              className={`px-3 py-1.5 rounded text-xs font-mono transition-colors flex-shrink-0 ${
                 activeTab === "tiers"
                   ? "bg-indigo-600 text-white font-semibold"
                   : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
@@ -387,7 +392,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveTab("diff")}
-              className={`px-3 py-1.5 rounded text-xs font-mono transition-colors ${
+              className={`px-3 py-1.5 rounded text-xs font-mono transition-colors flex-shrink-0 ${
                 activeTab === "diff"
                   ? "bg-indigo-600 text-white font-semibold"
                   : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
@@ -397,7 +402,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {activeTab === "binaries" && (
               <JXButton
                 variant="contained"
@@ -422,7 +427,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
 
             {/* Tab 1: Executable Allowlists */}
             {activeTab === "binaries" && (
-              <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]">
+              <div ref={binariesScrollRef} tabIndex={0} role="region" aria-label="Executable allowlists" className="overflow-x-auto scroll-shadow rounded-xl border border-[var(--product-line)]" data-scroll-left={binariesScrollShadow.left} data-scroll-right={binariesScrollShadow.right}>
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase">
@@ -474,7 +479,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
 
             {/* Tab 2: Restricted Paths */}
             {activeTab === "paths" && (
-              <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]">
+              <div ref={pathsScrollRef} tabIndex={0} role="region" aria-label="Restricted paths" className="overflow-x-auto scroll-shadow rounded-xl border border-[var(--product-line)]" data-scroll-left={pathsScrollShadow.left} data-scroll-right={pathsScrollShadow.right}>
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase">
@@ -504,7 +509,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
 
             {/* Tab 3: Tier Overrides & Throttles */}
             {activeTab === "tiers" && (
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="p-4 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-mono font-semibold text-[var(--product-text-secondary)]">
@@ -580,7 +585,7 @@ export const SecurityPoliciesDemo: React.FC = () => {
             {/* Tab 4: Semantic Policy Diff */}
             {activeTab === "diff" && (
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="p-4 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] space-y-2">
                     <div className="flex items-center justify-between border-b border-[var(--product-line)] pb-2">
                       <span className="font-mono font-bold text-[var(--product-text-secondary)]">Release v3.4.0 (Baseline)</span>

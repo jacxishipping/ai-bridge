@@ -4,8 +4,9 @@
  * ZERO inline styles. ZERO custom CSS.
  */
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { useScrollShadow } from "../hooks/useScrollShadow";
 import {
   GlassModal,
   JXCard,
@@ -45,6 +46,8 @@ export const AuditTrailView: React.FC = () => {
   const auditEvents = useDashboardStore((s) => s.auditEvents);
   const refreshLive = useDashboardStore((s) => s.refreshLive);
   const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const scrollShadow = useScrollShadow(tableScrollRef);
 
   // Cryptographic Merkle Root state
   const merkleRoot = "0x7fa281b94d27e8a10459c03bfe82910fa321";
@@ -278,13 +281,13 @@ export const AuditTrailView: React.FC = () => {
 
       {/* Filter Ribbon & Immutable Data Grid */}
       <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
-        <div className="p-4 border-b border-[var(--product-line)] flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="p-4 border-b border-[var(--product-line)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono">
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1 sm:pb-0">
             <select
               aria-label="Filter audit verdicts"
               value={verdictFilter}
               onChange={(e) => setVerdictFilter(e.target.value)}
-              className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] focus:outline-none"
+              className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] focus:outline-none shrink-0"
             >
               <option value="all">All Verdicts</option>
               <option value="auto_allowed">Auto-Allowed</option>
@@ -296,7 +299,7 @@ export const AuditTrailView: React.FC = () => {
               aria-label="Filter audit actors"
               value={actorFilter}
               onChange={(e) => setActorFilter(e.target.value)}
-              className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] focus:outline-none"
+              className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] focus:outline-none shrink-0"
             >
               <option value="all">All Actors</option>
               <option value="claude">Claude Agent</option>
@@ -309,7 +312,7 @@ export const AuditTrailView: React.FC = () => {
               placeholder="Search target host..."
               value={hostSearch}
               onChange={(e) => setHostSearch(e.target.value)}
-              className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] placeholder-slate-500 focus:outline-none"
+              className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] placeholder-slate-500 focus:outline-none shrink-0"
             />
 
             <input
@@ -317,17 +320,17 @@ export const AuditTrailView: React.FC = () => {
               placeholder="Filter by hash..."
               value={hashSearch}
               onChange={(e) => setHashSearch(e.target.value)}
-              className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] placeholder-slate-500 focus:outline-none"
+              className="p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] placeholder-slate-500 focus:outline-none shrink-0"
             />
           </div>
 
-          <span className="text-[var(--product-text-tertiary)]">
+          <span className="text-[var(--product-text-tertiary)] shrink-0">
             Showing <strong className="text-[var(--product-text-secondary)]">{filteredRecords.length}</strong> immutable records
           </span>
         </div>
 
         <JXCardContent>
-          <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]">
+          <div ref={tableScrollRef} tabIndex={0} role="region" aria-label="Audit trail records" className="overflow-x-auto scroll-shadow rounded-xl border border-[var(--product-line)]" data-scroll-left={scrollShadow.left} data-scroll-right={scrollShadow.right}>
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase">

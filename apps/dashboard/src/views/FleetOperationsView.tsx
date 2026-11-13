@@ -4,8 +4,9 @@
  * ZERO inline styles. ZERO custom CSS.
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { useScrollShadow } from "../hooks/useScrollShadow";
 import {
   GlassModal,
   JXCard,
@@ -17,8 +18,6 @@ import {
   JXSelect,
   JXTextField,
   JXStack,
-  JXGrid,
-  JXGridItem,
   JXLinearProgress,
 } from "../ui";
 import {
@@ -105,6 +104,8 @@ export const FleetOperationsView: React.FC = () => {
   const devices = useDashboardStore((s) => s.devices);
   const tasks = useDashboardStore((s) => s.tasks);
   const refreshLive = useDashboardStore((s) => s.refreshLive);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const scrollShadow = useScrollShadow(tableScrollRef);
 
   // Target fleet selection
   const [targetScope, setTargetScope] = useState<"all" | "production-east" | "gpu-runners" | "custom">("all");
@@ -687,15 +688,14 @@ export const FleetOperationsView: React.FC = () => {
           icon={<Terminal className="w-5 h-5 text-indigo-400" />}
         />
         <JXCardContent>
-          <JXGrid columns={12} gap="lg">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
             {/* Target Fleet Selector & Concurrency */}
-            <JXGridItem colSpan={4}>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-mono font-semibold text-[var(--product-text-tertiary)] uppercase tracking-wider mb-2">
-                    Target Fleet Scope
-                  </label>
-                  <div className="space-y-2">
+            <div className="lg:col-span-4 space-y-4">
+              <div>
+                <label className="block text-xs font-mono font-semibold text-[var(--product-text-tertiary)] uppercase tracking-wider mb-2">
+                  Target Fleet Scope
+                </label>
+                <div className="space-y-2">
                     <button
                       type="button"
                       onClick={() => setTargetScope("all")}
@@ -791,11 +791,9 @@ export const FleetOperationsView: React.FC = () => {
                   </div>
                 </div>
               </div>
-            </JXGridItem>
 
             {/* Script Payload Editor & Broadcast CTA */}
-            <JXGridItem colSpan={8}>
-              <div className="space-y-3">
+            <div className="lg:col-span-8 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 p-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)]">
                     <button
@@ -932,8 +930,7 @@ export const FleetOperationsView: React.FC = () => {
                   </JXButton>
                 </div>
               </div>
-            </JXGridItem>
-          </JXGrid>
+            </div>
         </JXCardContent>
       </JXCard>
 
@@ -979,9 +976,9 @@ export const FleetOperationsView: React.FC = () => {
           </div>
         </div>
 
-        <JXGrid columns={12} gap="md">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {rules.map((rule) => (
-            <JXGridItem key={rule.id} colSpan={6}>
+            <div key={rule.id}>
               <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
                 <div className="p-4 pb-2 flex items-center justify-between border-b border-[var(--product-line)]">
                   <div className="flex items-center gap-2.5">
@@ -1059,9 +1056,9 @@ export const FleetOperationsView: React.FC = () => {
                   </div>
                 </JXCardContent>
               </JXCard>
-            </JXGridItem>
+            </div>
           ))}
-        </JXGrid>
+        </div>
       </div>
 
       {/* SECTION 3: Fleet Cron Scheduler Table */}
@@ -1091,7 +1088,7 @@ export const FleetOperationsView: React.FC = () => {
               Add Schedule
             </JXButton>
           </div>
-          <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]">
+          <div ref={tableScrollRef} tabIndex={0} role="region" aria-label="Scheduled jobs" className="overflow-x-auto scroll-shadow rounded-xl border border-[var(--product-line)]" data-scroll-left={scrollShadow.left} data-scroll-right={scrollShadow.right}>
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase">

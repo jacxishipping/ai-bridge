@@ -30,7 +30,7 @@ import subprocess
 import sys
 
 KEY = os.environ.get("AI_BRIDGE_SSH_KEY", "")
-HOST = os.environ.get("AI_BRIDGE_SSH_HOST", "ubuntu@your-server")
+HOST = os.environ.get("AI_BRIDGE_SSH_HOST", "ubuntu@jxiptvplayer.app")
 SSM_INSTANCE_ID = os.environ.get("AI_BRIDGE_SSM_INSTANCE_ID", "")
 APP_DIR = os.environ.get("AI_BRIDGE_APP_DIR", "/opt/ai-bridge")
 AWS_REGION = os.environ.get("AI_BRIDGE_AWS_REGION", "us-east-2")

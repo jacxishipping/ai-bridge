@@ -110,11 +110,11 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
-  [data-theme="light"] html { color-scheme: light; }
+  html[data-theme="light"] { color-scheme: light; }
   body { margin: 0; }
   button, input, select, textarea { font: inherit; }
   button:not(:disabled), summary { cursor: pointer; }
-  :focus-visible { outline: 2px solid var(--product-focus-ring); outline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--product-focus-ring); outline-offset: 3px; outline-style: solid !important; }
   input, select, textarea { max-width: 100%; }
   input[type="checkbox"] { accent-color: var(--product-accent); }
   ::selection { background: var(--product-selection-bg); color: var(--product-text); }
@@ -131,15 +131,31 @@
 @layer utilities {
   /* Scroll-shadow indicator for horizontally scrollable tables */
   .scroll-shadow {
-    background:
-      linear-gradient(to right, var(--product-surface) 30%, transparent),
-      linear-gradient(to left, var(--product-surface) 30%, transparent),
-      linear-gradient(to right, var(--product-scroll-shadow-fade), transparent 15%),
-      linear-gradient(to left, var(--product-scroll-shadow-fade), transparent 15%);
-    background-position: left center, right center, left center, right center;
-    background-repeat: no-repeat;
-    background-size: 20px 100%, 20px 100%, 20px 100%, 20px 100%;
-    background-attachment: local, local, scroll, scroll;
+    position: relative;
+  }
+  .scroll-shadow::before,
+  .scroll-shadow::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 20px;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  .scroll-shadow::before {
+    left: 0;
+    background: linear-gradient(to right, var(--product-scroll-shadow-fade), transparent);
+  }
+  .scroll-shadow::after {
+    right: 0;
+    background: linear-gradient(to left, var(--product-scroll-shadow-fade), transparent);
+  }
+  .scroll-shadow[data-scroll-left="true"]::before,
+  .scroll-shadow[data-scroll-right="true"]::after {
+    opacity: 1;
   }
 }
 

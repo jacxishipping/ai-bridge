@@ -3,10 +3,11 @@
  * Live mode (admin token or session present): real device policy + global policy versions from the control plane.
  * Demo mode (not signed in): seeded, clearly demo-only fixtures from ./SecurityPoliciesDemo.
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, token, sessionToken } from "../api";
 import { SecurityPoliciesDemo } from "./SecurityPoliciesDemo";
 import { JXButton } from "../ui";
+import { useScrollShadow } from "../hooks/useScrollShadow";
 
 type Tri = "inherit" | "allow" | "deny";
 interface ToolRow { tool: string; tier: number; tier_name: string; allowed: boolean }
@@ -63,6 +64,12 @@ const LiveSecurityPolicies: React.FC = () => {
   const [forbidden, setForbidden] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const toolsScrollRef = useRef<HTMLDivElement>(null);
+  const toolsScrollShadow = useScrollShadow(toolsScrollRef);
+  const historyScrollRef = useRef<HTMLDivElement>(null);
+  const historyScrollShadow = useScrollShadow(historyScrollRef);
+  const globalScrollRef = useRef<HTMLDivElement>(null);
+  const globalScrollShadow = useScrollShadow(globalScrollRef);
 
   // Device form
   const [inherit, setInherit] = useState(true);
@@ -412,7 +419,7 @@ const LiveSecurityPolicies: React.FC = () => {
               )}
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-[var(--product-line)] max-h-80 overflow-y-auto">
+            <div ref={toolsScrollRef} tabIndex={0} role="region" aria-label="Device tools policy" className="overflow-x-auto scroll-shadow rounded-xl border border-[var(--product-line)] max-h-80 overflow-y-auto" data-scroll-left={toolsScrollShadow.left} data-scroll-right={toolsScrollShadow.right}>
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase sticky top-0">
@@ -486,7 +493,7 @@ const LiveSecurityPolicies: React.FC = () => {
           )}
         </div>
         {sim && (
-          <div className="overflow-x-auto rounded-xl border border-[var(--product-line)] max-h-64 overflow-y-auto">
+          <div ref={globalScrollRef} tabIndex={0} role="region" aria-label="Policy simulation" className="overflow-x-auto scroll-shadow rounded-xl border border-[var(--product-line)] max-h-64 overflow-y-auto" data-scroll-left={globalScrollShadow.left} data-scroll-right={globalScrollShadow.right}>
             <table className="w-full text-left text-xs border-collapse">
               <thead><tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase"><th className="p-2">Tool</th><th className="p-2">Tier</th><th className="p-2">Under proposed policy</th></tr></thead>
               <tbody className="divide-y divide-slate-800/60 font-mono">
@@ -506,7 +513,7 @@ const LiveSecurityPolicies: React.FC = () => {
         {history.length === 0 ? (
           <p className="text-xs text-[var(--product-text-tertiary)]">No policy versions have been published yet.</p>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]">
+          <div ref={historyScrollRef} tabIndex={0} role="region" aria-label="Policy version history" className="overflow-x-auto scroll-shadow rounded-xl border border-[var(--product-line)]" data-scroll-left={historyScrollShadow.left} data-scroll-right={historyScrollShadow.right}>
             <table className="w-full text-left text-xs border-collapse">
               <thead><tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase">
                 <th className="p-2">Version</th><th className="p-2">Created</th><th className="p-2">By</th><th className="p-2">Settings</th><th className="p-2">Note</th><th className="p-2 text-right">Actions</th>
