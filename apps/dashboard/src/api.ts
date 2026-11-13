@@ -35,8 +35,9 @@ export function consumeIdentityRedirect() {
   window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/live`);
   clearCredentials();
   if (session) {
+    // Session only, never localStorage: the sign-in copy promises the browser
+    // drops the credential when it closes, and a persisted token would outlive it.
     sessionStorage.setItem("ai_bridge_session_token", session);
-    localStorage.setItem("ai_bridge_session_token", session);
   }
   return true;
 }
@@ -52,12 +53,10 @@ export async function authenticate(credentials: { token: string } | { username: 
       if (!response.ok) throw new Error("Token rejected. Check your server's admin token.");
       const identity = await response.json();
       sessionStorage.setItem("ai_bridge_admin_token", credentials.token);
-      localStorage.setItem("ai_bridge_admin_token", credentials.token);
       return identity;
     }
     const response = await api.login(credentials.username, credentials.password);
     sessionStorage.setItem("ai_bridge_session_token", response.session_token);
-    localStorage.setItem("ai_bridge_session_token", response.session_token);
     return response;
   } catch (error) {
     clearCredentials();

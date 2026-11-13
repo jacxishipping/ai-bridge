@@ -542,9 +542,9 @@ export const ConnectionsView: React.FC = () => {
             <JXGridItem key={conn.id} colSpan={6}>
               <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
                 <div className="p-4 border-b border-[var(--product-line)] flex items-center justify-between">
-                  <div>
+                  <div className="min-w-0">
                     <h4 className="text-sm font-semibold text-[var(--product-text)]">{conn.name}</h4>
-                    <code className="text-[11px] font-mono text-indigo-400">{conn.route}</code>
+                    <code className="block break-all text-[11px] font-mono text-indigo-400">{conn.route}</code>
                   </div>
                   <JXButton
                     variant="soft"
@@ -559,7 +559,7 @@ export const ConnectionsView: React.FC = () => {
 
                 <JXCardContent>
                   <div className="space-y-3 pt-1 text-xs font-mono">
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                       <div className="p-2 rounded bg-[var(--product-canvas)] border border-[var(--product-line)]/80">
                         <span className="text-[10px] text-[var(--product-text-tertiary)] uppercase block">Transport</span>
                         <span className="text-[var(--product-text-secondary)] font-semibold">{conn.transport.toUpperCase()}</span>
