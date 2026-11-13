@@ -84,8 +84,9 @@ def test_install_package_linux_apt_get(monkeypatch):
 
 
 def test_run_shell_via_dispatch(monkeypatch):
+    import sys
     monkeypatch.setattr(tools, "_check", lambda *a, **k: None)
-    out = dispatch("run_shell", {"command": "echo hello-from-agent"}, approval_granted=True)
+    out = dispatch("run_shell", {"command": f'"{sys.executable}" -c "print(\'hello-from-agent\')"'}, approval_granted=True)
     assert out["returncode"] == 0
     assert "hello-from-agent" in out["stdout"]
 

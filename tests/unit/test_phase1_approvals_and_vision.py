@@ -135,21 +135,18 @@ def test_send_webhook_notification_formatting():
         "args": {"path": "test.txt"},
     }
 
-    # Intercept urllib
+    # Intercept httpx
+    import json
+    import httpx
     captured = []
-    class FakeResp:
-        status = 204
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
+    _orig_client = httpx.Client
 
-    def fake_urlopen(req, timeout=10):
-        import json
-        captured.append(json.loads(req.data.decode("utf-8")))
-        return FakeResp()
+    def transport_handler(request: httpx.Request) -> httpx.Response:
+        captured.append(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(status_code=204)
 
-    import urllib.request
-    orig = urllib.request.urlopen
-    urllib.request.urlopen = fake_urlopen
+    transport = httpx.MockTransport(transport_handler)
+    httpx.Client = lambda *a, **kw: _orig_client(transport=transport, **kw)
     try:
         res = send_webhook_notification(
             discord_url,
@@ -165,7 +162,7 @@ def test_send_webhook_notification_formatting():
         assert "Quick Approve (1-Click)" in d_payload["embeds"][0]["fields"][0]["name"]
         assert "https://jxiptvplayer.app/api/approvals/quick/app-disc?decision=approved" in d_payload["embeds"][0]["fields"][0]["value"]
     finally:
-        urllib.request.urlopen = orig
+        httpx.Client = _orig_client
 
 
 def test_click_text_with_mocked_ocr(monkeypatch):

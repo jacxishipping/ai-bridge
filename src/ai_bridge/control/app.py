@@ -1381,7 +1381,11 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                     "policy_version": policy_version,
                 }
                 pub_url = get_public_base_url(request)
-                asyncio.create_task(asyncio.to_thread(send_webhook_notification, wh_url, evt, token, pub_url))
+                threading.Thread(
+                    target=send_webhook_notification,
+                    args=(wh_url, evt, token, pub_url),
+                    daemon=True,
+                ).start()
         return {"task_id": task_id, "status": status, "tier": tier.value, "approval_id": approval_id}
 
     @app.get("/api/tasks")

@@ -1,7 +1,8 @@
-"""Tests for device-bound MCP routing helpers (stdlib-only module)."""
+"""Tests for device-bound MCP routing helpers."""
 import json
 import urllib.error
 
+import httpx
 import pytest
 
 from ai_bridge import device_routing
@@ -13,24 +14,34 @@ class FakeResp:
         self._payload = payload
         self.status = status
 
-    def read(self):
-        return json.dumps(self._payload).encode()
 
-    def __enter__(self):
-        return self
+class _ReqCompat:
+    def __init__(self, request: httpx.Request):
+        self.full_url = str(request.url)
+        self._method = request.method
+        self.data = request.content
 
-    def __exit__(self, *exc):
-        return False
+    def get_method(self):
+        return self._method
+
+
+_ORIG_CLIENT = httpx.Client
 
 
 def _patch_urlopen(monkeypatch, handler):
     calls = []
 
-    def fake_urlopen(req, timeout=None):
-        calls.append((req.full_url, req.get_method(), req.data))
-        return handler(req, calls)
+    def transport_handler(request: httpx.Request) -> httpx.Response:
+        req_compat = _ReqCompat(request)
+        calls.append((req_compat.full_url, req_compat.get_method(), req_compat.data))
+        try:
+            res = handler(req_compat, calls)
+            return httpx.Response(status_code=getattr(res, "status", 200), json=res._payload)
+        except urllib.error.HTTPError as exc:
+            return httpx.Response(status_code=exc.code, json={"error": exc.reason})
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    transport = httpx.MockTransport(transport_handler)
+    monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _ORIG_CLIENT(transport=transport, **kw))
     return calls
 
 

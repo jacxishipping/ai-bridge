@@ -179,17 +179,16 @@ def test_webhook_settings_and_approval_trigger(monkeypatch):
     assert r.status_code == 200 and r.json()["configured"] is True
     assert c.get("/api/settings/webhook", headers={"X-Admin-Token": ADMIN}).json()["webhook_url"] == tg_url
 
+    import httpx
     captured = []
-    class FakeResp:
-        status = 200
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
+    _orig_client = httpx.Client
 
-    def fake_urlopen(req, timeout=10):
-        captured.append(json.loads(req.data.decode("utf-8")))
-        return FakeResp()
+    def transport_handler(request: httpx.Request) -> httpx.Response:
+        captured.append(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(status_code=200, json={"ok": True})
 
-    monkeypatch.setattr(appmod.urllib.request, "urlopen", fake_urlopen)
+    transport = httpx.MockTransport(transport_handler)
+    monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _orig_client(transport=transport, **kw))
     test_res = c.post("/api/settings/webhook/test", headers={"X-Admin-Token": ADMIN}).json()
     assert test_res["ok"] is True
     assert captured[-1]["chat_id"] == "998877"
