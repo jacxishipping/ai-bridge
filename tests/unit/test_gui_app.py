@@ -46,7 +46,8 @@ def test_load_and_save_agent_config(tmp_path, monkeypatch):
     gui_app.save_agent_config(sample_cfg)
     assert test_cfg_file.exists()
     assert test_tok_file.exists()
-    assert test_tok_file.read_text(encoding="utf-8").strip() == "test-token-12345"
+    # Stored through the runtime token store (DPAPI-sealed where available).
+    assert gui_app.runtime.load_token(test_tok_file) == "test-token-12345"
 
     loaded = gui_app.load_agent_config()
     assert loaded["control_url"] == "https://test.ai-bridge.local"

@@ -24,13 +24,20 @@ def _fake_dpapi(data: bytes, *, protect: bool) -> bytes:
     return data[len(b"SEALED<") : -1]
 
 
-def test_save_and_load_roundtrip_plaintext_backend(tmp_path):
+def test_save_and_load_roundtrip_uses_native_backend(tmp_path):
+    """The store must use DPAPI where it exists and plaintext only where it cannot."""
     token_file = tmp_path / "device.token"
     runtime.save_token("  tok-abcdef123456  ", token_file)
 
-    assert token_file.read_text(encoding="utf-8") == "tok-abcdef123456"
+    stored = token_file.read_text(encoding="utf-8")
+    if runtime.dpapi_available():
+        assert stored.startswith(runtime.DPAPI_MAGIC)
+        assert "tok-abcdef123456" not in stored
+        assert runtime.token_backend(token_file) == "dpapi"
+    else:
+        assert stored == "tok-abcdef123456"
+        assert runtime.token_backend(token_file) == "file"
     assert runtime.load_token(token_file) == "tok-abcdef123456"
-    assert runtime.token_backend(token_file) == "file"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")

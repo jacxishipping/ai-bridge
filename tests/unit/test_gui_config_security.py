@@ -27,6 +27,7 @@ def _install_tkinter_stubs() -> None:
 
 _install_tkinter_stubs()
 
+import app_runtime as runtime  # noqa: E402
 import gui_app  # noqa: E402
 
 
@@ -53,7 +54,8 @@ def test_token_is_never_written_to_the_json_config(isolated_paths):
     assert json.loads(raw)["control_url"] == "https://control.example.test"
 
     token_file = isolated_paths / "device.token"
-    assert token_file.read_text(encoding="utf-8").strip() == "tok-abcdef123456"
+    # The token lives only in its own file, sealed with DPAPI where available.
+    assert runtime.load_token(token_file) == "tok-abcdef123456"
 
 
 def test_config_roundtrips_token_from_the_token_file_only(isolated_paths):
