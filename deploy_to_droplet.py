@@ -73,7 +73,7 @@ def main() -> None:
         sys.exit("Set AI_BRIDGE_SSH_KEY or AI_BRIDGE_SSM_INSTANCE_ID.")
     run_remote("Pull origin/main", "sudo git pull --ff-only origin main && sudo git log -1 --oneline")
     run_remote("Build image", f"{COMPOSE} build control-api")
-    run_remote("Restart app services", f"{COMPOSE} up -d --no-deps control-api mcp-http oauth-gateway")
+    run_remote("Restart app services", f"{COMPOSE} up -d --no-deps --force-recreate control-api mcp-http oauth-gateway")
     run_remote("Recreate nginx (reload config)", f"{COMPOSE} up -d --no-deps --force-recreate nginx")
     run_remote("Status", "sudo docker ps --format '{{.Names}} {{.Status}}'")
     print("\nDeployment finished.")
