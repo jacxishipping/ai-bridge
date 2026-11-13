@@ -23,13 +23,24 @@ The installer automatically configures an isolated virtual environment and provi
 ### Method 1: Graphical Setup Wizard (Recommended)
 Double-click `Setup.bat` in the repository root (or in `deployment/windows/Setup.bat`).
 
-This launches the Fluent 2 dark-theme Setup Wizard:
-1. Validates Python runtime (Python 3.11+).
-2. Allows testing the Control Server URL with real-time ping latency.
-3. Automatically creates the virtual environment.
-4. Installs all required wheels/packages.
-5. Generates Desktop & Start Menu shortcuts with the AI Bridge icon.
-6. Configures auto-start with Windows login (HKCU).
+This launches the six-step Setup Wizard:
+1. Reports what is already installed and offers repair (just run it again) or
+   uninstall.
+2. Takes the control plane URL and device token, and can verify both live
+   against `/health` and the agent task route before installing.
+3. Selects a tested Python (3.12, 3.13 or 3.14). Newer builds such as 3.15 are
+   refused, exactly as `install-agent.ps1` refuses them, instead of silently
+   provisioning an untested interpreter.
+4. Creates the virtual environment, installs every package from
+   `requirements.txt`, and verifies the imports.
+5. Writes `~/.ai-bridge/agent_gui.json` **without any credential**, seals the
+   device token with DPAPI in `~/.ai-bridge/device.token`, and registers the
+   background agent to start at sign-in (scheduled task when the wizard runs
+   elevated, HKCU Run otherwise).
+6. Creates shortcuts and can launch the desktop client.
+
+Execution policy defaults to the conservative settings (no shell, no unattended
+writes, tier 3 off); the policy card is where you opt in.
 
 Or launch from command line:
 ```powershell

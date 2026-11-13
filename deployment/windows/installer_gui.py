@@ -1,936 +1,1126 @@
-"""AI Bridge Windows Setup & Package Installer Wizard.
+"""AI Bridge Windows Setup Wizard (all-in-one installer).
 
-Provides a rich Fluent 2 graphical setup experience and unattended CLI for:
-1. Environment verification (Python 3.11+, system capabilities)
-2. Creating an isolated virtual environment (%LOCALAPPDATA%\\AIBridge\\venv or local .venv)
-3. Installing ALL required packages:
-   - Core server & agent: fastapi, uvicorn, pydantic, psutil, httpx, cryptography, python-multipart, mcp
-   - Desktop vision & automation: Pillow>=10.0
-   - Real-time WebRTC media streaming: aiortc>=1.8.0, av>=11.0.0
-   - System tray & notifications: pystray>=0.19.5
-4. Provisioning ~/.ai-bridge/agent_gui.json and device.token
-5. Creating Desktop and Start Menu shortcuts with the AI Bridge icon
-6. Registering Windows Startup autostart in HKCU
-7. Validating server connectivity and launching the client
+One installer for everything the Windows agent needs:
+
+1. A tested Python runtime (3.12-3.14). Newer builds are refused, matching
+   install-agent.ps1: 'py -3' would otherwise silently pick an untested 3.15.
+2. An isolated virtual environment plus every required package (fastapi, mcp,
+   aiortc, av, Pillow, pystray, cryptography...).
+3. The desktop client config in ~/.ai-bridge, with the device token sealed by
+   DPAPI through the client's own runtime store - never in agent_gui.json.
+4. The background agent, registered to start at logon (scheduled task when
+   elevated, HKCU Run otherwise).
+5. Shortcuts, plus uninstall and repair when an installation already exists.
+
+The wizard is the default entry point; --silent runs the same steps headlessly
+and is what the tests drive.
 """
 from __future__ import annotations
 
 import argparse
+import ctypes
+import json
 import os
 import platform
 import queue
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-# Paths
+APP_VERSION = "0.3.0"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REQUIREMENTS_FILE = Path(__file__).resolve().parent / "requirements.txt"
-CONFIG_DIR = Path.home() / ".ai-bridge"
-CONFIG_FILE = CONFIG_DIR / "agent_gui.json"
-TOKEN_FILE = CONFIG_DIR / "device.token"
+HOME_DIR = Path.home() / ".ai-bridge"
+CONFIG_FILE = HOME_DIR / "agent_gui.json"
+TOKEN_FILE = HOME_DIR / "device.token"
 REG_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-REG_APP_NAME = "AIBridgeWindowsClient"
+REG_CLIENT_NAME = "AIBridgeWindowsClient"
+REG_AGENT_NAME = "AIBridgeWindowsAgent"
 DEFAULT_CONTROL_URL = "https://jxiptvplayer.app"
+TASK_NAME = "AI Bridge Agent"
+SUPPORTED_PYTHONS = ("3.12", "3.13", "3.14")
+USER_AGENT = f"AIBridge-WindowsInstaller/{APP_VERSION}"
+
+CLIENT_SCRIPT = REPO_ROOT / "agents" / "windows" / "gui_app.py"
+AGENT_SCRIPT = REPO_ROOT / "agents" / "windows" / "agent_main.py"
+APP_RUNTIME_DIR = REPO_ROOT / "agents" / "windows"
+ICON_PATH = REPO_ROOT / "assets" / "ai-bridge.ico"
 
 
-def test_control_connection(url: str, token: str = "") -> tuple[bool, str, int]:
-    """Ping the control server to verify network accessibility and token validity.
-    Returns (success, message, latency_ms).
-    """
-    clean_url = url.strip().rstrip("/")
-    if not clean_url:
-        return False, "Control plane URL is required", 0
+class InstallerError(RuntimeError):
+    """A step failed in a way the operator must fix before retrying."""
 
-    t0 = time.time()
+
+# ---------------------------------------------------------------------------
+# Python runtime selection
+# ---------------------------------------------------------------------------
+def _probe_python(exe: Path, args: tuple[str, ...] = ()) -> tuple[str, str] | None:
+    """Run an interpreter and return (major.minor, sys.executable)."""
+    code = "import sys; print('%d.%d' % sys.version_info[:2]); print(sys.executable)"
     try:
-        health_req = urllib.request.Request(
-            f"{clean_url}/api/health",
-            headers={"User-Agent": "AIBridge-WindowsInstaller/0.3.0"},
+        res = subprocess.run(
+            [str(exe), *args, "-c", code], capture_output=True, text=True, timeout=25
         )
-        with urllib.request.urlopen(health_req, timeout=6.0) as resp:
-            latency_ms = int((time.time() - t0) * 1000)
-            if resp.status != 200:
-                return False, f"Server returned HTTP {resp.status}", latency_ms
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if res.returncode != 0:
+        return None
+    lines = [line.strip() for line in res.stdout.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return None
+    return lines[0], lines[1]
 
-        # If token provided, test task polling authorization
-        if token.strip():
-            poll_req = urllib.request.Request(
-                f"{clean_url}/api/agent/tasks/poll",
-                headers={
-                    "Authorization": f"Bearer {token.strip()}",
-                    "User-Agent": "AIBridge-WindowsInstaller/0.3.0",
-                },
-            )
-            try:
-                with urllib.request.urlopen(poll_req, timeout=6.0) as resp:
-                    pass
-            except urllib.error.HTTPError as he:
-                if he.code == 401:
-                    return False, "Invalid or expired Device Token (HTTP 401)", latency_ms
-                # 404/200/204 or other codes indicate authorization was parsed
-            except Exception:
-                pass
 
-        return True, f"Connected to {clean_url} ({latency_ms} ms)", latency_ms
+def detect_installed_pythons() -> list[tuple[str, str]]:
+    """Best-effort list of (minor, path) for every interpreter found."""
+    found: list[tuple[str, str]] = []
+    launcher = shutil.which("py")
+    if launcher:
+        try:
+            listing = subprocess.run(
+                [launcher, "-0"], capture_output=True, text=True, timeout=15
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            listing = ""
+        for line in listing.splitlines():
+            if "-V:" not in line:
+                continue
+            minor = line.split("-V:", 1)[1].split()[0].strip()
+            probe = _probe_python(Path(launcher), (f"-{minor}",))
+            if probe:
+                found.append(probe)
+    for minor in SUPPORTED_PYTHONS:
+        tag = "Python" + minor.replace(".", "")
+        for base in (os.environ.get("LOCALAPPDATA"), os.environ.get("ProgramFiles")):
+            if not base:
+                continue
+            exe = Path(base) / ("Programs/Python/" + tag if "LOCALAPPDATA" in base else tag) / "python.exe"
+            probe = _probe_python(exe) if exe.exists() else None
+            if probe:
+                found.append(probe)
+    for name in ("python.exe", "python3.exe"):
+        exe = shutil.which(name)
+        if exe:
+            probe = _probe_python(Path(exe))
+            if probe:
+                found.append(probe)
+    seen: set[str] = set()
+    unique = []
+    for minor, path in found:
+        key = path.lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append((minor, path))
+    return unique
+
+
+def resolve_supported_python() -> tuple[Path, str]:
+    """Return the first interpreter on a tested minor, else raise InstallerError."""
+    for minor in SUPPORTED_PYTHONS:
+        tag = "Python" + minor.replace(".", "")
+        candidates: list[tuple[Path, tuple[str, ...]]] = []
+        launcher = shutil.which("py")
+        if launcher:
+            candidates.append((Path(launcher), (f"-{minor}",)))
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            candidates.append((Path(local) / "Programs" / "Python" / tag / "python.exe", ()))
+        machine = os.environ.get("ProgramFiles")
+        if machine:
+            candidates.append((Path(machine) / tag / "python.exe", ()))
+        for exe, args in candidates:
+            if not exe.exists():
+                continue
+            probe = _probe_python(exe, args)
+            if probe and probe[0] == minor:
+                return Path(probe[1]), minor
+    for name in ("python.exe", "python3.exe"):
+        exe = shutil.which(name)
+        if not exe:
+            continue
+        probe = _probe_python(Path(exe))
+        if probe and probe[0] in SUPPORTED_PYTHONS:
+            return Path(probe[1]), probe[0]
+    installed = ", ".join(f"{minor} ({path})" for minor, path in detect_installed_pythons()) or "none detected"
+    raise InstallerError(
+        "No supported Python interpreter "
+        f"({', '.join(SUPPORTED_PYTHONS)}) was found. Installed: {installed}. "
+        "Install Python 3.12 from https://www.python.org/downloads/windows/ and rerun."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Control plane
+# ---------------------------------------------------------------------------
+def check_control_plane(url: str, token: str = "") -> tuple[bool, str, int, bool]:
+    """Probe /health and, with a token, whether the agent route accepts it.
+
+    Returns (reachable, message, latency_ms, token_accepted).
+    """
+    base = (url or "").strip().rstrip("/")
+    if not base:
+        return False, "Control plane URL is required", 0, False
+    started = time.time()
+    try:
+        req = urllib.request.Request(f"{base}/health", headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=6.0) as resp:
+            resp.read(2048)
+        latency = int((time.time() - started) * 1000)
+    except urllib.error.HTTPError as exc:
+        return False, f"Control plane returned HTTP {exc.code} from /health", 0, False
     except urllib.error.URLError as exc:
-        latency_ms = int((time.time() - t0) * 1000)
-        return False, f"Cannot reach control server: {exc.reason}", latency_ms
-    except Exception as exc:
-        latency_ms = int((time.time() - t0) * 1000)
-        return False, f"Connection failed: {exc}", latency_ms
+        return False, f"Cannot reach {base}: {exc.reason}", 0, False
+    except Exception as exc:  # noqa: BLE001 - surface any transport error verbatim
+        return False, f"Connection failed: {exc}", 0, False
+
+    if not token.strip():
+        return True, f"Reached {base} in {latency} ms (no token to check)", latency, False
+
+    route = f"{base}/api/agent/tasks/next?wait=0"
+    req = urllib.request.Request(
+        route, headers={"Authorization": f"Bearer {token.strip()}", "User-Agent": USER_AGENT}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8.0) as resp:
+            resp.read(64)
+        return True, f"Reached {base} in {latency} ms - device token accepted", latency, True
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            return False, f"Device token rejected (HTTP {exc.code})", latency, False
+        if exc.code == 404:
+            return True, f"Reached {base} in {latency} ms - token not verified (route missing)", latency, False
+        return True, f"Reached {base} in {latency} ms - agent route returned HTTP {exc.code}", latency, False
+    except Exception:  # noqa: BLE001 - token check is advisory, reachability is not
+        return True, f"Reached {base} in {latency} ms - token not verified", latency, False
 
 
-def setup_virtualenv(target_dir: Path, log_cb=None) -> Path:
-    """Create or reuse a virtual environment in target_dir. Returns path to python.exe."""
-    def log(msg: str):
-        if log_cb:
-            log_cb(msg)
+# ---------------------------------------------------------------------------
+# Installation steps
+# ---------------------------------------------------------------------------
+def create_environment(python: Path, venv_dir: Path, log) -> Path:
+    """Create (or rebuild) the venv on the chosen interpreter. Returns its python."""
+    venv_py = venv_dir / "Scripts" / "python.exe"
+    if venv_py.exists():
+        existing = _probe_python(venv_py)
+        minor = existing[0] if existing else "unknown"
+        target = _probe_python(python)
+        wanted = target[0] if target else "unknown"
+        if minor != wanted:
+            log(f"[REBUILD] Existing venv runs Python {minor}; recreating it with {wanted}.")
+            shutil.rmtree(venv_dir, ignore_errors=True)
         else:
-            print(msg)
-
-    venv_dir = target_dir / "venv"
-    if not venv_dir.exists():
-        log(f"Creating isolated Python virtual environment at: {venv_dir}")
-        target_dir.mkdir(parents=True, exist_ok=True)
-        cmd = [sys.executable, "-m", "venv", str(venv_dir)]
-        res = subprocess.run(cmd, capture_output=True, text=True)
+            log(f"Reusing existing virtual environment ({minor}) at {venv_dir}")
+    if not venv_py.exists():
+        venv_dir.mkdir(parents=True, exist_ok=True)
+        log(f"Creating virtual environment at {venv_dir} using {python}")
+        res = subprocess.run([str(python), "-m", "venv", str(venv_dir)], capture_output=True, text=True)
         if res.returncode != 0:
-            raise RuntimeError(f"Failed to create virtualenv: {res.stderr}")
-    else:
-        log(f"Using existing virtual environment at: {venv_dir}")
-
-    # Determine python executables
-    scripts_dir = venv_dir / "Scripts"
-    py_exe = scripts_dir / "python.exe"
-    if not py_exe.exists():
-        py_exe = venv_dir / "bin" / "python"
-    if not py_exe.exists():
-        raise FileNotFoundError(f"Virtualenv python executable not found in {venv_dir}")
-
-    return py_exe
+            raise InstallerError(f"Could not create the virtual environment: {res.stderr.strip()}")
+    if not venv_py.exists():
+        raise InstallerError(f"Virtual environment python missing at {venv_py}")
+    probe = _probe_python(venv_py)
+    if not probe or probe[0] not in SUPPORTED_PYTHONS:
+        raise InstallerError(f"The new virtual environment reports Python {probe[0] if probe else 'unknown'}.")
+    return venv_py
 
 
-def install_packages(venv_python: Path, repo_root: Path, log_cb=None) -> bool:
-    """Install all required packages into the target virtualenv."""
-    def log(msg: str):
-        if log_cb:
-            log_cb(msg)
-        else:
-            print(msg)
-
-    log("Upgrading pip, setuptools, and wheel in virtual environment...")
-    res = subprocess.run(
+def install_packages(venv_python: Path, repo_root: Path, log) -> None:
+    """Install the agent's dependencies and the project itself into the venv."""
+    log("Updating pip, setuptools and wheel...")
+    subprocess.run(
         [str(venv_python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"],
         capture_output=True,
         text=True,
     )
-    if res.returncode != 0:
-        log(f"Warning during pip upgrade: {res.stderr.strip()}")
-
-    # Install from requirements.txt if present
-    req_file = repo_root / "deployment" / "windows" / "requirements.txt"
-    if req_file.exists():
-        log(f"Installing all required dependencies from {req_file.name}...")
-        log("Packages include: aiortc, av, Pillow, psutil, pydantic, cryptography, pystray, fastapi, uvicorn, mcp")
-        proc = subprocess.Popen(
-            [str(venv_python), "-m", "pip", "install", "-r", str(req_file)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        if proc.stdout:
-            for line in iter(proc.stdout.readline, ""):
-                line_str = line.strip()
-                if line_str and not line_str.startswith(" "):
-                    log(f"  {line_str}")
-            proc.stdout.close()
-        proc.wait()
-        if proc.returncode != 0:
-            raise RuntimeError(f"pip install requirements.txt failed with exit code {proc.returncode}")
-    else:
-        log("Directly installing core packages...")
-        pkgs = [
-            "fastapi>=0.110.0",
-            "uvicorn>=0.29.0",
-            "pydantic>=2.6.0",
-            "psutil>=5.9.0",
-            "httpx>=0.27.0",
-            "cryptography>=42.0.0",
-            "python-multipart>=0.0.9",
-            "Pillow>=10.0.0",
-            "aiortc>=1.8.0",
-            "av>=11.0.0",
-            "pystray>=0.19.5",
-        ]
-        cmd = [str(venv_python), "-m", "pip", "install"] + pkgs
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        if proc.stdout:
-            for line in iter(proc.stdout.readline, ""):
-                line_str = line.strip()
-                if line_str:
-                    log(f"  {line_str}")
-            proc.stdout.close()
-        proc.wait()
-        if proc.returncode != 0:
-            raise RuntimeError(f"pip install failed with exit code {proc.returncode}")
-
-    # Install local ai-bridge package in editable mode
+    req = repo_root / "deployment" / "windows" / "requirements.txt"
+    if not req.exists():
+        raise InstallerError(f"requirements.txt not found at {req}")
+    log(f"Installing dependencies from {req.name}...")
+    proc = subprocess.Popen(
+        [str(venv_python), "-m", "pip", "install", "-r", str(req)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    if proc.stdout:
+        for line in iter(proc.stdout.readline, ""):
+            line = line.strip()
+            if line:
+                log(f"  {line}")
+        proc.stdout.close()
+    proc.wait()
+    if proc.returncode != 0:
+        raise InstallerError(f"pip install failed (exit {proc.returncode}); see the log above.")
     if (repo_root / "pyproject.toml").exists():
-        log("Registering ai-bridge package...")
+        log("Registering the ai-bridge package...")
         res = subprocess.run(
             [str(venv_python), "-m", "pip", "install", "-e", str(repo_root)],
             capture_output=True,
             text=True,
         )
         if res.returncode != 0:
-            log(f"Note: local package install: {res.stderr.strip() or 'OK'}")
-
-    return True
+            raise InstallerError(f"pip install -e failed: {res.stderr.strip()}")
 
 
-def verify_installation(venv_python: Path, log_cb=None) -> dict[str, bool]:
-    """Test importing all required packages to confirm installation health."""
-    def log(msg: str):
-        if log_cb:
-            log_cb(msg)
-        else:
-            print(msg)
-
-    modules_to_check = [
-        ("aiortc", "aiortc WebRTC Core"),
-        ("av", "PyAV Video Codec Engine"),
-        ("PIL", "Pillow Desktop Vision"),
-        ("psutil", "Hardware & Process Telemetry"),
-        ("pydantic", "Pydantic Schemas & Typing"),
-        ("cryptography", "Security & Token Cryptography"),
-        ("fastapi", "FastAPI Framework"),
-        ("uvicorn", "Uvicorn Engine"),
-        ("pystray", "Windows System Tray Integration"),
+def verify_installation(venv_python: Path, log) -> dict[str, bool]:
+    """Import the packages the agent needs and report each one."""
+    modules = [
+        ("fastapi", "FastAPI"),
+        ("uvicorn", "Uvicorn"),
+        ("pydantic", "Pydantic"),
+        ("psutil", "psutil telemetry"),
+        ("cryptography", "cryptography"),
+        ("PIL", "Pillow"),
+        ("aiortc", "aiortc WebRTC"),
+        ("av", "PyAV codecs"),
+        ("pystray", "pystray tray"),
     ]
-
-    results = {}
-    check_code = "; ".join([f"import {m}; print('{m}: ' + getattr({m}, '__version__', 'ok'))" for m, _ in modules_to_check])
-    res = subprocess.run(
-        [str(venv_python), "-c", check_code],
-        capture_output=True,
-        text=True,
-    )
-
-    output = res.stdout + res.stderr
-    for mod, desc in modules_to_check:
-        found = f"{mod}:" in output
-        results[mod] = found
-        status = "OK" if found else "MISSING"
-        log(f"  [{status}] {desc} ({mod})")
-
+    results: dict[str, bool] = {}
+    for module, label in modules:
+        res = subprocess.run(
+            [str(venv_python), "-c", f"import {module}"], capture_output=True, text=True
+        )
+        results[module] = res.returncode == 0
+        log(f"  [{'OK' if results[module] else 'MISSING'}] {label} ({module})")
     return results
 
 
-def write_agent_config(control_url: str, device_token: str, autostart: bool = True) -> None:
-    """Save configuration to ~/.ai-bridge/agent_gui.json and ~/.ai-bridge/device.token."""
-    import json
-
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    cfg = {
-        "control_url": control_url.strip().rstrip("/"),
-        "device_token": device_token.strip(),
+def client_config(control_url: str, options: dict) -> dict:
+    """Config JSON for the desktop client, deliberately without any credential."""
+    return {
+        "control_url": (control_url or "").strip().rstrip("/"),
         "auto_start": True,
         "theme": "dark",
         "poll_wait_s": 10,
         "minimize_to_tray": True,
         "desktop_notifications": True,
-        "autostart_windows": autostart,
-        "desktop_enabled": True,
-        "allow_tier3": True,
-        "max_tier_unattended": 3,
-        "allow_writes": True,
-        "allow_shell": True,
-        "allow_package_install": True,
-        "allowed_apps": [
-            "chrome",
-            "msedge",
-            "notepad",
-            "calc",
-            "code",
-            "powershell",
-            "cmd",
-            "explorer",
-            "mspaint",
-            "wt",
-        ],
+        "autostart_windows": bool(options.get("autostart_client")),
+        "desktop_enabled": bool(options.get("desktop_enabled", True)),
+        "allow_tier3": bool(options.get("allow_tier3")),
+        "max_tier_unattended": int(options.get("max_tier_unattended", 2)),
+        "allow_writes": bool(options.get("allow_writes")),
+        "allow_shell": bool(options.get("allow_shell")),
+        "allow_package_install": False,
+        "allowed_apps": list(options.get("allowed_apps") or []),
     }
-    CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-    if device_token.strip():
-        TOKEN_FILE.write_text(device_token.strip(), encoding="utf-8")
 
 
-def set_windows_autostart_reg(enable: bool, target_exe: str, script_path: str) -> bool:
-    """Configure or remove autostart entry in HKCU."""
+def write_client_config(control_url: str, options: dict, log) -> None:
+    HOME_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.write_text(json.dumps(client_config(control_url, options), indent=2), encoding="utf-8")
+    log(f"Wrote client configuration to {CONFIG_FILE} (no token stored in JSON)")
+
+
+def seal_device_token(venv_python: Path, token: str, log) -> str:
+    """Seal the token with the client's own store; returns the backend used."""
+    if not token.strip():
+        log("No device token supplied; the client will prompt for one.")
+        return "none"
+    HOME_DIR.mkdir(parents=True, exist_ok=True)
+    helper_runtime = APP_RUNTIME_DIR / "app_runtime.py"
+    if not helper_runtime.exists():
+        raise InstallerError(f"Token store helper missing: {helper_runtime}")
+    code = (
+        "import sys, pathlib;"
+        f"sys.path.insert(0, {str(APP_RUNTIME_DIR)!r});"
+        "import app_runtime;"
+        "app_runtime.save_token(open(sys.argv[1], encoding='utf-8').read().strip(),"
+        " pathlib.Path(sys.argv[2]))"
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".token", delete=False, encoding="utf-8") as handle:
+        handle.write(token.strip())
+        temp_path = handle.name
+    try:
+        res = subprocess.run(
+            [str(venv_python), "-c", code, temp_path, str(TOKEN_FILE)],
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+    if res.returncode != 0:
+        raise InstallerError(f"Could not store the device token: {res.stderr.strip()}")
+    head = TOKEN_FILE.read_bytes()[:16] if TOKEN_FILE.exists() else b""
+    backend = "dpapi" if head.startswith(b"aib-dpapi-v1:") else "file"
+    log(f"Device token stored at {TOKEN_FILE} ({'sealed with DPAPI' if backend == 'dpapi' else 'plaintext'})")
+    if backend != "dpapi":
+        log("[WARN] DPAPI sealing did not take effect; the token file is plaintext.")
+    return backend
+
+
+def _write_agent_launcher(install_dir: Path, venv_python: Path, control_url: str, token: str) -> Path:
+    """Write a launcher holding the credential, so the task definition does not."""
+    launcher = install_dir / "run-agent.cmd"
+    body = (
+        "@echo off\r\n"
+        "setlocal\r\n"
+        f'set "AI_BRIDGE_CONTROL_URL={(control_url or "").strip().rstrip("/")}"\r\n'
+        f'set "AI_BRIDGE_DEVICE_TOKEN={token.strip()}"\r\n'
+        f'"{venv_python}" "{AGENT_SCRIPT}"\r\n'
+    )
+    launcher.write_text(body, encoding="utf-8")
+    if platform.system() == "Windows":
+        user = os.environ.get("USERNAME", "")
+        grants = f'"{user}:R" *S-1-5-18:R *S-1-5-32-544:R'
+        subprocess.run(
+            ["icacls", str(launcher), "/inheritance:r", "/grant:r", *grants.split()],
+            capture_output=True,
+            text=True,
+        )
+    return launcher
+
+
+def is_elevated() -> bool:
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:  # noqa: BLE001 - non-Windows or restricted token
+        return False
+
+
+def register_agent(install_dir: Path, venv_python: Path, control_url: str, token: str, log) -> str:
+    """Register the background agent at logon. Returns how it was registered."""
+    launcher = _write_agent_launcher(install_dir, venv_python, control_url, token)
+    log(f"Agent launcher written to {launcher} (restricted ACL, token kept out of the task definition)")
+    if platform.system() != "Windows":
+        return "unsupported"
+
+    if is_elevated():
+        ps = (
+            f"$a = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c \"{launcher}\"' -WorkingDirectory '{install_dir}';"
+            f"$t = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME;"
+            f"$p = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited;"
+            f"$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
+            f"-RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Days 0);"
+            f"Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null;"
+            f"Start-ScheduledTask -TaskName '{TASK_NAME}'"
+        )
+        res = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                             capture_output=True, text=True)
+        if res.returncode == 0:
+            log(f"Scheduled task '{TASK_NAME}' registered to run at logon as {os.environ.get('USERNAME')} (limited).")
+            return "task"
+        log(f"[WARN] Task registration failed: {res.stderr.strip() or res.stdout.strip()}")
+
+    try:
+        import winreg
+
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_RUN_KEY, 0, winreg.KEY_ALL_ACCESS)
+        try:
+            winreg.SetValueEx(key, REG_AGENT_NAME, 0, winreg.REG_SZ, f'cmd.exe /c "{launcher}"')
+        finally:
+            winreg.CloseKey(key)
+        log("[WARN] Not elevated, so the agent was added to HKCU Run instead of a scheduled task.")
+        return "hkcu"
+    except Exception as exc:  # noqa: BLE001 - report why autostart could not be set
+        log(f"[WARN] Could not register agent autostart: {exc}")
+        return "none"
+
+
+def set_client_autostart(venv_python: Path, enable: bool, log) -> bool:
     if platform.system() != "Windows":
         return False
+    pyw = venv_python.parent / "pythonw.exe"
+    exe = pyw if pyw.exists() else venv_python
     try:
         import winreg
 
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_RUN_KEY, 0, winreg.KEY_ALL_ACCESS)
         try:
             if enable:
-                cmd = f'"{target_exe}" "{script_path}"'
-                winreg.SetValueEx(key, REG_APP_NAME, 0, winreg.REG_SZ, cmd)
+                winreg.SetValueEx(key, REG_CLIENT_NAME, 0, winreg.REG_SZ, f'"{exe}" "{CLIENT_SCRIPT}"')
             else:
                 try:
-                    winreg.DeleteValue(key, REG_APP_NAME)
+                    winreg.DeleteValue(key, REG_CLIENT_NAME)
                 except FileNotFoundError:
                     pass
-            return True
         finally:
             winreg.CloseKey(key)
-    except Exception:
+        log("Client autostart " + ("registered in HKCU Run." if enable else "removed."))
+        return True
+    except Exception as exc:  # noqa: BLE001 - autostart is optional
+        log(f"[WARN] Could not update client autostart: {exc}")
         return False
 
 
-def create_shortcuts(
-    venv_python: Path,
-    repo_root: Path,
-    create_desktop: bool = True,
-    create_start_menu: bool = True,
-    log_cb=None,
-) -> list[str]:
-    """Create Windows Desktop and Start Menu shortcuts with the AI Bridge icon."""
-    def log(msg: str):
-        if log_cb:
-            log_cb(msg)
-        else:
-            print(msg)
-
-    created = []
-    if platform.system() != "Windows":
-        return created
-
+def create_shortcuts(venv_python: Path, desktop: bool, start_menu: bool, log) -> list[str]:
+    if platform.system() != "Windows" or not (desktop or start_menu):
+        return []
     pyw = venv_python.parent / "pythonw.exe"
-    if not pyw.exists():
-        pyw = venv_python
-
-    gui_script = repo_root / "agents" / "windows" / "gui_app.py"
-    ico_path = repo_root / "assets" / "ai-bridge.ico"
-
-    # PowerShell shortcut creation script
-    ps_lines = [
-        '$WshShell = New-Object -ComObject WScript.Shell',
-    ]
-
-    targets = []
-    if create_desktop:
-        targets.append('[Environment]::GetFolderPath("Desktop")')
-    if create_start_menu:
-        targets.append('[Environment]::GetFolderPath("Programs")')
-
-    for t in targets:
-        ps_lines.append(f'$dir = {t}')
-        ps_lines.append('if ($dir -and (Test-Path $dir)) {')
-        ps_lines.append('    $lnkPath = Join-Path $dir "AI Bridge Agent.lnk"')
-        ps_lines.append('    $s = $WshShell.CreateShortcut($lnkPath)')
-        ps_lines.append(f'    $s.TargetPath = "{pyw}"')
-        ps_lines.append(f'    $s.Arguments = "`"{gui_script}`""')
-        ps_lines.append(f'    $s.WorkingDirectory = "{repo_root}"')
-        ps_lines.append('    $s.Description = "AI Bridge Windows Agent (Fluent 2 Desktop Client)"')
-        if ico_path.exists():
-            ps_lines.append(f'    $s.IconLocation = "{ico_path},0"')
-        else:
-            ps_lines.append('    $s.IconLocation = "$env:SystemRoot\\System32\\shell32.dll,18"')
-        ps_lines.append('    $s.Save()')
-        ps_lines.append('    Write-Output "SHORTCUT:$lnkPath"')
-        ps_lines.append('}')
-
-    cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "\n".join(ps_lines)]
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    for line in res.stdout.splitlines():
-        if line.startswith("SHORTCUT:"):
-            p = line.split("SHORTCUT:", 1)[1].strip()
-            created.append(p)
-            log(f"Created shortcut: {p}")
-
+    exe = pyw if pyw.exists() else venv_python
+    folders = []
+    if desktop:
+        folders.append('[Environment]::GetFolderPath("Desktop")')
+    if start_menu:
+        folders.append('[Environment]::GetFolderPath("Programs")')
+    lines = ['$w = New-Object -ComObject WScript.Shell']
+    for folder in folders:
+        lines += [
+            f"$dir = {folder}",
+            "if ($dir -and (Test-Path $dir)) {",
+            '    $lnk = Join-Path $dir "AI Bridge Agent.lnk"',
+            "    $s = $w.CreateShortcut($lnk)",
+            f'    $s.TargetPath = "{exe}"',
+            f'    $s.Arguments = "`"{CLIENT_SCRIPT}`""',
+            f'    $s.WorkingDirectory = "{REPO_ROOT}"',
+            '    $s.Description = "AI Bridge Windows Agent"',
+            (f'    $s.IconLocation = "{ICON_PATH},0"' if ICON_PATH.exists()
+             else '    $s.IconLocation = "$env:SystemRoot\\System32\\shell32.dll,18"'),
+            "    $s.Save()",
+            '    Write-Output "SHORTCUT:$lnk"',
+            "}",
+        ]
+    res = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "\n".join(lines)],
+                         capture_output=True, text=True)
+    created = [line.split("SHORTCUT:", 1)[1].strip() for line in res.stdout.splitlines() if line.startswith("SHORTCUT:")]
+    for path in created:
+        log(f"Created shortcut: {path}")
     return created
 
 
-def run_full_installation(
-    control_url: str,
-    device_token: str,
-    install_dir: Path,
-    repo_root: Path,
-    install_packages_flag: bool = True,
-    create_desktop: bool = True,
-    create_start_menu: bool = True,
-    autostart: bool = True,
-    launch_after: bool = True,
-    log_cb=None,
-    progress_cb=None,
-) -> bool:
-    """Execute the full end-to-end installation sequence."""
-    def log(msg: str):
-        if log_cb:
-            log_cb(msg)
-        else:
-            print(msg)
-
-    def set_progress(val: float, status: str = ""):
-        if progress_cb:
-            progress_cb(val, status)
-
+def existing_installation() -> dict:
+    """What is already installed, so the wizard can offer repair or uninstall."""
+    state = {"config": CONFIG_FILE.exists(), "token": TOKEN_FILE.exists(), "task": False, "client_autostart": False}
+    if platform.system() != "Windows":
+        return state
     try:
-        log("=" * 60)
-        log("AI Bridge Windows Agent Setup")
-        log(f"Target Directory: {install_dir}")
-        log(f"Control Server:   {control_url}")
-        log("=" * 60)
+        res = subprocess.run(["powershell", "-NoProfile", "-Command",
+                              f"(Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue).State"],
+                             capture_output=True, text=True)
+        state["task"] = res.stdout.strip().lower() in ("ready", "running", "disabled")
+    except Exception:  # noqa: BLE001 - detection is advisory
+        pass
+    try:
+        import winreg
 
-        # Step 1: Pre-flight checks
-        set_progress(10, "Validating system runtime...")
-        log("[1/6] Validating runtime environment...")
-        v = sys.version_info
-        log(f"Python Runtime: {v.major}.{v.minor}.{v.micro} ({platform.platform()})")
-        if v.major < 3 or (v.major == 3 and v.minor < 11):
-            raise RuntimeError(f"Python 3.11+ is required (found {v.major}.{v.minor})")
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_RUN_KEY) as key:
+            for name in (REG_CLIENT_NAME, REG_AGENT_NAME):
+                try:
+                    winreg.QueryValueEx(key, name)
+                    state["client_autostart"] = True
+                except FileNotFoundError:
+                    pass
+    except Exception:  # noqa: BLE001 - detection is advisory
+        pass
+    return state
 
-        # Step 2: Virtual Environment Setup
-        set_progress(25, "Creating virtual environment...")
-        log("[2/6] Setting up isolated Python virtual environment...")
-        py_exe = setup_virtualenv(install_dir, log_cb=log)
-        pyw_exe = py_exe.parent / "pythonw.exe"
-        if not pyw_exe.exists():
-            pyw_exe = py_exe
-        log(f"Virtualenv Python: {py_exe}")
 
-        # Step 3: Install all required packages
-        if install_packages_flag:
-            set_progress(45, "Installing all required packages...")
-            log("[3/6] Installing all required packages (aiortc, av, Pillow, psutil, pydantic, etc.)...")
-            install_packages(py_exe, repo_root, log_cb=log)
+def uninstall(purge: bool, log) -> None:
+    """Remove the agent task, autostart entries, shortcuts and (optionally) config."""
+    if platform.system() == "Windows":
+        subprocess.run(["powershell", "-NoProfile", "-Command",
+                        f"Stop-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue;"
+                        f"Unregister-ScheduledTask -TaskName '{TASK_NAME}' -Confirm:$false -ErrorAction SilentlyContinue"],
+                       capture_output=True, text=True)
+        log(f"Removed scheduled task '{TASK_NAME}'.")
+        try:
+            import winreg
 
-            set_progress(75, "Verifying installed packages...")
-            log("Verifying module imports...")
-            verify_installation(py_exe, log_cb=log)
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_RUN_KEY, 0, winreg.KEY_ALL_ACCESS)
+            try:
+                for name in (REG_CLIENT_NAME, REG_AGENT_NAME):
+                    try:
+                        winreg.DeleteValue(key, name)
+                        log(f"Removed HKCU Run entry '{name}'.")
+                    except FileNotFoundError:
+                        pass
+            finally:
+                winreg.CloseKey(key)
+        except Exception as exc:  # noqa: BLE001 - uninstall continues regardless
+            log(f"[WARN] Could not clean HKCU Run: {exc}")
+        subprocess.run(["powershell", "-NoProfile", "-Command",
+                        '$w = New-Object -ComObject WScript.Shell;'
+                        'foreach ($d in @([Environment]::GetFolderPath("Desktop"), [Environment]::GetFolderPath("Programs"))) {'
+                        '$p = Join-Path $d "AI Bridge Agent.lnk"; if (Test-Path $p) { Remove-Item $p -Force } }'],
+                       capture_output=True, text=True)
+        log("Removed shortcuts.")
+    if purge:
+        for path in (CONFIG_FILE, TOKEN_FILE):
+            try:
+                path.unlink()
+                log(f"Deleted {path}")
+            except FileNotFoundError:
+                pass
+        log("Configuration purged.")
+
+
+def run_installation(options: dict, log, progress=None) -> bool:
+    """Execute the full install. Returns True on success."""
+    def step(value: int, status: str) -> None:
+        if progress:
+            progress(value, status)
+
+    control_url = (options.get("control_url") or "").strip()
+    token = (options.get("device_token") or "").strip()
+    install_dir = Path(options.get("install_dir") or (Path(os.environ.get("LOCALAPPDATA", HOME_DIR)) / "AIBridge"))
+    try:
+        step(5, "Checking the Python runtime...")
+        log("[1/7] Resolving a supported Python interpreter (3.12-3.14)...")
+        python, minor = resolve_supported_python()
+        log(f"Using Python {minor} at {python}")
+
+        step(15, "Creating the virtual environment...")
+        log("[2/7] Preparing the virtual environment...")
+        venv_dir = install_dir / "venv"
+        venv_python = create_environment(python, venv_dir, log)
+
+        if options.get("install_packages", True):
+            step(30, "Installing required packages...")
+            log("[3/7] Installing packages (this is the slow step)...")
+            install_packages(venv_python, REPO_ROOT, log)
+            step(60, "Verifying installed packages...")
+            log("[4/7] Verifying imports...")
+            results = verify_installation(venv_python, log)
+            if not all(results.values()):
+                log("[WARN] Some modules failed to import; the agent may be limited.")
         else:
-            log("[3/6] Package installation skipped by user option.")
+            log("[3/7] Package installation skipped.")
+            log("[4/7] Verification skipped.")
 
-        # Step 4: Write Configuration
-        set_progress(82, "Configuring agent credentials...")
-        log("[4/6] Provisioning agent configuration and enrollment token...")
-        write_agent_config(control_url, device_token, autostart=autostart)
-        log(f"Saved configuration to: {CONFIG_FILE}")
+        step(70, "Writing configuration...")
+        log("[5/7] Writing configuration and sealing the device token...")
+        write_client_config(control_url, options, log)
+        seal_device_token(venv_python, token, log)
 
-        # Step 5: Shortcuts & Autostart
-        set_progress(90, "Configuring shortcuts and startup...")
-        log("[5/6] Creating Windows shortcuts & startup registration...")
-        gui_script = repo_root / "agents" / "windows" / "gui_app.py"
+        step(82, "Creating shortcuts...")
+        log("[6/7] Creating shortcuts and autostart entries...")
+        create_shortcuts(venv_python, bool(options.get("create_desktop")),
+                         bool(options.get("create_start_menu")), log)
+        set_client_autostart(venv_python, bool(options.get("autostart_client")), log)
+        if options.get("install_agent", True):
+            register_agent(install_dir, venv_python, control_url, token, log)
+        else:
+            log("Background agent not installed (option disabled).")
 
-        if create_desktop or create_start_menu:
-            create_shortcuts(py_exe, repo_root, create_desktop, create_start_menu, log_cb=log)
-
-        if autostart:
-            log("Registering Windows Login auto-start in HKCU...")
-            if set_windows_autostart_reg(True, str(pyw_exe), str(gui_script)):
-                log("Successfully registered auto-start key.")
-            else:
-                log("Warning: Could not update HKCU autostart registry key.")
-
-        # Step 6: Finalization & Optional Launch
-        set_progress(100, "Installation complete!")
-        log("[6/6] AI Bridge installation completed successfully!")
-
-        if launch_after and gui_script.exists():
-            log(f"Launching AI Bridge Agent: {pyw_exe} {gui_script}")
-            subprocess.Popen([str(pyw_exe), str(gui_script)], cwd=str(repo_root))
-
-        log("=" * 60)
-        log("SETUP FINISHED: AI Bridge is ready to control and stream.")
-        log("=" * 60)
+        step(100, "Installation complete.")
+        log("[7/7] Setup finished.")
+        if options.get("launch_after") and CLIENT_SCRIPT.exists():
+            pyw = venv_python.parent / "pythonw.exe"
+            subprocess.Popen([str(pyw if pyw.exists() else venv_python), str(CLIENT_SCRIPT)], cwd=str(REPO_ROOT))
+            log("Launched the AI Bridge client.")
         return True
-
-    except Exception as exc:
-        set_progress(100, f"Error: {exc}")
-        log(f"\n[ERROR] Setup failed: {exc}")
+    except InstallerError as exc:
+        log(f"[ERROR] {exc}")
+        step(100, f"Failed: {exc}")
+        return False
+    except Exception as exc:  # noqa: BLE001 - never leave the wizard without a reason
+        log(f"[ERROR] Unexpected failure: {exc}")
+        step(100, "Failed")
         return False
 
 
-# ============================================================================
-# Modern Fluent 2 Tkinter Setup Wizard Application
-# ============================================================================
+# ---------------------------------------------------------------------------
+# Wizard UI
+# ---------------------------------------------------------------------------
+C_BG = "#141416"
+C_HEADER = "#18181c"
+C_CARD = "#1f1f23"
+C_CARD_ALT = "#27272e"
+C_BORDER = "#383844"
+C_ACCENT = "#06b6d4"
+C_TEXT = "#f3f4f6"
+C_MUTED = "#9ca3af"
+C_SUCCESS = "#10b981"
+C_ERROR = "#ef4444"
+C_WARN = "#fbbf24"
 
-def launch_gui_installer():
-    """Launch the interactive Fluent 2 dark-mode GUI installer wizard."""
+
+def launch_gui_installer() -> None:
+    """Launch the step-by-step Fluent installer wizard."""
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
 
     root = tk.Tk()
-    root.title("AI Bridge — Windows Client Setup Wizard")
-    root.geometry("820x680")
-    root.minsize(720, 580)
-    root.configure(bg="#141416")
-
-    # Set window icon if available
-    ico_path = REPO_ROOT / "assets" / "ai-bridge.ico"
-    if ico_path.exists():
+    root.title("AI Bridge - Windows Setup")
+    root.geometry("860x660")
+    root.minsize(780, 620)
+    root.configure(bg=C_BG)
+    if ICON_PATH.exists():
         try:
-            root.iconbitmap(str(ico_path))
-        except Exception:
+            root.iconbitmap(str(ICON_PATH))
+        except Exception:  # noqa: BLE001 - icon is cosmetic
             pass
 
-    # Styling constants
-    C_BG = "#141416"
-    C_CARD = "#1f1f23"
-    C_CARD_ALT = "#27272e"
-    C_BORDER = "#383844"
-    C_ACCENT = "#06b6d4"      # Cyan
-    C_PRIMARY = "#3b82f6"     # Blue
-    C_SUCCESS = "#10b981"     # Green
-    C_TEXT = "#f3f4f6"
-    C_MUTED = "#9ca3af"
-
-    # ttk style
     style = ttk.Style()
     style.theme_use("clam")
-    style.configure("TProgressbar", thickness=8, troughcolor=C_CARD_ALT, background=C_ACCENT)
+    style.configure("TB.Horizontal.TProgressbar", thickness=8, troughcolor=C_CARD_ALT, background=C_ACCENT)
 
-    # State variables
-    # Check if existing config exists to prefill
-    existing_url = DEFAULT_CONTROL_URL
-    existing_token = ""
+    state = existing_installation()
+    ui_queue: queue.Queue = queue.Queue()
+    options: dict = {
+        "control_url": DEFAULT_CONTROL_URL,
+        "device_token": "",
+        "install_dir": str(Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "AIBridge"),
+        "create_desktop": True,
+        "create_start_menu": True,
+        "autostart_client": True,
+        "install_agent": True,
+        "install_packages": True,
+        "allow_tier3": False,
+        "allow_writes": False,
+        "allow_shell": False,
+        "max_tier_unattended": 2,
+        "desktop_enabled": True,
+        "launch_after": True,
+    }
     if CONFIG_FILE.exists():
         try:
-            import json
-            cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-            existing_url = cfg.get("control_url", DEFAULT_CONTROL_URL)
-            existing_token = cfg.get("device_token", "")
-        except Exception:
-            pass
-    if not existing_token and TOKEN_FILE.exists():
-        try:
-            existing_token = TOKEN_FILE.read_text(encoding="utf-8").strip()
-        except Exception:
+            saved = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            options["control_url"] = saved.get("control_url", options["control_url"])
+        except Exception:  # noqa: BLE001 - corrupt config is not fatal for setup
             pass
 
-    url_var = tk.StringVar(value=existing_url)
-    token_var = tk.StringVar(value=existing_token)
-    default_install_dir = str(REPO_ROOT)
-    install_dir_var = tk.StringVar(value=default_install_dir)
-
-    opt_packages_var = tk.BooleanVar(value=True)
-    opt_desktop_var = tk.BooleanVar(value=True)
-    opt_start_menu_var = tk.BooleanVar(value=True)
-    opt_autostart_var = tk.BooleanVar(value=True)
-    opt_launch_var = tk.BooleanVar(value=True)
-
-    status_var = tk.StringVar(value="Ready to configure and install")
-    ping_status_var = tk.StringVar(value="")
-
-    # Message queue for thread-safe UI updates
-    ui_queue: queue.Queue = queue.Queue()
-
-    # Top Header Banner
-    header = tk.Frame(root, bg="#18181c", height=80, highlightthickness=1, highlightbackground=C_BORDER)
+    # -- chrome ------------------------------------------------------------
+    header = tk.Frame(root, bg=C_HEADER, height=76, highlightthickness=1, highlightbackground=C_BORDER)
     header.pack(fill="x", side="top")
+    tk.Label(header, text="AI Bridge Windows Setup", font=("Segoe UI", 16, "bold"),
+             fg=C_TEXT, bg=C_HEADER).pack(anchor="w", padx=22, pady=(12, 0))
+    step_label = tk.Label(header, text="", font=("Segoe UI", 9), fg=C_MUTED, bg=C_HEADER)
+    step_label.pack(anchor="w", padx=22, pady=(2, 12))
+    tk.Label(header, text=f"v{APP_VERSION}", font=("Segoe UI", 8, "bold"), fg="#0284c7",
+             bg="#082f49", padx=10, pady=4).pack(side="right", padx=22)
 
-    title_frame = tk.Frame(header, bg="#18181c")
-    title_frame.pack(side="left", padx=20, pady=12)
+    body = tk.Frame(root, bg=C_BG)
+    body.pack(fill="both", expand=True, padx=22, pady=14)
+    body.grid_rowconfigure(0, weight=1)
+    body.grid_columnconfigure(0, weight=1)
 
-    title_lbl = tk.Label(
-        title_frame,
-        text="AI Bridge Windows Agent Setup",
-        font=("Segoe UI", 16, "bold"),
-        fg=C_TEXT,
-        bg="#18181c",
-    )
-    title_lbl.pack(anchor="w")
+    footer = tk.Frame(root, bg=C_BG)
+    footer.pack(fill="x", side="bottom", padx=22, pady=(0, 14))
 
-    subtitle_lbl = tk.Label(
-        title_frame,
-        text="All-in-one setup for Desktop Client, WebRTC Media Streaming, Vision, and Background Services",
-        font=("Segoe UI", 9),
-        fg=C_MUTED,
-        bg="#18181c",
-    )
-    subtitle_lbl.pack(anchor="w")
+    pages: list[tk.Frame] = []
+    current = {"index": 0}
 
-    badge_lbl = tk.Label(
-        header,
-        text="v0.3.0 Fluent 2",
-        font=("Segoe UI", 8, "bold"),
-        fg="#0284c7",
-        bg="#082f49",
-        padx=10,
-        pady=4,
-    )
-    badge_lbl.pack(side="right", padx=20, pady=20)
+    def new_page(title: str, subtitle: str) -> tk.Frame:
+        frame = tk.Frame(body, bg=C_BG)
+        frame.grid(row=0, column=0, sticky="nsew")
+        tk.Label(frame, text=title, font=("Segoe UI", 14, "bold"), fg=C_TEXT, bg=C_BG).pack(anchor="w")
+        tk.Label(frame, text=subtitle, font=("Segoe UI", 9), fg=C_MUTED, bg=C_BG, wraplength=760,
+                 justify="left").pack(anchor="w", pady=(2, 12))
+        pages.append(frame)
+        return frame
 
-    # Main Scrollable / Stack Container
-    main_body = tk.Frame(root, bg=C_BG)
-    main_body.pack(fill="both", expand=True, padx=20, pady=12)
+    def card(parent: tk.Frame, heading: str) -> tk.Frame:
+        outer = tk.Frame(parent, bg=C_CARD, highlightthickness=1, highlightbackground=C_BORDER)
+        outer.pack(fill="x", pady=6)
+        tk.Label(outer, text=heading.upper(), font=("Segoe UI", 8, "bold"), fg=C_ACCENT,
+                 bg=C_CARD).pack(anchor="w", padx=14, pady=(10, 4))
+        inner = tk.Frame(outer, bg=C_CARD)
+        inner.pack(fill="x", padx=14, pady=(0, 12))
+        return inner
 
-    # Configuration Card
-    cfg_card = tk.LabelFrame(
-        main_body,
-        text=" 1. Control Plane & Device Enrollment ",
-        font=("Segoe UI", 10, "bold"),
-        fg=C_ACCENT,
-        bg=C_CARD,
-        relief="solid",
-        bd=1,
-        padx=14,
-        pady=10,
-    )
-    cfg_card.pack(fill="x", pady=6)
+    def field(parent: tk.Frame, label: str, value: str, show: str = "") -> tk.Entry:
+        row = tk.Frame(parent, bg=C_CARD)
+        row.pack(fill="x", pady=4)
+        tk.Label(row, text=label, width=18, anchor="w", font=("Segoe UI", 9, "bold"),
+                 fg=C_TEXT, bg=C_CARD).pack(side="left")
+        var = tk.StringVar(value=value)
+        entry = tk.Entry(row, textvariable=var, show=show, font=("Segoe UI", 10), bg=C_CARD_ALT,
+                         fg=C_TEXT, insertbackground=C_TEXT, relief="flat", highlightthickness=1,
+                         highlightbackground=C_BORDER)
+        entry.pack(side="left", fill="x", expand=True, padx=6, ipady=3)
+        entry.var = var  # type: ignore[attr-defined]
+        return entry
 
-    # Server URL row
-    r1 = tk.Frame(cfg_card, bg=C_CARD)
-    r1.pack(fill="x", pady=4)
-    tk.Label(r1, text="Control Server URL:", font=("Segoe UI", 9, "bold"), fg=C_TEXT, bg=C_CARD, width=16, anchor="w").pack(side="left")
-    url_entry = tk.Entry(r1, textvariable=url_var, font=("Segoe UI", 10), bg="#27272e", fg=C_TEXT, insertbackground=C_TEXT, relief="flat", highlightthickness=1, highlightbackground=C_BORDER)
-    url_entry.pack(side="left", fill="x", expand=True, padx=6)
+    def check(parent: tk.Frame, text: str, value: bool) -> tk.BooleanVar:
+        var = tk.BooleanVar(value=value)
+        tk.Checkbutton(parent, text=text, variable=var, font=("Segoe UI", 9), fg=C_TEXT, bg=C_CARD,
+                       selectcolor=C_CARD_ALT, activebackground=C_CARD, activeforeground=C_TEXT,
+                       anchor="w", justify="left", wraplength=700).pack(fill="x", pady=2)
+        return var
 
-    # Test Ping Button
-    def do_ping():
-        ping_status_var.set("Testing connection...")
-        def _bg():
-            ok, msg, ms = test_control_connection(url_var.get(), token_var.get())
-            def _update():
-                if ok:
-                    ping_status_var.set(f"✓ {msg}")
-                    ping_lbl.configure(fg=C_SUCCESS)
-                else:
-                    ping_status_var.set(f"✗ {msg}")
-                    ping_lbl.configure(fg="#ef4444")
-            root.after(0, _update)
-        threading.Thread(target=_bg, daemon=True).start()
+    # -- page 1: welcome ---------------------------------------------------
+    p_welcome = new_page("Welcome", "This wizard installs the desktop client, the background agent and every "
+                                    "dependency the Windows agent needs. Nothing is changed until you press Install.")
+    detected = card(p_welcome, "Detected on this machine")
+    detected_label = tk.Label(detected, text="", font=("Segoe UI", 9), fg=C_MUTED, bg=C_CARD,
+                              anchor="w", justify="left")
+    detected_label.pack(fill="x")
 
-    ping_btn = tk.Button(r1, text="Test Connection", font=("Segoe UI", 8, "bold"), bg="#0284c7", fg="white", activebackground="#0369a1", relief="flat", padx=10, pady=2, command=do_ping)
-    ping_btn.pack(side="right", padx=4)
+    def refresh_detected() -> None:
+        bits = [f"Repository: {REPO_ROOT}"]
+        if state["config"]:
+            bits.append("Client configuration: present (~/.ai-bridge/agent_gui.json)")
+        if state["token"]:
+            bits.append("Device token: present (~/.ai-bridge/device.token)")
+        if state["task"]:
+            bits.append(f"Background agent: scheduled task '{TASK_NAME}' present")
+        if state["client_autostart"]:
+            bits.append("Client autostart: registered in HKCU Run")
+        if not any((state["config"], state["token"], state["task"], state["client_autostart"])):
+            bits.append("No existing installation found - this will be a fresh install.")
+        detected_label.configure(text="\n".join(bits))
 
-    # Token row
-    r2 = tk.Frame(cfg_card, bg=C_CARD)
-    r2.pack(fill="x", pady=4)
-    tk.Label(r2, text="Device Token:", font=("Segoe UI", 9, "bold"), fg=C_TEXT, bg=C_CARD, width=16, anchor="w").pack(side="left")
-    token_entry = tk.Entry(r2, textvariable=token_var, font=("Segoe UI", 10), show="•", bg="#27272e", fg=C_TEXT, insertbackground=C_TEXT, relief="flat", highlightthickness=1, highlightbackground=C_BORDER)
-    token_entry.pack(side="left", fill="x", expand=True, padx=6)
+    refresh_detected()
 
-    def toggle_show_token():
-        if token_entry.cget("show") == "•":
-            token_entry.configure(show="")
-            show_btn.configure(text="Hide")
-        else:
-            token_entry.configure(show="•")
-            show_btn.configure(text="Show")
+    if any(state.values()):
+        existing_card = card(p_welcome, "Existing installation")
+        tk.Label(existing_card, text="Installing again repairs the environment and keeps your token. "
+                                    "Uninstall removes the task, autostart entries and shortcuts.",
+                 font=("Segoe UI", 9), fg=C_MUTED, bg=C_CARD, wraplength=700, justify="left",
+                 anchor="w").pack(fill="x")
 
-    show_btn = tk.Button(r2, text="Show", font=("Segoe UI", 8), bg=C_CARD_ALT, fg=C_MUTED, relief="flat", padx=8, pady=2, command=toggle_show_token)
-    show_btn.pack(side="right", padx=4)
+        def do_uninstall() -> None:
+            if not messagebox.askyesno("Uninstall AI Bridge", "Remove the agent task, autostart entries and "
+                                                              "shortcuts? Your configuration is kept."):
+                return
+            logs: list[str] = []
+            uninstall(False, logs.append)
+            for line in logs:
+                console_insert(line)
+            state.update(existing_installation())
+            refresh_detected()
+            messagebox.showinfo("Uninstall complete", "\n".join(logs) or "Nothing to remove.")
 
-    # Ping feedback label
-    ping_lbl = tk.Label(cfg_card, textvariable=ping_status_var, font=("Segoe UI", 8), fg=C_MUTED, bg=C_CARD)
-    ping_lbl.pack(anchor="w", padx=140, pady=1)
+        tk.Button(existing_card, text="Uninstall", font=("Segoe UI", 9), bg=C_CARD_ALT, fg=C_TEXT,
+                  activebackground=C_BORDER, relief="flat", padx=12, pady=4, command=do_uninstall).pack(
+            anchor="w", pady=(8, 0))
 
-    # Options Card
-    opt_card = tk.LabelFrame(
-        main_body,
-        text=" 2. Installation Options & Packages ",
-        font=("Segoe UI", 10, "bold"),
-        fg=C_ACCENT,
-        bg=C_CARD,
-        relief="solid",
-        bd=1,
-        padx=14,
-        pady=8,
-    )
-    opt_card.pack(fill="x", pady=6)
+    # -- page 2: control plane --------------------------------------------
+    p_conn = new_page("Control plane", "Point this device at your control plane and paste the device token from the "
+                                       "dashboard. The token is sealed with DPAPI; it is never written to the JSON config.")
+    conn = card(p_conn, "Connection")
+    url_entry = field(conn, "Control plane URL", options["control_url"])
+    token_entry = field(conn, "Device token", "", show="\u2022")
+    show_token_btn = tk.Button(conn, text="Show", font=("Segoe UI", 8), bg=C_CARD_ALT, fg=C_MUTED,
+                               relief="flat", padx=8, pady=1)
 
-    # Checkboxes row 1
-    c1 = tk.Frame(opt_card, bg=C_CARD)
-    c1.pack(fill="x", pady=2)
-    tk.Checkbutton(
-        c1,
-        text="Install all required packages (aiortc, av, Pillow, psutil, pydantic, pystray, fastapi)",
-        variable=opt_packages_var,
-        font=("Segoe UI", 9),
-        fg=C_TEXT,
-        bg=C_CARD,
-        selectcolor="#0284c7",
-        activebackground=C_CARD,
-        activeforeground=C_TEXT,
-    ).pack(side="left")
+    def toggle_token() -> None:
+        hidden = token_entry.cget("show") == "\u2022"
+        token_entry.configure(show="" if hidden else "\u2022")
+        show_token_btn.configure(text="Hide" if hidden else "Show")
 
-    # Checkboxes row 2
-    c2 = tk.Frame(opt_card, bg=C_CARD)
-    c2.pack(fill="x", pady=2)
-    tk.Checkbutton(
-        c2,
-        text="Create Desktop Shortcut",
-        variable=opt_desktop_var,
-        font=("Segoe UI", 9),
-        fg=C_TEXT,
-        bg=C_CARD,
-        selectcolor="#0284c7",
-        activebackground=C_CARD,
-        activeforeground=C_TEXT,
-    ).pack(side="left", padx=(0, 20))
+    show_token_btn.configure(command=toggle_token)
+    show_token_btn.place(in_=token_entry, relx=1.0, rely=0.5, anchor="e", x=-4)
 
-    tk.Checkbutton(
-        c2,
-        text="Create Start Menu Shortcut",
-        variable=opt_start_menu_var,
-        font=("Segoe UI", 9),
-        fg=C_TEXT,
-        bg=C_CARD,
-        selectcolor="#0284c7",
-        activebackground=C_CARD,
-        activeforeground=C_TEXT,
-    ).pack(side="left", padx=(0, 20))
+    ping_var = tk.StringVar(value="Not tested yet.")
+    ping_lbl = tk.Label(conn, textvariable=ping_var, font=("Segoe UI", 9), fg=C_MUTED, bg=C_CARD,
+                        anchor="w", justify="left", wraplength=700)
+    ping_lbl.pack(fill="x", pady=(6, 0))
 
-    tk.Checkbutton(
-        c2,
-        text="Auto-start with Windows login (HKCU)",
-        variable=opt_autostart_var,
-        font=("Segoe UI", 9),
-        fg=C_TEXT,
-        bg=C_CARD,
-        selectcolor="#0284c7",
-        activebackground=C_CARD,
-        activeforeground=C_TEXT,
-    ).pack(side="left")
+    def do_ping() -> None:
+        ping_var.set("Testing connection...")
+        ping_lbl.configure(fg=C_MUTED)
+        url, token = url_entry.var.get(), token_entry.var.get()
 
-    # Checkboxes row 3
-    c3 = tk.Frame(opt_card, bg=C_CARD)
-    c3.pack(fill="x", pady=2)
-    tk.Checkbutton(
-        c3,
-        text="Launch AI Bridge Agent immediately after installation completes",
-        variable=opt_launch_var,
-        font=("Segoe UI", 9),
-        fg=C_TEXT,
-        bg=C_CARD,
-        selectcolor="#0284c7",
-        activebackground=C_CARD,
-        activeforeground=C_TEXT,
-    ).pack(side="left")
+        def worker() -> None:
+            ok, message, _, token_ok = check_control_plane(url, token)
+            def apply() -> None:
+                ping_var.set(("OK - " if ok else "FAILED - ") + message)
+                ping_lbl.configure(fg=C_SUCCESS if ok else C_ERROR)
+                options["control_url"] = url.strip()
+                options["device_token"] = token.strip()
+                options["token_verified"] = token_ok
+            root.after(0, apply)
 
-    # Live Console & Execution
-    exec_card = tk.LabelFrame(
-        main_body,
-        text=" 3. Setup Progress & Terminal Output ",
-        font=("Segoe UI", 10, "bold"),
-        fg=C_ACCENT,
-        bg=C_CARD,
-        relief="solid",
-        bd=1,
-        padx=14,
-        pady=8,
-    )
-    exec_card.pack(fill="both", expand=True, pady=6)
+        threading.Thread(target=worker, daemon=True).start()
 
-    # Progress bar and status
-    prog_frame = tk.Frame(exec_card, bg=C_CARD)
-    prog_frame.pack(fill="x", pady=4)
-    prog_bar = ttk.Progressbar(prog_frame, style="TProgressbar", mode="determinate", length=400)
-    prog_bar.pack(side="left", fill="x", expand=True, padx=(0, 10))
+    tk.Button(conn, text="Test connection", font=("Segoe UI", 9, "bold"), bg="#0284c7", fg="white",
+              activebackground="#0369a1", relief="flat", padx=12, pady=5, command=do_ping).pack(
+        anchor="w", pady=(8, 0))
 
-    status_lbl = tk.Label(prog_frame, textvariable=status_var, font=("Segoe UI", 8, "italic"), fg=C_MUTED, bg=C_CARD)
-    status_lbl.pack(side="right")
+    # -- page 3: runtime ---------------------------------------------------
+    p_py = new_page("Python runtime", "The agent runs on Python 3.12, 3.13 or 3.14. Newer builds are refused, the same "
+                                      "way install-agent.ps1 refuses them, rather than installing onto an untested interpreter.")
+    py_card = card(p_py, "Interpreter for the virtual environment")
+    py_var = tk.StringVar(value="Checking...")
+    py_lbl = tk.Label(py_card, textvariable=py_var, font=("Segoe UI", 9), fg=C_TEXT, bg=C_CARD,
+                      anchor="w", justify="left", wraplength=700)
+    py_lbl.pack(fill="x")
+    py_state: dict = {"python": None, "minor": None}
 
-    # Console Text
-    console_frame = tk.Frame(exec_card, bg="#111113", highlightthickness=1, highlightbackground=C_BORDER)
-    console_frame.pack(fill="both", expand=True, pady=4)
+    def refresh_python() -> None:
+        try:
+            python, minor = resolve_supported_python()
+        except InstallerError as exc:
+            py_state["python"] = None
+            py_state["minor"] = None
+            py_var.set(f"{exc}")
+            py_lbl.configure(fg=C_ERROR)
+            return
+        py_state["python"] = python
+        py_state["minor"] = minor
+        others = [f"{m} at {p}" for m, p in detect_installed_pythons() if p != str(python)]
+        text = f"Will use Python {minor} at {python}"
+        if others:
+            text += "\nAlso installed (not used): " + "; ".join(others)
+        py_var.set(text)
+        py_lbl.configure(fg=C_SUCCESS)
 
-    console = tk.Text(
-        console_frame,
-        font=("Consolas", 8),
-        bg="#0f0f11",
-        fg="#e2e8f0",
-        insertbackground="white",
-        relief="flat",
-        wrap="word",
-        height=10,
-    )
-    scrollbar = ttk.Scrollbar(console_frame, orient="vertical", command=console.yview)
-    console.configure(yscrollcommand=scrollbar.set)
-    scrollbar.pack(side="right", fill="y")
-    console.pack(side="left", fill="both", expand=True, padx=4, pady=4)
+    refresh_python()
+    # Re-evaluate navigation too: a Python installed while this page is open must
+    # re-enable Next, which was disabled when the page was first shown.
+    tk.Button(py_card, text="Re-scan", font=("Segoe UI", 9), bg=C_CARD_ALT, fg=C_TEXT,
+              activebackground=C_BORDER, relief="flat", padx=12, pady=4,
+              command=lambda: (refresh_python(), show(current["index"]))).pack(
+        anchor="w", pady=(8, 0))
 
-    # Color tags for console
-    console.tag_configure("info", foreground="#60a5fa")
-    console.tag_configure("success", foreground="#34d399")
-    console.tag_configure("warn", foreground="#fbbf24")
+    # -- page 4: components & policy --------------------------------------
+    p_opt = new_page("Components and policy", "Choose what to install. The policy defaults below are the conservative "
+                                              "ones: shell access and unattended file writes stay off unless you opt in.")
+    comp = card(p_opt, "Components")
+    v_desktop = check(comp, "Create a Desktop shortcut", True)
+    v_start = check(comp, "Create a Start Menu shortcut", True)
+    v_client_auto = check(comp, "Start the desktop client when you sign in", True)
+    v_agent = check(comp, "Install the background agent (runs at sign-in, exchanges tasks with the control plane)", True)
+    v_packages = check(comp, "Install Python packages now (skip only if the environment is already provisioned)", True)
+    v_launch = check(comp, "Open the desktop client when setup finishes", True)
+
+    pol = card(p_opt, "Execution policy (applies to the desktop client)")
+    v_tier3 = check(pol, "Allow tier 3 actions (local modification) without approval", False)
+    v_writes = check(pol, "Allow file writes by unattended tasks", False)
+    v_shell = check(pol, "Allow shell command execution", False)
+
+    folder_row = tk.Frame(p_opt, bg=C_BG)
+    folder_row.pack(fill="x", pady=(8, 0))
+    tk.Label(folder_row, text="Install folder:", font=("Segoe UI", 9, "bold"), fg=C_TEXT, bg=C_BG).pack(side="left")
+    dir_var = tk.StringVar(value=options["install_dir"])
+    dir_entry = tk.Entry(folder_row, textvariable=dir_var, font=("Segoe UI", 9), bg=C_CARD_ALT, fg=C_TEXT,
+                         insertbackground=C_TEXT, relief="flat", highlightthickness=1,
+                         highlightbackground=C_BORDER)
+    dir_entry.pack(side="left", fill="x", expand=True, padx=8, ipady=3)
+
+    def pick_dir() -> None:
+        chosen = filedialog.askdirectory(initialdir=dir_var.get())
+        if chosen:
+            dir_var.set(chosen)
+
+    tk.Button(folder_row, text="Browse...", font=("Segoe UI", 9), bg=C_CARD_ALT, fg=C_TEXT,
+              activebackground=C_BORDER, relief="flat", padx=10, command=pick_dir).pack(side="right")
+
+    # -- page 5: install ---------------------------------------------------
+    p_run = new_page("Installing", "The wizard is provisioning the environment. You can follow each step below.")
+    run_card = tk.Frame(p_run, bg=C_CARD, highlightthickness=1, highlightbackground=C_BORDER)
+    run_card.pack(fill="both", expand=True, pady=6)
+    prog = ttk.Progressbar(run_card, style="TB.Horizontal.TProgressbar", mode="determinate", maximum=100)
+    prog.pack(fill="x", padx=14, pady=(14, 6))
+    run_status = tk.StringVar(value="Waiting...")
+    tk.Label(run_card, textvariable=run_status, font=("Segoe UI", 9, "italic"), fg=C_MUTED,
+             bg=C_CARD, anchor="w").pack(fill="x", padx=14)
+    console = tk.Text(run_card, font=("Consolas", 8), bg="#0f0f11", fg="#e2e8f0", relief="flat",
+                      wrap="none", height=14, insertbackground="white")
+    console_scroll = ttk.Scrollbar(run_card, orient="vertical", command=console.yview)
+    console.configure(yscrollcommand=console_scroll.set)
+    console_scroll.pack(side="right", fill="y", padx=(0, 12), pady=8)
+    console.pack(fill="both", expand=True, padx=12, pady=(8, 12))
     console.tag_configure("error", foreground="#f87171")
-    console.tag_configure("dim", foreground="#64748b")
+    console.tag_configure("warn", foreground=C_WARN)
+    console.tag_configure("ok", foreground="#34d399")
 
-    def append_log(line: str):
-        ui_queue.put(("log", line))
+    def console_insert(line: str) -> None:
+        tag = ""
+        lowered = line.lower()
+        if "[error]" in lowered or "failed" in lowered:
+            tag = "error"
+        elif "[warn]" in lowered:
+            tag = "warn"
+        elif "ok" in lowered and line.strip().startswith("["):
+            tag = "ok"
+        console.insert("end", line + "\n", tag)
+        console.see("end")
 
-    def set_ui_progress(val: float, status: str):
-        ui_queue.put(("progress", (val, status)))
+    # -- page 6: finish ----------------------------------------------------
+    p_done = new_page("Finished", "AI Bridge is installed.")
+    done_card = card(p_done, "Summary")
+    done_var = tk.StringVar(value="")
+    tk.Label(done_card, textvariable=done_var, font=("Segoe UI", 9), fg=C_TEXT, bg=C_CARD, anchor="w",
+             justify="left", wraplength=720).pack(fill="x")
 
-    # Process queue messages on UI loop
-    def poll_ui_queue():
-        while not ui_queue.empty():
+    def open_dashboard() -> None:
+        url = (options.get("control_url") or DEFAULT_CONTROL_URL).rstrip("/")
+        try:
+            os.startfile(url)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - opening a browser is best effort
+            messagebox.showinfo("Dashboard", url)
+
+    tk.Button(done_card, text="Open the dashboard", font=("Segoe UI", 9), bg=C_CARD_ALT, fg=C_TEXT,
+              activebackground=C_BORDER, relief="flat", padx=12, pady=5, command=open_dashboard).pack(
+        anchor="w", pady=(10, 0))
+
+    # -- navigation --------------------------------------------------------
+    back_btn = tk.Button(footer, text="Back", font=("Segoe UI", 10), bg=C_CARD, fg=C_MUTED,
+                         activebackground=C_CARD_ALT, activeforeground=C_TEXT, relief="flat", padx=16, pady=7,
+                         command=lambda: show(current["index"] - 1))
+    back_btn.pack(side="left")
+    next_btn = tk.Button(footer, text="Next", font=("Segoe UI", 10, "bold"), bg="#2563eb", fg="white",
+                         activebackground="#1d4ed8", relief="flat", padx=20, pady=7,
+                         command=lambda: show(current["index"] + 1))
+    next_btn.pack(side="right")
+    cancel_btn = tk.Button(footer, text="Cancel", font=("Segoe UI", 10), bg=C_CARD, fg=C_MUTED,
+                           activebackground=C_CARD_ALT, activeforeground=C_TEXT, relief="flat", padx=16, pady=7,
+                           command=root.destroy)
+    cancel_btn.pack(side="right", padx=(0, 8))
+
+    running = {"started": False, "ok": False}
+
+    def collect() -> None:
+        options["control_url"] = url_entry.var.get().strip() or DEFAULT_CONTROL_URL
+        options["device_token"] = token_entry.var.get().strip()
+        options["install_dir"] = dir_var.get().strip()
+        options["create_desktop"] = v_desktop.get()
+        options["create_start_menu"] = v_start.get()
+        options["autostart_client"] = v_client_auto.get()
+        options["install_agent"] = v_agent.get()
+        options["install_packages"] = v_packages.get()
+        options["launch_after"] = v_launch.get()
+        options["allow_tier3"] = v_tier3.get()
+        options["allow_writes"] = v_writes.get()
+        options["allow_shell"] = v_shell.get()
+        options["max_tier_unattended"] = 3 if v_tier3.get() else 2
+
+    def start_install() -> None:
+        if running["started"]:
+            return
+        running["started"] = True
+        collect()
+        next_btn.configure(state="disabled", text="Installing...")
+        back_btn.configure(state="disabled")
+        cancel_btn.configure(state="disabled")
+        console.delete("1.0", "end")
+        console_insert("AI Bridge Setup started.")
+        console_insert(f"Repository: {REPO_ROOT}")
+        console_insert(f"Python: {py_state['minor']} at {py_state['python']}")
+        console_insert(f"Install folder: {options['install_dir']}")
+        console_insert("")
+
+        def worker() -> None:
+            def log(line: str) -> None:
+                ui_queue.put(("log", line))
+
+            def progress(value: int, status: str) -> None:
+                ui_queue.put(("progress", (value, status)))
+
+            ok = run_installation(options, log, progress)
+            ui_queue.put(("done", ok))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def pump() -> None:
+        while True:
             try:
-                kind, data = ui_queue.get_nowait()
-                if kind == "log":
-                    line = str(data)
-                    tag = "dim"
-                    if "[ERROR]" in line or "failed" in line.lower() or "error" in line.lower():
-                        tag = "error"
-                    elif "[SUCCESS]" in line or "successfully" in line.lower() or "OK" in line:
-                        tag = "success"
-                    elif "[1/" in line or "[2/" in line or "[3/" in line or "[4/" in line or "[5/" in line or "[6/" in line:
-                        tag = "info"
-                    elif "warning" in line.lower():
-                        tag = "warn"
-
-                    console.insert("end", line + "\n", tag)
-                    console.see("end")
-                elif kind == "progress":
-                    val, status = data
-                    prog_bar["value"] = val
-                    status_var.set(status)
+                kind, payload = ui_queue.get_nowait()
             except queue.Empty:
                 break
-        root.after(50, poll_ui_queue)
+            if kind == "log":
+                console_insert(str(payload))
+            elif kind == "progress":
+                value, status = payload
+                prog["value"] = value
+                run_status.set(status)
+            elif kind == "done":
+                running["ok"] = bool(payload)
+                done_var.set(
+                    ("Installation finished. The desktop client and background agent are ready."
+                     if payload else
+                     "Installation did not finish. Review the log on the previous page, fix the cause, and run the "
+                     "wizard again - it is safe to re-run.")
+                    + f"\n\nClient config: {CONFIG_FILE}\nDevice token: {TOKEN_FILE}\n"
+                      f"Install folder: {options['install_dir']}"
+                )
+                state.update(existing_installation())
+                refresh_detected()
+                show(len(pages) - 1)
+        root.after(80, pump)
 
-    root.after(50, poll_ui_queue)
+    def show(index: int) -> None:
+        index = max(0, min(index, len(pages) - 1))
+        current["index"] = index
+        for position, page in enumerate(pages):
+            if position == index:
+                page.tkraise()
+        step_label.configure(text=f"Step {index + 1} of {len(pages)}")
+        back_btn.configure(state="normal" if index > 0 and not running["started"] else "disabled")
+        if index == len(pages) - 2:
+            next_btn.configure(text="Install", command=start_install)
+        elif index == len(pages) - 1:
+            next_btn.configure(text="Close", command=root.destroy, state="normal")
+        else:
+            next_btn.configure(text="Next", command=lambda: show(current["index"] + 1),
+                               state="normal" if not running["started"] else "disabled")
+        if index == 2 and py_state["python"] is None:
+            next_btn.configure(state="disabled")
 
-    # Bottom Actions Bar
-    action_bar = tk.Frame(root, bg=C_BG)
-    action_bar.pack(fill="x", side="bottom", padx=20, pady=10)
-
-    is_installing = [False]
-
-    def start_installation():
-        if is_installing[0]:
-            return
-        is_installing[0] = True
-        install_btn.configure(state="disabled", text="Installing...", bg="#475569")
-
-        c_url = url_var.get().strip()
-        d_token = token_var.get().strip()
-        i_dir = Path(install_dir_var.get().strip())
-
-        def _worker():
-            success = run_full_installation(
-                control_url=c_url,
-                device_token=d_token,
-                install_dir=i_dir,
-                repo_root=REPO_ROOT,
-                install_packages_flag=opt_packages_var.get(),
-                create_desktop=opt_desktop_var.get(),
-                create_start_menu=opt_start_menu_var.get(),
-                autostart=opt_autostart_var.get(),
-                launch_after=opt_launch_var.get(),
-                log_cb=append_log,
-                progress_cb=set_ui_progress,
-            )
-
-            def _done():
-                is_installing[0] = False
-                if success:
-                    install_btn.configure(state="normal", text="Installation Succeeded ✓", bg="#059669")
-                    messagebox.showinfo(
-                        "Setup Complete",
-                        "AI Bridge Windows Agent has been installed and configured successfully!\n\n"
-                        "All required packages are ready, including WebRTC desktop streaming.",
-                    )
-                else:
-                    install_btn.configure(state="normal", text="Retry Installation", bg="#dc2626")
-                    messagebox.showerror(
-                        "Setup Incomplete",
-                        "An error occurred during installation. Please inspect the log console for details.",
-                    )
-            root.after(0, _done)
-
-        threading.Thread(target=_worker, daemon=True).start()
-
-    install_btn = tk.Button(
-        action_bar,
-        text="Install AI Bridge Agent & Required Packages",
-        font=("Segoe UI", 11, "bold"),
-        bg="#2563eb",
-        fg="white",
-        activebackground="#1d4ed8",
-        activeforeground="white",
-        relief="flat",
-        padx=20,
-        pady=8,
-        command=start_installation,
-    )
-    install_btn.pack(side="right")
-
-    close_btn = tk.Button(
-        action_bar,
-        text="Exit",
-        font=("Segoe UI", 10),
-        bg=C_CARD,
-        fg=C_MUTED,
-        activebackground=C_CARD_ALT,
-        activeforeground=C_TEXT,
-        relief="flat",
-        padx=14,
-        pady=8,
-        command=root.destroy,
-    )
-    close_btn.pack(side="left")
-
-    append_log("AI Bridge Setup Wizard initialized.")
-    append_log(f"Repository Root: {REPO_ROOT}")
-    append_log("Click 'Install AI Bridge Agent & Required Packages' to proceed.")
-
+    root.after(80, pump)
+    show(0)
     root.mainloop()
 
 
-# ============================================================================
-# CLI Entrypoint
-# ============================================================================
-
-def main():
-    parser = argparse.ArgumentParser(description="AI Bridge Windows Agent Setup")
-    parser.add_argument("--url", default=DEFAULT_CONTROL_URL, help="Control Plane URL")
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+def main() -> None:
+    parser = argparse.ArgumentParser(description="AI Bridge Windows all-in-one setup")
+    parser.add_argument("--url", default=DEFAULT_CONTROL_URL, help="Control plane URL")
     parser.add_argument("--token", default="", help="Device enrollment token")
-    parser.add_argument("--install-dir", default=str(REPO_ROOT), help="Installation directory")
-    parser.add_argument("--no-packages", action="store_true", help="Skip pip package installation")
-    parser.add_argument("--no-shortcuts", action="store_true", help="Do not create desktop/start menu shortcuts")
-    parser.add_argument("--no-autostart", action="store_true", help="Do not register HKCU autostart")
-    parser.add_argument("--no-launch", action="store_true", help="Do not launch the agent after setup")
-    parser.add_argument("--silent", action="store_true", help="Run headlessly without GUI")
-    parser.add_argument("--verify-only", action="store_true", help="Only verify installed packages and exit")
-
+    parser.add_argument("--install-dir", default="", help="Install folder (default: %%LOCALAPPDATA%%\\AIBridge)")
+    parser.add_argument("--no-packages", action="store_true", help="Skip pip installation")
+    parser.add_argument("--no-shortcuts", action="store_true", help="Do not create shortcuts")
+    parser.add_argument("--no-autostart", action="store_true", help="Do not register client autostart")
+    parser.add_argument("--no-agent", action="store_true", help="Do not install the background agent")
+    parser.add_argument("--no-launch", action="store_true", help="Do not launch the client afterwards")
+    parser.add_argument("--allow-shell", action="store_true", help="Permit shell execution in the client policy")
+    parser.add_argument("--allow-writes", action="store_true", help="Permit unattended file writes")
+    parser.add_argument("--silent", action="store_true", help="Run headlessly without the wizard")
+    parser.add_argument("--check", action="store_true", help="Report the resolved runtime and exit")
+    parser.add_argument("--verify-only", action="store_true", help="Verify packages in the current interpreter")
+    parser.add_argument("--uninstall", action="store_true", help="Remove the agent task, autostart entries and shortcuts")
+    parser.add_argument("--purge", action="store_true", help="With --uninstall, also delete the configuration")
     args = parser.parse_args()
 
     if args.verify_only:
-        print("Verifying installed packages in current Python environment...")
-        res = verify_installation(Path(sys.executable))
-        all_ok = all(res.values())
-        print(f"Package verification {'SUCCEEDED' if all_ok else 'FAILED'}")
-        sys.exit(0 if all_ok else 1)
+        print("Verifying packages in the current interpreter...")
+        results = verify_installation(Path(sys.executable), print)
+        ok = all(results.values())
+        print(f"Package verification {'SUCCEEDED' if ok else 'FAILED'}")
+        sys.exit(0 if ok else 1)
+
+    if args.uninstall:
+        uninstall(args.purge, print)
+        sys.exit(0)
+
+    if args.check:
+        try:
+            python, minor = resolve_supported_python()
+        except InstallerError as exc:
+            print(f"[FAIL] {exc}")
+            sys.exit(1)
+        print(f"[OK] Python {minor} at {python}")
+        state = existing_installation()
+        print(f"Existing: config={state['config']} token={state['token']} task={state['task']} "
+              f"autostart={state['client_autostart']}")
+        sys.exit(0)
+
+    options = {
+        "control_url": args.url,
+        "device_token": args.token,
+        "install_dir": args.install_dir or str(Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "AIBridge"),
+        "create_desktop": not args.no_shortcuts,
+        "create_start_menu": not args.no_shortcuts,
+        "autostart_client": not args.no_autostart,
+        "install_agent": not args.no_agent,
+        "install_packages": not args.no_packages,
+        "allow_tier3": False,
+        "allow_writes": args.allow_writes,
+        "allow_shell": args.allow_shell,
+        "max_tier_unattended": 2,
+        "launch_after": not args.no_launch,
+    }
 
     if args.silent:
-        success = run_full_installation(
-            control_url=args.url,
-            device_token=args.token,
-            install_dir=Path(args.install_dir),
-            repo_root=REPO_ROOT,
-            install_packages_flag=not args.no_packages,
-            create_desktop=not args.no_shortcuts,
-            create_start_menu=not args.no_shortcuts,
-            autostart=not args.no_autostart,
-            launch_after=not args.no_launch,
-        )
-        sys.exit(0 if success else 1)
-    else:
-        # Launch graphical wizard
-        launch_gui_installer()
+        ok = run_installation(options, print, lambda value, status: print(f"  [{value:3d}%] {status}"))
+        sys.exit(0 if ok else 1)
+
+    launch_gui_installer()
 
 
 if __name__ == "__main__":
     main()
-
