@@ -2151,16 +2151,18 @@ export const AiApiHubView: React.FC = () => {
           <JXCard className="bg-[var(--product-surface)]/70 border-[var(--product-line)]">
             <JXCardHeader
               title="AI Copilot Chat"
-              subtitle="Multi-turn troubleshooting & research across connected devices and active OAuth2/MCP servers"
+              subheader="Multi-turn troubleshooting & research across connected devices and active OAuth2/MCP servers"
               icon={<MessageSquare className="w-5 h-5 text-cyan-400" />}
-              action={
-                <div className="flex items-center gap-2 flex-wrap">
-                  <JXBadge variant="info" size="sm">
+            />
+            <JXCardContent>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <JXBadge color="info">
                     {mcpServers.filter((s) => s.enabled).length} active MCP
                   </JXBadge>
                   {copilotMessages.length > 0 && (
                     <JXButton
-                      variant="ghost"
+                      variant="text"
                       size="sm"
                       onClick={handleCopilotClear}
                       disabled={copilotBusy}
@@ -2170,9 +2172,6 @@ export const AiApiHubView: React.FC = () => {
                     </JXButton>
                   )}
                 </div>
-              }
-            />
-            <JXCardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] uppercase tracking-wider text-neutral-400 mb-1">
@@ -2217,7 +2216,7 @@ export const AiApiHubView: React.FC = () => {
                   {mcpServers
                     .filter((s) => s.enabled)
                     .map((srv) => (
-                      <JXBadge key={srv.id} variant="neutral" size="sm">
+                      <JXBadge key={srv.id} color="default">
                         {srv.name} ({srv.tools_count || 0} tools)
                       </JXBadge>
                     ))}
@@ -2225,9 +2224,7 @@ export const AiApiHubView: React.FC = () => {
               )}
 
               {copilotError && (
-                <JXAlert severity="error" title="Copilot request failed">
-                  {copilotError}
-                </JXAlert>
+                <JXAlert severity="error" title="Copilot request failed" description={copilotError} />
               )}
 
               {copilotSaveNotice && (
@@ -2325,7 +2322,7 @@ export const AiApiHubView: React.FC = () => {
                 />
                 <JXButton
                   type="submit"
-                  variant="primary"
+                  variant="contained"
                   size="sm"
                   disabled={copilotBusy || !copilotInput.trim()}
                 >
@@ -2333,6 +2330,7 @@ export const AiApiHubView: React.FC = () => {
                   {copilotBusy ? "Thinking..." : "Send"}
                 </JXButton>
               </form>
+              </div>
             </JXCardContent>
           </JXCard>
         </JXGridItem>
