@@ -448,7 +448,17 @@ def switch(
 ) -> tk.Frame:
     """An accessible toggle switch bound to a BooleanVar."""
     row = tk.Frame(parent, bg=parent["bg"])
-    canvas = tk.Canvas(row, width=36, height=20, bg=parent["bg"], highlightthickness=0, cursor="hand2")
+    canvas = tk.Canvas(
+        row,
+        width=36,
+        height=20,
+        bg=parent["bg"],
+        highlightthickness=1,
+        highlightbackground=parent["bg"],
+        highlightcolor=t["brand"],
+        takefocus=1,
+        cursor="hand2",
+    )
     label = tk.Label(row, text=text, bg=parent["bg"], fg=t["fg_muted"], font=ui_font(9), cursor="hand2")
 
     def paint(*_args):
@@ -460,17 +470,22 @@ def switch(
         canvas.create_rectangle(8, 3, 28, 17, fill=track, outline=track)
         knob_x = 25 if on else 11
         canvas.create_oval(knob_x - 6, 4, knob_x + 6, 16, fill="#FFFFFF", outline="#FFFFFF")
+        # Spell the state out so the control never depends on colour alone.
+        label.configure(text=f"{text} ({'on' if on else 'off'})", fg=t["fg"] if on else t["fg_muted"])
 
     def toggle(_event=None):
         variable.set(not variable.get())
         paint()
         if command is not None:
             command()
+        return "break"
 
     canvas.pack(side="left")
     label.pack(side="left", padx=(8, 0))
     for widget in (canvas, label):
         widget.bind("<Button-1>", toggle)
+    canvas.bind("<space>", toggle)
+    canvas.bind("<Return>", toggle)
     variable.trace_add("write", paint)
     paint()
     return row
@@ -747,7 +762,31 @@ def build_shell(app) -> None:
         dock_head, text="ACTIVITY", bg=t["card_subtle"], fg=t["fg_subtle"], font=ui_font(8, "bold")
     ).pack(side="left")
     button(dock_head, t, "Clear", app._clear_log, variant="ghost", size="sm").pack(side="right")
+    button(dock_head, t, "Diagnostics", app.copy_diagnostics, variant="ghost", size="sm").pack(
+        side="right", padx=(0, 4)
+    )
     button(dock_head, t, "Export…", app.export_logs, variant="ghost", size="sm").pack(side="right", padx=(0, 4))
+    for variable, caption_text in (
+        (app.pause_scroll_var, "Pause scroll"),
+        (app.log_errors_only_var, "Errors only"),
+    ):
+        tk.Checkbutton(
+            dock_head,
+            text=caption_text,
+            variable=variable,
+            indicatoron=False,
+            relief="flat",
+            bd=0,
+            bg=t["card"],
+            fg=t["fg_muted"],
+            selectcolor=t["accent_soft"],
+            activebackground=t["card_alt"],
+            activeforeground=t["fg"],
+            font=ui_font(8),
+            padx=8,
+            pady=2,
+            cursor="hand2",
+        ).pack(side="right", padx=(0, 4))
 
     log_body = tk.Frame(dock, bg=t["log_bg"])
     log_body.pack(fill="both", expand=True, padx=12, pady=(0, 10))
@@ -873,18 +912,39 @@ def build_overview(app, parent: tk.Widget) -> None:
     switch(sess, t, "Auto-start with app", app.auto_start_var, app.save_current_config).pack(fill="x", pady=(0, 10))
     button(sess, t, "Save configuration", app.save_current_config, variant="secondary").pack(fill="x", pady=(0, 6))
     button(sess, t, "Rotate token", app.rotate_token_manual, variant="ghost").pack(fill="x")
+    tk.Label(
+        sess,
+        textvariable=app.poll_note_var,
+        bg=t["card"],
+        fg=t["fg_subtle"],
+        font=ui_font(8),
+        anchor="w",
+        justify="left",
+        wraplength=320,
+    ).pack(fill="x", pady=(10, 0))
+    tk.Label(
+        sess,
+        textvariable=app.expiry_note_var,
+        bg=t["card"],
+        fg=t["warn_fg"],
+        font=ui_font(8, "bold"),
+        anchor="w",
+        justify="left",
+        wraplength=320,
+    ).pack(fill="x", pady=(4, 0))
 
     # KPIs -------------------------------------------------------------------
     kpi_row = tk.Frame(page, bg=t["bg"])
     kpi_row.grid(row=1, column=0, columnspan=2, sticky="ew")
-    for col in range(4):
+    for col in range(5):
         kpi_row.columnconfigure(col, weight=1, uniform="kpi")
     kpi(kpi_row, t, "Device ID", app.device_id_var, copy_command=app._copy_device_id, mono=True).grid(
         row=0, column=0, sticky="nsew", padx=(0, 6)
     )
     kpi(kpi_row, t, "Last heartbeat", app.heartbeat_var).grid(row=0, column=1, sticky="nsew", padx=6)
     kpi(kpi_row, t, "Token expiry", app.expiry_var).grid(row=0, column=2, sticky="nsew", padx=6)
-    kpi(kpi_row, t, "Tasks completed", app.tasks_var).grid(row=0, column=3, sticky="nsew", padx=(6, 0))
+    kpi(kpi_row, t, "Tasks completed", app.tasks_var).grid(row=0, column=3, sticky="nsew", padx=6)
+    kpi(kpi_row, t, "Offline queue", app.queued_var).grid(row=0, column=4, sticky="nsew", padx=(6, 0))
 
     # guardrails summary -----------------------------------------------------
     guard_outer, guard = card(page, t)
@@ -934,14 +994,22 @@ def build_tasks(app, parent: tk.Widget) -> None:
     left = tk.Frame(bar, bg=t["card"])
     left.pack(side="left")
     heading(left, t, "Task history", 12).pack(side="left")
-    tk.Label(
-        left,
-        text=f"{len(app.task_history)} received",
-        bg=t["card"],
-        fg=t["fg_subtle"],
-        font=ui_font(9),
-    ).pack(side="left", padx=(10, 0))
-    button(bar, t, "Clear history", app._clear_task_history, variant="ghost", size="sm").pack(side="right")
+    app.task_count_label = tk.Label(
+        left, text="", bg=t["card"], fg=t["fg_subtle"], font=ui_font(9)
+    )
+    app.task_count_label.pack(side="left", padx=(10, 0))
+
+    right = tk.Frame(bar, bg=t["card"])
+    right.pack(side="right")
+    button(right, t, "Clear history", app._clear_task_history, variant="ghost", size="sm").pack(side="right")
+    app._task_filter_buttons.clear()
+    for kind, facet in (("approval", "Needs approval"), ("failed", "Failed"), ("completed", "Completed"), ("all", "All")):
+        facet_btn = button(right, t, facet, lambda k=kind: app._set_task_filter(k), variant="ghost", size="sm")
+        facet_btn.pack(side="right", padx=(0, 4))
+        app._task_filter_buttons[kind] = facet_btn
+    app.task_search_entry = entry(right, t, app.task_search_var, mono=False, width=24)
+    app.task_search_entry.pack(side="right", padx=(0, 10), ipady=4)
+    app.task_search_var.trace_add("write", lambda *_args: app._refresh_task_table())
 
     split = tk.Frame(parent, bg=t["bg"])
     split.pack(fill="both", expand=True)
@@ -973,20 +1041,8 @@ def build_tasks(app, parent: tk.Widget) -> None:
     app.task_tree.tag_configure("even", background=t["table_row_even"])
     app.task_tree.bind("<<TreeviewSelect>>", app._on_task_tree_select)
 
-    for index, item in enumerate(reversed(app.task_history)):
-        app.task_tree.insert(
-            "",
-            "end",
-            iid=item["id"],
-            values=(
-                item["time"],
-                item["id"][:8],
-                item["tool"],
-                f"{item.get('duration_s', 0):.2f}s",
-                item["status"].upper(),
-            ),
-            tags=("even" if index % 2 == 0 else "odd",),
-        )
+    app._refresh_task_table()
+    app._update_task_filter_buttons()
 
     insp_outer, insp = card(split, t)
     insp_outer.grid(row=0, column=1, sticky="nsew")
@@ -1469,6 +1525,31 @@ def build_security(app, parent: tk.Widget) -> None:
             justify="left",
         ).pack(fill="x", pady=(4, 0))
 
+    # ---- audit ------------------------------------------------------------
+    audit_outer, audit = card(page, t)
+    audit_outer.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(GAP, 4))
+    micro(audit, t, "Audit").pack(fill="x")
+    heading(audit, t, "Recent policy changes", 13).pack(fill="x", pady=(2, 2))
+    if app._policy_audit:
+        for audit_entry in app._policy_audit[:5]:
+            audit_row = tk.Frame(audit, bg=t["card"])
+            audit_row.pack(fill="x", pady=1)
+            tk.Label(
+                audit_row, text=audit_entry["time"], bg=t["card"], fg=t["fg_subtle"], font=mono_font(8)
+            ).pack(side="left")
+            tk.Label(
+                audit_row,
+                text=audit_entry["summary"],
+                bg=t["card"],
+                fg=t["fg_muted"],
+                font=ui_font(8),
+                anchor="w",
+                justify="left",
+                wraplength=760,
+            ).pack(side="left", padx=(10, 0), fill="x", expand=True)
+    else:
+        caption(audit, t, "No policy changes applied in this session.").pack(fill="x")
+
 
 # ---------------------------------------------------------------------------
 # Settings
@@ -1552,4 +1633,22 @@ def build_settings(app, parent: tk.Widget) -> None:
         fill="x", pady=(0, 10)
     )
     button(d, t, "Export logs to file", app.export_logs, variant="secondary").pack(fill="x", pady=(0, 6))
+    button(d, t, "Export diagnostics bundle", app.export_diagnostics_bundle, variant="secondary").pack(
+        fill="x", pady=(0, 6)
+    )
     button(d, t, "Reset to defaults", app._reset_defaults, variant="ghost").pack(fill="x")
+    divider(d, t)
+    micro(d, t, "Token storage").pack(fill="x")
+    caption(d, t, app.token_storage_note(), wrap=320).pack(fill="x", pady=(2, 8))
+    micro(d, t, "Build").pack(fill="x")
+    tk.Label(
+        d,
+        textvariable=app.update_status_var,
+        bg=t["card"],
+        fg=t["fg_muted"],
+        font=ui_font(8),
+        anchor="w",
+        justify="left",
+        wraplength=320,
+    ).pack(fill="x", pady=(2, 6))
+    button(d, t, "Check for updates", app.check_for_updates_async, variant="ghost", size="sm").pack(fill="x")
