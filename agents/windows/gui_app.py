@@ -59,6 +59,17 @@ _LOG_LEVELS = {"err": logging.ERROR, "warn": logging.WARNING, "ok": logging.INFO
 # Configuration paths & registry constants
 CONFIG_DIR = Path.home() / ".ai-bridge"
 CONFIG_FILE = CONFIG_DIR / "agent_gui.json"
+
+
+def _resource_root() -> Path:
+    """Directory holding bundled resources (the assets folder).
+
+    A PyInstaller onefile build extracts to a temporary ``sys._MEIPASS``, so
+    ``__file__``-relative maths would point outside the bundle.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    return Path(__file__).resolve().parents[2]
 TOKEN_FILE = CONFIG_DIR / "device.token"
 REG_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 REG_APP_NAME = "AIBridgeWindowsClient"
@@ -133,11 +144,15 @@ def set_windows_autostart(enable: bool) -> bool:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_RUN_KEY, 0, winreg.KEY_ALL_ACCESS)
         try:
             if enable:
-                script_path = str(Path(__file__).resolve())
-                pyw = sys.executable.replace("python.exe", "pythonw.exe")
-                if not Path(pyw).exists():
-                    pyw = sys.executable
-                cmd = f'"{pyw}" "{script_path}"'
+                if getattr(sys, "frozen", False):
+                    # Frozen: sys.executable is the exe itself; __file__ is temporary.
+                    cmd = f'"{sys.executable}"'
+                else:
+                    script_path = str(Path(__file__).resolve())
+                    pyw = sys.executable.replace("python.exe", "pythonw.exe")
+                    if not Path(pyw).exists():
+                        pyw = sys.executable
+                    cmd = f'"{pyw}" "{script_path}"'
                 winreg.SetValueEx(key, REG_APP_NAME, 0, winreg.REG_SZ, cmd)
             else:
                 try:
@@ -483,7 +498,7 @@ class SystemTrayManager:
             )
 
             # Load custom AI Bridge icon if available, fallback to standard application icon
-            ico_file = Path(__file__).resolve().parents[2] / "assets" / "ai-bridge.ico"
+            ico_file = _resource_root() / "assets" / "ai-bridge.ico"
             if ico_file.exists():
                 try:
                     self.hicon = win32gui.LoadImage(0, str(ico_file), win32con.IMAGE_ICON, 0, 0, win32con.LR_LOADFROMFILE | win32con.LR_DEFAULTSIZE)
@@ -575,7 +590,7 @@ class AgentGuiApp:
         self.root.minsize(min(940, win_w), min(600, win_h))
 
         # Set custom AI Bridge branding icon
-        ico_path = Path(__file__).resolve().parents[2] / "assets" / "ai-bridge.ico"
+        ico_path = _resource_root() / "assets" / "ai-bridge.ico"
         if ico_path.exists():
             try:
                 self.root.iconbitmap(str(ico_path))

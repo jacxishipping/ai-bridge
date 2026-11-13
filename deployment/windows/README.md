@@ -98,6 +98,74 @@ Package verification SUCCEEDED
 
 ---
 
+## Building the Windows Executables
+
+`build_exe.py` produces both artifacts with PyInstaller:
+
+```powershell
+# Setup wizard only (embeds dist\AIBridge-Agent.exe when it exists)
+python deployment\windows\build_exe.py
+
+# Tray client first, then the setup wizard that embeds it
+python deployment\windows\build_exe.py --all
+```
+
+`Build-EXE.bat` forwards to the same script. Outputs land in `dist\`:
+
+| File | Contents |
+| :--- | :--- |
+| `AIBridge-Agent.exe` | Standalone tray client (Python, Tk, pywin32, agent code bundled) |
+| `AIBridge-Setup.exe` | Setup wizard with the tray client embedded as payload |
+
+Both exes carry Explorer version metadata (`ProductName`, `FileDescription`,
+`FileVersion`) read from `pyproject.toml`.
+
+### Code signing (optional)
+
+Version metadata does not create SmartScreen reputation - that requires an
+Authenticode signature. The build signs both executables when signing is
+configured through the environment, and skips the step otherwise:
+
+| Variable | Required | Purpose |
+| :--- | :--- | :--- |
+| `AIBRIDGE_SIGN_CERT` | one of these | Path to a `.pfx`/`.p12` containing the certificate and private key |
+| `AIBRIDGE_SIGN_PASSWORD` | no | Password for the PFX (omit when it has none) |
+| `AIBRIDGE_SIGN_THUMBPRINT` | one of these | SHA-1 thumbprint of a certificate in the current user's store; used when `AIBRIDGE_SIGN_CERT` is unset |
+| `AIBRIDGE_SIGN_TIMESTAMP_URL` | no | RFC 3161 timestamp server (default `http://timestamp.digicert.com`; set it empty to disable timestamping) |
+| `AIBRIDGE_SIGNTOOL` | no | Explicit `signtool.exe` path; otherwise PATH then `Windows Kits\10\bin\*\x64` are searched |
+
+The setup exe embeds the client *after* the client is signed, so the installed
+copy keeps its signature.
+
+Sign with a PFX file:
+```powershell
+$env:AIBRIDGE_SIGN_CERT = 'C:\certs\aibridge.pfx'
+$env:AIBRIDGE_SIGN_PASSWORD = (Get-Content 'C:\certs\pfx-password.txt' -Raw).Trim()
+python deployment\windows\build_exe.py --all
+```
+
+Sign with a certificate already installed in `Cert:\CurrentUser\My`:
+```powershell
+$env:AIBRIDGE_SIGN_THUMBPRINT = 'A1B2C3D4E5F6...'
+python deployment\windows\build_exe.py --all
+```
+
+The build prints `[SIGN] Signed ...` and runs `signtool verify /pa` on each
+artifact. Verification failures are reported as warnings, because a build host
+may not trust a private CA; signing failures themselves abort the build rather
+than leaving an unsigned artifact behind.
+
+Check the result afterwards:
+```powershell
+Get-AuthenticodeSignature dist\AIBridge-Setup.exe | Format-List Status,SignerCertificate
+signtool verify /pa /all dist\AIBridge-Agent.exe
+```
+
+Keep the PFX password out of shell history and source control: read it from a
+secret store or file at build time, as in the example above.
+
+---
+
 ## Uninstallation
 
 To cleanly remove AI Bridge, autostart entries, and shortcuts:

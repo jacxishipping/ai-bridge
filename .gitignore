@@ -17,6 +17,10 @@ ai-bridge-workspace/
 
 .agents/teamwork/
 windows-agent/build/
+
+# PyInstaller output for the Windows installer (deployment/windows/build_exe.py)
+/build/
+/dist/
 *.pem
 *.key
 

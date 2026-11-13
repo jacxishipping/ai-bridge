@@ -34,7 +34,14 @@ import urllib.request
 from pathlib import Path
 
 APP_VERSION = "0.3.0"
-REPO_ROOT = Path(__file__).resolve().parents[2]
+# Where the application sources live: the repository when run as a script, or
+# the onefile extraction directory (sys._MEIPASS) inside AIBridge-Setup.exe.
+SOURCE_ROOT = (
+    Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parents[2]
+)
+REPO_ROOT = SOURCE_ROOT
 REQUIREMENTS_FILE = Path(__file__).resolve().parent / "requirements.txt"
 HOME_DIR = Path.home() / ".ai-bridge"
 CONFIG_FILE = HOME_DIR / "agent_gui.json"
@@ -52,9 +59,87 @@ AGENT_SCRIPT = REPO_ROOT / "agents" / "windows" / "agent_main.py"
 APP_RUNTIME_DIR = REPO_ROOT / "agents" / "windows"
 ICON_PATH = REPO_ROOT / "assets" / "ai-bridge.ico"
 
+# Directories and files the installed agent runs from. Inside the onefile exe
+# they only exist in the temporary bundle, so a frozen install copies them into
+# the install folder first.
+APP_PAYLOAD = ("agents", "src")
+APP_METADATA = ("pyproject.toml", "README.md")
+# The standalone tray client is embedded by build_exe.py and installed beside
+# the setup folder, so one exe delivers both the installer and the client.
+BUNDLED_CLIENT_DIR = "payload"
+BUNDLED_CLIENT_NAME = "AIBridge-Agent.exe"
+CLIENT_EXE: Path | None = None
+
+
+def installed_client_exe() -> Path | None:
+    """The installed standalone tray client, when the bundle carried one."""
+    return CLIENT_EXE if CLIENT_EXE is not None and CLIENT_EXE.exists() else None
+
 
 class InstallerError(RuntimeError):
     """A step failed in a way the operator must fix before retrying."""
+
+
+def point_runtime_at(root: Path) -> None:
+    """Repoint the scripts the installer launches at ``root``."""
+    global REPO_ROOT, CLIENT_SCRIPT, AGENT_SCRIPT, APP_RUNTIME_DIR, ICON_PATH
+    REPO_ROOT = root
+    CLIENT_SCRIPT = root / "agents" / "windows" / "gui_app.py"
+    AGENT_SCRIPT = root / "agents" / "windows" / "agent_main.py"
+    APP_RUNTIME_DIR = root / "agents" / "windows"
+    ICON_PATH = root / "assets" / "ai-bridge.ico"
+
+
+def stage_application(install_dir: Path, log) -> Path:
+    """Make the application sources permanent at install time.
+
+    A frozen installer extracts its payload to a temporary directory that is
+    deleted when the process exits, so shortcuts, the autostart entry and the
+    background agent would all point at nothing. Copy the sources into
+    ``install_dir/app`` and resolve every runtime path against that copy.
+    """
+    global CLIENT_EXE
+    if not getattr(sys, "frozen", False):
+        log(f"Running from the source tree at {REPO_ROOT}; nothing to copy.")
+        return REPO_ROOT
+
+    target = install_dir / "app"
+    if target.exists():
+        shutil.rmtree(target, ignore_errors=True)
+    target.mkdir(parents=True, exist_ok=True)
+    ignore = shutil.ignore_patterns("__pycache__", "*.pyc", "*.egg-info")
+    for name in APP_PAYLOAD:
+        source = SOURCE_ROOT / name
+        if not source.exists():
+            raise InstallerError(f"Installer payload is incomplete: {name} is missing.")
+        if source.is_dir():
+            shutil.copytree(source, target / name, ignore=ignore)
+        else:
+            shutil.copy2(source, target / name)
+    for name in APP_METADATA:
+        source = SOURCE_ROOT / name
+        if source.exists():
+            shutil.copy2(source, target / name)
+    assets = SOURCE_ROOT / "assets"
+    if assets.is_dir():
+        shutil.copytree(assets, target / "assets", ignore=ignore)
+    bundled_reqs = SOURCE_ROOT / "deployment" / "windows" / "requirements.txt"
+    if bundled_reqs.exists():
+        dest = target / "deployment" / "windows"
+        dest.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(bundled_reqs, dest / "requirements.txt")
+
+    bundled_client = SOURCE_ROOT / BUNDLED_CLIENT_DIR / BUNDLED_CLIENT_NAME
+    if bundled_client.exists():
+        CLIENT_EXE = install_dir / BUNDLED_CLIENT_NAME
+        shutil.copy2(bundled_client, CLIENT_EXE)
+        log(f"Installed the standalone tray client: {CLIENT_EXE}")
+    else:
+        log("[WARN] No bundled tray client in this installer; shortcuts will run from the virtual environment.")
+
+    point_runtime_at(target)
+    log(f"Copied the application sources to {target}")
+    return target
 
 
 # ---------------------------------------------------------------------------
@@ -500,15 +585,20 @@ def register_agent(install_dir: Path, venv_python: Path, control_url: str, token
 def set_client_autostart(venv_python: Path, enable: bool, log) -> bool:
     if platform.system() != "Windows":
         return False
-    pyw = venv_python.parent / "pythonw.exe"
-    exe = pyw if pyw.exists() else venv_python
+    client = installed_client_exe()
+    if client:
+        command = f'"{client}"'
+    else:
+        pyw = venv_python.parent / "pythonw.exe"
+        exe = pyw if pyw.exists() else venv_python
+        command = f'"{exe}" "{CLIENT_SCRIPT}"'
     try:
         import winreg
 
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_RUN_KEY, 0, winreg.KEY_ALL_ACCESS)
         try:
             if enable:
-                winreg.SetValueEx(key, REG_CLIENT_NAME, 0, winreg.REG_SZ, f'"{exe}" "{CLIENT_SCRIPT}"')
+                winreg.SetValueEx(key, REG_CLIENT_NAME, 0, winreg.REG_SZ, command)
             else:
                 try:
                     winreg.DeleteValue(key, REG_CLIENT_NAME)
@@ -526,8 +616,19 @@ def set_client_autostart(venv_python: Path, enable: bool, log) -> bool:
 def create_shortcuts(venv_python: Path, desktop: bool, start_menu: bool, log) -> list[str]:
     if platform.system() != "Windows" or not (desktop or start_menu):
         return []
-    pyw = venv_python.parent / "pythonw.exe"
-    exe = pyw if pyw.exists() else venv_python
+    client = installed_client_exe()
+    if client:
+        exe = str(client)
+        arguments_line = '    $s.Arguments = ""'
+        working_dir = str(client.parent)
+        icon_line = f'    $s.IconLocation = "{client},0"'
+    else:
+        pyw = venv_python.parent / "pythonw.exe"
+        exe = str(pyw if pyw.exists() else venv_python)
+        arguments_line = f'    $s.Arguments = "`"{CLIENT_SCRIPT}`""'
+        working_dir = str(REPO_ROOT)
+        icon_line = (f'    $s.IconLocation = "{ICON_PATH},0"' if ICON_PATH.exists()
+                     else '    $s.IconLocation = "$env:SystemRoot\\System32\\shell32.dll,18"')
     folders = []
     if desktop:
         folders.append('[Environment]::GetFolderPath("Desktop")')
@@ -541,11 +642,10 @@ def create_shortcuts(venv_python: Path, desktop: bool, start_menu: bool, log) ->
             '    $lnk = Join-Path $dir "AI Bridge Agent.lnk"',
             "    $s = $w.CreateShortcut($lnk)",
             f'    $s.TargetPath = "{exe}"',
-            f'    $s.Arguments = "`"{CLIENT_SCRIPT}`""',
-            f'    $s.WorkingDirectory = "{REPO_ROOT}"',
+            arguments_line,
+            f'    $s.WorkingDirectory = "{working_dir}"',
             '    $s.Description = "AI Bridge Windows Agent"',
-            (f'    $s.IconLocation = "{ICON_PATH},0"' if ICON_PATH.exists()
-             else '    $s.IconLocation = "$env:SystemRoot\\System32\\shell32.dll,18"'),
+            icon_line,
             "    $s.Save()",
             '    Write-Output "SHORTCUT:$lnk"',
             "}",
@@ -640,9 +740,10 @@ def run_installation(options: dict, log, progress=None) -> bool:
         log(f"Using Python {minor} at {python}")
 
         step(15, "Creating the virtual environment...")
-        log("[2/7] Preparing the virtual environment...")
+        log("[2/7] Preparing the virtual environment and application files...")
         venv_dir = install_dir / "venv"
         venv_python = create_environment(python, venv_dir, log)
+        stage_application(install_dir, log)
 
         if options.get("install_packages", True):
             step(30, "Installing required packages...")
@@ -674,7 +775,11 @@ def run_installation(options: dict, log, progress=None) -> bool:
 
         step(100, "Installation complete.")
         log("[7/7] Setup finished.")
-        if options.get("launch_after") and CLIENT_SCRIPT.exists():
+        client = installed_client_exe()
+        if options.get("launch_after") and client:
+            subprocess.Popen([str(client)], cwd=str(client.parent))
+            log("Launched the installed standalone client.")
+        elif options.get("launch_after") and CLIENT_SCRIPT.exists():
             pyw = venv_python.parent / "pythonw.exe"
             subprocess.Popen([str(pyw if pyw.exists() else venv_python), str(CLIENT_SCRIPT)], cwd=str(REPO_ROOT))
             log("Launched the AI Bridge client.")
