@@ -358,8 +358,80 @@ def seal_device_token(venv_python: Path, token: str, log) -> str:
     return backend
 
 
-def _write_agent_launcher(install_dir: Path, venv_python: Path, control_url: str, token: str) -> Path:
-    """Write a launcher holding the credential, so the task definition does not."""
+def _restrict_launcher_acl(launcher: Path) -> tuple[bool, str]:
+    """Make the launcher read-only for the installing user, with no inheritance.
+
+    The DACL is set through .NET rather than 'icacls /grant:r': passing the grant
+    as a quoted token makes icacls reject the whole command (exit 87, "Invalid
+    parameter"), and '/inheritance:r' on its own leaves the inherited
+    full-control entries in place, so the file kept the write access this is
+    meant to remove. The result is read back and described, because the old
+    invocation failed silently and nobody noticed until the ACL was inspected.
+    """
+    script = """
+$ErrorActionPreference = 'Stop'
+$p = '__PATH__'
+$acl = Get-Acl -LiteralPath $p
+$acl.SetAccessRuleProtection($true, $false)
+foreach ($r in @($acl.Access)) { [void]$acl.RemoveAccessRule($r) }
+$sys = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
+$adm = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')
+$me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($sys, 'FullControl', 'Allow')))
+$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($adm, 'FullControl', 'Allow')))
+$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($me, 'ReadAndExecute', 'Allow')))
+Set-Acl -LiteralPath $p -AclObject $acl
+$after = Get-Acl -LiteralPath $p
+$aces = @($after.Access | ForEach-Object {
+    [pscustomobject]@{
+        sid = $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+        rights = $_.FileSystemRights.ToString()
+        inherited = $_.IsInherited
+    }
+})
+[pscustomobject]@{ protected = $after.AreAccessRulesProtected; userSid = $me.Value; aces = $aces } | ConvertTo-Json -Compress -Depth 5
+"""
+    path = str(launcher).replace("'", "''")
+    res = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script.replace("__PATH__", path)],
+        capture_output=True,
+        text=True,
+    )
+    output = (res.stdout or "").strip()
+    if res.returncode != 0:
+        return False, (res.stderr or output).strip()[:200] or f"powershell exited {res.returncode}"
+    try:
+        report = json.loads(output.splitlines()[-1])
+    except (IndexError, ValueError):
+        return False, f"unexpected ACL report: {output[:160]}"
+
+    aces = report.get("aces") or []
+    mine = next((a for a in aces if a.get("sid") == report.get("userSid")), None)
+    rights = (mine or {}).get("rights", "none")
+    detail = "; ".join(f"{a.get('sid')}={a.get('rights')}" for a in aces)
+    problems = []
+    if not report.get("protected"):
+        problems.append("inheritance is still enabled")
+    inherited = [a for a in aces if a.get("inherited")]
+    if inherited:
+        problems.append(f"{len(inherited)} inherited entr{'y' if len(inherited) == 1 else 'ies'} remain")
+    if mine is None:
+        problems.append("the current user has no explicit entry")
+    elif any(word in rights for word in ("Write", "Modify", "FullControl")):
+        problems.append(f"the current user can still write ({rights})")
+    if problems:
+        return False, "; ".join(problems) + f" [{detail}]"
+    return True, detail
+
+
+def _write_agent_launcher(
+    install_dir: Path, venv_python: Path, control_url: str, token: str
+) -> tuple[Path, bool, str]:
+    """Write a launcher holding the credential, so the task definition does not.
+
+    Returns the path, whether it was locked down to read-only for this user, and
+    a description of the resulting entries.
+    """
     launcher = install_dir / "run-agent.cmd"
     body = (
         "@echo off\r\n"
@@ -369,15 +441,10 @@ def _write_agent_launcher(install_dir: Path, venv_python: Path, control_url: str
         f'"{venv_python}" "{AGENT_SCRIPT}"\r\n'
     )
     launcher.write_text(body, encoding="utf-8")
-    if platform.system() == "Windows":
-        user = os.environ.get("USERNAME", "")
-        grants = f'"{user}:R" *S-1-5-18:R *S-1-5-32-544:R'
-        subprocess.run(
-            ["icacls", str(launcher), "/inheritance:r", "/grant:r", *grants.split()],
-            capture_output=True,
-            text=True,
-        )
-    return launcher
+    if platform.system() != "Windows":
+        return launcher, False, "not Windows"
+    ok, detail = _restrict_launcher_acl(launcher)
+    return launcher, ok, detail
 
 
 def is_elevated() -> bool:
@@ -389,10 +456,14 @@ def is_elevated() -> bool:
 
 def register_agent(install_dir: Path, venv_python: Path, control_url: str, token: str, log) -> str:
     """Register the background agent at logon. Returns how it was registered."""
-    launcher = _write_agent_launcher(install_dir, venv_python, control_url, token)
-    log(f"Agent launcher written to {launcher} (restricted ACL, token kept out of the task definition)")
+    launcher, acl_ok, acl_detail = _write_agent_launcher(install_dir, venv_python, control_url, token)
+    log(f"Agent launcher written to {launcher} (token kept out of the task definition)")
     if platform.system() != "Windows":
         return "unsupported"
+    if acl_ok:
+        log(f"[OK] Launcher ACL: read-only for this user ({acl_detail})")
+    else:
+        log(f"[WARN] Launcher ACL is not read-only ({acl_detail}); the token in this file may be writable by this account.")
 
     if is_elevated():
         ps = (

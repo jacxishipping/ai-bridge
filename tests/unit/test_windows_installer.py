@@ -1,5 +1,8 @@
 """Unit tests for the AI Bridge Windows all-in-one setup wizard."""
 import json
+import os
+import platform
+import subprocess
 import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -212,3 +215,22 @@ def test_assets_icon_exists():
     png = Path("assets/ai-bridge.png")
     assert ico.exists(), "assets/ai-bridge.ico should exist"
     assert png.exists(), "assets/ai-bridge.png should exist"
+
+
+@pytest.mark.skipif(platform.system() != "Windows", reason="NTFS ACLs only")
+def test_launcher_acl_is_read_only_for_the_user(tmp_path: Path):
+    """The launcher holds the device token, so the user must not be able to rewrite it."""
+    launcher, ok, detail = installer_gui._write_agent_launcher(
+        tmp_path, Path("python.exe"), "https://control.example.com/", "device-token-value"
+    )
+
+    assert ok, detail
+    acl = subprocess.run(["icacls", str(launcher)], capture_output=True, text=True).stdout
+    user = os.environ.get("USERNAME", "")
+    assert f"{user}:(RX)" in acl, acl
+    assert f"{user}:(F)" not in acl, acl
+    assert "NT AUTHORITY\\SYSTEM:(F)" in acl, acl
+    assert "BUILTIN\\Administrators:(F)" in acl, acl
+    assert "Users:" not in acl, acl
+    # Still readable, so the launcher keeps working.
+    assert "AI_BRIDGE_DEVICE_TOKEN=device-token-value" in launcher.read_text(encoding="utf-8")
