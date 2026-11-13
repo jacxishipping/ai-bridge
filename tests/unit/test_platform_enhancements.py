@@ -403,3 +403,134 @@ def test_agent_ask_endpoint_and_native_tools(tmp_path, monkeypatch):
     assert wf_row is not None
     assert wf_row["status"] == "completed"
     assert ("get_system_info", "dev-test-1") in executed_tools
+
+
+def test_backup_restore_mcp_policies_schedule_toggle_and_chat_stream(tmp_path, monkeypatch):
+    from ai_bridge.control.mcp_oauth import enforce_mcp_tool_policy
+    client, app = _make_client(tmp_path, monkeypatch)
+    with client:
+        conn = app.state.conn
+        # 1. Seed a workflow template, create backup, delete template, then restore backup
+        tpl_res = client.post(
+            "/api/workflows/templates",
+            headers=HEADERS,
+            json={"name": "RestoreMe", "description": "desc", "steps": [{"action": "get_system_info", "args": {}}]},
+        )
+        assert tpl_res.status_code == 200
+        tpl_id = tpl_res.json()["id"]
+
+        b_create = client.post("/api/admin/backups", headers=HEADERS)
+        assert b_create.status_code == 200
+        b_name = b_create.json()["filename"]
+
+        del_res = client.delete(f"/api/workflows/templates/{tpl_id}", headers=HEADERS)
+        assert del_res.status_code == 200
+        assert conn.execute("SELECT * FROM workflow_templates WHERE id=?", (tpl_id,)).fetchone() is None
+
+        rest_res = client.post(f"/api/admin/backups/{b_name}/restore", headers=HEADERS)
+        assert rest_res.status_code == 200
+        rest_data = rest_res.json()
+        assert rest_data["ok"] is True
+        assert rest_data["restored_from"] == b_name
+        assert rest_data["safety_backup"].startswith("pre-restore-")
+        assert conn.execute("SELECT * FROM workflow_templates WHERE id=?", (tpl_id,)).fetchone() is not None
+
+        # 2. Schedule toggle
+        now = time.time()
+        conn.execute(
+            "INSERT INTO schedules (id, name, tenant, device_id, interval_seconds, tool, args_json, next_run_at, enabled, created_at) "
+            "VALUES ('sched-tog-1', 'Toggleable', 'default', 'local', 60, '__workflow__', '{}', ?, 1, ?)",
+            (now + 60, now),
+        )
+        conn.commit()
+        tog1 = client.post("/api/schedules/sched-tog-1/toggle", headers=HEADERS)
+        assert tog1.status_code == 200
+        assert tog1.json()["enabled"] is False
+        tog2 = client.post("/api/schedules/sched-tog-1/toggle", headers=HEADERS)
+        assert tog2.status_code == 200
+        assert tog2.json()["enabled"] is True
+
+        # 3. MCP Tool Policies GET/PUT & enforcement
+        pol_put = client.put(
+            "/api/mcp/tool-policies",
+            headers=HEADERS,
+            json={"policies": {"mcp-1:firecrawl_scrape": "require_approval", "mcp-1:firecrawl_crawl": "deny"}},
+        )
+        assert pol_put.status_code == 200
+        assert pol_put.json()["policies"]["mcp-1:firecrawl_scrape"] == "require_approval"
+
+        pol_get = client.get("/api/mcp/tool-policies", headers=HEADERS)
+        assert pol_get.status_code == 200
+        assert pol_get.json()["policies"]["mcp-1:firecrawl_crawl"] == "deny"
+
+        srv = {"id": "mcp-1", "name": "Firecrawl"}
+        deny_res = enforce_mcp_tool_policy(conn, srv, "firecrawl_crawl", {"url": "https://example.com"}, actor="tester")
+        assert deny_res["allowed"] is False
+        assert deny_res["decision"] == "deny"
+
+        req_res = enforce_mcp_tool_policy(conn, srv, "firecrawl_scrape", {"url": "https://example.com"}, actor="tester")
+        assert req_res["allowed"] is False
+        assert req_res["status"] == "needs_approval"
+        assert req_res["approval_id"]
+        appr = conn.execute("SELECT * FROM approvals WHERE id=?", (req_res["approval_id"],)).fetchone()
+        assert appr is not None
+        assert appr["status"] == "pending"
+
+        # 4. Streaming /api/ai/chat/stream SSE endpoint
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('ai_openai_key', 'sk-test-stream') ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+        )
+        conn.commit()
+        stream_calls = {"n": 0}
+
+        class _FakeStreamHttpResp:
+            def __init__(self, payload: dict):
+                self._payload = payload
+
+            def read(self):
+                return json.dumps(self._payload).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def fake_stream_urlopen(req, timeout=90):
+            stream_calls["n"] += 1
+            if stream_calls["n"] == 1:
+                msg = {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "tc-stream-1",
+                            "type": "function",
+                            "function": {"name": "get_system_info", "arguments": "{}"},
+                        }
+                    ],
+                }
+            else:
+                msg = {"role": "assistant", "content": "Streamed answer ready."}
+            return _FakeStreamHttpResp({"choices": [{"message": msg}]})
+
+        import urllib.request
+        monkeypatch.setattr(urllib.request, "urlopen", fake_stream_urlopen)
+
+        sse_res = client.post(
+            "/api/ai/chat/stream",
+            headers=HEADERS,
+            json={"messages": [{"role": "user", "content": "Check system info"}], "provider": "openai", "device": "local"},
+        )
+        assert sse_res.status_code == 200
+        assert "text/event-stream" in sse_res.headers.get("content-type", "")
+        events = []
+        for line in sse_res.text.splitlines():
+            if line.startswith("data: "):
+                events.append(json.loads(line[6:]))
+        event_types = [e.get("type") for e in events]
+        assert "tool_start" in event_types, f"events={events}"
+        assert "tool_result" in event_types, f"events={events}"
+        assert "done" in event_types, f"events={events}"
+        done_ev = next(e for e in events if e.get("type") == "done")
+        assert done_ev["message"]["content"] == "Streamed answer ready."

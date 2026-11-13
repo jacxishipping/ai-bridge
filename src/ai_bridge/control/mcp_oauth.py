@@ -18,6 +18,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from typing import Any
 
 logger = logging.getLogger("ai_bridge.mcp_oauth")
@@ -286,3 +287,84 @@ def ensure_valid_mcp_token(conn: Any, srv: dict[str, Any]) -> dict[str, Any]:
             logger.warning("Failed to persist refreshed OAuth2 token for %s: %s", srv.get("id"), exc)
 
     return updated
+
+
+VALID_MCP_TOOL_POLICIES = {"allow", "require_approval", "deny"}
+
+
+def get_mcp_tool_policies(conn: Any) -> dict[str, str]:
+    """Load per-tool MCP guardrail policies from settings."""
+    try:
+        row = conn.execute("SELECT value FROM settings WHERE key='mcp_tool_policies'").fetchone()
+        if row and row["value"]:
+            parsed = json.loads(row["value"])
+            if isinstance(parsed, dict):
+                return {
+                    str(k): str(v)
+                    for k, v in parsed.items()
+                    if str(v) in VALID_MCP_TOOL_POLICIES
+                }
+    except Exception:
+        pass
+    return {}
+
+
+def save_mcp_tool_policies(conn: Any, policies: dict[str, str]) -> dict[str, str]:
+    """Persist normalized MCP tool guardrail policies to settings."""
+    cleaned = {
+        str(k).strip(): str(v).strip().lower()
+        for k, v in (policies or {}).items()
+        if str(k).strip() and str(v).strip().lower() in VALID_MCP_TOOL_POLICIES
+    }
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('mcp_tool_policies', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (json.dumps(cleaned),),
+    )
+    conn.commit()
+    return cleaned
+
+
+def enforce_mcp_tool_policy(
+    conn: Any,
+    srv: dict[str, Any],
+    orig_tool: str,
+    arguments: dict[str, Any] | None = None,
+    actor: str = "agent",
+) -> dict[str, Any]:
+    """Check whether an MCP tool call is allowed, denied, or requires human approval."""
+    policies = get_mcp_tool_policies(conn)
+    srv_id = str(srv.get("id") or "")
+    srv_name = str(srv.get("name") or srv_id)
+    decision = (
+        policies.get(f"{srv_id}:{orig_tool}")
+        or policies.get(f"{srv_name}:{orig_tool}")
+        or policies.get(orig_tool)
+        or policies.get(f"{srv_id}:*")
+        or "allow"
+    )
+    if decision == "deny":
+        return {
+            "allowed": False,
+            "decision": "deny",
+            "error": f"MCP tool '{orig_tool}' on '{srv_name}' is denied by MCP tool policy.",
+        }
+    if decision == "require_approval":
+        appr_id = uuid.uuid4().hex[:12]
+        now_ts = time.time()
+        reason = f"{actor} requested MCP tool '{orig_tool}' on '{srv_name}' with args={json.dumps(arguments or {}, default=str)[:300]}"
+        conn.execute(
+            "INSERT INTO approvals (id, task_id, tool, reason, status, created_at, expires_at) "
+            "VALUES (?, NULL, ?, ?, 'pending', ?, ?)",
+            (appr_id, f"mcp:{srv_name}:{orig_tool}", reason, now_ts, now_ts + 3600),
+        )
+        conn.commit()
+        return {
+            "allowed": False,
+            "decision": "require_approval",
+            "status": "needs_approval",
+            "approval_id": appr_id,
+            "error": f"MCP tool '{orig_tool}' on '{srv_name}' requires human approval (approval_id={appr_id}).",
+        }
+    return {"allowed": True, "decision": "allow"}
+

@@ -207,8 +207,11 @@ export const api = {
   updateMcpServer: (id: string, body: any) => call(`/api/mcp/servers/${encodeURIComponent(id)}`, "PATCH", body),
   deleteMcpServer: (id: string) => call(`/api/mcp/servers/${encodeURIComponent(id)}`, "DELETE"),
   executeMcpTool: (id: string, tool: string, args: any = {}) => call(`/api/mcp/servers/${encodeURIComponent(id)}/execute`, "POST", { tool, arguments: args }),
+  mcpToolPolicies: () => call("/api/mcp/tool-policies"),
+  updateMcpToolPolicies: (policies: Record<string, string>) => call("/api/mcp/tool-policies", "PUT", { policies }),
   aiChat: (body: { messages: any[]; provider?: string; model?: string; api_key?: string; base_url?: string; device?: string }) =>
     call("/api/ai/chat", "POST", body),
+  aiChatStreamUrl: () => `${BASE}/api/ai/chat/stream`,
   workflowTemplates: () => call("/api/workflows/templates"),
   createWorkflowTemplate: (body: { name: string; description?: string; steps: any[]; tenant?: string }) =>
     call("/api/workflows/templates", "POST", body),
@@ -231,6 +234,7 @@ export const api = {
   alertDeliveries: () => call("/api/alerts/deliveries"),
   backups: () => call("/api/admin/backups"),
   createBackup: () => call("/api/admin/backups", "POST", {}),
+  restoreBackup: (filename: string) => call(`/api/admin/backups/${encodeURIComponent(filename)}/restore`, "POST", {}),
   backupDownloadUrl: (filename: string) => `${BASE}/api/admin/backups/${encodeURIComponent(filename)}`,
   tenants: () => call("/api/tenants"),
   fleetTelemetry: () => call("/api/fleet/telemetry"),
@@ -246,6 +250,7 @@ export const api = {
   schedules: () => call("/api/schedules"),
   createSchedule: (body: any) => call("/api/schedules", "POST", body),
   deleteSchedule: (id: string) => call(`/api/schedules/${encodeURIComponent(id)}`, "DELETE"),
+  toggleSchedule: (id: string) => call(`/api/schedules/${encodeURIComponent(id)}/toggle`, "POST", {}),
   runScheduleNow: (id: string) => call(`/api/schedules/${encodeURIComponent(id)}/run-now`, "POST", {}),
   desktopFrame: (deviceId: string, scale = 0.75, quality = 70) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/frame?scale=${scale}&quality=${quality}`),

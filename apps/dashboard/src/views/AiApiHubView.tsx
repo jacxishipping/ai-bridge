@@ -408,6 +408,9 @@ export const AiApiHubView: React.FC = () => {
   const [copilotBusy, setCopilotBusy] = useState(false);
   const [copilotError, setCopilotError] = useState<string | null>(null);
   const [copilotExpandedSteps, setCopilotExpandedSteps] = useState<Record<string, boolean>>({});
+  const [copilotLiveEvents, setCopilotLiveEvents] = useState<Array<{ step?: number; tool?: string; device?: string; status: string }>>([]);
+  const [copilotSaveNotice, setCopilotSaveNotice] = useState<string | null>(null);
+  const [mcpToolPolicies, setMcpToolPolicies] = useState<Record<string, string>>({});
 
   useEffect(() => {
     try {
@@ -434,23 +437,86 @@ export const AiApiHubView: React.FC = () => {
     setCopilotMessages(nextHistory);
     setCopilotInput("");
     setCopilotError(null);
+    setCopilotSaveNotice(null);
+    setCopilotLiveEvents([]);
     setCopilotBusy(true);
     try {
       const payloadMessages = nextHistory.map((m) => ({
         role: m.role,
         content: m.content,
       }));
-      const res = (await api.aiChat({
-        messages: payloadMessages,
-        provider: copilotProvider || undefined,
-        device: copilotDevice || undefined,
-      })) as {
+      const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "text/event-stream" };
+      const st = sessionToken();
+      const at = token();
+      if (st) headers["X-Session-Token"] = st;
+      else if (at) headers["X-Admin-Token"] = at;
+
+      let res: {
         ok?: boolean;
         message?: { role?: string; content?: string };
         steps?: any[];
         provider?: string;
         model?: string;
-      };
+      } | null = null;
+
+      try {
+        const streamRes = await fetch(api.aiChatStreamUrl(), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            messages: payloadMessages,
+            provider: copilotProvider || undefined,
+            device: copilotDevice || undefined,
+          }),
+        });
+        if (!streamRes.ok || !streamRes.body) {
+          throw new Error(`HTTP ${streamRes.status}`);
+        }
+        const reader = streamRes.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let idx: number;
+          while ((idx = buf.indexOf("\n\n")) >= 0) {
+            const frame = buf.slice(0, idx);
+            buf = buf.slice(idx + 2);
+            const dataLine = frame.split("\n").find((l) => l.startsWith("data:"));
+            if (!dataLine) continue;
+            try {
+              const ev = JSON.parse(dataLine.slice(5).trim());
+              if (ev.type === "tool_start") {
+                setCopilotLiveEvents((prev) => [...prev, { step: ev.step, tool: ev.tool, device: ev.device, status: "running" }]);
+              } else if (ev.type === "tool_result") {
+                setCopilotLiveEvents((prev) =>
+                  prev.map((item, i) =>
+                    i === prev.length - 1 && item.tool === ev.tool
+                      ? { ...item, status: ev.ok ? "done" : "error" }
+                      : item
+                  )
+                );
+              } else if (ev.type === "error") {
+                throw new Error(ev.error || "Streaming error");
+              } else if (ev.type === "done") {
+                res = ev;
+              }
+            } catch (parseErr) {
+              if (parseErr instanceof Error && parseErr.message !== "Unexpected end of JSON input") {
+                throw parseErr;
+              }
+            }
+          }
+        }
+      } catch {
+        res = (await api.aiChat({
+          messages: payloadMessages,
+          provider: copilotProvider || undefined,
+          device: copilotDevice || undefined,
+        })) as any;
+      }
+
       const replyContent =
         res?.message?.content?.trim() || "(No response returned)";
       const assistantMsg: CopilotMessage = {
@@ -467,6 +533,42 @@ export const AiApiHubView: React.FC = () => {
       setCopilotError(describeError(error));
     } finally {
       setCopilotBusy(false);
+      setCopilotLiveEvents([]);
+    }
+  };
+
+  const handleSaveCopilotAsWorkflow = async (msg: CopilotMessage): Promise<void> => {
+    const steps = (msg.steps || [])
+      .filter((s: any) => s && s.tool)
+      .map((s: any, idx: number) => ({
+        name: `Copilot Step ${idx + 1}: ${s.tool}`,
+        action: s.tool,
+        args: s.args && typeof s.args === "object" ? s.args : {},
+      }));
+    if (steps.length === 0) return;
+    try {
+      const tpl = await api.createWorkflowTemplate({
+        name: `Copilot Flow (${new Date().toLocaleTimeString()})`,
+        description: msg.content.slice(0, 140),
+        steps,
+      });
+      setCopilotSaveNotice(`Saved workflow template "${tpl.name}" (${steps.length} step${steps.length === 1 ? "" : "s"}).`);
+    } catch (error) {
+      setCopilotError(describeError(error));
+    }
+  };
+
+  const handleMcpPolicyChange = async (srvId: string, toolName: string, policy: string): Promise<void> => {
+    const key = `${srvId}:${toolName}`;
+    const next = { ...mcpToolPolicies };
+    if (policy === "allow") delete next[key];
+    else next[key] = policy;
+    setMcpToolPolicies(next);
+    try {
+      const res = await api.updateMcpToolPolicies(next);
+      if (res?.policies) setMcpToolPolicies(res.policies);
+    } catch (error) {
+      setMcpNotice({ severity: "error", text: describeError(error) });
     }
   };
 
@@ -578,8 +680,12 @@ export const AiApiHubView: React.FC = () => {
     if (!isLive) return;
     setMcpLoading(true);
     try {
-      const res = await api.mcpServers();
+      const [res, polRes] = await Promise.all([
+        api.mcpServers(),
+        api.mcpToolPolicies().catch(() => ({ policies: {} })),
+      ]);
       setMcpServers(res.servers || []);
+      if (polRes?.policies) setMcpToolPolicies(polRes.policies);
     } catch (error) {
       setMcpNotice({ severity: "error", text: describeError(error) });
     } finally {
@@ -940,11 +1046,11 @@ export const AiApiHubView: React.FC = () => {
         prev.map((p) =>
           p.id === providerId
             ? {
-                ...p,
-                isPinging: false,
-                latencyMs: Math.floor(12 + Math.random() * 18),
-                status: "healthy",
-              }
+              ...p,
+              isPinging: false,
+              latencyMs: Math.floor(12 + Math.random() * 18),
+              status: "healthy",
+            }
             : p
         )
       );
@@ -1440,14 +1546,30 @@ export const AiApiHubView: React.FC = () => {
                           <p className="text-xs text-[var(--product-text-tertiary)]">No tools discovered yet. Click Sync tools to probe.</p>
                         ) : (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-56 overflow-y-auto">
-                            {srv.tools.map((t) => (
-                              <div key={t.name} className="p-2 rounded border border-[var(--product-line)] bg-[var(--product-surface)]">
-                                <p className="font-mono text-xs font-semibold text-indigo-300">
-                                  mcp__{srv.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}__{t.name}
-                                </p>
-                                <p className="text-xs text-[var(--product-text-tertiary)] mt-0.5 line-clamp-2">{t.description}</p>
-                              </div>
-                            ))}
+                            {srv.tools.map((t) => {
+                              const policyKey = `${srv.id}:${t.name}`;
+                              const curPolicy = mcpToolPolicies[policyKey] || "allow";
+                              return (
+                                <div key={t.name} className="p-2 rounded border border-[var(--product-line)] bg-[var(--product-surface)] space-y-1.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="font-mono text-xs font-semibold text-indigo-300 truncate">
+                                      mcp__{srv.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}__{t.name}
+                                    </p>
+                                    <select
+                                      aria-label={`Policy for ${t.name}`}
+                                      value={curPolicy}
+                                      onChange={(e) => void handleMcpPolicyChange(srv.id, t.name, e.target.value)}
+                                      className="rounded bg-black/50 border border-[var(--product-line)] px-1.5 py-0.5 text-[10px] font-mono text-neutral-200"
+                                    >
+                                      <option value="allow">Allow</option>
+                                      <option value="require_approval">Require approval</option>
+                                      <option value="deny">Deny</option>
+                                    </select>
+                                  </div>
+                                  <p className="text-xs text-[var(--product-text-tertiary)] line-clamp-2">{t.description}</p>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -1673,8 +1795,20 @@ export const AiApiHubView: React.FC = () => {
                                         <div className="mt-1.5 space-y-1.5 border-l-2 border-indigo-500/40 pl-2">
                                           {run.steps.map((st: any, idx: number) => (
                                             <div key={idx} className="rounded bg-[var(--product-surface)] p-1.5 font-mono text-[11px]">
-                                              <div className="flex items-center justify-between text-indigo-300">
-                                                <span>{idx + 1}. {st.tool}</span>
+                                              <div className="flex items-center justify-between text-indigo-300 gap-2 flex-wrap">
+                                                <span className="flex items-center gap-1.5">
+                                                  <span>{idx + 1}. {st.tool}</span>
+                                                  {st.tool === "agent_delegate" && st.result?.agent_name && (
+                                                    <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 text-[10px]">
+                                                      Delegated → {st.result.agent_name}
+                                                    </span>
+                                                  )}
+                                                  {st.tool === "agent_run_workflow" && st.result?.workflow_id && (
+                                                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[10px]">
+                                                      Workflow {st.result.workflow_id} ({st.result.status || "ran"})
+                                                    </span>
+                                                  )}
+                                                </span>
                                                 <span className="text-[10px] text-[var(--product-text-dim)]">{st.device || "local"}</span>
                                               </div>
                                               {st.args && Object.keys(st.args).length > 0 && (
@@ -1938,80 +2072,76 @@ export const AiApiHubView: React.FC = () => {
           <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
             <details>
               <summary className="text-sm font-semibold text-[var(--product-text-secondary)]">Code examples</summary>
-            <JXCardContent>
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)]">
-                    <button
-                      type="button"
-                      onClick={() => setSdkLang("python")}
-                      className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
-                        sdkLang === "python"
+              <JXCardContent>
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)]">
+                      <button
+                        type="button"
+                        onClick={() => setSdkLang("python")}
+                        className={`px-3 py-1 rounded text-xs font-mono transition-colors ${sdkLang === "python"
                           ? "bg-indigo-600 text-white font-semibold"
                           : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
-                      }`}
-                    >
-                      Python
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSdkLang("typescript")}
-                      className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
-                        sdkLang === "typescript"
+                          }`}
+                      >
+                        Python
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSdkLang("typescript")}
+                        className={`px-3 py-1 rounded text-xs font-mono transition-colors ${sdkLang === "typescript"
                           ? "bg-indigo-600 text-white font-semibold"
                           : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
-                      }`}
-                    >
-                      TypeScript
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSdkLang("curl")}
-                      className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
-                        sdkLang === "curl"
+                          }`}
+                      >
+                        TypeScript
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSdkLang("curl")}
+                        className={`px-3 py-1 rounded text-xs font-mono transition-colors ${sdkLang === "curl"
                           ? "bg-indigo-600 text-white font-semibold"
                           : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
-                      }`}
-                    >
-                      cURL
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSdkLang("mcp")}
-                      className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
-                        sdkLang === "mcp"
+                          }`}
+                      >
+                        cURL
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSdkLang("mcp")}
+                        className={`px-3 py-1 rounded text-xs font-mono transition-colors ${sdkLang === "mcp"
                           ? "bg-indigo-600 text-white font-semibold"
                           : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
-                      }`}
+                          }`}
+                      >
+                        MCP JSON-RPC
+                      </button>
+                    </div>
+
+                    <JXButton
+                      variant="soft"
+                      color="primary"
+                      size="sm"
+                      onClick={handleCopyCode}
+                      startIcon={
+                        copiedCode ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )
+                      }
                     >
-                      MCP JSON-RPC
-                    </button>
+                      {copiedCode ? "Copied" : "Copy Snippet"}
+                    </JXButton>
                   </div>
 
-                  <JXButton
-                    variant="soft"
-                    color="primary"
-                    size="sm"
-                    onClick={handleCopyCode}
-                    startIcon={
-                      copiedCode ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                      )
-                    }
-                  >
-                    {copiedCode ? "Copied" : "Copy Snippet"}
-                  </JXButton>
+                  <div tabIndex={0} role="region" aria-label="SDK code example" className="rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] p-4 font-mono text-xs overflow-x-auto text-[var(--product-text-secondary)] leading-relaxed max-h-[380px] overflow-y-auto">
+                    <pre>
+                      <code>{SDK_SNIPPETS[sdkLang]}</code>
+                    </pre>
+                  </div>
                 </div>
-
-                <div tabIndex={0} role="region" aria-label="SDK code example" className="rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] p-4 font-mono text-xs overflow-x-auto text-[var(--product-text-secondary)] leading-relaxed max-h-[380px] overflow-y-auto">
-                  <pre>
-                    <code>{SDK_SNIPPETS[sdkLang]}</code>
-                  </pre>
-                </div>
-              </div>
-            </JXCardContent>
+              </JXCardContent>
             </details>
           </JXCard>
         </JXGridItem>
@@ -2021,18 +2151,16 @@ export const AiApiHubView: React.FC = () => {
           <JXCard className="bg-[var(--product-surface)]/70 border-[var(--product-line)]">
             <JXCardHeader
               title="AI Copilot Chat"
-              subheader="Multi-turn troubleshooting & research across connected devices and active OAuth2/MCP servers"
+              subtitle="Multi-turn troubleshooting & research across connected devices and active OAuth2/MCP servers"
               icon={<MessageSquare className="w-5 h-5 text-cyan-400" />}
-            />
-            <JXCardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <JXBadge color="info">
+              action={
+                <div className="flex items-center gap-2 flex-wrap">
+                  <JXBadge variant="info" size="sm">
                     {mcpServers.filter((s) => s.enabled).length} active MCP
                   </JXBadge>
                   {copilotMessages.length > 0 && (
                     <JXButton
-                      variant="text"
+                      variant="ghost"
                       size="sm"
                       onClick={handleCopilotClear}
                       disabled={copilotBusy}
@@ -2042,6 +2170,9 @@ export const AiApiHubView: React.FC = () => {
                     </JXButton>
                   )}
                 </div>
+              }
+            />
+            <JXCardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] uppercase tracking-wider text-neutral-400 mb-1">
@@ -2086,7 +2217,7 @@ export const AiApiHubView: React.FC = () => {
                   {mcpServers
                     .filter((s) => s.enabled)
                     .map((srv) => (
-                      <JXBadge key={srv.id} color="default">
+                      <JXBadge key={srv.id} variant="neutral" size="sm">
                         {srv.name} ({srv.tools_count || 0} tools)
                       </JXBadge>
                     ))}
@@ -2094,7 +2225,27 @@ export const AiApiHubView: React.FC = () => {
               )}
 
               {copilotError && (
-                <JXAlert severity="error" title="Copilot request failed" description={copilotError} />
+                <JXAlert severity="error" title="Copilot request failed">
+                  {copilotError}
+                </JXAlert>
+              )}
+
+              {copilotSaveNotice && (
+                <JXAlert severity="success" title="Workflow template saved" description={copilotSaveNotice} />
+              )}
+
+              {copilotBusy && copilotLiveEvents.length > 0 && (
+                <div className="rounded-xl border border-cyan-500/30 bg-cyan-950/20 px-3 py-2 space-y-1 text-[11px] font-mono">
+                  <div className="text-cyan-300 font-semibold">Live tool execution:</div>
+                  {copilotLiveEvents.map((ev, i) => (
+                    <div key={i} className="flex items-center justify-between text-neutral-300">
+                      <span>{ev.step ? `Step ${ev.step}: ` : ""}{ev.tool} ({ev.device || "local"})</span>
+                      <span className={ev.status === "done" ? "text-emerald-400" : ev.status === "error" ? "text-rose-400" : "text-amber-300"}>
+                        {ev.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               )}
 
               <div className="rounded-xl border border-[var(--product-line)] bg-black/35 p-3 max-h-96 overflow-y-auto space-y-3">
@@ -2106,11 +2257,10 @@ export const AiApiHubView: React.FC = () => {
                   copilotMessages.map((msg) => (
                     <div
                       key={msg.id}
-                      className={`rounded-xl p-3 text-xs border ${
-                        msg.role === "user"
-                          ? "bg-indigo-500/10 border-indigo-500/30 text-neutral-100 ml-6"
-                          : "bg-neutral-900/80 border-[var(--product-line)] text-neutral-200 mr-6"
-                      }`}
+                      className={`rounded-xl p-3 text-xs border ${msg.role === "user"
+                        ? "bg-indigo-500/10 border-indigo-500/30 text-neutral-100 ml-6"
+                        : "bg-neutral-900/80 border-[var(--product-line)] text-neutral-200 mr-6"
+                        }`}
                     >
                       <div className="flex items-center justify-between gap-2 mb-1 text-[10px] uppercase tracking-wider text-neutral-400">
                         <span>{msg.role === "user" ? "You" : "Copilot"}</span>
@@ -2126,23 +2276,32 @@ export const AiApiHubView: React.FC = () => {
                       </div>
                       {msg.steps && msg.steps.length > 0 && (
                         <div className="mt-2 pt-2 border-t border-[var(--product-line)]/60">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setCopilotExpandedSteps((prev) => ({
-                                ...prev,
-                                [msg.id]: !prev[msg.id],
-                              }))
-                            }
-                            className="inline-flex items-center gap-1 text-[11px] text-cyan-300 hover:text-cyan-200"
-                          >
-                            {copilotExpandedSteps[msg.id] ? (
-                              <ChevronUp className="w-3.5 h-3.5" />
-                            ) : (
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            )}
-                            {msg.steps.length} tool call{msg.steps.length === 1 ? "" : "s"}
-                          </button>
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCopilotExpandedSteps((prev) => ({
+                                  ...prev,
+                                  [msg.id]: !prev[msg.id],
+                                }))
+                              }
+                              className="inline-flex items-center gap-1 text-[11px] text-cyan-300 hover:text-cyan-200"
+                            >
+                              {copilotExpandedSteps[msg.id] ? (
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              ) : (
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              )}
+                              {msg.steps.length} tool call{msg.steps.length === 1 ? "" : "s"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleSaveCopilotAsWorkflow(msg)}
+                              className="text-[11px] font-mono text-indigo-300 hover:text-indigo-200 hover:underline"
+                            >
+                              Save as Workflow
+                            </button>
+                          </div>
                           {copilotExpandedSteps[msg.id] && (
                             <pre className="mt-2 p-2 rounded-lg bg-black/60 text-[11px] text-neutral-300 overflow-x-auto max-h-48">
                               {JSON.stringify(msg.steps, null, 2)}
@@ -2166,7 +2325,7 @@ export const AiApiHubView: React.FC = () => {
                 />
                 <JXButton
                   type="submit"
-                  variant="contained"
+                  variant="primary"
                   size="sm"
                   disabled={copilotBusy || !copilotInput.trim()}
                 >
@@ -2174,7 +2333,6 @@ export const AiApiHubView: React.FC = () => {
                   {copilotBusy ? "Thinking..." : "Send"}
                 </JXButton>
               </form>
-              </div>
             </JXCardContent>
           </JXCard>
         </JXGridItem>

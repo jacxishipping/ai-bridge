@@ -63,6 +63,7 @@ function WorkflowsLive() {
   const [tools, setTools] = useState<ToolSpec[]>([]);
   const [devices, setDevices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [workflowSchedules, setWorkflowSchedules] = useState<any[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedStep, setSelectedStep] = useState(1);
@@ -96,8 +97,8 @@ function WorkflowsLive() {
   const refresh = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
-    const [wfs, tpls, tl, devs] = await Promise.allSettled([
-      api.workflows(), api.workflowTemplates(), api.aiTools("raw"), api.devices(),
+    const [wfs, tpls, tl, devs, scheds] = await Promise.allSettled([
+      api.workflows(), api.workflowTemplates(), api.aiTools("raw"), api.devices(), api.schedules(),
     ]);
     if (wfs.status === "fulfilled") {
       const list = (Array.isArray(wfs.value) ? wfs.value : []).map(normalize);
@@ -109,6 +110,10 @@ function WorkflowsLive() {
     if (tpls.status === "fulfilled") setTemplates(tpls.value?.templates || []);
     if (tl.status === "fulfilled") setTools(Array.isArray(tl.value?.tools) ? tl.value.tools : []);
     if (devs.status === "fulfilled") setDevices(Array.isArray(devs.value) ? devs.value : devs.value?.devices || []);
+    if (scheds.status === "fulfilled") {
+      const list = Array.isArray(scheds.value) ? scheds.value : [];
+      setWorkflowSchedules(list.filter((s: any) => s.tool === "__workflow__"));
+    }
     setLoading(false);
   }, []);
 
@@ -515,6 +520,85 @@ function WorkflowsLive() {
           )}
         </section>
       </div>
+
+      {workflowSchedules.length > 0 && (
+        <section className="rounded-2xl bg-[var(--product-surface)]/60 border border-[var(--product-line)] p-4 space-y-3" aria-label="Scheduled workflows">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-mono uppercase tracking-wider text-[var(--product-text-tertiary)]">
+              Scheduled Multi-Step Workflows ({workflowSchedules.length})
+            </h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {workflowSchedules.map((sc) => {
+              let parsedArgs: any = {};
+              try { parsedArgs = JSON.parse(sc.args_json || "{}"); } catch { parsedArgs = {}; }
+              const stepCount = Array.isArray(parsedArgs.steps) ? parsedArgs.steps.length : 0;
+              const nextInSec = sc.next_run_at ? Math.max(0, Math.round(sc.next_run_at - Date.now() / 1000)) : null;
+              return (
+                <div key={sc.id} className="rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] p-3 space-y-2 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-[var(--product-text)] truncate">{sc.name}</span>
+                    <span className={`px-1.5 py-0.5 rounded font-mono text-[10px] ${sc.enabled ? "bg-emerald-500/15 text-emerald-300" : "bg-neutral-500/20 text-neutral-400"}`}>
+                      {sc.enabled ? "active" : "paused"}
+                    </span>
+                  </div>
+                  <div className="font-mono text-[11px] text-[var(--product-text-tertiary)] flex flex-wrap gap-x-3 gap-y-1">
+                    <span>{stepCount} step{stepCount === 1 ? "" : "s"}</span>
+                    <span>every {sc.interval_seconds}s</span>
+                    <span>device: {sc.device_id || "local"}</span>
+                    {nextInSec !== null && sc.enabled && <span>next in {nextInSec}s</span>}
+                  </div>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await api.runScheduleNow(sc.id);
+                          setNotice({ kind: "ok", text: `Triggered scheduled workflow (${res.workflow_id || sc.id}).` });
+                          await refresh();
+                        } catch (e: any) {
+                          setNotice({ kind: "error", text: errMsg(e) });
+                        }
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-indigo-600/80 hover:bg-indigo-500 text-white font-mono text-[11px]"
+                    >
+                      Run now
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await api.toggleSchedule(sc.id);
+                          await refresh();
+                        } catch (e: any) {
+                          setNotice({ kind: "error", text: errMsg(e) });
+                        }
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-[var(--product-surface)] border border-[var(--product-line)] text-[var(--product-text-secondary)] font-mono text-[11px]"
+                    >
+                      {sc.enabled ? "Pause" : "Resume"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await api.deleteSchedule(sc.id);
+                          await refresh();
+                        } catch (e: any) {
+                          setNotice({ kind: "error", text: errMsg(e) });
+                        }
+                      }}
+                      className="px-2 py-1 rounded-lg text-rose-400 hover:bg-rose-500/10 font-mono text-[11px] ml-auto"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {builderOpen && (
         <div role="dialog" aria-modal="true" aria-label="New workflow" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">

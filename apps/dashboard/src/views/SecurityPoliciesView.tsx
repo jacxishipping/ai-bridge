@@ -664,6 +664,25 @@ const LiveSecurityPolicies: React.FC = () => {
                 <div className="flex items-center gap-3">
                   <span className="text-[var(--product-text-tertiary)]">{Math.round((b.size_bytes || 0) / 1024)} KB</span>
                   <a href={api.backupDownloadUrl(b.filename)} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">Download</a>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={async () => {
+                        if (!window.confirm(`Restore database from ${b.filename}? A pre-restore safety snapshot will be created automatically.`)) return;
+                        setBusy(true);
+                        try {
+                          const res = await api.restoreBackup(b.filename);
+                          const listRes = await api.backups();
+                          if (Array.isArray(listRes?.items)) setBackups(listRes.items);
+                          flash("ok", `Restored from ${b.filename} (safety backup: ${res.safety_backup})`);
+                        } catch (e) { flash("err", errMsg(e)); } finally { setBusy(false); }
+                      }}
+                      className="text-amber-400 hover:underline disabled:opacity-50"
+                    >
+                      Restore
+                    </button>
+                  )}
                 </div>
               </li>
             ))}

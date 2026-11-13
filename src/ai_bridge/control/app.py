@@ -2750,6 +2750,22 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         audit(actor, row["device_id"] or "", "delete_schedule", {"schedule_id": schedule_id}, "allowed", tenant=row["tenant"])
         return {"schedule_id": schedule_id, "status": "deleted"}
 
+    @app.post("/api/schedules/{schedule_id}/toggle")
+    def toggle_schedule(
+        schedule_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM schedules WHERE id=?", (schedule_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Schedule not found.")
+        new_enabled = 0 if row["enabled"] else 1
+        conn.execute("UPDATE schedules SET enabled=? WHERE id=?", (new_enabled, schedule_id))
+        conn.commit()
+        audit(actor, row["device_id"] or "", "toggle_schedule", {"schedule_id": schedule_id, "enabled": bool(new_enabled)}, "allowed", tenant=row["tenant"])
+        return {"schedule_id": schedule_id, "enabled": bool(new_enabled)}
+
     @app.post("/api/schedules/{schedule_id}/run-now")
     def run_schedule_now(
         schedule_id: str,
@@ -4256,6 +4272,92 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             raise HTTPException(status_code=404, detail="Backup file not found.")
         from fastapi.responses import FileResponse
         return FileResponse(target, filename=safe_name)
+
+    @app.post("/api/admin/backups/{filename}/restore")
+    def restore_backup(filename: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_admin(x_admin_token, x_session_token)
+        safe_name = Path(filename).name
+        target = backup_dir / safe_name
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="Backup file not found.")
+
+        # Always capture a pre-restore safety snapshot first
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+        safety_tables = ("devices", "tasks", "approvals", "policies", "workflows", "workflow_templates", "schedules", "triggers", "custom_agents", "mcp_servers")
+        if getattr(conn, "dialect", "sqlite") != "postgres" and db_path and Path(str(db_path)).exists():
+            from ai_bridge.control.backup import verified_backup
+            safety_dest = backup_dir / f"pre-restore-{stamp}.db"
+            verified_backup(Path(str(db_path)), safety_dest)
+        else:
+            safety_dest = backup_dir / f"pre-restore-{stamp}.json"
+            safety_snap = {}
+            for tbl in safety_tables:
+                try:
+                    safety_snap[tbl] = [dict(r) for r in conn.execute(f"SELECT * FROM {tbl}").fetchall()]
+                except Exception:
+                    safety_snap[tbl] = []
+            safety_dest.write_text(json.dumps(safety_snap, indent=2, default=str), encoding="utf-8")
+
+        restored_counts: dict[str, int] = {}
+        if target.suffix == ".json":
+            try:
+                snapshot = json.loads(target.read_text(encoding="utf-8"))
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"Invalid JSON backup: {exc}") from exc
+            if not isinstance(snapshot, dict):
+                raise HTTPException(status_code=400, detail="Backup snapshot must be a JSON object.")
+            with conn.transaction():
+                for tbl in safety_tables:
+                    rows = snapshot.get(tbl)
+                    if not isinstance(rows, list):
+                        continue
+                    conn.execute(f"DELETE FROM {tbl}")
+                    inserted = 0
+                    for row in rows:
+                        if not isinstance(row, dict) or not row:
+                            continue
+                        cols = [str(k) for k in row.keys()]
+                        placeholders = ",".join("?" for _ in cols)
+                        col_list = ",".join(cols)
+                        conn.execute(
+                            f"INSERT INTO {tbl} ({col_list}) VALUES ({placeholders})",
+                            tuple(row[c] for c in cols),
+                        )
+                        inserted += 1
+                    restored_counts[tbl] = inserted
+        elif target.suffix == ".db":
+            if getattr(conn, "dialect", "sqlite") == "postgres" or not db_path:
+                raise HTTPException(status_code=400, detail="SQLite .db restore is only supported when running on SQLite.")
+            import sqlite3
+            src = sqlite3.connect(str(target))
+            try:
+                with conn._lock:  # type: ignore[attr-defined]
+                    src.backup(conn._conn)  # type: ignore[attr-defined]
+                conn.commit()
+            finally:
+                src.close()
+            restored_counts["sqlite_db"] = 1
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported backup format; expected .db or .json.")
+
+        audit(actor, "", "restore_backup", {"filename": safe_name, "safety_backup": safety_dest.name, "counts": restored_counts}, "allowed")
+        return {"ok": True, "restored_from": safe_name, "safety_backup": safety_dest.name, "counts": restored_counts}
+
+    @app.get("/api/mcp/tool-policies")
+    def get_mcp_tool_policies_route(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("viewer", x_admin_token, x_session_token)
+        from ai_bridge.control.mcp_oauth import get_mcp_tool_policies
+        return {"ok": True, "policies": get_mcp_tool_policies(conn)}
+
+    @app.put("/api/mcp/tool-policies")
+    def update_mcp_tool_policies_route(body: dict, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_admin(x_admin_token, x_session_token)
+        from ai_bridge.control.mcp_oauth import save_mcp_tool_policies
+        raw_policies = body.get("policies") if isinstance(body, dict) and isinstance(body.get("policies"), dict) else (body if isinstance(body, dict) else {})
+        saved = save_mcp_tool_policies(conn, raw_policies)
+        audit(actor, "", "update_mcp_tool_policies", {"count": len(saved)}, "allowed")
+        return {"ok": True, "policies": saved}
 
     @app.get("/api/tenants")
     def list_tenants(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):

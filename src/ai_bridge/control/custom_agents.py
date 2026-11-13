@@ -32,7 +32,7 @@ from .ai_api import (
     build_tool_specs,
 )
 from .mcp_client import execute_mcp_tool, format_mcp_tool_for_llm
-from .mcp_oauth import ensure_valid_mcp_token
+from .mcp_oauth import enforce_mcp_tool_policy, ensure_valid_mcp_token
 from . import alerts as alertsmod
 
 PROVIDERS = ("openai", "anthropic", "gemini", "groq", "deepseek", "ollama", "custom")
@@ -594,23 +594,34 @@ def execute_agent(
                 })
             elif tool_name in mcp_dispatch_map:
                 srv, orig_tool = mcp_dispatch_map[tool_name]
-                try:
-                    extra_h = json.loads(srv.get("headers_json") or "{}")
-                except Exception:
-                    extra_h = {}
-                try:
-                    srv = ensure_valid_mcp_token(conn, srv)
-                    mcp_res = execute_mcp_tool(
-                        url=srv["url"],
-                        tool_name=orig_tool,
-                        arguments=tool_args,
-                        auth_header=srv.get("auth_header") or "",
-                        auth_token=srv.get("auth_token") or "",
-                        extra_headers=extra_h,
-                    )
-                    result = mcp_res.get("result", mcp_res)
-                except Exception as exc:
-                    result = {"ok": False, "error": f"MCP execution error: {exc}"}
+                policy_check = enforce_mcp_tool_policy(
+                    conn, srv, orig_tool, tool_args, actor=f"agent:{agent.get('name') or agent.get('id')}"
+                )
+                if not policy_check.get("allowed", True):
+                    result = {
+                        "ok": False,
+                        "status": policy_check.get("status", "denied"),
+                        "approval_id": policy_check.get("approval_id"),
+                        "error": policy_check.get("error"),
+                    }
+                else:
+                    try:
+                        extra_h = json.loads(srv.get("headers_json") or "{}")
+                    except Exception:
+                        extra_h = {}
+                    try:
+                        srv = ensure_valid_mcp_token(conn, srv)
+                        mcp_res = execute_mcp_tool(
+                            url=srv["url"],
+                            tool_name=orig_tool,
+                            arguments=tool_args,
+                            auth_header=srv.get("auth_header") or "",
+                            auth_token=srv.get("auth_token") or "",
+                            extra_headers=extra_h,
+                        )
+                        result = mcp_res.get("result", mcp_res)
+                    except Exception as exc:
+                        result = {"ok": False, "error": f"MCP execution error: {exc}"}
 
                 steps.append(
                     {

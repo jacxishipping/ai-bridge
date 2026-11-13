@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from ..policy import TOOL_TIERS, RiskTier
 from .dispatch import dispatch
 from .mcp_client import execute_mcp_tool, format_mcp_tool_for_llm
-from .mcp_oauth import ensure_valid_mcp_token
+from .mcp_oauth import enforce_mcp_tool_policy, ensure_valid_mcp_token
 
 # Set of tools specifically for desktop GUI automation
 DESKTOP_TOOLS = {
@@ -1373,6 +1373,7 @@ def attach_ai_routes(
         req: Request,
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
+        on_event: Callable[[dict[str, Any]], None] | None = None,
     ):
         """Autonomous ReAct agent that accepts a natural language instruction,
         calls tools across your connected devices, and returns the final answer.
@@ -1635,23 +1636,43 @@ def attach_ai_routes(
 
                 if t_name in mcp_dispatch_map:
                     srv, orig_tool = mcp_dispatch_map[t_name]
-                    try:
-                        extra_h = json.loads(srv.get("headers_json") or "{}")
-                    except Exception:
-                        extra_h = {}
-                    try:
-                        srv = ensure_valid_mcp_token(conn, srv)
-                        mcp_res = execute_mcp_tool(
-                            url=srv["url"],
-                            tool_name=orig_tool,
-                            arguments=t_args,
-                            auth_header=srv.get("auth_header") or "",
-                            auth_token=srv.get("auth_token") or "",
-                            extra_headers=extra_h,
-                        )
-                        exec_res = mcp_res.get("result", mcp_res)
-                    except Exception as exc:
-                        exec_res = {"ok": False, "error": f"MCP execution error: {exc}"}
+                    if on_event:
+                        on_event({"type": "tool_start", "step": step_idx + 1, "tool": t_name, "device": f"mcp:{srv['name']}"})
+                    policy_check = enforce_mcp_tool_policy(conn, srv, orig_tool, t_args, actor=actor)
+                    if not policy_check.get("allowed", True):
+                        exec_res = {
+                            "ok": False,
+                            "status": policy_check.get("status", "denied"),
+                            "approval_id": policy_check.get("approval_id"),
+                            "error": policy_check.get("error"),
+                        }
+                    else:
+                        try:
+                            extra_h = json.loads(srv.get("headers_json") or "{}")
+                        except Exception:
+                            extra_h = {}
+                        try:
+                            srv = ensure_valid_mcp_token(conn, srv)
+                            mcp_res = execute_mcp_tool(
+                                url=srv["url"],
+                                tool_name=orig_tool,
+                                arguments=t_args,
+                                auth_header=srv.get("auth_header") or "",
+                                auth_token=srv.get("auth_token") or "",
+                                extra_headers=extra_h,
+                            )
+                            exec_res = mcp_res.get("result", mcp_res)
+                        except Exception as exc:
+                            exec_res = {"ok": False, "error": f"MCP execution error: {exc}"}
+
+                    if on_event:
+                        on_event({
+                            "type": "tool_result",
+                            "step": step_idx + 1,
+                            "tool": t_name,
+                            "device": f"mcp:{srv['name']}",
+                            "ok": not (isinstance(exec_res, dict) and exec_res.get("ok") is False),
+                        })
 
                     steps_taken.append({
                         "step": step_idx + 1,
@@ -1668,8 +1689,18 @@ def attach_ai_routes(
                     })
                 else:
                     t_device = t_args.pop("device", None) or body.device
+                    if on_event:
+                        on_event({"type": "tool_start", "step": step_idx + 1, "tool": t_name, "device": t_device or "local"})
                     exec_in = AIExecuteIn(tool=t_name, device=t_device, args=t_args, tenant=body.tenant)
                     exec_res = await execute_ai_tool(exec_in, req, x_admin_token=x_admin_token, x_session_token=x_session_token)
+                    if on_event:
+                        on_event({
+                            "type": "tool_result",
+                            "step": step_idx + 1,
+                            "tool": t_name,
+                            "device": t_device or "local",
+                            "ok": not (isinstance(exec_res, dict) and exec_res.get("ok") is False),
+                        })
 
                     steps_taken.append({
                         "step": step_idx + 1,
@@ -2015,3 +2046,92 @@ def attach_ai_routes(
             "provider": agent_res.get("provider"),
             "model": agent_res.get("model"),
         }
+
+    @app.post("/api/ai/chat/stream")
+    async def ai_chat_stream(
+        body: AIChatIn,
+        req: Request,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        """SSE streaming variant of /api/ai/chat emitting live tool progress and final response."""
+        _resolve_auth(req, x_admin_token, x_session_token)
+
+        history_lines = []
+        last_user = ""
+        for m in body.messages:
+            role_label = m.role if hasattr(m, "role") else m.get("role", "user")
+            content = m.content if hasattr(m, "content") else m.get("content", "")
+            if isinstance(content, list):
+                content = " ".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text")
+            if role_label == "user":
+                last_user = str(content)
+            history_lines.append(f"{role_label.upper()}: {content}")
+
+        combined_prompt = "\n".join(history_lines[-10:]) if len(history_lines) > 1 else (last_user or "Hello")
+        agent_in = AIAgentIn(
+            prompt=combined_prompt,
+            provider=body.provider,
+            model=body.model,
+            api_key=body.api_key,
+            base_url=body.base_url,
+            device=body.device,
+            tenant=body.tenant,
+        )
+
+        queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+
+        def _emit(ev: dict[str, Any]) -> None:
+            queue.put_nowait(ev)
+
+        async def _worker() -> None:
+            try:
+                agent_res = await run_autonomous_agent(
+                    agent_in, req, x_admin_token=x_admin_token, x_session_token=x_session_token, on_event=_emit
+                )
+                if isinstance(agent_res, Response):
+                    try:
+                        err_payload = json.loads(agent_res.body.decode("utf-8"))
+                    except Exception:
+                        err_payload = {"detail": "Agent error"}
+                    queue.put_nowait({"type": "error", "error": err_payload.get("detail") or err_payload.get("error") or "Agent error"})
+                    return
+
+                screenshot_b64 = agent_res.get("screenshot")
+                screenshot_mime = agent_res.get("screenshot_mime") or "image/jpeg"
+                steps = agent_res.get("steps", [])
+                if not screenshot_b64:
+                    for st in steps:
+                        image = _extract_image(st.get("result"))
+                        if image:
+                            screenshot_b64, screenshot_mime = image[0], image[1]
+                            break
+                resp_text = agent_res.get("response") or agent_res.get("error") or "Operation complete."
+                queue.put_nowait({
+                    "type": "done",
+                    "ok": True,
+                    "message": {"role": "assistant", "content": resp_text, "screenshot": screenshot_b64},
+                    "steps": steps,
+                    "screenshot": screenshot_b64,
+                    "screenshot_mime": screenshot_mime,
+                    "provider": agent_res.get("provider"),
+                    "model": agent_res.get("model"),
+                })
+            except Exception as exc:
+                queue.put_nowait({"type": "error", "error": str(exc)})
+            finally:
+                queue.put_nowait(None)
+
+        async def _event_gen():
+            task = asyncio.create_task(_worker())
+            try:
+                while True:
+                    ev = await queue.get()
+                    if ev is None:
+                        break
+                    yield f"data: {json.dumps(ev, default=str)}\n\n"
+            finally:
+                if not task.done():
+                    task.cancel()
+
+        return StreamingResponse(_event_gen(), media_type="text/event-stream")
