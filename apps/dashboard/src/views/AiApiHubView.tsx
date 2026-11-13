@@ -115,8 +115,12 @@ interface McpTemplate {
   name: string;
   url: string;
   description: string;
-  category: string;
-  requires_auth?: boolean;
+  requires_auth: boolean;
+  auth_type?: string;
+  oauth_auth_url?: string;
+  oauth_token_url?: string;
+  oauth_scopes?: string;
+  category?: string;
   auth_placeholder?: string;
 }
 
@@ -1076,13 +1080,21 @@ export const AiApiHubView: React.FC = () => {
                   {mcpTemplates.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1.5 text-xs">
                       <span className="text-[var(--product-text-tertiary)]">Presets:</span>
-                      {mcpTemplates.slice(0, 4).map((tpl) => (
+                      {mcpTemplates.filter((tpl) => tpl.id !== "custom-mcp").map((tpl) => (
                         <button
                           key={tpl.id}
                           type="button"
                           onClick={() => {
                             setMcpName(tpl.name);
                             setMcpUrl(tpl.url);
+                            if (tpl.auth_type) {
+                              setMcpAuthType(tpl.auth_type);
+                            } else {
+                              setMcpAuthType(tpl.requires_auth ? "bearer" : "none");
+                            }
+                            if (tpl.oauth_auth_url) setMcpOAuthAuthUrl(tpl.oauth_auth_url);
+                            if (tpl.oauth_token_url) setMcpOAuthTokenUrl(tpl.oauth_token_url);
+                            if (tpl.oauth_scopes) setMcpOAuthScopes(tpl.oauth_scopes);
                             if (!tpl.requires_auth) setMcpAuthToken("");
                           }}
                           className="rounded px-2 py-0.5 text-[11px] bg-[var(--product-surface)] border border-[var(--product-line)] text-[var(--product-text-secondary)] hover:text-indigo-400"

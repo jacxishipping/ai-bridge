@@ -156,6 +156,18 @@ POPULAR_MCP_TEMPLATES = [
         "requires_auth": False,
     },
     {
+        "id": "firecrawl-mcp",
+        "name": "Firecrawl MCP (OAuth 2.1)",
+        "url": "https://mcp.firecrawl.dev/v2/mcp-oauth",
+        "description": "Scrape, crawl, map, and extract structured web data with Firecrawl's official OAuth 2.1 MCP server.",
+        "category": "search",
+        "requires_auth": True,
+        "auth_type": "oauth2_pkce",
+        "oauth_auth_url": "https://www.firecrawl.dev/api/oauth/authorize",
+        "oauth_token_url": "https://www.firecrawl.dev/api/oauth/token",
+        "oauth_scopes": "firecrawl:global offline_access",
+    },
+    {
         "id": "custom-mcp",
         "name": "Custom HTTP / SSE MCP Server",
         "url": "http://127.0.0.1:8080/mcp",
