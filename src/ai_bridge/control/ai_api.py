@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from ..policy import TOOL_TIERS, RiskTier
 from .dispatch import dispatch
 from .mcp_client import execute_mcp_tool, format_mcp_tool_for_llm
+from .mcp_oauth import ensure_valid_mcp_token
 
 # Set of tools specifically for desktop GUI automation
 DESKTOP_TOOLS = {
@@ -1523,8 +1524,7 @@ def attach_ai_routes(
         mcp_dispatch_map: dict[str, tuple[dict[str, Any], str]] = {}
         try:
             mcp_rows = conn.execute(
-                "SELECT id, name, url, transport, auth_header, auth_token, headers_json, tools_json "
-                "FROM mcp_servers WHERE tenant=? AND enabled=1",
+                "SELECT * FROM mcp_servers WHERE tenant=? AND enabled=1",
                 (body.tenant,),
             ).fetchall()
             for srv_row in mcp_rows:
@@ -1640,6 +1640,7 @@ def attach_ai_routes(
                     except Exception:
                         extra_h = {}
                     try:
+                        srv = ensure_valid_mcp_token(conn, srv)
                         mcp_res = execute_mcp_tool(
                             url=srv["url"],
                             tool_name=orig_tool,

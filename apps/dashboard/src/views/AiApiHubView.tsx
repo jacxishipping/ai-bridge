@@ -97,13 +97,16 @@ interface McpServerItem {
   name: string;
   url: string;
   transport: string;
+  auth_type?: string;
   enabled: boolean;
-  status: "healthy" | "offline" | "unknown";
+  status: "healthy" | "offline" | "pending_auth" | "unknown";
   last_checked_at?: number | null;
   last_error?: string;
   tools_count: number;
   tools: McpServerTool[];
   token_masked?: string;
+  oauth_connected?: boolean;
+  oauth_has_refresh_token?: boolean;
 }
 
 interface McpTemplate {
@@ -371,8 +374,15 @@ export const AiApiHubView: React.FC = () => {
   const [mcpFormOpen, setMcpFormOpen] = useState(false);
   const [mcpName, setMcpName] = useState("");
   const [mcpUrl, setMcpUrl] = useState("");
+  const [mcpAuthType, setMcpAuthType] = useState("bearer");
   const [mcpAuthToken, setMcpAuthToken] = useState("");
   const [mcpAuthHeader, setMcpAuthHeader] = useState("");
+  const [mcpOAuthClientId, setMcpOAuthClientId] = useState("");
+  const [mcpOAuthClientSecret, setMcpOAuthClientSecret] = useState("");
+  const [mcpOAuthAuthUrl, setMcpOAuthAuthUrl] = useState("");
+  const [mcpOAuthTokenUrl, setMcpOAuthTokenUrl] = useState("");
+  const [mcpOAuthScopes, setMcpOAuthScopes] = useState("");
+  const [mcpDiscovering, setMcpDiscovering] = useState(false);
   const [mcpSyncing, setMcpSyncing] = useState<Record<string, boolean>>({});
   const [mcpNotice, setMcpNotice] = useState<{ severity: "success" | "error" | "info"; text: string } | null>(null);
   const [mcpToolsExpanded, setMcpToolsExpanded] = useState<Record<string, boolean>>({});
@@ -531,6 +541,62 @@ export const AiApiHubView: React.FC = () => {
     setAgentMemory("");
   };
 
+  const handleDiscoverMcpOAuth = async (): Promise<void> => {
+    if (!mcpUrl.trim()) {
+      setMcpNotice({ severity: "error", text: "Enter the MCP Endpoint URL first to auto-discover OAuth2 endpoints." });
+      return;
+    }
+    setMcpDiscovering(true);
+    setMcpNotice(null);
+    try {
+      const meta = await api.discoverMcpOAuth(mcpUrl.trim());
+      if (meta.ok) {
+        if (meta.authorization_endpoint) setMcpOAuthAuthUrl(meta.authorization_endpoint);
+        if (meta.token_endpoint) setMcpOAuthTokenUrl(meta.token_endpoint);
+        setMcpNotice({ severity: "success", text: `Discovered OAuth2 endpoints from ${meta.issuer || mcpUrl}.` });
+      } else {
+        setMcpNotice({ severity: "info", text: meta.error || "No .well-known OAuth metadata found; enter endpoints manually." });
+      }
+    } catch (error) {
+      setMcpNotice({ severity: "error", text: describeError(error) });
+    } finally {
+      setMcpDiscovering(false);
+    }
+  };
+
+  const handleStartMcpOAuth = async (serverId: string): Promise<void> => {
+    setMcpLoading(true);
+    setMcpNotice(null);
+    try {
+      const res = await api.startMcpOAuth(serverId);
+      if (!res.authorize_url) {
+        throw new Error("OAuth2 authorization URL was not returned.");
+      }
+      const onMsg = (evt: MessageEvent) => {
+        if (evt.data && evt.data.type === "mcp_oauth_complete" && evt.data.server_id === serverId) {
+          window.removeEventListener("message", onMsg);
+          setMcpNotice({
+            severity: evt.data.ok ? "success" : "error",
+            text: evt.data.message || (evt.data.ok ? "OAuth2 authorized." : "OAuth2 failed."),
+          });
+          void loadMcpServers();
+        }
+      };
+      window.addEventListener("message", onMsg);
+      const popup = window.open(res.authorize_url, "ai_bridge_mcp_oauth", "width=620,height=740");
+      if (!popup) {
+        window.removeEventListener("message", onMsg);
+        window.location.href = res.authorize_url;
+      } else {
+        setMcpNotice({ severity: "info", text: "Complete OAuth2 authorization in the popup window." });
+      }
+    } catch (error) {
+      setMcpNotice({ severity: "error", text: describeError(error) });
+    } finally {
+      setMcpLoading(false);
+    }
+  };
+
   const handleCreateMcpServer = async (): Promise<void> => {
     if (!mcpName.trim() || !mcpUrl.trim()) {
       setMcpNotice({ severity: "error", text: "MCP service name and URL are required." });
@@ -542,17 +608,33 @@ export const AiApiHubView: React.FC = () => {
       const res = await api.createMcpServer({
         name: mcpName.trim(),
         url: mcpUrl.trim(),
-        auth_token: mcpAuthToken.trim() || undefined,
-        auth_header: mcpAuthHeader.trim() || undefined,
+        auth_type: mcpAuthType,
+        auth_token: mcpAuthType === "bearer" ? mcpAuthToken.trim() || undefined : undefined,
+        auth_header: mcpAuthType === "bearer" ? mcpAuthHeader.trim() || undefined : undefined,
+        oauth_client_id: mcpAuthType.startsWith("oauth2_") ? mcpOAuthClientId.trim() || undefined : undefined,
+        oauth_client_secret: mcpAuthType.startsWith("oauth2_") ? mcpOAuthClientSecret.trim() || undefined : undefined,
+        oauth_auth_url: mcpAuthType === "oauth2_pkce" ? mcpOAuthAuthUrl.trim() || undefined : undefined,
+        oauth_token_url: mcpAuthType.startsWith("oauth2_") ? mcpOAuthTokenUrl.trim() || undefined : undefined,
+        oauth_scopes: mcpAuthType.startsWith("oauth2_") ? mcpOAuthScopes.trim() || undefined : undefined,
         enabled: true,
       });
+      const createdId = res.server?.id;
       setMcpNotice({ severity: "success", text: res.message || `Connected to ${mcpName}. Discovered ${res.tools_count} tools.` });
       setMcpName("");
       setMcpUrl("");
+      setMcpAuthType("bearer");
       setMcpAuthToken("");
       setMcpAuthHeader("");
+      setMcpOAuthClientId("");
+      setMcpOAuthClientSecret("");
+      setMcpOAuthAuthUrl("");
+      setMcpOAuthTokenUrl("");
+      setMcpOAuthScopes("");
       setMcpFormOpen(false);
       await loadMcpServers();
+      if (mcpAuthType === "oauth2_pkce" && createdId && !res.server?.oauth_connected) {
+        await handleStartMcpOAuth(createdId);
+      }
     } catch (error) {
       setMcpNotice({ severity: "error", text: describeError(error) });
     } finally {
@@ -987,16 +1069,85 @@ export const AiApiHubView: React.FC = () => {
                     onChange={setMcpUrl}
                     placeholder="http://mcp-http:8001 or https://api.service.com/mcp"
                   />
-                  <div className="md:col-span-2">
+                  <JXSelect
+                    label="Authentication Mode"
+                    value={mcpAuthType}
+                    onChange={setMcpAuthType}
+                    options={[
+                      { id: "bearer", label: "Bearer Token / API Key" },
+                      { id: "oauth2_pkce", label: "OAuth 2.0 / 2.1 (Browser Login + PKCE)" },
+                      { id: "oauth2_client_credentials", label: "OAuth 2.0 (Client Credentials M2M)" },
+                      { id: "none", label: "No Authentication" },
+                    ]}
+                  />
+
+                  {mcpAuthType === "bearer" && (
                     <JXTextField
                       label="Authentication Token (Optional)"
                       type="password"
                       value={mcpAuthToken}
                       onChange={setMcpAuthToken}
                       clearable={false}
-                      placeholder="Bearer token or API key if the MCP server requires authorization"
+                      placeholder="Bearer token or API key if required"
                     />
-                  </div>
+                  )}
+
+                  {mcpAuthType === "oauth2_pkce" && (
+                    <div className="flex items-end">
+                      <JXButton
+                        variant="outlined"
+                        color="neutral"
+                        size="sm"
+                        loading={mcpDiscovering}
+                        disabled={!mcpUrl.trim() || mcpDiscovering}
+                        onClick={() => void handleDiscoverMcpOAuth()}
+                        startIcon={<Globe className="w-3.5 h-3.5" />}
+                      >
+                        Auto-discover OAuth2 endpoints
+                      </JXButton>
+                    </div>
+                  )}
+
+                  {(mcpAuthType === "oauth2_pkce" || mcpAuthType === "oauth2_client_credentials") && (
+                    <>
+                      {mcpAuthType === "oauth2_pkce" && (
+                        <JXTextField
+                          label="Authorization URL (optional if auto-discovered)"
+                          value={mcpOAuthAuthUrl}
+                          onChange={setMcpOAuthAuthUrl}
+                          placeholder="https://provider.com/oauth/authorize"
+                        />
+                      )}
+                      <JXTextField
+                        label="Token URL (optional if auto-discovered)"
+                        value={mcpOAuthTokenUrl}
+                        onChange={setMcpOAuthTokenUrl}
+                        placeholder="https://provider.com/oauth/token"
+                      />
+                      <JXTextField
+                        label={mcpAuthType === "oauth2_pkce" ? "Client ID (optional with Dynamic Registration)" : "Client ID"}
+                        value={mcpOAuthClientId}
+                        onChange={setMcpOAuthClientId}
+                        placeholder="client_id"
+                      />
+                      <JXTextField
+                        label={mcpAuthType === "oauth2_pkce" ? "Client Secret (optional for public PKCE)" : "Client Secret"}
+                        type="password"
+                        value={mcpOAuthClientSecret}
+                        onChange={setMcpOAuthClientSecret}
+                        clearable={false}
+                        placeholder="client_secret"
+                      />
+                      <div className="md:col-span-2">
+                        <JXTextField
+                          label="Scopes (optional, space-separated)"
+                          value={mcpOAuthScopes}
+                          onChange={setMcpOAuthScopes}
+                          placeholder="read write mcp:tools"
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -1007,9 +1158,9 @@ export const AiApiHubView: React.FC = () => {
                     loading={mcpLoading}
                     disabled={!isLive || mcpLoading || !mcpName.trim() || !mcpUrl.trim()}
                     onClick={() => void handleCreateMcpServer()}
-                    startIcon={<CheckCircle2 className="w-4 h-4" />}
+                    startIcon={mcpAuthType === "oauth2_pkce" ? <KeyRound className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
                   >
-                    Connect &amp; probe tools
+                    {mcpAuthType === "oauth2_pkce" ? "Save & Authorize with OAuth2" : "Connect & probe tools"}
                   </JXButton>
                   <JXButton variant="text" color="neutral" size="sm" onClick={() => setMcpFormOpen(false)}>
                     Cancel
@@ -1058,9 +1209,15 @@ export const AiApiHubView: React.FC = () => {
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <h3 className="text-sm font-medium text-[var(--product-text-secondary)]">{srv.name}</h3>
                         <JXBadge
-                          color={srv.status === "healthy" ? "success" : srv.status === "offline" ? "error" : "neutral"}
-                          statusText={srv.status === "healthy" ? "Connected" : srv.status === "offline" ? "Offline" : "Unknown"}
+                          color={srv.status === "healthy" ? "success" : srv.status === "pending_auth" ? "warning" : srv.status === "offline" ? "error" : "neutral"}
+                          statusText={srv.status === "healthy" ? "Connected" : srv.status === "pending_auth" ? "Auth Required" : srv.status === "offline" ? "Offline" : "Unknown"}
                         />
+                        {srv.auth_type && srv.auth_type.startsWith("oauth2") && (
+                          <JXBadge
+                            color={srv.oauth_connected ? "success" : "warning"}
+                            statusText={srv.auth_type === "oauth2_client_credentials" ? "OAuth2 M2M" : srv.oauth_connected ? "OAuth2 Authorized" : "OAuth2 Pending"}
+                          />
+                        )}
                         <JXBadge
                           color="primary"
                           statusText={`${srv.tools_count || 0} tool${srv.tools_count === 1 ? "" : "s"}`}
@@ -1068,6 +1225,18 @@ export const AiApiHubView: React.FC = () => {
                         <span className="font-mono text-xs text-[var(--product-text-tertiary)] break-all">{srv.url}</span>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
+                        {(srv.auth_type === "oauth2_pkce" || srv.status === "pending_auth") && (
+                          <JXButton
+                            variant="contained"
+                            color="primary"
+                            size="sm"
+                            disabled={mcpLoading}
+                            onClick={() => void handleStartMcpOAuth(srv.id)}
+                            startIcon={<KeyRound className="w-3.5 h-3.5" />}
+                          >
+                            {srv.oauth_connected ? "Re-authorize" : "Connect OAuth2"}
+                          </JXButton>
+                        )}
                         <JXButton
                           variant="outlined"
                           color="neutral"

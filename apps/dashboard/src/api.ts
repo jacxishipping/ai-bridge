@@ -184,8 +184,23 @@ export const api = {
   agentRuns: (id: string) => call(`/api/agents/${encodeURIComponent(id)}/runs?limit=10`),
   mcpServers: () => call("/api/mcp/servers"),
   mcpTemplates: () => call("/api/mcp/templates"),
-  createMcpServer: (body: { name: string; url: string; transport?: string; auth_header?: string; auth_token?: string; headers?: Record<string, string>; enabled?: boolean }) =>
-    call("/api/mcp/servers", "POST", body),
+  discoverMcpOAuth: (url: string) => call("/api/mcp/oauth/discover", "POST", { url }),
+  createMcpServer: (body: {
+    name: string;
+    url: string;
+    transport?: string;
+    auth_type?: string;
+    auth_header?: string;
+    auth_token?: string;
+    oauth_client_id?: string;
+    oauth_client_secret?: string;
+    oauth_auth_url?: string;
+    oauth_token_url?: string;
+    oauth_scopes?: string;
+    headers?: Record<string, string>;
+    enabled?: boolean;
+  }) => call("/api/mcp/servers", "POST", body),
+  startMcpOAuth: (id: string) => call(`/api/mcp/servers/${encodeURIComponent(id)}/oauth/start`, "POST", {}),
   syncMcpServer: (id: string) => call(`/api/mcp/servers/${encodeURIComponent(id)}/sync`, "POST", {}),
   updateMcpServer: (id: string, body: any) => call(`/api/mcp/servers/${encodeURIComponent(id)}`, "PATCH", body),
   deleteMcpServer: (id: string) => call(`/api/mcp/servers/${encodeURIComponent(id)}`, "DELETE"),

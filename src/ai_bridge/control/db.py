@@ -118,8 +118,16 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
   name TEXT NOT NULL,
   url TEXT NOT NULL,
   transport TEXT NOT NULL DEFAULT 'http',
+  auth_type TEXT NOT NULL DEFAULT 'bearer',
   auth_header TEXT DEFAULT '',
   auth_token TEXT DEFAULT '',
+  oauth_client_id TEXT DEFAULT '',
+  oauth_client_secret TEXT DEFAULT '',
+  oauth_auth_url TEXT DEFAULT '',
+  oauth_token_url TEXT DEFAULT '',
+  oauth_scopes TEXT DEFAULT '',
+  oauth_refresh_token TEXT DEFAULT '',
+  oauth_token_expires_at REAL,
   headers_json TEXT NOT NULL DEFAULT '{}',
   tools_json TEXT NOT NULL DEFAULT '[]',
   enabled INTEGER NOT NULL DEFAULT 1,
@@ -129,6 +137,12 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
   tenant TEXT NOT NULL DEFAULT 'default',
   created_at REAL NOT NULL,
   updated_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS mcp_oauth_states (
+  state TEXT PRIMARY KEY,
+  server_id TEXT NOT NULL,
+  code_verifier TEXT NOT NULL,
+  redirect_uri TEXT NOT NULL,
+  created_at REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_mcp_servers_tenant ON mcp_servers(tenant, enabled);
 CREATE TABLE IF NOT EXISTS agent_runs (
   id TEXT PRIMARY KEY,

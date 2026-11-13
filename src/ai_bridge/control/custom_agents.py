@@ -32,6 +32,7 @@ from .ai_api import (
     build_tool_specs,
 )
 from .mcp_client import execute_mcp_tool, format_mcp_tool_for_llm
+from .mcp_oauth import ensure_valid_mcp_token
 
 PROVIDERS = ("openai", "anthropic", "gemini", "groq", "deepseek", "ollama", "custom")
 DEFAULT_INTERVAL_S = 300
@@ -355,6 +356,7 @@ def execute_agent(
                 except Exception:
                     extra_h = {}
                 try:
+                    srv = ensure_valid_mcp_token(conn, srv)
                     mcp_res = execute_mcp_tool(
                         url=srv["url"],
                         tool_name=orig_tool,

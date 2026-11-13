@@ -3767,7 +3767,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         client_ip = request.client.host if request.client else "anon"
         path = request.url.path
         if path in ("/api/auth/login", "/api/auth/oidc/login", "/api/auth/oidc/callback",
-                    "/api/connectors/m365/callback"):
+                    "/api/connectors/m365/callback", "/api/mcp/oauth/callback"):
             key = f"auth:{client_ip}"
             limit = 30
         else:
