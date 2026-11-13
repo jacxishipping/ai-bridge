@@ -48,6 +48,7 @@ import {
   Link2,
   Pencil,
   X,
+  Send,
 } from "lucide-react";
 import { useDashboardStore } from "../state/dashboardStore";
 import { api, sessionToken, token } from "../api";
@@ -364,6 +365,13 @@ export const AiApiHubView: React.FC = () => {
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentNotice, setAgentNotice] = useState<{ severity: "success" | "error" | "info"; text: string } | null>(null);
   const [agentRunsOpen, setAgentRunsOpen] = useState<Record<string, boolean>>({});
+  const [expandedRunTrace, setExpandedRunTrace] = useState<Record<string, boolean>>({});
+  const [askTargetAgent, setAskTargetAgent] = useState<CustomAgent | null>(null);
+  const [askPrompt, setAskPrompt] = useState("");
+  const [askResult, setAskResult] = useState<{ response: string; steps: any[] } | null>(null);
+  const [askBusy, setAskBusy] = useState(false);
+  const [memoryTargetAgent, setMemoryTargetAgent] = useState<CustomAgent | null>(null);
+  const [memoryDraft, setMemoryDraft] = useState("");
   const [agentRuns, setAgentRuns] = useState<Record<string, any[]>>({});
   const [agentRunsLoading, setAgentRunsLoading] = useState<Record<string, boolean>>({});
 
@@ -785,6 +793,36 @@ export const AiApiHubView: React.FC = () => {
       setAgentNotice({ severity: "error", text: describeError(error) });
     } finally {
       setAgentBusy(false);
+    }
+  };
+
+  const handleSaveAgentMemory = async (): Promise<void> => {
+    if (!memoryTargetAgent) return;
+    setAgentBusy(true);
+    try {
+      await api.updateAgent(memoryTargetAgent.id, { memory: memoryDraft });
+      setAgentNotice({ severity: "success", text: `Updated memory for ${memoryTargetAgent.name}.` });
+      setMemoryTargetAgent(null);
+      await loadAgents(true);
+    } catch (error) {
+      setAgentNotice({ severity: "error", text: describeError(error) });
+    } finally {
+      setAgentBusy(false);
+    }
+  };
+
+  const handleAskAgentSubmit = async (): Promise<void> => {
+    if (!askTargetAgent || !askPrompt.trim()) return;
+    setAskBusy(true);
+    setAskResult(null);
+    try {
+      const res = await api.askAgent(askTargetAgent.id, askPrompt.trim());
+      setAskResult({ response: res?.response || "", steps: Array.isArray(res?.steps) ? res.steps : [] });
+      await loadAgents(true);
+    } catch (error) {
+      setAgentNotice({ severity: "error", text: describeError(error) });
+    } finally {
+      setAskBusy(false);
     }
   };
 
@@ -1384,6 +1422,16 @@ export const AiApiHubView: React.FC = () => {
                           Run now
                         </JXButton>
                         <JXButton
+                          variant="outlined"
+                          color="primary"
+                          size="sm"
+                          disabled={agentBusy}
+                          onClick={() => { setAskTargetAgent(agent); setAskPrompt(""); setAskResult(null); }}
+                          startIcon={<Send className="w-3.5 h-3.5" />}
+                        >
+                          Ask
+                        </JXButton>
+                        <JXButton
                           variant="text"
                           color="error"
                           size="sm"
@@ -1428,17 +1476,40 @@ export const AiApiHubView: React.FC = () => {
                     {agent.memory ? (
                       <div className="mt-1">
                         <p className="line-clamp-3 text-xs text-indigo-300">Memory: {agent.memory}</p>
+                        <div className="flex items-center gap-2">
+                          <JXButton
+                            variant="text"
+                            color="neutral"
+                            size="sm"
+                            disabled={agentBusy}
+                            onClick={() => { setMemoryTargetAgent(agent); setMemoryDraft(agent.memory || ""); }}
+                          >
+                            Edit memory
+                          </JXButton>
+                          <JXButton
+                            variant="text"
+                            color="neutral"
+                            size="sm"
+                            disabled={agentBusy}
+                            onClick={() => void handleClearAgentMemory(agent)}
+                          >
+                            Clear memory
+                          </JXButton>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-1">
                         <JXButton
                           variant="text"
                           color="neutral"
                           size="sm"
                           disabled={agentBusy}
-                          onClick={() => void handleClearAgentMemory(agent)}
+                          onClick={() => { setMemoryTargetAgent(agent); setMemoryDraft(""); }}
                         >
-                          Clear memory
+                          Add pinned memory
                         </JXButton>
                       </div>
-                    ) : null}
+                    )}
                     <div className="mt-2">
                       <JXButton
                         variant="text"
@@ -1476,6 +1547,35 @@ export const AiApiHubView: React.FC = () => {
                                   ) : run.response ? (
                                     <p className="mt-1 line-clamp-3 text-[var(--product-text-tertiary)]">{run.response}</p>
                                   ) : null}
+                                  {Array.isArray(run.steps) && run.steps.length > 0 && (
+                                    <div className="mt-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => setExpandedRunTrace((prev) => ({ ...prev, [run.id]: !prev[run.id] }))}
+                                        className="font-mono text-[11px] text-indigo-400 hover:underline"
+                                      >
+                                        {expandedRunTrace[run.id] ? "Hide" : "View"} tool trace ({run.steps.length} step{run.steps.length === 1 ? "" : "s"})
+                                      </button>
+                                      {expandedRunTrace[run.id] && (
+                                        <div className="mt-1.5 space-y-1.5 border-l-2 border-indigo-500/40 pl-2">
+                                          {run.steps.map((st: any, idx: number) => (
+                                            <div key={idx} className="rounded bg-[var(--product-surface)] p-1.5 font-mono text-[11px]">
+                                              <div className="flex items-center justify-between text-indigo-300">
+                                                <span>{idx + 1}. {st.tool}</span>
+                                                <span className="text-[10px] text-[var(--product-text-dim)]">{st.device || "local"}</span>
+                                              </div>
+                                              {st.args && Object.keys(st.args).length > 0 && (
+                                                <pre className="mt-0.5 text-[10px] text-[var(--product-text-tertiary)] overflow-x-auto">{JSON.stringify(st.args)}</pre>
+                                              )}
+                                              {st.result !== undefined && (
+                                                <pre className="mt-0.5 text-[10px] text-emerald-300/90 overflow-x-auto max-h-24">{typeof st.result === "string" ? st.result : JSON.stringify(st.result)}</pre>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
                                 </li>
                               ))}
                             </ul>
@@ -1914,6 +2014,67 @@ export const AiApiHubView: React.FC = () => {
           </JXCard>
         </JXGridItem>
       </JXGrid>
+
+      {askTargetAgent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Ask agent">
+          <div className="w-full max-w-xl rounded-2xl bg-[var(--product-surface)] border border-[var(--product-line)] p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-[var(--product-text)]">Ask {askTargetAgent.name}</h3>
+              <button type="button" onClick={() => setAskTargetAgent(null)} className="text-xs text-[var(--product-text-tertiary)]">Close</button>
+            </div>
+            <textarea
+              rows={3}
+              value={askPrompt}
+              onChange={(e) => setAskPrompt(e.target.value)}
+              placeholder="Give this agent a direct instruction or question using its tools, MCP servers, and memory..."
+              className="w-full rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] p-3 text-xs text-[var(--product-text)]"
+            />
+            {askResult && (
+              <div className="rounded-xl border border-[var(--product-line)] bg-[var(--product-canvas)] p-3 space-y-2 max-h-64 overflow-y-auto text-xs">
+                <p className="whitespace-pre-wrap text-[var(--product-text-secondary)]">{askResult.response}</p>
+                {askResult.steps.length > 0 && (
+                  <div className="border-t border-[var(--product-line)] pt-2 space-y-1 font-mono text-[11px]">
+                    <span className="text-[var(--product-text-tertiary)]">Executed {askResult.steps.length} tool step(s):</span>
+                    {askResult.steps.map((s: any, i: number) => (
+                      <div key={i} className="text-indigo-300">{i + 1}. {s.tool} ({s.device || "local"})</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <JXButton variant="outlined" color="neutral" size="sm" onClick={() => setAskTargetAgent(null)}>Close</JXButton>
+              <JXButton variant="contained" color="primary" size="sm" disabled={askBusy || !askPrompt.trim()} onClick={() => void handleAskAgentSubmit()}>
+                {askBusy ? "Running..." : "Send to Agent"}
+              </JXButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {memoryTargetAgent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Edit agent memory">
+          <div className="w-full max-w-lg rounded-2xl bg-[var(--product-surface)] border border-[var(--product-line)] p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-[var(--product-text)]">Memory — {memoryTargetAgent.name}</h3>
+              <button type="button" onClick={() => setMemoryTargetAgent(null)} className="text-xs text-[var(--product-text-tertiary)]">Close</button>
+            </div>
+            <textarea
+              rows={8}
+              value={memoryDraft}
+              onChange={(e) => setMemoryDraft(e.target.value)}
+              placeholder="Pinned facts, context, or operational notes persisted across cycles..."
+              className="w-full rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] p-3 font-mono text-xs text-[var(--product-text)]"
+            />
+            <div className="flex justify-end gap-2">
+              <JXButton variant="outlined" color="neutral" size="sm" onClick={() => setMemoryTargetAgent(null)}>Cancel</JXButton>
+              <JXButton variant="contained" color="primary" size="sm" disabled={agentBusy} onClick={() => void handleSaveAgentMemory()}>
+                Save Memory
+              </JXButton>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

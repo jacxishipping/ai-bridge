@@ -182,6 +182,7 @@ export const api = {
     call(`/api/agents/${encodeURIComponent(id)}`, "PATCH", body),
   deleteAgent: (id: string) => call(`/api/agents/${encodeURIComponent(id)}`, "DELETE"),
   runAgentNow: (id: string) => call(`/api/agents/${encodeURIComponent(id)}/run`, "POST", {}),
+  askAgent: (id: string, prompt: string) => call(`/api/agents/${encodeURIComponent(id)}/ask`, "POST", { prompt }),
   agentRuns: (id: string) => call(`/api/agents/${encodeURIComponent(id)}/runs?limit=10`),
   mcpServers: () => call("/api/mcp/servers"),
   mcpTemplates: () => call("/api/mcp/templates"),

@@ -33,6 +33,7 @@ from .ai_api import (
 )
 from .mcp_client import execute_mcp_tool, format_mcp_tool_for_llm
 from .mcp_oauth import ensure_valid_mcp_token
+from . import alerts as alertsmod
 
 PROVIDERS = ("openai", "anthropic", "gemini", "groq", "deepseek", "ollama", "custom")
 DEFAULT_INTERVAL_S = 300
@@ -160,7 +161,72 @@ def _resolve_agent_mcp_servers(conn: Any, agent: dict[str, Any]) -> list[dict[st
     return []
 
 
-def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]], mcp_servers: list[dict[str, Any]] | None = None) -> str:
+def _fleet_context_block(conn: Any, devices: list[dict[str, Any]]) -> str:
+    try:
+        pending_appr = conn.execute("SELECT COUNT(*) AS c FROM approvals WHERE status='pending'").fetchone()["c"]
+        dev_ids = [d["id"] for d in devices if d.get("id")]
+        failed_tasks = 0
+        if dev_ids:
+            placeholders = ",".join("?" for _ in dev_ids)
+            failed_tasks = conn.execute(
+                f"SELECT COUNT(*) AS c FROM tasks WHERE status='failed' AND device_id IN ({placeholders})",
+                tuple(dev_ids),
+            ).fetchone()["c"]
+        return f"\nLive Fleet Context: {pending_appr} pending human approval(s), {failed_tasks} failed task(s) on bound devices.\n"
+    except Exception:
+        return ""
+
+
+_AGENT_NATIVE_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "agent_remember",
+            "description": "Persist an important fact, observation, or learned rule into long-term agent memory so it survives future cycles.",
+            "parameters": {
+                "type": "object",
+                "properties": {"fact": {"type": "string", "description": "Concise fact to remember."}},
+                "required": ["fact"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agent_notify",
+            "description": "Send an alert notification to configured operator channels (Slack, Discord, Telegram, Webhook).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "message": {"type": "string"},
+                    "severity": {"type": "string", "enum": ["info", "warning", "critical"]},
+                },
+                "required": ["title", "message"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "agent_request_approval",
+            "description": "Queue a sensitive task for human operator approval in the Approvals queue instead of running it unattended.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "device": {"type": "string", "description": "Target device id."},
+                    "tool": {"type": "string", "description": "Tool name to request approval for."},
+                    "args": {"type": "object", "description": "Tool arguments."},
+                    "reason": {"type": "string", "description": "Why this action is needed."},
+                },
+                "required": ["device", "tool", "reason"],
+            },
+        },
+    },
+]
+
+
+def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]], mcp_servers: list[dict[str, Any]] | None = None, fleet_context: str = "") -> str:
     listing = "\n".join(
         f"- {d.get('name')} (id {d['id']}, {d.get('os') or 'unknown OS'}, {d.get('status') or 'unknown'})"
         for d in devices
@@ -186,6 +252,7 @@ def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]], mcp_ser
         f"Objective:\n{agent.get('instruction')}\n\n"
         f"Bound devices (pass one of these ids in the `device` argument):\n{listing}\n\n"
         f"{mcp_block}"
+        f"{fleet_context}"
         f"{memory_block}"
         "Rules:\n"
         "1. Move the objective forward every cycle; do not repeat work already completed.\n"
@@ -218,6 +285,7 @@ def execute_agent(
     tool_executor: ToolExecutor,
     *,
     max_steps: int = MAX_STEPS,
+    user_prompt: str | None = None,
 ) -> dict[str, Any]:
     """Run one reasoning cycle for an agent. Raises on provider/transport errors."""
     provider, base_url, api_key, model = resolve_llm(
@@ -238,6 +306,7 @@ def execute_agent(
     tools_spec = build_tool_specs(tool_format="openai")
     if allowed_tools and isinstance(allowed_tools, list) and len(allowed_tools) > 0:
         tools_spec = [t for t in tools_spec if t.get("function", {}).get("name") in allowed_tools]
+    tools_spec.extend(_AGENT_NATIVE_TOOLS)
 
     # 2. External MCP tools
     mcp_dispatch_map: dict[str, tuple[dict[str, Any], str]] = {}
@@ -254,16 +323,15 @@ def execute_agent(
             tools_spec.append(formatted)
             mcp_dispatch_map[q_name] = (srv, t.get("name") or "tool")
 
+    fleet_ctx = _fleet_context_block(conn, devices)
+    default_prompt = (
+        "Run one work cycle now "
+        f"({time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC). "
+        "Act on the objective, then summarise what you did."
+    )
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": _system_prompt(agent, devices, mcp_servers)},
-        {
-            "role": "user",
-            "content": (
-                "Run one work cycle now "
-                f"({time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC). "
-                "Act on the objective, then summarise what you did."
-            ),
-        },
+        {"role": "system", "content": _system_prompt(agent, devices, mcp_servers, fleet_ctx)},
+        {"role": "user", "content": (user_prompt or "").strip() or default_prompt},
     ]
     steps: list[dict[str, Any]] = []
     tenant = str(agent.get("tenant") or "default")
@@ -349,7 +417,58 @@ def execute_agent(
             except Exception:
                 tool_args = {}
 
-            if tool_name in mcp_dispatch_map:
+            if tool_name in {"agent_remember", "agent_notify", "agent_request_approval"}:
+                try:
+                    if tool_name == "agent_remember":
+                        fact = str(tool_args.get("fact") or "").strip()
+                        if not fact:
+                            result = {"ok": False, "error": "fact is required."}
+                        else:
+                            cur_mem = str(agent.get("memory") or "").strip()
+                            pinned = f"[PINNED {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}] {fact}"
+                            updated_mem = (cur_mem + "\n" + pinned).strip() if cur_mem else pinned
+                            if len(updated_mem) > 8000:
+                                updated_mem = updated_mem[-8000:]
+                            agent["memory"] = updated_mem
+                            conn.execute("UPDATE custom_agents SET memory=?, updated_at=? WHERE id=?", (updated_mem, _now(), agent["id"]))
+                            conn.commit()
+                            result = {"ok": True, "remembered": fact}
+                    elif tool_name == "agent_notify":
+                        title = str(tool_args.get("title") or f"Agent {agent.get('name')}").strip()
+                        msg = str(tool_args.get("message") or "").strip()
+                        sev = str(tool_args.get("severity") or "info").lower()
+                        if sev not in {"info", "warning", "critical"}:
+                            sev = "info"
+                        res = alertsmod.dispatch_alert("agent_alert", sev, title, {"agent": agent.get("name"), "message": msg}, async_dispatch=False)
+                        result = {"ok": True, "dispatched": res}
+                    else:
+                        req_dev = _resolve_device(devices, tool_args.get("device")) or (devices[0]["id"] if devices else "local")
+                        req_tool = str(tool_args.get("tool") or "").strip()
+                        req_args = tool_args.get("args") if isinstance(tool_args.get("args"), dict) else {}
+                        req_reason = str(tool_args.get("reason") or "Agent requested human approval.").strip()
+                        task_id = uuid.uuid4().hex[:12]
+                        app_id = uuid.uuid4().hex[:12]
+                        now_ts = _now()
+                        conn.execute(
+                            "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, approval_id, created_at, updated_at) VALUES (?,?,?,?,?,3,'needs_approval',?,?,?)",
+                            (task_id, req_dev, tenant, req_tool, json.dumps(req_args), app_id, now_ts, now_ts),
+                        )
+                        conn.execute(
+                            "INSERT INTO approvals (id, task_id, tool, reason, status, created_at, expires_at, policy_version) VALUES (?,?,?,?,'pending',?,?,0)",
+                            (app_id, task_id, req_tool, f"[{actor}] {req_reason}", now_ts, now_ts + 900),
+                        )
+                        conn.commit()
+                        result = {"ok": True, "task_id": task_id, "approval_id": app_id, "status": "needs_approval"}
+                except Exception as exc:
+                    result = {"ok": False, "error": str(exc)}
+                steps.append({"tool": tool_name, "device": "control-plane", "args": tool_args, "result": result})
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": call.get("id"),
+                    "name": tool_name,
+                    "content": json.dumps(result, default=str)[:20000],
+                })
+            elif tool_name in mcp_dispatch_map:
                 srv, orig_tool = mcp_dispatch_map[tool_name]
                 try:
                     extra_h = json.loads(srv.get("headers_json") or "{}")
@@ -860,6 +979,50 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
                 item["steps"] = []
             out.append(item)
         return {"ok": True, "agent_id": agent_id, "runs": out}
+
+    @app.post("/api/agents/{agent_id}/ask")
+    def ask_agent(
+        agent_id: str,
+        body: AgentAskIn,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM custom_agents WHERE id=?", (agent_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Agent not found.")
+        agent_dict = dict(row)
+        started = _now()
+        run_id = uuid.uuid4().hex[:12]
+        conn.execute(
+            "INSERT INTO agent_runs (id, agent_id, tenant, status, started_at) VALUES (?,?,?,'running',?)",
+            (run_id, agent_id, str(agent_dict.get("tenant") or "default"), started),
+        )
+        conn.commit()
+        try:
+            res = execute_agent(conn, agent_dict, runner._tool_executor, user_prompt=body.prompt)
+            finished = _now()
+            conn.execute(
+                "UPDATE agent_runs SET status='completed', finished_at=?, duration_ms=?, response=?, steps_json=? WHERE id=?",
+                (finished, int((finished - started) * 1000), str(res.get("response") or "")[:20000], json.dumps(res.get("steps") or [], default=str), run_id),
+            )
+            conn.execute("UPDATE custom_agents SET run_count=run_count+1, last_run_at=?, last_result=?, updated_at=? WHERE id=?",
+                         (finished, str(res.get("response") or "")[:4000], finished, agent_id))
+            conn.commit()
+            audit(actor, "", "ask_custom_agent", {"agent_id": agent_id, "prompt": body.prompt[:500]}, "allowed")
+            return {"ok": True, "run_id": run_id, **res}
+        except Exception as exc:
+            finished = _now()
+            conn.execute(
+                "UPDATE agent_runs SET status='failed', finished_at=?, duration_ms=?, error=? WHERE id=?",
+                (finished, int((finished - started) * 1000), str(exc)[:2000], run_id),
+            )
+            conn.commit()
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+class AgentAskIn(BaseModel):
+    prompt: str = Field(min_length=1, max_length=4000)
 
 
 class AgentIn(BaseModel):
