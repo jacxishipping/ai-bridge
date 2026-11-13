@@ -3797,10 +3797,34 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     )
 
     # Persistent 24/7 custom agents: CRUD endpoints plus the background runner.
+    def _agent_failure_notify(event: dict) -> None:
+        try:
+            url = ""
+            row = conn.execute("SELECT value FROM settings WHERE key='webhook_url'").fetchone()
+            if row is not None and row["value"]:
+                url = str(row["value"]).strip()
+            if not url:
+                url = os.environ.get("AI_BRIDGE_WEBHOOK_URL", "").strip()
+            if not url:
+                return
+            send_webhook_notification(
+                url,
+                {
+                    "event": event.get("event", "agent_failed"),
+                    "tool": "custom_agent_run",
+                    "device_name": event.get("agent_name") or "agent",
+                    "task_id": event.get("agent_id"),
+                    "error": event.get("error"),
+                },
+            )
+        except Exception:
+            pass
+
     agent_runner = AgentRunner(
         conn,
         _execute_workflow_step_sync,
         is_paused=lambda: bool(getattr(app.state, "emergency_stop", False)),
+        failure_notifier=_agent_failure_notify,
     )
     install_custom_agent_routes(app, conn, require_role, audit, agent_runner)
     agent_runner.start()

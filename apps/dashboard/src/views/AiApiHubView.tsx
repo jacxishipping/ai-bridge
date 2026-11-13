@@ -39,6 +39,8 @@ import {
   Pause,
   Trash2,
   Clock3,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useDashboardStore } from "../state/dashboardStore";
 import { api, sessionToken, token } from "../api";
@@ -93,6 +95,7 @@ interface CustomAgent {
   last_result?: string;
   last_error?: string;
   run_count: number;
+  consecutive_failures?: number;
 }
 
 function describeError(error: unknown): string {
@@ -295,6 +298,9 @@ export const AiApiHubView: React.FC = () => {
   const [agentDeviceIds, setAgentDeviceIds] = useState<string[]>([]);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentNotice, setAgentNotice] = useState<{ severity: "success" | "error" | "info"; text: string } | null>(null);
+  const [agentRunsOpen, setAgentRunsOpen] = useState<Record<string, boolean>>({});
+  const [agentRuns, setAgentRuns] = useState<Record<string, any[]>>({});
+  const [agentRunsLoading, setAgentRunsLoading] = useState<Record<string, boolean>>({});
 
   const loadAiSettings = async (): Promise<void> => {
     if (!isLive) return;
@@ -459,6 +465,22 @@ export const AiApiHubView: React.FC = () => {
       setAgentNotice({ severity: "error", text: describeError(error) });
     } finally {
       setAgentBusy(false);
+    }
+  };
+
+  const handleToggleAgentRuns = async (agent: CustomAgent): Promise<void> => {
+    const open = !agentRunsOpen[agent.id];
+    setAgentRunsOpen((prev) => ({ ...prev, [agent.id]: open }));
+    if (open && !agentRuns[agent.id]) {
+      setAgentRunsLoading((prev) => ({ ...prev, [agent.id]: true }));
+      try {
+        const result = await api.agentRuns(agent.id);
+        setAgentRuns((prev) => ({ ...prev, [agent.id]: result.runs || [] }));
+      } catch (error) {
+        setAgentNotice({ severity: "error", text: describeError(error) });
+      } finally {
+        setAgentRunsLoading((prev) => ({ ...prev, [agent.id]: false }));
+      }
     }
   };
 
@@ -752,6 +774,55 @@ export const AiApiHubView: React.FC = () => {
                     ) : agent.last_result ? (
                       <p className="line-clamp-2 text-xs text-[var(--product-text-tertiary)]">{agent.last_result}</p>
                     ) : null}
+                    {(agent.consecutive_failures || 0) > 0 && (
+                      <p className="text-xs text-amber-400">
+                        Consecutive failures: {agent.consecutive_failures} (auto-pauses at 5)
+                      </p>
+                    )}
+                    <div className="mt-2">
+                      <JXButton
+                        variant="text"
+                        color="neutral"
+                        size="sm"
+                        onClick={() => void handleToggleAgentRuns(agent)}
+                        startIcon={agentRunsOpen[agent.id] ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      >
+                        Recent runs
+                      </JXButton>
+                      {agentRunsOpen[agent.id] && (
+                        <div className="mt-2 space-y-2 rounded-lg border border-[var(--product-line)] bg-[var(--product-canvas)] p-3">
+                          {agentRunsLoading[agent.id] ? (
+                            <p className="text-xs text-[var(--product-text-tertiary)]">Loading runs…</p>
+                          ) : (agentRuns[agent.id] || []).length === 0 ? (
+                            <p className="text-xs text-[var(--product-text-tertiary)]">No runs yet.</p>
+                          ) : (
+                            <ul className="space-y-2">
+                              {(agentRuns[agent.id] || []).slice(0, 10).map((run: any) => (
+                                <li key={run.id} className="rounded border border-[var(--product-line)] p-2 text-xs">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <JXBadge
+                                      color={run.status === "completed" ? "success" : run.status === "failed" ? "warning" : "neutral"}
+                                      statusText={run.status}
+                                    />
+                                    <span className="text-[var(--product-text-tertiary)]">
+                                      {run.started_at ? new Date(run.started_at * 1000).toLocaleString() : ""}
+                                    </span>
+                                    {run.duration_ms != null && (
+                                      <span className="text-[var(--product-text-tertiary)]">{run.duration_ms} ms</span>
+                                    )}
+                                  </div>
+                                  {run.error ? (
+                                    <p className="mt-1 text-red-400">{run.error}</p>
+                                  ) : run.response ? (
+                                    <p className="mt-1 line-clamp-3 text-[var(--product-text-tertiary)]">{run.response}</p>
+                                  ) : null}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>

@@ -3,7 +3,8 @@
 Each agent binds a natural-language objective to an already-configured AI
 provider (or a custom OpenAI-compatible endpoint) and a set of enrolled
 devices. The runner executes every enabled agent on its own interval for as
-long as the control-plane process is alive, recording each run.
+long as the control-plane process is alive, recording each run and its
+tool actions in the main audit log alongside the per-agent run history.
 """
 from __future__ import annotations
 
@@ -28,6 +29,9 @@ MAX_INTERVAL_S = 86400
 RUNNER_TICK_S = 5.0
 MAX_CONCURRENT_RUNS = 2
 MAX_STEPS = 8
+MAX_CONSECUTIVE_FAILURES = 5
+RETRY_DELAY_S = 2.0
+DEVICE_ONLINE_WINDOW_S = 120.0
 
 ToolExecutor = Callable[[str, dict[str, Any], str | None, str, str], dict[str, Any]]
 
@@ -85,12 +89,29 @@ def _bound_devices(conn: Any, agent: dict[str, Any]) -> list[dict[str, Any]]:
     devices: list[dict[str, Any]] = []
     for device_id in device_ids:
         row = conn.execute(
-            "SELECT id, name, hostname, os, status FROM devices WHERE id=? AND revoked=0",
+            "SELECT id, name, hostname, os, status, last_seen FROM devices WHERE id=? AND revoked=0",
             (device_id,),
         ).fetchone()
         if row:
             devices.append(dict(row))
     return devices
+
+
+def _online_bound_devices(devices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    now = _now()
+    out: list[dict[str, Any]] = []
+    for d in devices:
+        status = str(d.get("status") or "").lower()
+        last_seen = d.get("last_seen")
+        if status == "online":
+            out.append(d)
+            continue
+        try:
+            if last_seen is not None and (now - float(last_seen)) <= DEVICE_ONLINE_WINDOW_S:
+                out.append(d)
+        except (TypeError, ValueError):
+            pass
+    return out
 
 
 def _resolve_device(devices: list[dict[str, Any]], requested: Any) -> str | None:
@@ -126,6 +147,20 @@ def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]]) -> str:
         "4. When the objective is satisfied, or it needs a human, reply in plain text "
         "starting with DONE and explain why."
     )
+
+
+def _is_transient_http_error(exc: Exception) -> bool:
+    code = getattr(exc, "code", None)
+    if code is None and isinstance(exc, urllib.error.HTTPError):
+        code = exc.code
+    if code is not None:
+        try:
+            c = int(code)
+            return c == 429 or 500 <= c < 600
+        except (TypeError, ValueError):
+            pass
+    # Transport-level failures are also worth one retry.
+    return isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError))
 
 
 def execute_agent(
@@ -179,14 +214,32 @@ def execute_agent(
             headers=headers,
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(request, timeout=90) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8") if exc.fp else str(exc)
-            raise RuntimeError(f"LLM provider returned HTTP {exc.code}: {detail[:300]}") from exc
-        except Exception as exc:  # noqa: BLE001 - surface transport failures to the run log
-            raise RuntimeError(f"Could not reach LLM provider at {base_url}: {exc}") from exc
+
+        body = None
+        last_exc: Exception | None = None
+        for attempt in range(2):  # initial + one retry for transient errors
+            try:
+                with urllib.request.urlopen(request, timeout=90) as response:
+                    body = json.loads(response.read().decode("utf-8"))
+                last_exc = None
+                break
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8") if exc.fp else str(exc)
+                last_exc = RuntimeError(f"LLM provider returned HTTP {exc.code}: {detail[:300]}")
+                if attempt == 0 and _is_transient_http_error(exc):
+                    time.sleep(RETRY_DELAY_S)
+                    continue
+                raise last_exc from exc
+            except Exception as exc:  # noqa: BLE001 - surface transport failures to the run log
+                last_exc = RuntimeError(f"Could not reach LLM provider at {base_url}: {exc}")
+                if attempt == 0 and _is_transient_http_error(exc):
+                    time.sleep(RETRY_DELAY_S)
+                    continue
+                raise last_exc from exc
+        if body is None:
+            if last_exc is not None:
+                raise last_exc
+            raise RuntimeError("Empty LLM response.")
 
         message = (body.get("choices") or [{}])[0].get("message") or {}
         tool_calls = message.get("tool_calls") or []
@@ -197,6 +250,7 @@ def execute_agent(
                 "response": message.get("content") or "",
                 "steps": steps,
                 "devices": [d["id"] for d in devices],
+                "actor": actor,
             }
 
         messages.append(message)
@@ -236,6 +290,7 @@ def execute_agent(
         "response": "Step limit reached before the objective completed.",
         "steps": steps,
         "devices": [d["id"] for d in devices],
+        "actor": actor,
     }
 
 
@@ -247,10 +302,14 @@ class AgentRunner:
         conn: Any,
         tool_executor: ToolExecutor,
         is_paused: Callable[[], bool] | None = None,
+        get_webhook_url: Callable[[], str] | None = None,
+        failure_notifier: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self._conn = conn
         self._tool_executor = tool_executor
         self._is_paused = is_paused
+        self._get_webhook_url = get_webhook_url
+        self._failure_notifier = failure_notifier
         self._running: set[str] = set()
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -298,9 +357,10 @@ class AgentRunner:
         agent_id = str(agent["id"])
         run_id = uuid.uuid4().hex[:16]
         started = _now()
+        tenant = str(agent.get("tenant") or "default")
         self._conn.execute(
             "INSERT INTO agent_runs (id, agent_id, tenant, status, started_at) VALUES (?,?,?,'running',?)",
-            (run_id, agent_id, str(agent.get("tenant") or "default"), started),
+            (run_id, agent_id, tenant, started),
         )
         self._conn.commit()
         try:
@@ -309,19 +369,83 @@ class AgentRunner:
                 self._conn.execute("UPDATE agent_runs SET status='skipped', finished_at=? WHERE id=?", (_now(), run_id))
                 self._conn.commit()
                 return
-            if not fresh["enabled"]:
+            fresh = dict(fresh)
+            if not fresh.get("enabled"):
                 self._conn.execute("UPDATE custom_agents SET status='paused' WHERE id=?", (agent_id,))
                 self._conn.execute("UPDATE agent_runs SET status='skipped', finished_at=? WHERE id=?", (_now(), run_id))
                 self._conn.commit()
                 return
 
-            result = execute_agent(self._conn, dict(fresh), self._tool_executor)
+            devices = _bound_devices(self._conn, fresh)
+            online = _online_bound_devices(devices)
+            if not online:
+                finished = _now()
+                reason = "Skipped: no bound device is online."
+                self._conn.execute(
+                    "UPDATE custom_agents SET status='idle', last_run_at=?, last_error=?, last_skip_reason=?, updated_at=? WHERE id=?",
+                    (finished, reason, reason, finished, agent_id),
+                )
+                self._conn.execute(
+                    "UPDATE agent_runs SET status='skipped', finished_at=?, duration_ms=?, error=? WHERE id=?",
+                    (finished, int((finished - started) * 1000), reason, run_id),
+                )
+                self._prune_runs(agent_id)
+                self._conn.commit()
+                return
+
+            # Reuse the full bound list for execution; online subset is only the gate.
+            result = execute_agent(self._conn, fresh, self._tool_executor)
             finished = _now()
             response_text = str(result.get("response") or "")
             steps = result.get("steps") or []
+            actor = str(result.get("actor") or f"agent:{fresh.get('name') or fresh.get('id')}")
+            model_used = str(result.get("model") or fresh.get("model") or "").strip() or "default"
+            provider_used = str(result.get("provider") or fresh.get("provider") or "").strip() or "unknown"
+            device_ids_json = fresh.get("device_ids_json")
+
+            # Audit each tool action.
+            for step in steps:
+                try:
+                    step_args = json.dumps(step.get("args"), default=str)
+                except Exception:
+                    step_args = str(step.get("args") or "")
+                try:
+                    step_result = json.dumps(step.get("result"), default=str)
+                except Exception:
+                    step_result = str(step.get("result") or "")
+                _audit(
+                    actor,
+                    str(step.get("device") or "") or "",
+                    str(step.get("tool") or "") or "",
+                    {"agent_id": agent_id, "agent_name": fresh.get("name"), "args": step_args[:2000]},
+                    "executed",
+                    step_result[:2000],
+                    tenant=tenant,
+                )
+
+            # Summary audit entry.
+            _audit(
+                actor,
+                "",
+                "custom_agent_run",
+                {"agent_id": agent_id, "agent_name": fresh.get("name"), "device_ids_json": device_ids_json},
+                "executed",
+                json.dumps(
+                    {
+                        "provider": provider_used,
+                        "model": model_used,
+                        "response": response_text[:2000],
+                        "step_count": len(steps),
+                        "duration_ms": int((finished - started) * 1000),
+                    },
+                    default=str,
+                ),
+                tenant=tenant,
+            )
+
             self._conn.execute(
                 "UPDATE custom_agents SET status='idle', last_run_at=?, last_result=?, last_error='', "
-                "run_count=run_count+1, updated_at=? WHERE id=?",
+                "last_skip_reason='', consecutive_failures=0, run_count=run_count+1, updated_at=? WHERE id=?",
                 (finished, response_text[:4000], finished, agent_id),
             )
             self._conn.execute(
@@ -333,16 +457,63 @@ class AgentRunner:
             self._conn.commit()
         except Exception as exc:  # noqa: BLE001 - record the failure and keep the schedule
             finished = _now()
-            self._conn.execute(
-                "UPDATE custom_agents SET status='error', last_run_at=?, last_error=?, updated_at=? WHERE id=?",
-                (finished, str(exc)[:1000], finished, agent_id),
+            actor = f"agent:{agent.get('name') or agent.get('id')}"
+            _audit(
+                actor,
+                "",
+                "custom_agent_run",
+                {"agent_id": agent_id, "agent_name": agent.get("name"), "device_ids_json": agent.get("device_ids_json")},
+                "rejected",
+                str(exc)[:2000],
+                tenant=tenant,
             )
+
+            # Consecutive-failure tracking + auto-pause.
+            try:
+                row = self._conn.execute(
+                    "SELECT consecutive_failures FROM custom_agents WHERE id=?", (agent_id,)
+                ).fetchone()
+                prev = int((dict(row).get("consecutive_failures") if row else 0) or 0)
+            except Exception:
+                prev = 0
+            failures = prev + 1
+            auto_paused = failures >= MAX_CONSECUTIVE_FAILURES
+
+            if auto_paused:
+                self._conn.execute(
+                    "UPDATE custom_agents SET status='paused', enabled=0, last_run_at=?, last_error=?, "
+                    "consecutive_failures=?, updated_at=? WHERE id=?",
+                    (finished, f"Auto-paused after {failures} consecutive failures: {str(exc)[:900]}", failures, finished, agent_id),
+                )
+            else:
+                self._conn.execute(
+                    "UPDATE custom_agents SET status='error', last_run_at=?, last_error=?, "
+                    "consecutive_failures=?, updated_at=? WHERE id=?",
+                    (finished, str(exc)[:1000], failures, finished, agent_id),
+                )
+
             self._conn.execute(
                 "UPDATE agent_runs SET status='failed', finished_at=?, duration_ms=?, error=? WHERE id=?",
                 (finished, int((finished - started) * 1000), str(exc)[:2000], run_id),
             )
             self._prune_runs(agent_id)
             self._conn.commit()
+
+            # Failure notification via webhook if configured.
+            try:
+                if self._failure_notifier is not None:
+                    self._failure_notifier(
+                        {
+                            "event": "agent_failed",
+                            "agent_id": agent_id,
+                            "agent_name": agent.get("name"),
+                            "error": str(exc)[:500],
+                            "consecutive_failures": failures,
+                            "auto_paused": auto_paused,
+                        }
+                    )
+            except Exception:
+                pass
         finally:
             with self._lock:
                 self._running.discard(agent_id)
@@ -355,69 +526,30 @@ class AgentRunner:
             (agent_id, agent_id),
         )
 
-
-class AgentIn(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    instruction: str = Field(min_length=1, max_length=8000)
-    provider: str = "openai"
-    model: str | None = None
-    base_url: str | None = None
-    device_ids: list[str] = Field(default_factory=list)
-    interval_seconds: int = DEFAULT_INTERVAL_S
-    enabled: bool = True
+    def _audit_helper(self) -> None:
+        pass
 
 
-class AgentPatch(BaseModel):
-    name: str | None = None
-    instruction: str | None = None
-    provider: str | None = None
-    model: str | None = None
-    base_url: str | None = None
-    device_ids: list[str] | None = None
-    interval_seconds: int | None = None
-    enabled: bool | None = None
+# Module-level audit indirection: routes install `audit` into app; runner needs it.
+# We resolve lazily from a module global set by install_custom_agent_routes.
+_AUDIT: Callable[..., None] | None = None
 
 
-def _serialize(conn: Any, agent: dict[str, Any]) -> dict[str, Any]:
-    out = dict(agent)
+def _audit(*args: Any, **kwargs: Any) -> None:
+    global _AUDIT
+    if _AUDIT is None:
+        # Try to import from app module state is not available; no-op.
+        return
     try:
-        device_ids = json.loads(out.pop("device_ids_json", "[]") or "[]")
+        _AUDIT(*args, **kwargs)
     except Exception:
-        device_ids = []
-    out["device_ids"] = device_ids
-    out["enabled"] = bool(out.get("enabled"))
-    devices = []
-    for device_id in device_ids:
-        row = conn.execute(
-            "SELECT id, name, hostname, os, status FROM devices WHERE id=?", (device_id,)
-        ).fetchone()
-        devices.append(dict(row) if row else {"id": device_id, "name": device_id, "status": "missing"})
-    out["devices"] = devices
-    return out
-
-
-def _validate(conn: Any, provider: str, base_url: str | None, device_ids: list[str]) -> None:
-    p = (provider or "").lower().strip()
-    if p not in PROVIDERS:
-        raise HTTPException(status_code=400, detail=f"Unknown provider '{provider}'.")
-    if p == "custom":
-        url = (base_url or _setting(conn, "ai_custom_base_url") or os.environ.get("AI_BRIDGE_CUSTOM_BASE_URL", "")).strip()
-        if not url:
-            raise HTTPException(status_code=400, detail="Custom AI needs a base URL. Connect it in AI providers first.")
-    elif p != "ollama" and not provider_key(conn, p):
-        raise HTTPException(
-            status_code=400,
-            detail=f"No API key is connected for {p}. Save one in AI providers before creating the agent.",
-        )
-    if not device_ids:
-        raise HTTPException(status_code=400, detail="Assign at least one device to the agent.")
-    for device_id in device_ids:
-        if not conn.execute("SELECT id FROM devices WHERE id=? AND revoked=0", (device_id,)).fetchone():
-            raise HTTPException(status_code=400, detail=f"Device not found: {device_id}")
+        pass
 
 
 def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: Any, runner: AgentRunner) -> None:
     """Register /api/agents CRUD, manual run and run-history endpoints."""
+    global _AUDIT
+    _AUDIT = audit
 
     @app.get("/api/agents")
     def list_agents(
@@ -489,8 +621,6 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
         provider = (body.provider or current["provider"]).lower().strip()
         base_url = body.base_url if body.base_url is not None else current.get("base_url")
         device_ids = body.device_ids if body.device_ids is not None else json.loads(current.get("device_ids_json") or "[]")
-        # Pausing/resuming or renaming must not require provider credentials to
-        # still be present; only re-validate when the binding itself changes.
         if body.provider is not None or body.base_url is not None or body.device_ids is not None:
             _validate(conn, provider, base_url, device_ids)
         interval = (
@@ -502,9 +632,12 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
         next_run = current["next_run_at"]
         if body.enabled is True and not current["enabled"]:
             next_run = _now()
+        # Reset failure counter on manual resume.
+        reset_failures = 0 if (body.enabled is True) else current.get("consecutive_failures", 0)
         conn.execute(
             "UPDATE custom_agents SET name=?, instruction=?, provider=?, model=?, base_url=?, "
-            "device_ids_json=?, interval_seconds=?, enabled=?, status=?, next_run_at=?, updated_at=? WHERE id=?",
+            "device_ids_json=?, interval_seconds=?, enabled=?, status=?, next_run_at=?, "
+            "consecutive_failures=?, updated_at=? WHERE id=?",
             (
                 (body.name or current["name"]).strip(),
                 (body.instruction or current["instruction"]).strip(),
@@ -516,6 +649,7 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
                 enabled,
                 "idle" if enabled else "paused",
                 next_run,
+                reset_failures,
                 _now(),
                 agent_id,
             ),
@@ -582,3 +716,63 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
                 item["steps"] = []
             out.append(item)
         return {"ok": True, "agent_id": agent_id, "runs": out}
+
+
+class AgentIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    instruction: str = Field(min_length=1, max_length=8000)
+    provider: str = "openai"
+    model: str | None = None
+    base_url: str | None = None
+    device_ids: list[str] = Field(default_factory=list)
+    interval_seconds: int = DEFAULT_INTERVAL_S
+    enabled: bool = True
+
+
+class AgentPatch(BaseModel):
+    name: str | None = None
+    instruction: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    base_url: str | None = None
+    device_ids: list[str] | None = None
+    interval_seconds: int | None = None
+    enabled: bool | None = None
+
+
+def _serialize(conn: Any, agent: dict[str, Any]) -> dict[str, Any]:
+    out = dict(agent)
+    try:
+        device_ids = json.loads(out.pop("device_ids_json", "[]") or "[]")
+    except Exception:
+        device_ids = []
+    out["device_ids"] = device_ids
+    out["enabled"] = bool(out.get("enabled"))
+    devices = []
+    for device_id in device_ids:
+        row = conn.execute(
+            "SELECT id, name, hostname, os, status FROM devices WHERE id=?", (device_id,)
+        ).fetchone()
+        devices.append(dict(row) if row else {"id": device_id, "name": device_id, "status": "missing"})
+    out["devices"] = devices
+    return out
+
+
+def _validate(conn: Any, provider: str, base_url: str | None, device_ids: list[str]) -> None:
+    p = (provider or "").lower().strip()
+    if p not in PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"Unknown provider '{provider}'.")
+    if p == "custom":
+        url = (base_url or _setting(conn, "ai_custom_base_url") or os.environ.get("AI_BRIDGE_CUSTOM_BASE_URL", "")).strip()
+        if not url:
+            raise HTTPException(status_code=400, detail="Custom AI needs a base URL. Connect it in AI providers first.")
+    elif p != "ollama" and not provider_key(conn, p):
+        raise HTTPException(
+            status_code=400,
+            detail=f"No API key is connected for {p}. Save one in AI providers before creating the agent.",
+        )
+    if not device_ids:
+        raise HTTPException(status_code=400, detail="Assign at least one device to the agent.")
+    for device_id in device_ids:
+        if not conn.execute("SELECT id FROM devices WHERE id=? AND revoked=0", (device_id,)).fetchone():
+            raise HTTPException(status_code=400, detail=f"Device not found: {device_id}")
