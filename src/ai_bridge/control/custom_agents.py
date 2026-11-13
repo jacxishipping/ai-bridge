@@ -20,7 +20,16 @@ from typing import Any, Callable
 from fastapi import Header, HTTPException
 from pydantic import BaseModel, Field
 
-from .ai_api import build_tool_specs
+from .ai_api import (
+    ANTHROPIC_VERSION,
+    _drop_images,
+    _extract_image,
+    _has_image_parts,
+    _image_user_message,
+    _post_anthropic,
+    _strip_image_fields,
+    build_tool_specs,
+)
 
 PROVIDERS = ("openai", "anthropic", "gemini", "groq", "deepseek", "ollama", "custom")
 DEFAULT_INTERVAL_S = 300
@@ -72,6 +81,7 @@ def resolve_llm(conn: Any, provider: str, model: str | None, base_url: str | Non
         return p, url, provider_key(conn, "custom"), resolved_model
 
     defaults = {
+        "anthropic": ("https://api.anthropic.com/v1", "claude-3-5-sonnet-20241022"),
         "groq": ("https://api.groq.com/openai/v1", "llama-3.1-70b-versatile"),
         "deepseek": ("https://api.deepseek.com/v1", "deepseek-chat"),
         "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-1.5-pro"),
@@ -146,8 +156,10 @@ def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]]) -> str:
         "Rules:\n"
         "1. Move the objective forward every cycle; do not repeat work already completed.\n"
         "2. Prefer read-only inspection before changes, and verify what you changed.\n"
-        "3. Stay inside the objective's scope and use only the bound devices.\n"
-        "4. When the objective is satisfied, or it needs a human, reply in plain text "
+        "3. For GUI work, call take_screenshot first and act on the returned image; "
+        "screenshot coordinates are native screen pixels.\n"
+        "4. Stay inside the objective's scope and use only the bound devices.\n"
+        "5. When the objective is satisfied, or it needs a human, reply in plain text "
         "starting with DONE and explain why."
     )
 
@@ -196,39 +208,51 @@ def execute_agent(
     steps: list[dict[str, Any]] = []
     tenant = str(agent.get("tenant") or "default")
     actor = f"agent:{agent.get('name') or agent.get('id')}"
+    vision_enabled = True
+    is_anthropic = provider == "anthropic"
 
     for _ in range(max(1, min(int(max_steps), 20))):
         headers = {"Content-Type": "application/json", "User-Agent": "AI-Bridge/0.3"}
-        if api_key:
+        if is_anthropic:
+            headers["x-api-key"] = api_key
+            headers["anthropic-version"] = ANTHROPIC_VERSION
+        elif api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         elif provider == "ollama":
             headers["Authorization"] = "Bearer ollama"
 
-        payload = {
-            "model": model,
-            "messages": messages,
-            "tools": tools_spec,
-            "tool_choice": "auto",
-            "temperature": 0.2,
-        }
-        request = urllib.request.Request(
-            f"{base_url}/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
-
-        body = None
+        message = None
         last_exc: Exception | None = None
-        for attempt in range(2):  # initial + one retry for transient errors
+        for attempt in range(2):  # initial + one retry (transient error or image fallback)
+            payload_messages = messages if vision_enabled else _drop_images(messages)
             try:
-                with urllib.request.urlopen(request, timeout=90) as response:
-                    body = json.loads(response.read().decode("utf-8"))
+                if is_anthropic:
+                    message = _post_anthropic(base_url, api_key, model, payload_messages, tools_spec, 0.2, timeout=90)
+                else:
+                    request = urllib.request.Request(
+                        f"{base_url}/chat/completions",
+                        data=json.dumps({
+                            "model": model,
+                            "messages": payload_messages,
+                            "tools": tools_spec,
+                            "tool_choice": "auto",
+                            "temperature": 0.2,
+                        }).encode("utf-8"),
+                        headers=headers,
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(request, timeout=90) as response:
+                        body = json.loads(response.read().decode("utf-8"))
+                    message = (body.get("choices") or [{}])[0].get("message") or {}
                 last_exc = None
                 break
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8") if exc.fp else str(exc)
                 last_exc = RuntimeError(f"LLM provider returned HTTP {exc.code}: {detail[:300]}")
+                if attempt == 0 and vision_enabled and _has_image_parts(messages):
+                    # Text-only model: retry without image parts.
+                    vision_enabled = False
+                    continue
                 if attempt == 0 and _is_transient_http_error(exc):
                     time.sleep(RETRY_DELAY_S)
                     continue
@@ -239,12 +263,11 @@ def execute_agent(
                     time.sleep(RETRY_DELAY_S)
                     continue
                 raise last_exc from exc
-        if body is None:
+        if message is None:
             if last_exc is not None:
                 raise last_exc
             raise RuntimeError("Empty LLM response.")
 
-        message = (body.get("choices") or [{}])[0].get("message") or {}
         tool_calls = message.get("tool_calls") or []
         if not tool_calls:
             return {
@@ -257,6 +280,7 @@ def execute_agent(
             }
 
         messages.append(message)
+        images: list[tuple[str, str, int | None, int | None, str]] = []
         for call in tool_calls:
             function = call.get("function") or {}
             tool_name = function.get("name") or ""
@@ -278,14 +302,19 @@ def execute_agent(
                     "result": result,
                 }
             )
+            image = _extract_image(result) if isinstance(result, dict) else None
+            if image:
+                images.append((image[0], image[1], image[2], image[3], tool_name))
             messages.append(
                 {
                     "role": "tool",
                     "tool_call_id": call.get("id"),
                     "name": tool_name,
-                    "content": json.dumps(result, default=str),
+                    "content": json.dumps(_strip_image_fields(result), default=str)[:20000],
                 }
             )
+        if images and vision_enabled:
+            messages.append(_image_user_message(images))
 
     return {
         "provider": provider,

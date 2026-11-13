@@ -29,6 +29,35 @@ from .policy import Policy, decide
 from .security import confined_path, is_secret_name, redact, workspace_root
 
 
+def _ensure_dpi_aware() -> None:
+    """Make this process per-monitor DPI aware on Windows.
+
+    Without this, GetSystemMetrics/ImageGrab report logical (scaled) pixels
+    while SetCursorPos expects physical pixels. On displays scaled above 100%
+    that mismatch makes every click land away from the pixel the model saw.
+    """
+    if platform.system() != "Windows":
+        return
+    try:
+        import ctypes
+
+        # PROCESS_PER_MONITOR_DPI_AWARE = 2 (Windows 8.1+); fall back to Vista API.
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
+_ensure_dpi_aware()
+
+# Scale of the most recent frame returned to a model (1.0 = native pixels).
+# interact_and_view_screen uses it to map coordinates from a scaled frame back
+# to physical screen pixels.
+LAST_FRAME_SCALE: float = 1.0
+
+
 def default_policy() -> Policy:
     s = get_settings()
     allowed_apps = frozenset(a.strip() for a in os.environ.get("AI_BRIDGE_ALLOWED_APPS", "").split(",") if a.strip())
@@ -200,15 +229,16 @@ def _grab_windows_desktop_fallback():
     return canvas
 
 def _encode_image_base64(shot) -> tuple[str, str]:
-    """Encode a PIL Image (or mock object) into compact base64 JPEG (or PNG fallback)."""
+    """Encode a PIL Image (or mock object) into compact base64 JPEG (or PNG fallback).
+
+    The image is intentionally encoded at its native size: models return click
+    coordinates in the pixel space of the image they were shown, and mouse tools
+    use physical screen pixels. Resizing here would silently offset every click.
+    """
     try:
         img = shot.convert("RGB") if hasattr(shot, "convert") else shot
-        w, h = img.size
-        if w > 1280 and hasattr(img, "resize"):
-            new_h = max(1, int(h * (1280 / w)))
-            img = img.resize((1280, new_h))
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=80, optimize=True)
+        img.save(buf, format="JPEG", quality=72, optimize=True)
         return base64.b64encode(buf.getvalue()).decode("ascii"), "image/jpeg"
     except Exception:
         return "", "image/png"
@@ -249,9 +279,13 @@ def capture_desktop_screenshot(*, approval_granted: bool = False, policy: Policy
         "size": [sw, sh],
         "width": sw,
         "height": sh,
+        "image_width": sw,
+        "image_height": sh,
         "active_window": active_win,
     }
     if b64:
+        global LAST_FRAME_SCALE
+        LAST_FRAME_SCALE = 1.0
         res["image_base64"] = b64
         res["mime_type"] = mime
     return res
@@ -1537,10 +1571,14 @@ def capture_desktop_frame(
     jpg_bytes = buf.getvalue()
     b64 = base64.b64encode(jpg_bytes).decode("ascii")
 
+    global LAST_FRAME_SCALE
+    LAST_FRAME_SCALE = (new_w / orig_w) if orig_w else 1.0
     return {
         "available": True,
         "width": new_w,
         "height": new_h,
+        "image_width": new_w,
+        "image_height": new_h,
         "orig_width": orig_w,
         "orig_height": orig_h,
         "scale": scale,

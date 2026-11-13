@@ -69,7 +69,7 @@ TOOL_CATALOG: dict[str, dict[str, Any]] = {
         },
     },
     "take_screenshot": {
-        "description": "Capture a screenshot of the primary desktop display on a Windows workstation or GUI device, returning JPEG base64 and screen dimensions.",
+        "description": "Capture the primary desktop display on a Windows workstation or GUI device. The screenshot is attached to the conversation as an image so you can inspect it; coordinates you read from it are native screen pixels.",
         "category": "desktop",
         "parameters": {
             "type": "object",
@@ -80,7 +80,7 @@ TOOL_CATALOG: dict[str, dict[str, Any]] = {
         },
     },
     "mouse_click": {
-        "description": "Click the mouse at specified (x, y) desktop coordinates on the target Windows machine.",
+        "description": "Click the mouse at (x, y) on the target Windows machine. Use coordinates read from the latest take_screenshot image; they are native screen pixels.",
         "category": "desktop",
         "parameters": {
             "type": "object",
@@ -531,6 +531,255 @@ TOOL_CATALOG["capture_desktop_screenshot"] = {
     **TOOL_CATALOG["take_screenshot"],
     "description": "Alias for take_screenshot: captures desktop display on target device.",
 }
+
+_IMAGE_FIELD_KEYS = ("image_base64", "base64_data", "screenshot")
+
+
+def _extract_image(res: Any) -> tuple[str, str, int | None, int | None] | None:
+    """Find a base64 screenshot in a tool result (local or remote task wrapper).
+
+    Returns (base64, mime, width, height) using the encoded image dimensions
+    when available. Handles results nested under a ``result`` key, which is how
+    remote device tasks are wrapped.
+    """
+    if not isinstance(res, dict):
+        return None
+    candidates: list[dict[str, Any]] = [res]
+    inner = res.get("result")
+    # Remote device tasks wrap the tool result one or two levels deep.
+    for _ in range(3):
+        if not isinstance(inner, dict):
+            break
+        candidates.append(inner)
+        inner = inner.get("result")
+    for node in candidates:
+        for key in _IMAGE_FIELD_KEYS:
+            raw = node.get(key)
+            if not raw or not isinstance(raw, str):
+                continue
+            b64 = raw
+            mime = str(node.get("mime_type") or res.get("mime_type") or "image/jpeg")
+            if b64.startswith("data:"):
+                header, _, b64 = b64.partition(",")
+                if ";base64" in header:
+                    mime = header[5:].split(";", 1)[0] or mime
+            if not b64.strip():
+                continue
+            width = node.get("image_width") or node.get("width") or node.get("orig_width")
+            height = node.get("image_height") or node.get("height") or node.get("orig_height")
+            try:
+                width = int(width) if width is not None else None
+                height = int(height) if height is not None else None
+            except (TypeError, ValueError):
+                width = height = None
+            return b64.strip(), mime, width, height
+    return None
+
+
+def _strip_image_fields(res: Any) -> Any:
+    """Remove base64 image payloads so tool text stays small for the model."""
+    if isinstance(res, dict):
+        return {
+            k: _strip_image_fields(v)
+            for k, v in res.items()
+            if k not in _IMAGE_FIELD_KEYS and k not in ("mime_type", "size_bytes")
+        }
+    if isinstance(res, list):
+        return [_strip_image_fields(v) for v in res]
+    return res
+
+
+def _drop_images(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return messages with image parts replaced by their text, for text-only models."""
+    cleaned: list[dict[str, Any]] = []
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, list):
+            texts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
+            msg = {**msg, "content": "\n".join(t for t in texts if t)}
+        cleaned.append(msg)
+    return cleaned
+
+
+def _has_image_parts(messages: list[dict[str, Any]]) -> bool:
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, list) and any(
+            isinstance(p, dict) and p.get("type") == "image_url" for p in content
+        ):
+            return True
+    return False
+
+
+ANTHROPIC_VERSION = "2023-06-01"
+
+
+def _anthropic_append(out: list[dict[str, Any]], role: str, parts: list[dict[str, Any]]) -> None:
+    """Append a message, merging with the previous one when roles repeat.
+
+    Anthropic requires alternating user/assistant turns, but our OpenAI-style
+    history can contain consecutive user messages (tool results followed by
+    screenshot images).
+    """
+    if out and out[-1]["role"] == role:
+        out[-1]["content"].extend(parts)
+    else:
+        out.append({"role": role, "content": parts})
+
+
+def _anthropic_request_body(
+    model: str,
+    messages: list[dict[str, Any]],
+    tools_spec: list[dict[str, Any]],
+    temperature: float = 0.2,
+    max_tokens: int = 4096,
+) -> dict[str, Any]:
+    """Translate OpenAI-style chat history + tool specs to the Messages API."""
+    system_parts: list[str] = []
+    converted: list[dict[str, Any]] = []
+    for msg in messages:
+        role = msg.get("role")
+        if role == "system":
+            if msg.get("content"):
+                system_parts.append(str(msg["content"]))
+            continue
+        if role == "tool":
+            _anthropic_append(converted, "user", [{
+                "type": "tool_result",
+                "tool_use_id": msg.get("tool_call_id"),
+                "content": msg.get("content") or "",
+            }])
+            continue
+        if role == "assistant":
+            parts: list[dict[str, Any]] = []
+            if msg.get("content"):
+                parts.append({"type": "text", "text": str(msg["content"])})
+            for tc in msg.get("tool_calls") or []:
+                fn = tc.get("function") or {}
+                try:
+                    args = json.loads(fn.get("arguments") or "{}")
+                except Exception:
+                    args = {}
+                parts.append({
+                    "type": "tool_use",
+                    "id": tc.get("id") or f"toolu_{uuid.uuid4().hex[:12]}",
+                    "name": fn.get("name") or "tool",
+                    "input": args if isinstance(args, dict) else {},
+                })
+            if parts:
+                _anthropic_append(converted, "assistant", parts)
+            continue
+        # user message: plain text or multimodal content parts
+        content = msg.get("content")
+        parts = []
+        if isinstance(content, str):
+            parts.append({"type": "text", "text": content})
+        else:
+            for part in content or []:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "text":
+                    parts.append({"type": "text", "text": part.get("text") or ""})
+                elif part.get("type") == "image_url":
+                    url = str((part.get("image_url") or {}).get("url") or "")
+                    header, _, b64 = url.partition(",")
+                    mime = "image/jpeg"
+                    if header.startswith("data:") and ";" in header:
+                        mime = header[5:].split(";", 1)[0] or mime
+                    if b64:
+                        parts.append({"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}})
+        if parts:
+            _anthropic_append(converted, "user", parts)
+
+    body: dict[str, Any] = {
+        "model": model,
+        "messages": converted,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    if system_parts:
+        body["system"] = "\n\n".join(system_parts)
+    if tools_spec:
+        body["tools"] = [
+            {
+                "name": (t.get("function") or {}).get("name") or "tool",
+                "description": (t.get("function") or {}).get("description") or "",
+                "input_schema": (t.get("function") or {}).get("parameters") or {"type": "object", "properties": {}},
+            }
+            for t in tools_spec
+        ]
+    return body
+
+
+def _anthropic_response_message(data: dict[str, Any]) -> dict[str, Any]:
+    """Convert a Messages API response into an OpenAI-style assistant message."""
+    texts: list[str] = []
+    tool_calls: list[dict[str, Any]] = []
+    for block in data.get("content") or []:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text":
+            texts.append(block.get("text") or "")
+        elif block.get("type") == "tool_use":
+            tool_calls.append({
+                "id": block.get("id"),
+                "type": "function",
+                "function": {
+                    "name": block.get("name"),
+                    "arguments": json.dumps(block.get("input") or {}),
+                },
+            })
+    message: dict[str, Any] = {"role": "assistant", "content": "\n".join(t for t in texts if t)}
+    if tool_calls:
+        message["tool_calls"] = tool_calls
+    return message
+
+
+def _post_anthropic(
+    base_url: str,
+    api_key: str,
+    model: str,
+    messages: list[dict[str, Any]],
+    tools_spec: list[dict[str, Any]],
+    temperature: float = 0.2,
+    timeout: int = 60,
+) -> dict[str, Any]:
+    """Call the native Anthropic Messages API and return an OpenAI-style message."""
+    request = urllib.request.Request(
+        f"{base_url.rstrip('/')}/messages",
+        data=json.dumps(_anthropic_request_body(model, messages, tools_spec, temperature)).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": ANTHROPIC_VERSION,
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return _anthropic_response_message(json.loads(response.read().decode("utf-8")))
+
+
+def _image_user_message(images: list[tuple[str, str, int | None, int | None, str]]) -> dict[str, Any]:
+    """Build an OpenAI-compatible user message carrying screenshots as image parts."""
+    parts: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": (
+                "The attached screenshot(s) show the current desktop. Coordinates are in "
+                "native screen pixels; describe what you see before acting."
+            ),
+        }
+    ]
+    for b64, mime, width, height, label in images:
+        if width and height:
+            parts.append({"type": "text", "text": f"{label}: {width}x{height} px"})
+        else:
+            parts.append({"type": "text", "text": f"{label}: screenshot"})
+        parts.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime};base64,{b64}", "detail": "high"},
+        })
+    return {"role": "user", "content": parts}
 
 
 def build_tool_specs(
@@ -1167,6 +1416,7 @@ def attach_ai_routes(
                     "https://api.groq.com/openai/v1" if provider == "groq"
                     else "https://api.deepseek.com/v1" if provider == "deepseek"
                     else "https://generativelanguage.googleapis.com/v1beta/openai" if provider == "gemini"
+                    else "https://api.anthropic.com/v1" if provider == "anthropic"
                     else "http://localhost:11434/v1" if provider == "ollama"
                     else "https://api.openai.com/v1"
                 )
@@ -1181,9 +1431,10 @@ def attach_ai_routes(
             f"{dev_list_str if dev_list_str else '- local (the AI Bridge host)'}\n\n"
             f"Guidelines:\n"
             f"1. To run terminal commands on Linux servers or workstations, use 'run_shell' with the appropriate device.\n"
-            f"2. To control Windows workstations with GUI automation, use 'take_screenshot', 'mouse_click', 'keyboard_type', etc.\n"
-            f"3. When you need to inspect, edit, or create files, use the file tools.\n"
-            f"4. Provide clear, concise summaries of your actions and results."
+            f"2. To control Windows workstations with GUI automation, first call 'take_screenshot' (or 'set_of_marks_screenshot'), inspect the returned image, then use 'mouse_click', 'keyboard_type', etc.\n"
+            f"3. Screenshot coordinates are native screen pixels. Click what you see in the latest image; never guess.\n"
+            f"4. When you need to inspect, edit, or create files, use the file tools.\n"
+            f"5. Provide clear, concise summaries of your actions and results."
         )
 
         # If custom provider is requested without base_url
@@ -1201,17 +1452,14 @@ def attach_ai_routes(
                 target = win_dev["name"] if win_dev else "local"
                 exec_in = AIExecuteIn(tool="take_screenshot", device=target, tenant=body.tenant)
                 res = await execute_ai_tool(exec_in, req, x_admin_token=x_admin_token, x_session_token=x_session_token)
-                screenshot_data = None
-                if isinstance(res, dict):
-                    inner = res.get("result", {})
-                    if isinstance(inner, dict) and inner.get("screenshot"):
-                        screenshot_data = inner.get("screenshot")
+                image = _extract_image(res) if isinstance(res, dict) else None
                 return {
                     "ok": True,
                     "provider": "smart-intent",
                     "response": f"Captured screenshot from {target}.",
                     "steps": [{"tool": "take_screenshot", "device": target, "result": res}],
-                    "screenshot": screenshot_data,
+                    "screenshot": image[0] if image else None,
+                    "screenshot_mime": image[1] if image else None,
                 }
 
             # Device list intent
@@ -1243,12 +1491,18 @@ def attach_ai_routes(
                 "hint": "You can also use /api/ai/execute to invoke any of the 49 device tools directly with zero configuration.",
             }
 
-        # Multi-turn autonomous tool execution loop with OpenAI-compatible API
+        # Multi-turn autonomous tool execution loop. Anthropic uses its native
+        # Messages API; every other provider is OpenAI-compatible.
         if not base_url:
-            base_url = "https://api.openai.com/v1"
+            base_url = "https://api.anthropic.com/v1" if provider == "anthropic" else "https://api.openai.com/v1"
         if not model:
-            model = "gpt-4o" if provider == "openai" else "default"
+            model = (
+                "gpt-4o" if provider == "openai"
+                else "claude-3-5-sonnet-20241022" if provider == "anthropic"
+                else "default"
+            )
 
+        is_anthropic = provider == "anthropic"
         tools_spec = build_tool_specs(tool_format="openai")
         messages = [
             {"role": "system", "content": system_prompt},
@@ -1256,42 +1510,62 @@ def attach_ai_routes(
         ]
         steps_taken = []
         max_steps = max(1, min(int(body.max_steps or 8), 20))
+        vision_enabled = True
 
         for step_idx in range(max_steps):
-            payload = {
-                "model": model,
-                "messages": messages,
-                "tools": tools_spec,
-                "tool_choice": "auto",
-                "temperature": body.temperature,
-            }
-
-            req_headers = {
-                "Content-Type": "application/json",
-            }
-            if api_key:
+            req_headers = {"Content-Type": "application/json"}
+            if is_anthropic:
+                req_headers["x-api-key"] = api_key or ""
+                req_headers["anthropic-version"] = ANTHROPIC_VERSION
+            elif api_key:
                 req_headers["Authorization"] = f"Bearer {api_key}"
             elif provider == "ollama":
                 req_headers["Authorization"] = "Bearer ollama"
 
-            req_obj = urllib.request.Request(
-                f"{base_url.rstrip('/')}/chat/completions",
-                data=json.dumps(payload).encode("utf-8"),
-                headers=req_headers,
-                method="POST",
-            )
+            def _post_llm(msgs: list[dict[str, Any]]) -> dict[str, Any]:
+                if is_anthropic:
+                    return _post_anthropic(base_url, api_key or "", model, msgs, tools_spec, body.temperature, timeout=90)
+                payload_obj = {
+                    "model": model,
+                    "messages": msgs,
+                    "tools": tools_spec,
+                    "tool_choice": "auto",
+                    "temperature": body.temperature,
+                }
+                request_obj = urllib.request.Request(
+                    f"{base_url.rstrip('/')}/chat/completions",
+                    data=json.dumps(payload_obj).encode("utf-8"),
+                    headers=req_headers,
+                    method="POST",
+                )
+                with urllib.request.urlopen(request_obj, timeout=60) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
 
             try:
-                with urllib.request.urlopen(req_obj, timeout=60) as resp:
-                    resp_data = json.loads(resp.read().decode("utf-8"))
+                resp_data = _post_llm(messages)
             except urllib.error.HTTPError as err:
                 err_text = err.read().decode("utf-8") if err.fp else str(err)
-                return JSONResponse(status_code=err.code, content={"ok": False, "error": f"LLM API error ({err.code}): {err_text}"})
+                # A text-only model rejects image parts. Retry once without them
+                # so screenshots never break the whole agent run.
+                if vision_enabled and _has_image_parts(messages):
+                    vision_enabled = False
+                    messages = _drop_images(messages)
+                    try:
+                        resp_data = _post_llm(messages)
+                    except urllib.error.HTTPError as retry_err:
+                        retry_text = retry_err.read().decode("utf-8") if retry_err.fp else str(retry_err)
+                        return JSONResponse(status_code=retry_err.code, content={"ok": False, "error": f"LLM API error ({retry_err.code}): {retry_text}"})
+                    except Exception as exc:
+                        return JSONResponse(status_code=502, content={"ok": False, "error": f"Could not reach LLM provider at {base_url}: {exc}"})
+                else:
+                    return JSONResponse(status_code=err.code, content={"ok": False, "error": f"LLM API error ({err.code}): {err_text}"})
             except Exception as exc:
                 return JSONResponse(status_code=502, content={"ok": False, "error": f"Could not reach LLM provider at {base_url}: {exc}"})
 
-            choice = resp_data.get("choices", [{}])[0]
-            message = choice.get("message", {})
+            if is_anthropic:
+                message = resp_data
+            else:
+                message = (resp_data.get("choices") or [{}])[0].get("message", {})
             tool_calls = message.get("tool_calls") or []
 
             # If no tool calls, model has produced the final answer
@@ -1308,7 +1582,10 @@ def attach_ai_routes(
             # Append assistant message with tool calls
             messages.append(message)
 
-            # Execute tool calls
+            # Execute tool calls. Screenshots are collected separately so they
+            # can be sent as real image parts (not base64 text) after every tool
+            # message, which keeps the OpenAI message ordering valid.
+            images: list[tuple[str, str, int | None, int | None, str]] = []
             for tc in tool_calls:
                 fn = tc.get("function", {})
                 t_name = fn.get("name")
@@ -1329,13 +1606,20 @@ def attach_ai_routes(
                     "result": exec_res,
                 })
 
-                # Append tool response message
+                image = _extract_image(exec_res) if isinstance(exec_res, dict) else None
+                if image:
+                    images.append((image[0], image[1], image[2], image[3], t_name))
+
+                # Text-only tool response: base64 stays out of the model context.
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.get("id"),
                     "name": t_name,
-                    "content": json.dumps(exec_res),
+                    "content": json.dumps(_strip_image_fields(exec_res), default=str)[:20000],
                 })
+
+            if images and vision_enabled:
+                messages.append(_image_user_message(images))
 
         return {
             "ok": True,
@@ -1617,20 +1901,16 @@ def attach_ai_routes(
         if isinstance(agent_res, Response):
             return agent_res
 
-        # Check if any step captured a screenshot
+        # Check if any step captured a screenshot (local or remote device result).
         screenshot_b64 = agent_res.get("screenshot")
+        screenshot_mime = agent_res.get("screenshot_mime") or "image/jpeg"
         steps = agent_res.get("steps", [])
         if not screenshot_b64:
             for st in steps:
-                res = st.get("result", {})
-                if isinstance(res, dict):
-                    inner = res.get("result", {})
-                    if isinstance(inner, dict) and "screenshot" in inner and inner["screenshot"]:
-                        screenshot_b64 = inner["screenshot"]
-                        break
-                    elif "screenshot" in res and res["screenshot"]:
-                        screenshot_b64 = res["screenshot"]
-                        break
+                image = _extract_image(st.get("result"))
+                if image:
+                    screenshot_b64, screenshot_mime = image[0], image[1]
+                    break
 
         resp_text = agent_res.get("response") or agent_res.get("error") or "Operation complete."
 
@@ -1643,6 +1923,7 @@ def attach_ai_routes(
             },
             "steps": steps,
             "screenshot": screenshot_b64,
+            "screenshot_mime": screenshot_mime,
             "provider": agent_res.get("provider"),
             "model": agent_res.get("model"),
         }

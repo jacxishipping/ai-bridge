@@ -665,6 +665,20 @@ def interact_and_view_screen(
 
     act = (action or "none").strip().lower()
     action_res: dict = {"action": act}
+
+    # The model sees the previous frame, which may have been scaled for
+    # streaming. Map those image coordinates back to physical screen pixels
+    # before injecting input.
+    try:
+        _frame_scale = float(getattr(tools, "LAST_FRAME_SCALE", 1.0) or 1.0)
+    except Exception:
+        _frame_scale = 1.0
+    if 0.05 < _frame_scale < 0.999:
+        if x is not None:
+            x = int(round(float(x) / _frame_scale))
+        if y is not None:
+            y = int(round(float(y) / _frame_scale))
+
     try:
         if act in ("click", "double_click", "right_click", "middle_click"):
             if x is None or y is None:

@@ -3719,8 +3719,15 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             raise HTTPException(status_code=404, detail="Task not found for this device.")
         if body.status not in {"completed", "failed", "cancelled", "timed_out"}:
             raise HTTPException(status_code=400, detail="Invalid result status.")
+        # Screenshot results carry base64 image data; truncating them would
+        # corrupt the image the model or dashboard receives.
+        result_cap = (
+            16_000_000
+            if task["tool"] in ("take_screenshot", "capture_desktop_screenshot", "capture_desktop_frame", "set_of_marks_screenshot")
+            else MAX_RESULT_CHARS
+        )
         conn.execute("UPDATE tasks SET status=?, result=?, updated_at=? WHERE id=?",
-                     (body.status, body.result[:MAX_RESULT_CHARS], dbmod.now(), task_id))
+                     (body.status, body.result[:result_cap], dbmod.now(), task_id))
         conn.commit()
         notify_tasks()
         if task["tool"] in ("capture_desktop_frame", "take_screenshot"):
