@@ -66,6 +66,11 @@ services:
       - oauth-gateway
     volumes:
       - aibridge-data:/var/lib/ai-bridge
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('127.0.0.1', 8001), 3); s.close()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
     networks:
       - aibridge-network
 
@@ -85,6 +90,11 @@ services:
     volumes:
       - ./deployment/oauth:/gateway:ro
       - aibridge-data:/var/lib/ai-bridge
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8002/.well-known/oauth-authorization-server > /dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
     networks:
       - aibridge-network
 
