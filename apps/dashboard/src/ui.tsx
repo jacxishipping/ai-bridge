@@ -10,11 +10,15 @@
  */
 import React, { useEffect, useId, useRef, useState } from "react";
 import {
-  JXBox, JXButton as Button, JXCard as Card, JXChip, JXTabs as Tabs, JXTextField as TextField,
+  JXAlert as Alert, JXBox, JXButton as Button, JXCard as Card, JXChip, JXTabs as Tabs, JXTextField as TextField,
 } from "@jacxishippingorg/jx-ui-react";
 import { X } from "lucide-react";
 
 export * from "@jacxishippingorg/jx-ui-react";
+
+export function JXAlert(props: React.ComponentProps<typeof Alert>) {
+  return <Alert {...props} technicalDetails={props.technicalDetails ?? ""} actionLabel={props.actionLabel ?? ""} />;
+}
 
 // v3.0's lockWidth forces every control to at least 180px, including icons and
 // controls in narrow grids. Use content sizing; loading labels remain explicit.

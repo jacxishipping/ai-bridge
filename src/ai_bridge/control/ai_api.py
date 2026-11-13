@@ -967,6 +967,14 @@ def mask_key(k: str) -> str:
     return f"{k[:7]}...{k[-4:]}"
 
 
+def _normalize_custom_base_url(raw_url: str | None) -> str:
+    url = (raw_url or "").strip().rstrip("/")
+    for suffix in ("/chat/completions", "/completions", "/models"):
+        if url.lower().endswith(suffix):
+            url = url[: -len(suffix)].rstrip("/")
+    return url
+
+
 def validate_llm_key(
     provider: str,
     api_key: str,
@@ -979,7 +987,7 @@ def validate_llm_key(
     if p == "ollama":
         return True, "Ollama local provider selected."
     if p == "custom":
-        url = (base_url or "").strip().rstrip("/")
+        url = _normalize_custom_base_url(base_url)
         if not url:
             return False, "Base URL is required for custom AI provider (e.g. https://openrouter.ai/api/v1)."
         if not (url.startswith("http://") or url.startswith("https://")):
@@ -989,6 +997,7 @@ def validate_llm_key(
         if key:
             headers["Authorization"] = f"Bearer {key}"
 
+        models_auth_error: str | None = None
         # 1. Probe /models
         try:
             req = urllib.request.Request(f"{url}/models", headers=headers)
@@ -997,16 +1006,16 @@ def validate_llm_key(
                     return True, "Custom AI endpoint verified successfully via /models."
         except urllib.error.HTTPError as err:
             if err.code in (401, 403):
-                err_msg = err.read().decode("utf-8") if err.fp else ""
-                return False, f"Custom AI endpoint rejected key (HTTP {err.code}): {err_msg[:160]}"
-            # If 404 or 405, continue to chat probe
-        except Exception as exc:
-            return False, f"Could not reach Custom AI endpoint at {url}: {exc}"
+                err_msg = err.read().decode("utf-8", errors="replace") if err.fp else ""
+                models_auth_error = f"Custom AI endpoint rejected key (HTTP {err.code}): {err_msg[:160]}"
+            # Continue to /chat/completions probe in case /models is not exposed
+        except Exception:
+            pass
 
         # 2. Probe /chat/completions
         try:
             test_payload = {
-                "model": model or "default",
+                "model": model or "gpt-4o-mini",
                 "messages": [{"role": "user", "content": "ping"}],
                 "max_tokens": 1,
             }
@@ -1020,13 +1029,17 @@ def validate_llm_key(
                 if 200 <= resp.status < 300:
                     return True, "Custom AI endpoint verified successfully via /chat/completions."
         except urllib.error.HTTPError as err:
-            err_msg = err.read().decode("utf-8") if err.fp else ""
+            err_msg = err.read().decode("utf-8", errors="replace") if err.fp else ""
             if err.code in (401, 403):
                 return False, f"Custom AI endpoint rejected key (HTTP {err.code}): {err_msg[:160]}"
-            if err.code in (400, 422):
+            if err.code in (400, 404, 422):
+                if models_auth_error and err.code == 404:
+                    return False, models_auth_error
                 return True, "Custom AI endpoint reached and authenticated."
             return False, f"Custom AI endpoint returned HTTP {err.code}: {err_msg[:160]}"
         except Exception as exc:
+            if models_auth_error:
+                return False, models_auth_error
             return False, f"Could not reach Custom AI endpoint at {url}: {exc}"
 
         return True, "Custom AI endpoint connection configured."
@@ -1403,14 +1416,14 @@ def attach_ai_routes(
                 if def_m and def_m["value"]:
                     model = str(def_m["value"]).strip()
 
-        base_url = body.base_url
+        base_url = _normalize_custom_base_url(body.base_url) if provider == "custom" and body.base_url else body.base_url
         if not base_url:
             if provider == "custom":
                 custom_u = conn.execute("SELECT value FROM settings WHERE key='ai_custom_base_url'").fetchone()
                 if custom_u and custom_u["value"]:
-                    base_url = str(custom_u["value"]).strip()
+                    base_url = _normalize_custom_base_url(str(custom_u["value"]))
                 if not base_url:
-                    base_url = os.environ.get("AI_BRIDGE_CUSTOM_BASE_URL", "")
+                    base_url = _normalize_custom_base_url(os.environ.get("AI_BRIDGE_CUSTOM_BASE_URL", ""))
             else:
                 base_url = (
                     "https://api.groq.com/openai/v1" if provider == "groq"
@@ -1804,7 +1817,14 @@ def attach_ai_routes(
         actor, role = _resolve_auth(req, x_admin_token, x_session_token)
         p = body.provider.lower().strip()
         m = (body.model or "").strip()
-        base_u = (body.base_url or "").strip()
+        base_u = _normalize_custom_base_url(body.base_url) if p == "custom" else (body.base_url or "").strip()
+
+        def _upsert_setting(k: str, v: str) -> None:
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                (k, v),
+            )
 
         if body.clear:
             conn.execute("DELETE FROM settings WHERE key=?", (f"ai_{p}_key",))
@@ -1816,30 +1836,38 @@ def attach_ai_routes(
             return {"ok": True, "message": f"Cleared settings and API key for {p.capitalize()}."}
 
         key = (body.api_key or "").strip()
+        if not key:
+            existing_key = conn.execute("SELECT value FROM settings WHERE key=?", (f"ai_{p}_key",)).fetchone()
+            if existing_key and existing_key["value"]:
+                key = str(existing_key["value"]).strip()
+
         if p not in ("ollama", "custom") and not key:
             raise HTTPException(status_code=400, detail="API key is required.")
         if p == "custom" and not base_u:
             existing_url = conn.execute("SELECT value FROM settings WHERE key='ai_custom_base_url'").fetchone()
             if not existing_url or not existing_url["value"]:
                 raise HTTPException(status_code=400, detail="Base URL is required for custom AI provider (e.g. https://openrouter.ai/api/v1).")
-            base_u = str(existing_url["value"]).strip()
+            base_u = _normalize_custom_base_url(str(existing_url["value"]))
 
         if body.test_connection:
             valid, msg = validate_llm_key(p, key, base_url=base_u, model=m)
             if not valid:
                 raise HTTPException(status_code=400, detail=msg)
 
-        if key:
-            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (f"ai_{p}_key", key))
-        if p == "custom" and base_u:
-            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_custom_base_url', ?)", (base_u,))
-            if m:
-                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_custom_model', ?)", (m,))
+        try:
+            if key:
+                _upsert_setting(f"ai_{p}_key", key)
+            if p == "custom" and base_u:
+                _upsert_setting("ai_custom_base_url", base_u)
+                if m:
+                    _upsert_setting("ai_custom_model", m)
 
-        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_default_provider', ?)", (p,))
-        if m:
-            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_default_model', ?)", (m,))
-        conn.commit()
+            _upsert_setting("ai_default_provider", p)
+            if m:
+                _upsert_setting("ai_default_model", m)
+            conn.commit()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Could not persist AI provider settings: {exc}") from exc
 
         audit(actor, "", f"set_ai_key_{p}", {"model": m, "base_url": base_u}, "allowed")
         return {

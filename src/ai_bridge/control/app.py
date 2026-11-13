@@ -3116,7 +3116,11 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         url = (body.webhook_url or "").strip()
         if url:
             _validate_webhook_url(url)
-        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('webhook_url', ?)", (url,))
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('webhook_url', ?) "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (url,),
+        )
         conn.commit()
         audit(actor, "", "set_webhook", {"configured": bool(url)}, "allowed")
         return {"webhook_url": url, "configured": bool(url)}

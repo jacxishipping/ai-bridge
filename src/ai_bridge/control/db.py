@@ -12,6 +12,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -127,7 +128,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent_id, started_
 
 
 def to_pg_sql(sql: str) -> str:
-    """Translate SQLite '?' parameter placeholders to PostgreSQL '%s' placeholders."""
+    """Translate SQLite '?' parameter placeholders and upsert syntax to PostgreSQL."""
     parts = []
     in_single = False
     in_double = False
@@ -146,7 +147,26 @@ def to_pg_sql(sql: str) -> str:
         else:
             parts.append(ch)
         i += 1
-    return "".join(parts)
+    out = "".join(parts)
+    if re.search(r"\bINSERT\s+OR\s+REPLACE\s+INTO\s+settings\b", out, flags=re.IGNORECASE):
+        out = re.sub(
+            r"\bINSERT\s+OR\s+REPLACE\s+INTO\s+settings\b",
+            "INSERT INTO settings",
+            out,
+            flags=re.IGNORECASE,
+        ).rstrip().rstrip(";")
+        if "ON CONFLICT" not in out.upper():
+            out += " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+    elif re.search(r"\bINSERT\s+OR\s+IGNORE\s+INTO\b", out, flags=re.IGNORECASE):
+        out = re.sub(
+            r"\bINSERT\s+OR\s+IGNORE\s+INTO\b",
+            "INSERT INTO",
+            out,
+            flags=re.IGNORECASE,
+        ).rstrip().rstrip(";")
+        if "ON CONFLICT" not in out.upper():
+            out += " ON CONFLICT DO NOTHING"
+    return out
 
 
 class RowDict(dict):
@@ -244,27 +264,44 @@ class PostgresConnection:
                 self._conn.rollback()
                 raise
 
+    def _ensure_conn(self) -> None:
+        if getattr(self._conn, "closed", False):
+            import psycopg
+            self._conn = psycopg.connect(self.dsn, autocommit=False)
+
     def execute(self, sql: str, parameters: tuple | list = ()) -> _LockedResult:
         with self._lock:
+            self._ensure_conn()
             pg_sql = to_pg_sql(sql)
             cur = self._conn.cursor()
-            cur.execute(pg_sql, parameters)
-            if cur.description:
-                cols = [desc[0] for desc in cur.description]
-                raw_rows = cur.fetchall()
-                rows = [RowDict(dict(zip(cols, r)), cols) for r in raw_rows]
-            else:
-                rows = []
-            return _LockedResult(rows, cur.rowcount, getattr(cur, "lastrowid", None))
+            try:
+                cur.execute(pg_sql, parameters)
+                if cur.description:
+                    cols = [desc[0] for desc in cur.description]
+                    raw_rows = cur.fetchall()
+                    rows = [RowDict(dict(zip(cols, r)), cols) for r in raw_rows]
+                else:
+                    rows = []
+                return _LockedResult(rows, cur.rowcount, getattr(cur, "lastrowid", None))
+            except Exception:
+                with contextlib.suppress(Exception):
+                    self._conn.rollback()
+                raise
 
     def executescript(self, sql_script: str):
         with self._lock:
+            self._ensure_conn()
             cur = self._conn.cursor()
-            for stmt in sql_script.split(";"):
-                s = stmt.strip()
-                if s:
-                    cur.execute(s)
-            self._conn.commit()
+            try:
+                for stmt in sql_script.split(";"):
+                    s = stmt.strip()
+                    if s:
+                        cur.execute(s)
+                self._conn.commit()
+            except Exception:
+                with contextlib.suppress(Exception):
+                    self._conn.rollback()
+                raise
 
     def commit(self) -> None:
         with self._lock:

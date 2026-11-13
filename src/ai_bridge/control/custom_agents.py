@@ -26,6 +26,7 @@ from .ai_api import (
     _extract_image,
     _has_image_parts,
     _image_user_message,
+    _normalize_custom_base_url,
     _post_anthropic,
     _strip_image_fields,
     build_tool_specs,
@@ -70,11 +71,11 @@ def resolve_llm(conn: Any, provider: str, model: str | None, base_url: str | Non
     if p not in PROVIDERS:
         raise RuntimeError(f"Unsupported AI provider: {provider}")
     if p == "custom":
-        url = (
+        url = _normalize_custom_base_url(
             base_url
             or _setting(conn, "ai_custom_base_url")
             or os.environ.get("AI_BRIDGE_CUSTOM_BASE_URL", "")
-        ).rstrip("/")
+        )
         if not url:
             raise RuntimeError("Custom AI provider needs a base URL.")
         resolved_model = (model or _setting(conn, "ai_custom_model") or "default").strip()
