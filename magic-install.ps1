@@ -134,59 +134,116 @@ Write-Host "[INFO] Detected OS: $($OS.Caption) ($Arch)" -ForegroundColor Cyan
 Write-Host "[INFO] Target Install Directory: $InstallDir" -ForegroundColor Cyan
 
 # --- 2. Check / Install Python ---
-function Ensure-Python {
-    Write-Host "[CHECK] Checking for Python 3.11+..." -ForegroundColor Cyan
-    $PythonExe = $null
+# Only 3.12-3.14 are exercised with the Windows agent, so pick a tested minor
+# explicitly: 'py -3' resolves to the newest installed build (3.15 here) and
+# would silently provision an untested interpreter.
+$SupportedPythons = @("3.12", "3.13", "3.14")
 
-    # Check PATH
+function Get-PythonMinor {
+    param([string]$Exe, [string[]]$Prefix = @())
     try {
-        $ver = python --version 2>&1
-        if ($ver -match "Python 3\.(1[0-9]|[2-9][0-9])") {
-            $PythonExe = (Get-Command python).Source
+        $probe = @()
+        if ($Prefix) { $probe += $Prefix }
+        $probe += @("-c", "import sys; print('%d.%d' % sys.version_info[:2])")
+        $out = & $Exe @probe 2>$null
+        if ($LASTEXITCODE -eq 0 -and $out) {
+            $line = @($out | Where-Object { $_ } | Select-Object -Last 1)
+            if ($line.Count -gt 0) { return $line[0].ToString().Trim() }
         }
-    } catch {}
+    } catch { }
+    return $null
+}
 
-    # Check common locations
-    if (-not $PythonExe) {
-        $candidates = @(
-            "$env:ProgramFiles\Python312\python.exe",
-            "$env:ProgramFiles\Python313\python.exe",
-            "$env:ProgramFiles\Python311\python.exe",
-            "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe",
-            "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
-            "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe"
-        )
-        foreach ($c in $candidates) {
-            if (Test-Path $c) {
-                $PythonExe = $c
-                break
+function Get-DetectedPythonMinors {
+    $seen = @()
+    $launcher = Get-Command py.exe -ErrorAction SilentlyContinue
+    if ($launcher) {
+        try {
+            foreach ($line in (& $launcher.Source -0 2>$null)) {
+                if ($line -match '-V:(\d+\.\d+)') { $seen += $Matches[1] }
+            }
+        } catch { }
+    }
+    return $seen
+}
+
+function Find-SupportedPython {
+    $launcher = Get-Command py.exe -ErrorAction SilentlyContinue
+    foreach ($minor in $SupportedPythons) {
+        if ($launcher) {
+            $probe = @("-$minor", "-c", "import sys; print('%d.%d' % sys.version_info[:2]); print(sys.executable)")
+            $out = & $launcher.Source @probe 2>$null
+            if ($LASTEXITCODE -eq 0 -and $out) {
+                $lines = @($out | Where-Object { $_ })
+                if ($lines.Count -ge 2 -and $lines[0].ToString().Trim() -eq $minor) {
+                    return [pscustomobject]@{ Minor = $minor; Path = $lines[-1].ToString().Trim() }
+                }
+            }
+        }
+        $tag = "Python" + ($minor -replace '\.', '')
+        $candidates = @()
+        if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles "$tag\python.exe") }
+        if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA "Programs\Python\$tag\python.exe") }
+        foreach ($exe in $candidates) {
+            if ((Test-Path $exe) -and ((Get-PythonMinor -Exe $exe) -eq $minor)) {
+                return [pscustomobject]@{ Minor = $minor; Path = $exe }
             }
         }
     }
+    foreach ($name in @("python.exe", "python3.exe")) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($cmd) {
+            $minor = Get-PythonMinor -Exe $cmd.Source
+            if ($SupportedPythons -contains $minor) {
+                return [pscustomobject]@{ Minor = $minor; Path = $cmd.Source }
+            }
+        }
+    }
+    return $null
+}
 
-    if ($PythonExe) {
-        Write-Host "[OK] Python detected at: $PythonExe" -ForegroundColor Green
-        return $PythonExe
+function Ensure-Python {
+    Write-Host "[CHECK] Checking for a supported Python (3.12, 3.13 or 3.14)..." -ForegroundColor Cyan
+    $found = Find-SupportedPython
+    if ($found) {
+        Write-Host "[OK] Python $($found.Minor) detected at: $($found.Path)" -ForegroundColor Green
+        return $found.Path
     }
 
-    Write-Host "[INSTALL] Python not found. Downloading Python 3.12 official installer..." -ForegroundColor Yellow
-    $pyUrl = "https://www.python.org/ftp/python/3.12.7/python-3.12.7-amd64.exe"
-    $pyInstaller = "$env:TEMP\python-3.12.7-installer.exe"
-    Invoke-WebRequest -Uri $pyUrl -OutFile $pyInstaller -UseBasicParsing
-
-    Write-Host "[INSTALL] Installing Python 3.12 silently (all users, PATH configured)..." -ForegroundColor Yellow
-    Start-Process -FilePath $pyInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait
-    Remove-Item $pyInstaller -Force -ErrorAction SilentlyContinue
-
-    # Refresh PATH environment
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-    $PythonExe = "$env:ProgramFiles\Python312\python.exe"
-    if (-not (Test-Path $PythonExe)) {
-        $PythonExe = (Get-Command python -ErrorAction SilentlyContinue)?.Source
+    # Nothing supported on this machine: install 3.12, a tested build. A newer
+    # interpreter that happens to be present is deliberately not used.
+    Write-Host "[INSTALL] No supported Python found. Downloading Python 3.12 official installer..." -ForegroundColor Yellow
+    $installError = ""
+    try {
+        $pyUrl = "https://www.python.org/ftp/python/3.12.7/python-3.12.7-amd64.exe"
+        $pyInstaller = "$env:TEMP\python-3.12.7-installer.exe"
+        Invoke-WebRequest -Uri $pyUrl -OutFile $pyInstaller -UseBasicParsing
+        Write-Host "[INSTALL] Installing Python 3.12 silently (all users, PATH configured)..." -ForegroundColor Yellow
+        Start-Process -FilePath $pyInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait
+        Remove-Item $pyInstaller -Force -ErrorAction SilentlyContinue
+        # Refresh PATH environment
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    } catch {
+        $installError = $_.Exception.Message
     }
 
-    Write-Host "[OK] Python 3.12 installed successfully." -ForegroundColor Green
-    return $PythonExe
+    $found = Find-SupportedPython
+    if ($found) {
+        Write-Host "[OK] Python $($found.Minor) installed at: $($found.Path)" -ForegroundColor Green
+        return $found.Path
+    }
+
+    $seen = Get-DetectedPythonMinors
+    $seenText = if ($seen.Count -gt 0) { $seen -join ", " } else { "none detected" }
+    Write-Host "[FAIL] No supported Python interpreter (3.12, 3.13 or 3.14) is available." -ForegroundColor Red
+    Write-Host "       Installed versions seen: $seenText" -ForegroundColor Red
+    Write-Host "       'py -3' would silently pick the newest build, which is not tested, so this refuses to guess." -ForegroundColor Red
+    Write-Host "       Install Python 3.12 from https://www.python.org/downloads/windows/ and rerun." -ForegroundColor Red
+    if ($installError) {
+        Write-Host "       Automatic install failed: $installError" -ForegroundColor Red
+    }
+    Invoke-AiBridgeDiagnose -Reason "No supported Python (3.12-3.14) found; installed: $seenText" -RepoRoot $InstallDir
+    exit 1
 }
 
 # --- 3. Check / Install Git ---
@@ -220,7 +277,8 @@ Ensure-Git
 Write-Host "[PROVISION] Deploying AI Bridge codebase to $InstallDir..." -ForegroundColor Cyan
 $CurrentDir = $PSScriptRoot
 if ((Test-Path "$CurrentDir\pyproject.toml") -and (Test-Path "$CurrentDir\src\ai_bridge")) {
-    if ((Resolve-Path $CurrentDir).Path -ne (Resolve-Path $InstallDir -ErrorAction SilentlyContinue)?.Path) {
+    $installResolved = Resolve-Path $InstallDir -ErrorAction SilentlyContinue
+    if (-not $installResolved -or (Resolve-Path $CurrentDir).Path -ne $installResolved.Path) {
         New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
         Copy-Item -Path "$CurrentDir\*" -Destination $InstallDir -Recurse -Force
     }
