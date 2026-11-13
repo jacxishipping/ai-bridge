@@ -13,10 +13,12 @@ Autonomous Agent Architecture v1.0:
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import threading
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 try:

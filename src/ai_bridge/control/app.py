@@ -2533,6 +2533,10 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         x_session_token: str | None = Header(default=None),
     ):
         require_role("viewer", x_admin_token, x_session_token)
+        return _fetch_desktop_frame(device_id, scale, quality)
+
+    def _fetch_desktop_frame(device_id: str, scale: float, quality: int) -> dict:
+        """Capture (or return a fresh cached) desktop frame. Caller must authorize."""
         eff_p = Policy(allow_tier3=True, desktop_enabled=True, max_tier_unattended=4)
 
         if device_id == "local":
@@ -2584,13 +2588,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         admin_tok = x_admin_token or token
         sess_tok = x_session_token or session_token
         require_role("viewer", admin_tok, sess_tok, authorization)
-        frame = get_device_desktop_frame(
-            device_id=device_id,
-            scale=scale,
-            quality=quality,
-            x_admin_token=admin_tok,
-            x_session_token=sess_tok,
-        )
+        frame = _fetch_desktop_frame(device_id, scale, quality)
         if not isinstance(frame, dict) or not frame.get("base64_data"):
             raise HTTPException(status_code=404, detail=frame.get("error") if isinstance(frame, dict) else "No desktop frame available.")
         raw_bytes = base64.b64decode(frame["base64_data"])
@@ -3075,7 +3073,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         return b_res
 
     @app.post("/api/devices/{device_id}/update")
-    def update_device(
+    def update_device_agent(
         device_id: str,
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
