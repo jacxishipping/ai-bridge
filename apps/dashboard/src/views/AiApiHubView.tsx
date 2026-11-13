@@ -4,9 +4,10 @@
  * ZERO inline styles. ZERO custom CSS.
  */
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
+  JXAlert,
   JXCard,
   JXCardHeader,
   JXCardContent,
@@ -37,6 +38,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { useDashboardStore } from "../state/dashboardStore";
+import { api, sessionToken, token } from "../api";
 
 interface ProviderConnector {
   id: string;
@@ -48,6 +50,32 @@ interface ProviderConnector {
   keyMasked: string;
   endpoint: string;
   isPinging?: boolean;
+}
+
+interface AiSettingsResponse {
+  provider: string;
+  model: string;
+  keys_configured: Record<string, boolean>;
+  masked_keys: Record<string, string>;
+  custom_base_url: string;
+  custom_model: string;
+  is_connected: boolean;
+}
+
+// Backend accepts these through /api/settings/ai; "custom" is any
+// OpenAI-compatible endpoint (OpenRouter, LiteLLM, vLLM, LM Studio...).
+const AI_PROVIDER_OPTIONS = [
+  { id: "custom", label: "Custom AI (OpenAI-compatible)" },
+  { id: "openai", label: "OpenAI" },
+  { id: "anthropic", label: "Anthropic Claude" },
+  { id: "gemini", label: "Google Gemini" },
+  { id: "groq", label: "Groq" },
+  { id: "deepseek", label: "DeepSeek" },
+  { id: "ollama", label: "Ollama / local" },
+];
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 const SDK_SNIPPETS = {
@@ -198,6 +226,82 @@ export const AiApiHubView: React.FC = () => {
     output: Record<string, unknown>;
   } | null>(null);
 
+  // Live provider settings: the provider cards above are demo data, so this
+  // panel is how a real key or self-hosted endpoint gets connected.
+  const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
+  const [aiSettings, setAiSettings] = useState<AiSettingsResponse | null>(null);
+  const [aiProvider, setAiProvider] = useState("custom");
+  const [aiModel, setAiModel] = useState("");
+  const [aiBaseUrl, setAiBaseUrl] = useState("");
+  const [aiApiKey, setAiApiKey] = useState("");
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiClearing, setAiClearing] = useState(false);
+  const [aiNotice, setAiNotice] = useState<{ severity: "success" | "error" | "info"; text: string } | null>(null);
+
+  const loadAiSettings = async (): Promise<void> => {
+    if (!isLive) return;
+    try {
+      const settings = (await api.getAiSettings()) as AiSettingsResponse;
+      setAiSettings(settings);
+      if (settings.provider) setAiProvider(settings.provider);
+      if (settings.provider === "custom") {
+        setAiModel(settings.custom_model || settings.model || "");
+        setAiBaseUrl(settings.custom_base_url || "");
+      } else {
+        setAiModel(settings.model || "");
+      }
+    } catch (error) {
+      setAiNotice({ severity: "error", text: describeError(error) });
+    }
+  };
+
+  useEffect(() => {
+    void loadAiSettings();
+    // Reload only when the sign-in state changes; the endpoint is admin-only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLive]);
+
+  const handleSaveAi = async (): Promise<void> => {
+    if (aiProvider === "custom" && !aiBaseUrl.trim()) {
+      setAiNotice({ severity: "error", text: "A base URL is required for a custom AI provider, e.g. https://openrouter.ai/api/v1" });
+      return;
+    }
+    setAiSaving(true);
+    setAiNotice(null);
+    try {
+      const result = await api.saveAiSettings({
+        provider: aiProvider,
+        model: aiModel.trim() || undefined,
+        api_key: aiApiKey.trim() || undefined,
+        base_url: aiProvider === "custom" ? aiBaseUrl.trim() : undefined,
+        test_connection: true,
+      });
+      setAiNotice({ severity: "success", text: result?.message || "AI provider connected." });
+      setAiApiKey("");
+      await loadAiSettings();
+    } catch (error) {
+      const text = describeError(error);
+      setAiNotice({ severity: "error", text });
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const handleClearAi = async (): Promise<void> => {
+    setAiClearing(true);
+    setAiNotice(null);
+    try {
+      const result = await api.saveAiSettings({ provider: aiProvider, clear: true });
+      setAiNotice({ severity: "success", text: result?.message || "Provider settings cleared." });
+      setAiApiKey("");
+      await loadAiSettings();
+    } catch (error) {
+      setAiNotice({ severity: "error", text: describeError(error) });
+    } finally {
+      setAiClearing(false);
+    }
+  };
+
   const handlePing = (providerId: string) => {
     setProviders((prev) =>
       prev.map((p) => (p.id === providerId ? { ...p, isPinging: true } : p))
@@ -261,6 +365,124 @@ export const AiApiHubView: React.FC = () => {
             <h2 className="text-base font-semibold text-[var(--product-text)]">Providers</h2>
           </div>
         </div>
+
+        <JXCard>
+          <JXCardHeader
+            title="Connect your AI"
+            subheader="Connect a provider key or any OpenAI-compatible endpoint. The key is stored on the server and only ever shown masked here."
+            icon={<KeyRound className="w-4 h-4" />}
+          />
+          <JXCardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <JXSelect
+                label="Provider"
+                options={AI_PROVIDER_OPTIONS}
+                value={aiProvider}
+                onChange={(value) => {
+                  setAiProvider(value);
+                  if (value === "custom") {
+                    setAiBaseUrl(aiSettings?.custom_base_url || "");
+                    setAiModel(aiSettings?.custom_model || "");
+                  }
+                }}
+              />
+              <JXTextField
+                label="Model"
+                value={aiModel}
+                onChange={setAiModel}
+                placeholder="gpt-4o-mini, claude-3-5-sonnet, llama3.1:8b"
+              />
+              {aiProvider === "custom" && (
+                <div className="md:col-span-2">
+                  <JXTextField
+                    label="Base URL"
+                    value={aiBaseUrl}
+                    onChange={setAiBaseUrl}
+                    placeholder="https://openrouter.ai/api/v1"
+                  />
+                </div>
+              )}
+              <div className="md:col-span-2">
+                <JXTextField
+                  label="API key"
+                  type="password"
+                  value={aiApiKey}
+                  onChange={setAiApiKey}
+                  clearable={false}
+                  placeholder={
+                    aiSettings?.masked_keys?.[aiProvider]
+                    || (aiProvider === "ollama" ? "Not required for local Ollama" : "Paste the provider API key")
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--product-text-tertiary)]">
+              <JXBadge
+                color={aiSettings?.is_connected ? "success" : "neutral"}
+                statusText={aiSettings?.is_connected ? "Connected" : "Not connected"}
+              />
+              <span>
+                {aiSettings
+                  ? `Active: ${aiSettings.provider}${aiSettings.model ? ` \u00b7 ${aiSettings.model}` : ""}`
+                  : "Provider settings unavailable"}
+              </span>
+              {aiSettings?.masked_keys?.[aiSettings.provider] && (
+                <code className="font-mono">{aiSettings.masked_keys[aiSettings.provider]}</code>
+              )}
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <JXButton
+                variant="contained"
+                color="primary"
+                size="md"
+                loading={aiSaving}
+                disabled={!isLive || aiSaving}
+                onClick={handleSaveAi}
+                startIcon={<CheckCircle2 className="w-4 h-4" />}
+              >
+                Save &amp; test
+              </JXButton>
+              <JXButton
+                variant="outlined"
+                color="neutral"
+                size="sm"
+                loading={aiClearing}
+                disabled={!isLive || aiClearing}
+                onClick={handleClearAi}
+              >
+                Clear
+              </JXButton>
+              <JXButton
+                variant="soft"
+                color="neutral"
+                size="sm"
+                disabled={!isLive}
+                onClick={() => void loadAiSettings()}
+                startIcon={<RefreshCw className="w-3.5 h-3.5" />}
+              >
+                Reload
+              </JXButton>
+            </div>
+
+            {!isLive && (
+              <p className="mt-3 text-xs text-[var(--product-text-tertiary)]">
+                Sign in with an admin token to load and save provider settings. Demo data in the list below is static.
+              </p>
+            )}
+
+            {aiNotice && (
+              <div className="mt-3">
+                <JXAlert
+                  severity={aiNotice.severity}
+                  title={aiNotice.severity === "success" ? "Provider saved" : aiNotice.severity === "error" ? "Could not save provider" : "Provider settings"}
+                  description={aiNotice.text}
+                />
+              </div>
+            )}
+          </JXCardContent>
+        </JXCard>
 
         <JXCard>
           <JXCardContent>
