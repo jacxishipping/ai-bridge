@@ -342,7 +342,12 @@ class WorkflowIn(BaseModel):
     steps: list[dict] = []
     stop_on_failure: bool = True
     max_retries: int = 1
+    require_step_approval: bool = False
     tenant: str = "default"
+
+
+class WorkflowRetryIn(BaseModel):
+    from_failed_step: bool = True
 
 
 class TriggerIn(BaseModel):
@@ -1559,6 +1564,25 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         audit(actor, "", "decide_approval", {"approval_id": approval_id, "decision": body.decision, "reason": body.reason}, "allowed")
         return {"approval_id": approval_id, "status": body.decision, "decided_by": actor, "decided_at": now}
 
+    @app.post("/api/approvals/{approval_id}/replan")
+    def replan_approval(approval_id: str, body: ApprovalUpdateIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_admin(x_admin_token, x_session_token)
+        expire_pending_approvals()
+        row = conn.execute("SELECT * FROM approvals WHERE id=?", (approval_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Approval not found.")
+        if row["status"] != "pending":
+            raise HTTPException(status_code=409, detail=f"Approval is already {row['status']}.")
+        feedback = (body.reason or "").strip() or "Operator requested re-plan with non-destructive parameters."
+        now = dbmod.now()
+        conn.execute("UPDATE approvals SET status='denied', decided_by=?, decided_at=?, reason=? WHERE id=? AND status='pending'", (actor, now, feedback, approval_id))
+        if row["task_id"]:
+            conn.execute("UPDATE tasks SET status='cancelled', updated_at=? WHERE id=? AND status='needs_approval'", (now, row["task_id"]))
+        conn.commit()
+        notify_tasks()
+        audit(actor, "", "replan_approval", {"approval_id": approval_id, "feedback": feedback}, "denied")
+        return {"approval_id": approval_id, "status": "denied", "feedback": feedback, "decided_by": actor, "decided_at": now}
+
     @app.get("/api/approvals/quick/{approval_id}", response_class=HTMLResponse)
     def quick_approval(approval_id: str, decision: str = "approved", sig: str = "", request: Request = None):
         _rate_limit(f"quick_approval:{approval_id}", limit=10, window=60)
@@ -1856,10 +1880,66 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         if row is None:
             raise HTTPException(status_code=404, detail="Workflow not found.")
         now_ts = dbmod.now()
-        conn.execute("UPDATE workflows SET status='cancelled', updated_at=?, completed_at=? WHERE id=? AND status IN ('pending', 'running')", (now_ts, now_ts, workflow_id))
+        conn.execute("UPDATE workflows SET status='cancelled', updated_at=?, completed_at=? WHERE id=? AND status IN ('pending', 'running', 'waiting_approval')", (now_ts, now_ts, workflow_id))
         conn.commit()
         audit(actor, row["device_id"] or "", "cancel_workflow", {"workflow_id": workflow_id}, "allowed", tenant=row["tenant"])
         return {"workflow_id": workflow_id, "status": "cancelled"}
+
+    @app.delete("/api/workflows/{workflow_id}")
+    def delete_workflow(
+        workflow_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM workflows WHERE id=?", (workflow_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Workflow not found.")
+        if row["status"] in ("pending", "running", "waiting_approval"):
+            raise HTTPException(status_code=409, detail="Cancel the active workflow before deleting it.")
+        conn.execute("DELETE FROM workflows WHERE id=?", (workflow_id,))
+        conn.commit()
+        audit(actor, row["device_id"] or "", "delete_workflow", {"workflow_id": workflow_id}, "allowed", tenant=row["tenant"])
+        return {"workflow_id": workflow_id, "deleted": True}
+
+    @app.post("/api/workflows/{workflow_id}/retry")
+    def retry_workflow(
+        workflow_id: str,
+        body: WorkflowRetryIn | None = None,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        if app.state.emergency_stop:
+            raise HTTPException(status_code=403, detail="Emergency stop is active; workflows rejected.")
+        row = conn.execute("SELECT * FROM workflows WHERE id=?", (workflow_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Workflow not found.")
+        if row["status"] in ("pending", "running", "waiting_approval"):
+            raise HTTPException(status_code=409, detail="Workflow is already active.")
+        steps = json.loads(row["steps_json"] or "[]")
+        prev_results = json.loads(row["results_json"] or "[]")
+        from_failed = body.from_failed_step if body is not None else True
+        start_index = 0
+        initial_results: list[dict] = []
+        if from_failed and prev_results:
+            failed_idx = next((i for i, r in enumerate(prev_results) if r.get("status") == "failed"), None)
+            if failed_idx is not None:
+                start_index = failed_idx
+                initial_results = prev_results[:failed_idx]
+        now_ts = dbmod.now()
+        conn.execute(
+            "UPDATE workflows SET status='running', error='', current_step=?, results_json=?, completed_at=NULL, updated_at=? WHERE id=?",
+            (start_index, json.dumps(initial_results), now_ts, workflow_id),
+        )
+        conn.commit()
+        audit(actor, row["device_id"] or "local", "retry_workflow", {"workflow_id": workflow_id, "start_index": start_index}, "allowed", tenant=row["tenant"])
+        threading.Thread(
+            target=_run_workflow_worker,
+            args=(workflow_id, row["device_id"], row["tenant"], steps, True, 1, actor, False, initial_results, start_index),
+            daemon=True,
+        ).start()
+        return {"workflow_id": workflow_id, "status": "running", "start_step": start_index + 1, "total_steps": len(steps)}
 
     def _execute_workflow_step_sync(action: str, args: dict, target_device_id: str | None, tenant: str, actor: str) -> dict:
         if target_device_id and target_device_id != "local":
@@ -1899,12 +1979,24 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         )
         return dispatch(action, args, policy=eff_p, approval_granted=True, is_admin=True)
 
-    def _run_workflow_worker(wf_id: str, target_dev: str | None, tenant: str, steps: list[dict], stop_on_failure: bool, max_retries: int, actor: str):
-        results = []
+    def _run_workflow_worker(
+        wf_id: str,
+        target_dev: str | None,
+        tenant: str,
+        steps: list[dict],
+        stop_on_failure: bool,
+        max_retries: int,
+        actor: str,
+        require_step_approval: bool = False,
+        initial_results: list[dict] | None = None,
+        start_index: int = 0,
+    ):
+        results = list(initial_results or [])
         overall_ok = True
         err_msg = ""
 
-        for idx, step in enumerate(steps):
+        for idx in range(start_index, len(steps)):
+            step = steps[idx]
             check = conn.execute("SELECT status FROM workflows WHERE id=?", (wf_id,)).fetchone()
             if check and check["status"] == "cancelled":
                 return
@@ -1914,6 +2006,52 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             args = dict(step.get("args") or {})
             verify_cfg = step.get("verify")
             retries_left = max(0, int(step.get("retries", max_retries)))
+
+            tier_enum = TOOL_TIERS.get(action)
+            step_needs_approval = bool(step.get("require_approval")) or (require_step_approval and tier_enum is not None and tier_enum.value >= 3)
+            if step_needs_approval:
+                app_id = uuid.uuid4().hex[:12]
+                now_ts = dbmod.now()
+                conn.execute(
+                    "INSERT INTO approvals (id, task_id, tool, reason, status, created_at, expires_at, policy_version) VALUES (?,?,?,?, 'pending', ?, ?, 0)",
+                    (app_id, None, action, f"Workflow {wf_id} step {idx + 1} ({step_name}) requires operator approval.", now_ts, now_ts + 600),
+                )
+                conn.execute("UPDATE workflows SET status='waiting_approval', current_step=?, updated_at=? WHERE id=?", (idx + 1, now_ts, wf_id))
+                conn.commit()
+                approved = False
+                while True:
+                    time.sleep(0.5)
+                    wf_row = conn.execute("SELECT status FROM workflows WHERE id=?", (wf_id,)).fetchone()
+                    if wf_row and wf_row["status"] == "cancelled":
+                        return
+                    ap_row = conn.execute("SELECT status, expires_at FROM approvals WHERE id=?", (app_id,)).fetchone()
+                    if ap_row is None or ap_row["status"] in ("denied", "expired"):
+                        break
+                    if ap_row["expires_at"] is not None and ap_row["expires_at"] <= dbmod.now():
+                        conn.execute("UPDATE approvals SET status='expired', decided_by='system', decided_at=? WHERE id=? AND status='pending'", (dbmod.now(), app_id))
+                        conn.commit()
+                        break
+                    if ap_row["status"] == "approved":
+                        approved = True
+                        break
+                if not approved:
+                    step_entry = {
+                        "index": idx + 1,
+                        "name": step_name,
+                        "action": action,
+                        "args": args,
+                        "status": "failed",
+                        "duration_seconds": 0.0,
+                        "result": None,
+                        "error": f"Step {idx + 1} approval denied or expired.",
+                    }
+                    results.append(step_entry)
+                    conn.execute("UPDATE workflows SET status='failed', error=?, results_json=?, completed_at=?, updated_at=? WHERE id=?",
+                                 (step_entry["error"], json.dumps(results), dbmod.now(), dbmod.now(), wf_id))
+                    conn.commit()
+                    return
+                conn.execute("UPDATE workflows SET status='running', updated_at=? WHERE id=?", (dbmod.now(), wf_id))
+                conn.commit()
 
             step_entry = {
                 "index": idx + 1,
@@ -1997,7 +2135,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
         threading.Thread(
             target=_run_workflow_worker,
-            args=(wf_id, body.device_id, body.tenant, body.steps, body.stop_on_failure, body.max_retries, actor),
+            args=(wf_id, body.device_id, body.tenant, body.steps, body.stop_on_failure, body.max_retries, actor, body.require_step_approval),
             daemon=True,
         ).start()
 

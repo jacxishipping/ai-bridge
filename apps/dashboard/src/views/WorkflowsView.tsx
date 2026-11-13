@@ -4,7 +4,7 @@
  * preview from WorkflowsDemoView, which is the only place fixtures live.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Workflow, Plus, Search, RefreshCw, StopCircle, X, AlertTriangle, Copy, Check, Trash2 } from "lucide-react";
+import { Workflow, Plus, Search, RefreshCw, StopCircle, X, AlertTriangle, Copy, Check, Trash2, RotateCcw } from "lucide-react";
 import { api, token, sessionToken } from "../api";
 import WorkflowsDemoView from "./WorkflowsDemoView";
 
@@ -78,6 +78,7 @@ function WorkflowsLive() {
   const [deviceId, setDeviceId] = useState("local");
   const [stopOnFailure, setStopOnFailure] = useState(true);
   const [maxRetries, setMaxRetries] = useState(1);
+  const [requireStepApproval, setRequireStepApproval] = useState(false);
   const [draft, setDraft] = useState<DraftStep[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [builderError, setBuilderError] = useState<string | null>(null);
@@ -226,6 +227,29 @@ function WorkflowsLive() {
     } finally { setCancelling(false); }
   };
 
+  const retry = async (fromFailedStep: boolean) => {
+    if (!selected) return;
+    try {
+      await api.retryWorkflow(selected.id, fromFailedStep);
+      upsert(normalize(await api.workflowDetail(selected.id)));
+      setNotice({ kind: "ok", text: fromFailedStep ? `Resuming workflow ${selected.id} from failed step.` : `Re-running workflow ${selected.id}.` });
+    } catch (e) {
+      setNotice({ kind: "error", text: errMsg(e) });
+    }
+  };
+
+  const remove = async () => {
+    if (!selected) return;
+    try {
+      await api.deleteWorkflow(selected.id);
+      setWorkflows((prev) => prev.filter((w) => w.id !== selected.id));
+      setSelectedId("");
+      setNotice({ kind: "ok", text: `Workflow ${selected.id} deleted.` });
+    } catch (e) {
+      setNotice({ kind: "error", text: errMsg(e) });
+    }
+  };
+
   const openBuilder = (tpl?: Template) => {
     setName(tpl ? tpl.name : "");
     setDraft(tpl ? tpl.steps.map(draftFromDef) : [{ name: "", action: tools[0]?.name || "", args: "{}", verifyText: "" }]);
@@ -259,6 +283,7 @@ function WorkflowsLive() {
       const out = await api.submitWorkflow({
         name: name.trim(), device_id: deviceId || "local", steps,
         stop_on_failure: stopOnFailure, max_retries: Math.max(0, maxRetries),
+        require_step_approval: requireStepApproval,
       });
       const wf = normalize(await api.workflowDetail(out.workflow_id).catch(() => ({ ...out, id: out.workflow_id, steps, results: [] })));
       upsert(wf);
@@ -364,12 +389,27 @@ function WorkflowsLive() {
                     <h2 className="text-sm font-bold text-[var(--product-text)]">{selected.name}</h2>
                     <p className="text-[11px] font-mono text-[var(--product-text-dim)]">{selected.id} • device {selected.device_id || "local"} • started {fmtTime(selected.created_at)}{selected.completed_at ? ` • finished ${fmtTime(selected.completed_at)}` : ""}</p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className={`font-mono text-[10px] px-2 py-0.5 rounded font-semibold uppercase ${statusClass(selected.status)}`}>{selected.status}</span>
                     {selectedActive && (
                       <button type="button" disabled={cancelling} onClick={() => void cancel()} className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-rose-300 font-mono text-xs flex items-center gap-1.5 disabled:opacity-50">
                         <StopCircle className="w-3.5 h-3.5" /> {cancelling ? "Cancelling…" : "Cancel"}
                       </button>
+                    )}
+                    {!selectedActive && selected.status === "failed" && (
+                      <button type="button" onClick={() => void retry(true)} className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-mono text-xs flex items-center gap-1.5">
+                        <RotateCcw className="w-3.5 h-3.5" /> Resume Failed Step
+                      </button>
+                    )}
+                    {!selectedActive && (
+                      <>
+                        <button type="button" onClick={() => void retry(false)} className="px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 hover:bg-indigo-500/20 text-indigo-300 font-mono text-xs flex items-center gap-1.5">
+                          <RotateCcw className="w-3.5 h-3.5" /> Re-run
+                        </button>
+                        <button type="button" onClick={() => void remove()} className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-rose-300 font-mono text-xs flex items-center gap-1.5">
+                          <Trash2 className="w-3.5 h-3.5" /> Delete
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -478,9 +518,15 @@ function WorkflowsLive() {
             </div>
 
             {highTier.length > 0 && (
-              <div role="alert" className="p-2 rounded-lg bg-amber-950/40 border border-amber-600/40 text-amber-300 flex gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>{highTier.length} step(s) use tier 3+ (sensitive) tools. Workflows run with approvals pre-granted by the operator who submits them; review carefully before submitting.</span>
+              <div role="alert" className="p-2.5 rounded-lg bg-amber-950/40 border border-amber-600/40 text-amber-300 space-y-2">
+                <div className="flex gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{highTier.length} step(s) use tier 3+ (sensitive) tools.</span>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer text-[11px]">
+                  <input type="checkbox" checked={requireStepApproval} onChange={(e) => setRequireStepApproval(e.target.checked)} className="accent-amber-500" />
+                  <span>Pause and require human approval before each tier 3+ step</span>
+                </label>
               </div>
             )}
             {builderError && <div role="alert" className="p-2 rounded-lg bg-rose-950/40 border border-rose-500/30 text-rose-300">{builderError}</div>}

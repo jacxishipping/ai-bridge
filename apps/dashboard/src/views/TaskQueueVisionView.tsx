@@ -46,6 +46,8 @@ import {
   Trash2,
   Ban,
   Camera,
+  RotateCcw,
+  Pencil,
 } from "lucide-react";
 import { api, token, sessionToken } from "../api";
 import { useDashboardStore } from "../state/dashboardStore";
@@ -171,6 +173,10 @@ export const TaskQueueVisionView: React.FC = () => {
 
   // Queue and inspector states
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [deviceFilter, setDeviceFilter] = useState<string>("all");
+  const [page, setPage] = useState<number>(1);
+  const PAGE_SIZE = 12;
   const [selectedTaskId, setSelectedTaskId] = useState<string>(tasks[0]?.id || "TSK-89213");
   const [zoomLevel, setZoomLevel] = useState<number>(1.0); // 1.0 = Fit, 1.5, 2.0
   const [somEnabled, setSomEnabled] = useState<boolean>(true);
@@ -178,6 +184,10 @@ export const TaskQueueVisionView: React.FC = () => {
   const [copiedPayload, setCopiedPayload] = useState<boolean>(false);
   const [liveCapturedBase64, setLiveCapturedBase64] = useState<string>("");
   const [taskActionNotice, setTaskActionNotice] = useState<string | null>(null);
+  const [editingTask, setEditingTask] = useState<TaskInvocation | null>(null);
+  const [editTool, setEditTool] = useState<string>("");
+  const [editArgsJson, setEditArgsJson] = useState<string>("{}");
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Sync risk tier when tool changes
   useEffect(() => {
@@ -349,11 +359,84 @@ export const TaskQueueVisionView: React.FC = () => {
     [findApprovalIdForTask, resolveApproval, refreshLive]
   );
 
+  const handleRetryTask = useCallback(
+    async (task: TaskInvocation, e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      if (Boolean(token() || sessionToken())) {
+        try {
+          await api.updateTask(task.id, { status: "queued" });
+          await refreshLive?.();
+          setTaskActionNotice(`Re-queued task #${task.id}.`);
+          setTimeout(() => setTaskActionNotice(null), 3000);
+        } catch (err: any) {
+          setTaskActionNotice(`Retry failed: ${err?.message || "Unknown error"}`);
+        }
+        return;
+      }
+      await dispatchTask({ deviceId: task.deviceId, tool: task.tool, args: task.args, riskTier: task.riskTier });
+      setTaskActionNotice(`Re-dispatched ${task.tool}.`);
+      setTimeout(() => setTaskActionNotice(null), 3000);
+    },
+    [dispatchTask, refreshLive]
+  );
+
+  const openEditTask = useCallback((task: TaskInvocation, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setEditingTask(task);
+    setEditTool(task.tool);
+    setEditArgsJson(JSON.stringify(task.args || {}, null, 2));
+    setEditError(null);
+  }, []);
+
+  const handleSaveTaskEdit = useCallback(async () => {
+    if (!editingTask) return;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = editArgsJson.trim() ? JSON.parse(editArgsJson) : {};
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        setEditError("Args must be a JSON object.");
+        return;
+      }
+    } catch (err: any) {
+      setEditError(err?.message || "Invalid JSON.");
+      return;
+    }
+    try {
+      if (Boolean(token() || sessionToken())) {
+        await api.updateTask(editingTask.id, { tool: editTool.trim(), args: parsed });
+        await refreshLive?.();
+      }
+      setTaskActionNotice(`Updated task #${editingTask.id}.`);
+      setEditingTask(null);
+      setTimeout(() => setTaskActionNotice(null), 3000);
+    } catch (err: any) {
+      setEditError(err?.message || "Failed to update task.");
+    }
+  }, [editingTask, editTool, editArgsJson, refreshLive]);
+
   // Filtered task list
   const filteredTasks = useMemo(() => {
-    if (statusFilter === "all") return tasks;
-    return tasks.filter((t) => t.status === statusFilter);
-  }, [tasks, statusFilter]);
+    const q = searchQuery.trim().toLowerCase();
+    return tasks.filter((t) => {
+      if (statusFilter !== "all" && t.status !== statusFilter) return false;
+      if (deviceFilter !== "all" && t.deviceId !== deviceFilter) return false;
+      if (q && !t.id.toLowerCase().includes(q) && !t.tool.toLowerCase().includes(q) && !(t.deviceHostname || t.deviceId).toLowerCase().includes(q)) {
+        return false;
+      }
+      return true;
+    });
+  }, [tasks, statusFilter, deviceFilter, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedTasks = useMemo(
+    () => filteredTasks.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filteredTasks, safePage]
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, deviceFilter, searchQuery]);
 
   // Active inspected task
   const activeTask = useMemo(() => {
@@ -717,6 +800,31 @@ export const TaskQueueVisionView: React.FC = () => {
                   </div>
                 )}
 
+                {/* Search & Device Filter */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 min-w-[180px]">
+                    <Search className="w-3.5 h-3.5 text-[var(--product-text-dim)] absolute left-3 top-2.5 pointer-events-none" />
+                    <input
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search task ID, tool, or device..."
+                      aria-label="Search tasks"
+                      className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs font-mono text-[var(--product-text)] placeholder:text-[var(--product-text-dim)]"
+                    />
+                  </div>
+                  <select
+                    value={deviceFilter}
+                    onChange={(e) => setDeviceFilter(e.target.value)}
+                    aria-label="Filter tasks by device"
+                    className="px-3 py-1.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs font-mono text-[var(--product-text-secondary)]"
+                  >
+                    <option value="all">All devices</option>
+                    {devices.map((d) => (
+                      <option key={d.id} value={d.id}>{d.hostname || d.name || d.id}</option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* Task Table */}
                 <div className="overflow-x-auto rounded-xl border border-[var(--product-line)]/80 bg-[var(--product-canvas)]/60">
                   <table className="w-full text-left text-xs">
@@ -730,7 +838,7 @@ export const TaskQueueVisionView: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-mono">
-                      {filteredTasks.map((t) => {
+                      {pagedTasks.map((t) => {
                         const isSelected = selectedTaskId === t.id;
                         const canCancel = t.status === "pending" || t.status === "running" || t.status === "needs_approval" || (t.status as string) === "queued";
                         return (
@@ -788,6 +896,24 @@ export const TaskQueueVisionView: React.FC = () => {
                                     <Ban className="w-3.5 h-3.5" />
                                   </button>
                                 )}
+                                {(t.status === "failed" || t.status === "cancelled" || t.status === "completed") && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => void handleRetryTask(t, e)}
+                                    title="Retry / Re-queue task"
+                                    className="p-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/20"
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => openEditTask(t, e)}
+                                  title="Edit task tool/args"
+                                  className="p-1.5 rounded-lg bg-[var(--product-raised)] border border-[var(--product-line)] text-[var(--product-text-secondary)] hover:text-[var(--product-text)]"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
                                 <button
                                   type="button"
                                   onClick={(e) => void handleDeleteTask(t.id, e)}
@@ -814,6 +940,17 @@ export const TaskQueueVisionView: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
+
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between text-xs font-mono text-[var(--product-text-tertiary)] pt-1">
+                    <span>Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredTasks.length)} of {filteredTasks.length}</span>
+                    <div className="flex items-center gap-2">
+                      <button type="button" disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-2.5 py-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] disabled:opacity-40">Prev</button>
+                      <span>Page {safePage} / {totalPages}</span>
+                      <button type="button" disabled={safePage >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="px-2.5 py-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] disabled:opacity-40">Next</button>
+                    </div>
+                  </div>
+                )}
               </div>
             </JXCardContent>
             </JXCard>
@@ -865,6 +1002,26 @@ export const TaskQueueVisionView: React.FC = () => {
                         <span>Cancel</span>
                       </button>
                     )}
+                    {activeTask && (activeTask.status === "failed" || activeTask.status === "cancelled" || activeTask.status === "completed") && (
+                      <button
+                        type="button"
+                        onClick={() => void handleRetryTask(activeTask)}
+                        className="px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/20 text-xs font-mono font-semibold flex items-center gap-1"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Retry</span>
+                      </button>
+                    )}
+                    {activeTask && (
+                      <button
+                        type="button"
+                        onClick={() => openEditTask(activeTask)}
+                        className="px-2.5 py-1 rounded-lg bg-[var(--product-raised)] border border-[var(--product-line)] text-[var(--product-text-secondary)] hover:text-[var(--product-text)] text-xs font-mono font-semibold flex items-center gap-1"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        <span>Edit</span>
+                      </button>
+                    )}
                     {activeTask && (
                       <button
                         type="button"
@@ -878,6 +1035,14 @@ export const TaskQueueVisionView: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleCaptureLiveScreenshot()}
+                      className="px-3 py-1 rounded-lg text-xs font-mono font-semibold flex items-center gap-1.5 bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-600/30"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>Capture Live</span>
+                    </button>
                     {/* SoM Toggle */}
                     <button
                       type="button"
@@ -1107,6 +1272,32 @@ export const TaskQueueVisionView: React.FC = () => {
           </div>
         </JXGridItem>
       </JXGrid>
+
+      {editingTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Edit task">
+          <div className="w-full max-w-lg rounded-2xl bg-[var(--product-surface)] border border-[var(--product-line)] p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-[var(--product-text)] font-mono">Edit Task #{editingTask.id}</h3>
+              <button type="button" onClick={() => setEditingTask(null)} className="text-xs font-mono text-[var(--product-text-tertiary)]">Close</button>
+            </div>
+            {editError && <div role="alert" className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-mono">{editError}</div>}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-mono text-[var(--product-text-tertiary)] mb-1">Tool</label>
+                <input value={editTool} onChange={(e) => setEditTool(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs font-mono text-[var(--product-text)]" />
+              </div>
+              <div>
+                <label className="block text-xs font-mono text-[var(--product-text-tertiary)] mb-1">Arguments (JSON)</label>
+                <textarea rows={6} value={editArgsJson} onChange={(e) => setEditArgsJson(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs font-mono text-[var(--product-text)]" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setEditingTask(null)} className="px-3 py-1.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs font-mono text-[var(--product-text-secondary)]">Cancel</button>
+              <button type="button" onClick={() => void handleSaveTaskEdit()} className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-mono font-semibold">Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

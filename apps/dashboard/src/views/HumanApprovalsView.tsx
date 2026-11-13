@@ -36,9 +36,10 @@ import {
   History,
   CheckSquare,
   Lock,
+  Trash2,
 } from "lucide-react";
 import { useDashboardStore } from "../state/dashboardStore";
-import { token, sessionToken } from "../api";
+import { api, token, sessionToken } from "../api";
 import type { ApprovalRequest } from "../types/dashboard";
 
 interface DecisionRecord {
@@ -54,6 +55,7 @@ export const HumanApprovalsView: React.FC = () => {
   const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
   const approvals = useDashboardStore((s) => s.approvals);
   const resolveApproval = useDashboardStore((s) => s.resolveApproval);
+  const refreshLive = useDashboardStore((s) => s.refreshLive);
   const operatorProfile = useDashboardStore((s) => s.operatorProfile);
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const scrollShadow = useScrollShadow(tableScrollRef);
@@ -63,17 +65,27 @@ export const HumanApprovalsView: React.FC = () => {
     approvals.find((a) => a.status === "pending")?.id || approvals[0]?.id || "appr-001"
   );
 
-  // Live SLA countdown timer (seconds)
-  const [countdownSeconds, setCountdownSeconds] = useState<number>(272); // 04:32
+  const [queueFilter, setQueueFilter] = useState<"all" | "pending">("all");
+  const activeApproval = approvals.find((a) => a.id === selectedId) || approvals[0];
+
+  // Live SLA countdown timer computed from activeApproval.expiresAt
+  const computeRemaining = (expiresAt?: string) => {
+    if (!expiresAt) return 300;
+    const ms = new Date(expiresAt).getTime() - Date.now();
+    return Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1000)) : 300;
+  };
+  const [countdownSeconds, setCountdownSeconds] = useState<number>(() => computeRemaining(activeApproval?.expiresAt));
 
   useEffect(() => {
+    setCountdownSeconds(computeRemaining(activeApproval?.expiresAt));
     const timer = setInterval(() => {
-      setCountdownSeconds((prev) => (prev > 0 ? prev - 1 : 300));
+      setCountdownSeconds(computeRemaining(activeApproval?.expiresAt));
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [activeApproval?.id, activeApproval?.expiresAt]);
 
   const formatCountdown = (secs: number) => {
+    if (secs <= 0 && activeApproval?.expiresAt) return "00:00";
     const m = Math.floor(secs / 60);
     const s = secs % 60;
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
@@ -130,8 +142,6 @@ export const HumanApprovalsView: React.FC = () => {
       justification: "Routine daemon recycle during maintenance window.",
     },
   ]);
-
-  const activeApproval = approvals.find((a) => a.id === selectedId) || approvals[0];
 
   const effectiveHistoryRecords: DecisionRecord[] = isLive
     ? approvals
@@ -211,9 +221,34 @@ export const HumanApprovalsView: React.FC = () => {
     setRejectionReason("");
   };
 
-  const handleRequestRePlan = () => {
-    setRePlanMessage("Feedback dispatched to agent: Reformulate command using non-destructive parameters.");
+  const handleRequestRePlan = async () => {
+    if (!activeApproval) return;
+    setActionError(null);
+    const feedback = "Operator requested re-plan: reformulate command using non-destructive parameters.";
+    if (isLive) {
+      try {
+        await api.replanApproval(activeApproval.id, feedback);
+        await refreshLive?.();
+      } catch (err: any) {
+        setActionError(err?.message || "Failed to send re-plan feedback.");
+        return;
+      }
+    }
+    setRePlanMessage("Feedback dispatched: approval cancelled for non-destructive re-planning.");
     setTimeout(() => setRePlanMessage(null), 4000);
+  };
+
+  const handleDeleteApproval = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setActionError(null);
+    if (isLive) {
+      try {
+        await api.deleteApproval(id);
+        await refreshLive?.();
+      } catch (err: any) {
+        setActionError(err?.message || "Failed to delete approval.");
+      }
+    }
   };
 
   // AST dangerous token highlighting
@@ -257,6 +292,10 @@ export const HumanApprovalsView: React.FC = () => {
 
   const pendingCount = approvals.filter((a) => a.status === "pending").length;
 
+  const visibleApprovals = queueFilter === "pending"
+    ? approvals.filter((a) => a.status === "pending")
+    : approvals;
+
   return (
     <div className="space-y-4">
       {/* Main Split: Left Urgent Queue, Right Approval Inspector */}
@@ -264,17 +303,26 @@ export const HumanApprovalsView: React.FC = () => {
         {/* Left: Urgent Approval Queue */}
         <JXGridItem colSpan={4}>
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-mono font-semibold text-[var(--product-text-tertiary)] uppercase tracking-wider">
                 Urgent Approvals Queue
               </span>
-              <span className="font-mono text-xs px-2 py-0.5 rounded bg-[var(--product-raised)] text-[var(--product-text-secondary)]">
-                {pendingCount} Pending
-              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setQueueFilter((f) => (f === "all" ? "pending" : "all"))}
+                  className="font-mono text-[11px] px-2 py-0.5 rounded bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] hover:text-[var(--product-text)]"
+                >
+                  {queueFilter === "pending" ? "Pending only" : "All"}
+                </button>
+                <span className="font-mono text-xs px-2 py-0.5 rounded bg-[var(--product-raised)] text-[var(--product-text-secondary)]">
+                  {pendingCount} Pending
+                </span>
+              </div>
             </div>
 
             <div className="space-y-3">
-              {approvals.map((req) => {
+              {visibleApprovals.map((req) => {
                 const isSelected = req.id === selectedId;
                 const isPending = req.status === "pending";
 
@@ -304,17 +352,29 @@ export const HumanApprovalsView: React.FC = () => {
                         </span>
                       </div>
 
-                      <span
-                        className={`font-mono text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
-                          req.status === "approved"
-                            ? "bg-emerald-500/20 text-emerald-300"
-                            : req.status === "denied"
-                            ? "bg-rose-500/20 text-rose-300"
-                            : "bg-amber-500/20 text-amber-300"
-                        }`}
-                      >
-                        {req.status}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`font-mono text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                            req.status === "approved"
+                              ? "bg-emerald-500/20 text-emerald-300"
+                              : req.status === "denied"
+                              ? "bg-rose-500/20 text-rose-300"
+                              : "bg-amber-500/20 text-amber-300"
+                          }`}
+                        >
+                          {req.status}
+                        </span>
+                        {isLive && (
+                          <button
+                            type="button"
+                            onClick={(e) => void handleDeleteApproval(req.id, e)}
+                            title="Delete approval record"
+                            className="p-1 rounded hover:bg-rose-500/20 text-[var(--product-text-dim)] hover:text-rose-300"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div className="text-xs font-semibold text-[var(--product-text-secondary)] truncate mb-1">

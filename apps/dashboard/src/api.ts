@@ -130,6 +130,7 @@ export const api = {
     call(`/api/tasks${status && status !== "all" ? `?status=${encodeURIComponent(status)}` : ""}`, "DELETE"),
   approvals: () => call("/api/approvals"),
   decide: (id: string, decision: string, reason = "") => call(`/api/approvals/${encodeURIComponent(id)}/decide`, "POST", { decision, reason }),
+  replanApproval: (id: string, reason = "") => call(`/api/approvals/${encodeURIComponent(id)}/replan`, "POST", { reason }),
   deleteApproval: (id: string) => call(`/api/approvals/${encodeURIComponent(id)}`, "DELETE"),
   audit: () => call("/api/audit"),
   exportAudit: () => call("/api/audit/export"),
@@ -210,9 +211,11 @@ export const api = {
   workflowTemplates: () => call("/api/workflows/templates"),
   workflows: (status?: string) => call(`/api/workflows${status ? `?status=${encodeURIComponent(status)}` : ""}`),
   workflowDetail: (id: string) => call(`/api/workflows/${encodeURIComponent(id)}`),
-  submitWorkflow: (body: { name: string; device_id?: string; steps: any[]; stop_on_failure?: boolean; max_retries?: number }) =>
+  submitWorkflow: (body: { name: string; device_id?: string; steps: any[]; stop_on_failure?: boolean; max_retries?: number; require_step_approval?: boolean }) =>
     call("/api/workflows", "POST", body),
   cancelWorkflow: (id: string) => call(`/api/workflows/${encodeURIComponent(id)}/cancel`, "POST", {}),
+  retryWorkflow: (id: string, from_failed_step = true) => call(`/api/workflows/${encodeURIComponent(id)}/retry`, "POST", { from_failed_step }),
+  deleteWorkflow: (id: string) => call(`/api/workflows/${encodeURIComponent(id)}`, "DELETE"),
   streamWorkflowUrl: (id: string) => `${BASE}/api/workflows/${encodeURIComponent(id)}/stream`,
   fleetTelemetry: () => call("/api/fleet/telemetry"),
   deviceTelemetry: (id: string, limit = 50) => call(`/api/devices/${encodeURIComponent(id)}/telemetry?limit=${limit}`),
