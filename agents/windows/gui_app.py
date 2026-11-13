@@ -30,9 +30,11 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 import webbrowser
+import zipfile
 from pathlib import Path
 
 try:  # Keep this module importable for --diagnose on hosts without Tk/Tcl.
@@ -60,11 +62,21 @@ CONFIG_FILE = CONFIG_DIR / "agent_gui.json"
 TOKEN_FILE = CONFIG_DIR / "device.token"
 REG_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 REG_APP_NAME = "AIBridgeWindowsClient"
+WINDOW_TITLE = "AI Bridge Windows Client (User App)"
+TASK_HISTORY_FILE = CONFIG_DIR / "task_history.json"
+TASK_HISTORY_LIMIT = 500
+TASK_RESULT_PREVIEW = 4000
+
+try:  # Single source of truth for the version shown in Settings.
+    from ai_bridge import __version__ as APP_VERSION
+except Exception:  # pragma: no cover - source tree unavailable
+    APP_VERSION = "0.0.0"
 
 # Design tokens and view builders live in the sibling gui_ui module.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gui_ui import (  # noqa: E402  (path setup must run first)
     COMMON_WINDOWS_APPS,
+    NAV_PAGES,
     THEMES,
     build_monitor,
     build_overview,
@@ -334,6 +346,53 @@ def save_agent_config(cfg: dict) -> None:
         _LOGGER.warning("Could not persist agent configuration: %s", exc)
 
 
+def load_task_history() -> list[dict]:
+    """Load the persisted task history, tolerating a missing or corrupt file."""
+    try:
+        if not TASK_HISTORY_FILE.exists():
+            return []
+        data = json.loads(TASK_HISTORY_FILE.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict) and item.get("id")][:TASK_HISTORY_LIMIT]
+    except Exception:
+        _LOGGER.warning("Task history at %s is unreadable; starting empty.", TASK_HISTORY_FILE)
+        return []
+
+
+def save_task_history(records: list[dict]) -> None:
+    """Persist the bounded task history; results are stored as previews only."""
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        trimmed = []
+        for record in records[-TASK_HISTORY_LIMIT:]:
+            item = dict(record)
+            item["result"] = str(item.get("result", ""))[:TASK_RESULT_PREVIEW]
+            item["args"] = item.get("args", {})
+            trimmed.append(item)
+        temp = TASK_HISTORY_FILE.with_suffix(".json.tmp")
+        temp.write_text(json.dumps(trimmed, default=str), encoding="utf-8")
+        temp.replace(TASK_HISTORY_FILE)
+    except Exception as exc:
+        _LOGGER.warning("Could not persist task history: %s", exc)
+
+
+def focus_existing_window(title: str = WINDOW_TITLE) -> bool:
+    """Bring an already-running instance's window to the foreground."""
+    if platform.system() != "Windows":
+        return False
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.FindWindowW(None, title)
+        if not hwnd:
+            return False
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        user32.SetForegroundWindow(hwnd)
+        return True
+    except Exception:
+        return False
+
+
 class SystemTrayManager:
     """Native Windows System Tray Icon manager using win32gui with fallback."""
 
@@ -499,14 +558,20 @@ class AgentGuiApp:
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("AI Bridge Windows Client (User App)")
+        self.root.title(WINDOW_TITLE)
+        self.cfg = load_agent_config()
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
         win_w = min(1180, max(960, screen_w - 120))
         win_h = min(780, max(620, screen_h - 110))
         pos_x = max(0, (screen_w - win_w) // 2)
         pos_y = max(0, (screen_h - win_h) // 2 - 12)
-        self.root.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
+        default_geometry = f"{win_w}x{win_h}+{pos_x}+{pos_y}"
+        saved_geometry = str(self.cfg.get("window_geometry") or "").strip()
+        try:
+            self.root.geometry(saved_geometry or default_geometry)
+        except Exception:
+            self.root.geometry(default_geometry)
         self.root.minsize(min(940, win_w), min(600, win_h))
 
         # Set custom AI Bridge branding icon
@@ -517,7 +582,6 @@ class AgentGuiApp:
             except Exception:
                 pass
 
-        self.cfg = load_agent_config()
         self.theme_name = self.cfg.get("theme", "dark")
         if self.theme_name not in THEMES:
             self.theme_name = "dark"
@@ -560,6 +624,15 @@ class AgentGuiApp:
         self.policy_status_var = tk.StringVar(value="Policy active locally")
         self._quick_app_buttons: dict[str, tk.Button] = {}
         self._app_chips_frame: tk.Frame | None = None
+        self._policy_audit: list[dict] = []
+        self._policy_snapshot = self._policy_state()
+        self._token_expires_at: float | None = None
+        self._last_ok_poll: float | None = None
+        self._last_poll_error = ""
+        self._last_ui_error = ""
+        self._spooler = None
+        self._spool_failed = False
+        self._task_filter_buttons: dict[str, tk.Button] = {}
 
         # Live system telemetry
         self.cpu_var = tk.StringVar(value="0.0%")
@@ -570,8 +643,20 @@ class AgentGuiApp:
         self.uptime_var = tk.StringVar(value="—")
         self.auto_refresh_monitor_var = tk.BooleanVar(value=True)
 
-        # Task history structured records
-        self.task_history: list[dict] = []
+        # Connection, queue, update and task-filter surfaces
+        self.poll_note_var = tk.StringVar(value="No contact yet")
+        self.expiry_note_var = tk.StringVar(value="")
+        self.queued_var = tk.StringVar(value="0")
+        self.update_status_var = tk.StringVar(value=f"Version {APP_VERSION}")
+        self.task_search_var = tk.StringVar(value="")
+        self.task_filter_var = tk.StringVar(value="all")
+        self.log_errors_only_var = tk.BooleanVar(value=False)
+        self.pause_scroll_var = tk.BooleanVar(value=False)
+        self.task_count_label: tk.Label | None = None
+        self.task_search_entry: tk.Entry | None = None
+
+        # Task history structured records (bounded and persisted)
+        self.task_history: list[dict] = load_task_history()
         self._selected_task: dict | None = None
 
         # Screenshot preview state
@@ -583,15 +668,27 @@ class AgentGuiApp:
         self.tray.start()
 
         # Build Fluent 2 Interface
-        self.active_tab_idx = 0
+        try:
+            self.active_tab_idx = max(0, min(int(self.cfg.get("last_tab", 0)), len(NAV_PAGES) - 1))
+        except Exception:
+            self.active_tab_idx = 0
         self._tab_buttons: list[tk.Button] = []
         self._tab_frames: list[tk.Frame] = []
 
         self._build_shell()
         self._apply_theme()
+        self.root.report_callback_exception = self._on_tk_exception
+        self._bind_shortcuts()
+        if self.cfg.get("window_maximized"):
+            try:
+                self.root.state("zoomed")
+            except Exception:
+                pass
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.after(150, self._drain_logs)
         self.root.after(800, self._system_monitor_loop)
+        self.root.after(1500, self._queue_loop)
+        self.root.after(4000, self.check_for_updates_async)
 
         if self.auto_start_var.get() and self.token_var.get().strip():
             self.log("Auto-start enabled. Connecting to control plane...", "info")
@@ -649,12 +746,87 @@ class AgentGuiApp:
 
     def _clear_task_history(self) -> None:
         self.task_history.clear()
-        if hasattr(self, "task_tree"):
+        save_task_history(self.task_history)
+        if hasattr(self, "task_tree") and self.task_tree.winfo_exists():
             for item in self.task_tree.get_children():
                 self.task_tree.delete(item)
         if hasattr(self, "insp_text"):
             self.insp_text.delete("1.0", "end")
             self.insp_meta_label.configure(text="Task history cleared.")
+        self._update_task_count()
+
+    # -------------------------------------------------------------------------
+    # TASK TABLE: FILTERING, BOUNDS AND PERSISTENCE
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def _needs_approval(record: dict) -> bool:
+        """A task the policy refused because no human approval was attached."""
+        return record.get("status") == "failed" and str(record.get("result", "")).startswith("denied:")
+
+    def _task_matches(self, record: dict) -> bool:
+        query = self.task_search_var.get().strip().lower()
+        if query:
+            haystack = " ".join(str(record.get(key, "")) for key in ("id", "tool", "status", "result")).lower()
+            if query not in haystack:
+                return False
+        kind = self.task_filter_var.get()
+        if kind == "completed":
+            return record.get("status") == "completed"
+        if kind == "failed":
+            return record.get("status") == "failed"
+        if kind == "approval":
+            return self._needs_approval(record)
+        return True
+
+    def _set_task_filter(self, kind: str) -> None:
+        self.task_filter_var.set(kind)
+        self._update_task_filter_buttons()
+        self._refresh_task_table()
+
+    def _update_task_filter_buttons(self) -> None:
+        t = THEMES[self.theme_name]
+        active = self.task_filter_var.get()
+        for kind, btn in self._task_filter_buttons.items():
+            if not btn.winfo_exists():
+                continue
+            selected = kind == active
+            btn.configure(
+                bg=t["accent_soft"] if selected else t["card"],
+                fg=t["brand"] if selected else t["fg_muted"],
+                font=ui_font(8, "bold" if selected else "normal"),
+            )
+
+    def _refresh_task_table(self) -> None:
+        if not hasattr(self, "task_tree") or not self.task_tree.winfo_exists():
+            return
+        for item in self.task_tree.get_children():
+            self.task_tree.delete(item)
+        shown = [record for record in self.task_history if self._task_matches(record)]
+        for index, record in enumerate(reversed(shown)):
+            self.task_tree.insert(
+                "",
+                "end",
+                iid=record["id"],
+                values=(
+                    record.get("time", ""),
+                    str(record["id"])[:8],
+                    record.get("tool", ""),
+                    f"{record.get('duration_s', 0):.2f}s",
+                    str(record.get("status", "")).upper(),
+                ),
+                tags=("even" if index % 2 == 0 else "odd",),
+            )
+        self._update_task_count(len(shown))
+
+    def _update_task_count(self, shown: int | None = None) -> None:
+        label = getattr(self, "task_count_label", None)
+        if label is None or not label.winfo_exists():
+            return
+        total = len(self.task_history)
+        if shown is None or shown == total:
+            label.configure(text=f"{total} received")
+        else:
+            label.configure(text=f"{shown} of {total} shown")
 
     # -------------------------------------------------------------------------
     # TAB 3: SYSTEM MONITOR
@@ -778,9 +950,63 @@ class AgentGuiApp:
         self.root.clipboard_append(self._last_screenshot_path)
         self.log(f"Copied screenshot path ({self._last_screenshot_path})", "info")
 
-    def save_and_apply_policy(self) -> None:
-        """Save policy locally and sync to the cloud control plane."""
+    def _policy_state(self) -> dict:
+        """The device policy as currently expressed by the UI."""
+        return {
+            "desktop_enabled": bool(self.policy_desktop_enabled.get()),
+            "allow_tier3": bool(self.policy_allow_tier3.get()),
+            "max_tier_unattended": int(self.policy_max_tier.get()),
+            "allow_writes": bool(self.policy_allow_writes.get()),
+            "allow_shell": bool(self.policy_allow_shell.get()),
+            "allow_package_install": bool(self.policy_allow_package_install.get()),
+            "allowed_apps": sorted(self.policy_allowed_apps),
+        }
+
+    def _policy_diff(self) -> list[str]:
+        """Human-readable differences between the applied policy and the UI."""
+        before = self._policy_snapshot
+        after = self._policy_state()
+        changes = [
+            f"{key.replace('_', ' ')}: {before.get(key)} -> {value}"
+            for key, value in after.items()
+            if key != "allowed_apps" and before.get(key) != value
+        ]
+        added = sorted(set(after["allowed_apps"]) - set(before.get("allowed_apps") or []))
+        removed = sorted(set(before.get("allowed_apps") or []) - set(after["allowed_apps"]))
+        if added:
+            changes.append(f"apps added: {', '.join(added)}")
+        if removed:
+            changes.append(f"apps removed: {', '.join(removed)}")
+        return changes
+
+    def _record_policy_change(self, changes: list[str]) -> None:
+        entry = {"time": time.strftime("%H:%M:%S"), "summary": "; ".join(changes)[:200]}
+        self._policy_audit.insert(0, entry)
+        del self._policy_audit[6:]
+        self.log(f"Policy change applied: {entry['summary']}", "ok")
+
+    def _mark_policy_synced(self, state_text: str) -> None:
+        """Record that the UI and the control plane now agree."""
+        self.policy_status_var.set(state_text)
+        self._policy_snapshot = self._policy_state()
+
+    def save_and_apply_policy(self, confirm: bool = True) -> None:
+        """Apply the UI policy, showing what changes before it takes effect."""
+        changes = self._policy_diff()
+        if changes and confirm:
+            preview = "\n".join(f"\u2022  {line}" for line in changes[:12])
+            if len(changes) > 12:
+                preview += f"\n\u2022  and {len(changes) - 12} more"
+            if not messagebox.askyesno(
+                "Apply policy changes",
+                f"These take effect immediately for agents on this device:\n\n{preview}\n\nApply now?",
+            ):
+                self.log("Policy changes discarded.", "info")
+                return
+        if changes:
+            self._record_policy_change(changes)
         self.save_current_config()
+        self._policy_snapshot = self._policy_state()
         self.sync_policy_to_server(notify_ui=True)
 
     def sync_policy_to_server(self, notify_ui: bool = True) -> None:
@@ -820,7 +1046,7 @@ class AgentGuiApp:
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     json.loads(resp.read().decode("utf-8"))
                     msg = "Policy synchronized successfully with Control Plane."
-                    self.root.after(0, lambda: self.policy_status_var.set("Synced with Cloud ✓"))
+                    self.root.after(0, lambda: self._mark_policy_synced("Synced with Cloud ✓"))
                     self.log(msg, "ok")
                     if notify_ui:
                         self.root.after(0, lambda: messagebox.showinfo("Policy Synchronized", msg))
@@ -877,7 +1103,7 @@ class AgentGuiApp:
                             self._update_quick_app_buttons()
 
                         self.save_current_config()
-                        self.policy_status_var.set("Synced from Cloud ✓")
+                        self._mark_policy_synced("Synced from Cloud ✓")
                         self.log("Fetched and applied device policy from Control Plane.", "ok")
                         if notify_ui:
                             messagebox.showinfo("Policy Sync", "Successfully loaded policy settings from server.")
@@ -956,7 +1182,7 @@ class AgentGuiApp:
             self.policy_allowed_apps.append("*")
         self._render_allowed_app_chips()
         self._update_quick_app_buttons()
-        self.save_and_apply_policy()
+        self.save_and_apply_policy(confirm=False)
         self.log("Applied 'Full AI Desktop Control' preset (ChatGPT & Claude can control mouse/keyboard unattended).", "ok")
         messagebox.showinfo(
             "AI Desktop Control Enabled",
@@ -975,7 +1201,7 @@ class AgentGuiApp:
         self.policy_allow_writes.set(True)
         self.policy_allow_shell.set(True)
         self.policy_allow_package_install.set(False)
-        self.save_and_apply_policy()
+        self.save_and_apply_policy(confirm=False)
         self.log("Applied 'Standard Workstation' preset.", "ok")
 
     def apply_lockdown_preset(self) -> None:
@@ -986,7 +1212,7 @@ class AgentGuiApp:
         self.policy_allow_writes.set(False)
         self.policy_allow_shell.set(False)
         self.policy_allow_package_install.set(False)
-        self.save_and_apply_policy()
+        self.save_and_apply_policy(confirm=False)
         self.log("Applied 'Read-Only Lockdown' preset.", "warn")
 
     def _update_quick_app_buttons(self) -> None:
@@ -1260,10 +1486,13 @@ class AgentGuiApp:
         try:
             while True:
                 line, tag = self.log_queue.get_nowait()
+                if self.log_errors_only_var.get() and tag not in ("warn", "err"):
+                    continue
                 if hasattr(self, "log_text") and self.log_text.winfo_exists():
                     self.log_text.configure(state="normal")
                     self.log_text.insert("end", line, tag)
-                    self.log_text.see("end")
+                    if not self.pause_scroll_var.get():
+                        self.log_text.see("end")
                     self.log_text.configure(state="disabled")
         except queue.Empty:
             pass
@@ -1355,7 +1584,14 @@ class AgentGuiApp:
                 exp_str = f"in {max(0, int((exp - time.time()) / 3600))}h" if isinstance(exp, (int, float)) else "—"
                 now_str = time.strftime("%H:%M:%S")
 
-                self.root.after(0, lambda d=did, n=now_str, e=exp_str: self._update_telemetry(d, n, e))
+                self._last_ok_poll = time.time()
+                self._last_poll_error = ""
+                self.root.after(
+                    0,
+                    lambda d=did, n=now_str, e=exp_str, x=exp: self._update_telemetry(
+                        d, n, e, x if isinstance(x, (int, float)) else None
+                    ),
+                )
 
                 if had_error:
                     self.log("Agent reconnected to control plane (OK).", "ok")
@@ -1441,6 +1677,10 @@ class AgentGuiApp:
                 else:
                     self.root.after(0, lambda w=wait_time: self.status_var.set(f"● Retry in {w:.0f}s"))
                     self.log(f"Connection issue (retry in {wait_time:.0f}s): {exc}", "warn")
+                self._last_poll_error = err_msg[:80]
+                self.root.after(
+                    0, lambda w=wait_time, m=self._last_poll_error: self._set_poll_note(False, m, w)
+                )
                 self.stop_event.wait(wait_time)
                 poller.backoff = min(poller.backoff * 2, 60.0)
 
@@ -1448,26 +1688,54 @@ class AgentGuiApp:
 
     def _append_task_record(self, record: dict) -> None:
         self.task_history.append(record)
-        if hasattr(self, "task_tree") and self.task_tree.winfo_exists():
-            self.task_tree.insert(
-                "",
-                0,
-                iid=record["id"],
-                values=(
-                    record["time"],
-                    record["id"][:8],
-                    record["tool"],
-                    f"{record['duration_s']:.2f}s",
-                    record["status"].upper(),
-                ),
-            )
+        while len(self.task_history) > TASK_HISTORY_LIMIT:
+            dropped = self.task_history.pop(0)
+            if hasattr(self, "task_tree") and self.task_tree.exists(dropped["id"]):
+                self.task_tree.delete(dropped["id"])
+        save_task_history(self.task_history)
+        row = (
+            record.get("time", ""),
+            str(record["id"])[:8],
+            record.get("tool", ""),
+            f"{record.get('duration_s', 0):.2f}s",
+            str(record.get("status", "")).upper(),
+        )
+        if hasattr(self, "task_tree") and self.task_tree.winfo_exists() and self._task_matches(record):
+            self.task_tree.insert("", 0, iid=record["id"], values=row, tags=("even",))
+        self._update_task_count()
 
-    def _update_telemetry(self, did: str, hb_time: str, exp_str: str) -> None:
+    def _update_telemetry(
+        self, did: str, hb_time: str, exp_str: str, expires_at: float | None = None
+    ) -> None:
         self.device_id_var.set(did)
         self.heartbeat_var.set(hb_time)
         self.expiry_var.set(exp_str)
+        self._note_token_expiry(expires_at)
+        self._set_poll_note(True)
         if self.running:
-            self.status_var.set("● Online & Polling")
+            self.status_var.set("\u25cf Online & Polling")
+
+    def _set_poll_note(self, ok: bool, detail: str = "", retry_in: float | None = None) -> None:
+        """Surface connection health, not just a colour on the capsule."""
+        last = time.strftime("%H:%M:%S", time.localtime(self._last_ok_poll)) if self._last_ok_poll else "never"
+        if ok:
+            self.poll_note_var.set(f"Last contact {last} \u00b7 healthy")
+        else:
+            retry = f" \u00b7 retry in {retry_in:.0f}s" if retry_in else ""
+            self.poll_note_var.set(f"Last contact {last} \u00b7 {detail[:70]}{retry}")
+
+    def _note_token_expiry(self, expires_at: float | None) -> None:
+        self._token_expires_at = expires_at
+        if not expires_at:
+            self.expiry_note_var.set("")
+            return
+        hours = (expires_at - time.time()) / 3600
+        if hours <= 0:
+            self.expiry_note_var.set("Token expired \u2014 rotate to reconnect")
+        elif hours < 24:
+            self.expiry_note_var.set(f"Token expires in {max(0, int(hours))}h \u2014 rotate to renew")
+        else:
+            self.expiry_note_var.set(f"Token valid for {int(hours)}h")
 
     def rotate_token_manual(self) -> None:
         url = self.url_var.get().strip()
@@ -1505,6 +1773,7 @@ class AgentGuiApp:
         self.root.focus_force()
 
     def _on_close(self) -> None:
+        self._persist_window_state()
         if self.minimize_to_tray_var.get() and self.running:
             self.minimize_to_tray()
         else:
@@ -1512,10 +1781,189 @@ class AgentGuiApp:
 
     def exit_application(self) -> None:
         """Clean shutdown."""
+        self._persist_window_state()
         self.stop_event.set()
         self.running = False
         self.tray.stop()
         self.root.destroy()
+
+
+    # -------------------------------------------------------------------------
+    # DIAGNOSTICS, UPDATES AND SUPPORT
+    # -------------------------------------------------------------------------
+    def _on_tk_exception(self, exc_type, exc_value, exc_tb) -> None:
+        """Surface Tk callback errors instead of losing them under pythonw."""
+        detail = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        self._last_ui_error = detail
+        _LOGGER.error("Unhandled UI exception: %s", detail)
+        self.log(f"UI error: {exc_type.__name__}: {exc_value} (use Diagnostics)", "err")
+        try:
+            self.tray.notify("AI Bridge UI error", f"{exc_type.__name__}: {exc_value}"[:200])
+        except Exception:
+            pass
+
+    def token_storage_note(self) -> str:
+        """Describe where and how the device token is stored."""
+        try:
+            backend = runtime.token_backend(TOKEN_FILE)
+        except Exception:
+            return "Token storage unavailable"
+        if not TOKEN_FILE.exists():
+            return f"Not stored yet \u00b7 {TOKEN_FILE}"
+        if backend == "dpapi":
+            return f"Sealed with Windows DPAPI \u00b7 {TOKEN_FILE}"
+        return f"Owner-only file (no DPAPI) \u00b7 {TOKEN_FILE}"
+
+    def _diagnostics_report(self) -> dict:
+        try:
+            report = diagnose.build_report(
+                load_agent_config,
+                config_file=CONFIG_FILE,
+                token_file=TOKEN_FILE,
+                gui_available=tk is not None,
+            )
+        except Exception as exc:
+            report = {"report_error": str(exc)}
+        report.update(
+            {
+                "app_version": APP_VERSION,
+                "theme": self.theme_name,
+                "policy": self._policy_state(),
+                "token_storage": self.token_storage_note(),
+                "last_ui_error": self._last_ui_error,
+                "poller": {"last_contact": self._last_ok_poll, "last_error": self._last_poll_error},
+            }
+        )
+        return report
+
+    def copy_diagnostics(self) -> None:
+        payload = json.dumps(self._diagnostics_report(), indent=2, default=str)
+        if hasattr(self, "log_text") and self.log_text.winfo_exists():
+            payload += "\n\n--- recent activity ---\n" + self.log_text.get("1.0", "end")[-4000:]
+        self.root.clipboard_clear()
+        self.root.clipboard_append(payload)
+        self.log("Copied diagnostics report and recent log to clipboard.", "ok")
+
+    def export_diagnostics_bundle(self) -> None:
+        path = filedialog.asksaveasfilename(
+            defaultextension=".zip",
+            filetypes=[("Zip archive", "*.zip")],
+            initialfile=f"ai-bridge-diagnostics-{time.strftime('%Y%m%d_%H%M%S')}.zip",
+        )
+        if not path:
+            return
+        try:
+            with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("report.json", json.dumps(self._diagnostics_report(), indent=2, default=str))
+                archive.writestr(
+                    "config.json",
+                    json.dumps(runtime.strip_token_from_config(self.cfg), indent=2, default=str),
+                )
+                if hasattr(self, "log_text") and self.log_text.winfo_exists():
+                    archive.writestr("session-log.txt", self.log_text.get("1.0", "end"))
+                log_path = runtime.configure_file_logging()
+                if Path(log_path).exists():
+                    archive.write(log_path, "agent-gui.log")
+            self.log(f"Exported diagnostics bundle to {path}", "ok")
+            messagebox.showinfo("Diagnostics", f"Bundle written to:\n{path}")
+        except Exception as exc:
+            self.log(f"Diagnostics export failed: {exc}", "err")
+            messagebox.showerror("Diagnostics Error", str(exc))
+
+    @staticmethod
+    def _version_tuple(value: str) -> tuple[int, ...]:
+        parts = []
+        for chunk in str(value).lstrip("v").split("."):
+            digits = "".join(ch for ch in chunk if ch.isdigit())
+            parts.append(int(digits) if digits else 0)
+        return tuple(parts)
+
+    def check_for_updates(self) -> None:
+        """Compare the running build against the project's latest published tag."""
+        headers = {"User-Agent": "AI-Bridge-Windows-Client/2.0", "Accept": "application/vnd.github+json"}
+        latest = ""
+        for url in (
+            "https://api.github.com/repos/jacxishipping/ai-bridge/releases/latest",
+            "https://api.github.com/repos/jacxishipping/ai-bridge/tags",
+        ):
+            try:
+                request = urllib.request.Request(url, headers=headers, method="GET")
+                with urllib.request.urlopen(request, timeout=6) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+                if isinstance(data, dict):
+                    latest = str(data.get("tag_name") or data.get("name") or "")
+                elif isinstance(data, list) and data:
+                    latest = str(data[0].get("name") or "")
+                if latest:
+                    break
+            except Exception:
+                continue
+        if not latest:
+            self.root.after(0, lambda: self.update_status_var.set(f"Version {APP_VERSION} \u00b7 no channel reachable"))
+            return
+        if self._version_tuple(latest) > self._version_tuple(APP_VERSION):
+            message = f"Version {APP_VERSION} \u00b7 {latest.lstrip('v')} available"
+        else:
+            message = f"Version {APP_VERSION} \u00b7 up to date"
+        self.root.after(0, lambda: self.update_status_var.set(message))
+
+    def check_for_updates_async(self) -> None:
+        threading.Thread(target=self.check_for_updates, daemon=True).start()
+
+    def _queue_loop(self) -> None:
+        """Show how many results are waiting in the offline spool."""
+        if not self._spool_failed:
+            try:
+                from common.spool import TaskSpooler
+
+                if self._spooler is None:
+                    self._spooler = TaskSpooler()
+                self.queued_var.set(str(len(self._spooler.get_pending(200))))
+            except Exception:
+                self._spool_failed = True
+                self.queued_var.set("\u2014")
+        self.root.after(5000, self._queue_loop)
+
+    # -------------------------------------------------------------------------
+    # KEYBOARD AND WINDOW STATE
+    # -------------------------------------------------------------------------
+    def _bind_shortcuts(self) -> None:
+        for index in range(len(self.tab_titles)):
+            self.root.bind_all(
+                f"<Control-Key-{index + 1}>",
+                lambda _event, i=index: (self.select_tab(i), "break")[1],
+            )
+        self.root.bind_all("<Control-Key-f>", lambda _event: (self._focus_task_search(), "break")[1])
+        self.root.bind_all("<Control-Key-l>", lambda _event: (self._focus_log(), "break")[1])
+        self.root.bind_all("<Control-Return>", lambda _event: (self.toggle_agent(), "break")[1])
+        self.root.bind_all("<Escape>", lambda _event: (self._clear_filters(), "break")[1])
+
+    def _focus_task_search(self) -> None:
+        if self.active_tab_idx != 1:
+            self.select_tab(1)
+        entry_widget = getattr(self, "task_search_entry", None)
+        if entry_widget is not None and entry_widget.winfo_exists():
+            entry_widget.focus_set()
+
+    def _focus_log(self) -> None:
+        if hasattr(self, "log_text") and self.log_text.winfo_exists():
+            self.log_text.focus_set()
+
+    def _clear_filters(self) -> None:
+        self.task_search_var.set("")
+        self.task_filter_var.set("all")
+        if self.active_tab_idx == 1:
+            self._update_task_filter_buttons()
+            self._refresh_task_table()
+
+    def _persist_window_state(self) -> None:
+        try:
+            self.cfg["window_geometry"] = self.root.geometry()
+            self.cfg["window_maximized"] = self.root.state() == "zoomed"
+            self.cfg["last_tab"] = int(self.active_tab_idx)
+            save_agent_config(self.cfg)
+        except Exception:
+            pass
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1548,11 +1996,13 @@ def main(argv: list[str] | None = None) -> int:
     root = tk.Tk()
     root.withdraw()
     if not guard.acquire():
-        messagebox.showwarning(
-            "AI Bridge is already running",
-            "Another AI Bridge window is already open.\n\n"
-            "Restore it from the system tray, or close it before starting a second copy.",
-        )
+        # A second launch should surface the running window, not dead-end here.
+        if not focus_existing_window():
+            messagebox.showwarning(
+                "AI Bridge is already running",
+                "Another AI Bridge window is already open.\n\n"
+                "Restore it from the system tray, or close it before starting a second copy.",
+            )
         root.destroy()
         return 0
 
