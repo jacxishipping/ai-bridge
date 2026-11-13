@@ -20,3 +20,5 @@ windows-agent/build/
 *.pem
 *.key
 
+# local run artifacts (control-plane data, workspace, logs, captures)
+.run/

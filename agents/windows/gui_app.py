@@ -61,88 +61,24 @@ TOKEN_FILE = CONFIG_DIR / "device.token"
 REG_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 REG_APP_NAME = "AIBridgeWindowsClient"
 
-COMMON_WINDOWS_APPS = [
-    ("Google Chrome", "chrome"),
-    ("Microsoft Edge", "msedge"),
-    ("Notepad", "notepad"),
-    ("Calculator", "calc"),
-    ("VS Code", "code"),
-    ("PowerShell", "powershell"),
-    ("Command Prompt", "cmd"),
-    ("File Explorer", "explorer"),
-    ("MS Paint", "mspaint"),
-    ("Windows Terminal", "wt"),
-]
-
-# Fluent 2 Color Palette
-THEMES = {
-    "dark": {
-        "bg": "#141414",
-        "card": "#202020",
-        "card_alt": "#292929",
-        "card_subtle": "#1a1a1a",
-        "border": "#383838",
-        "border_subtle": "#2c2c2c",
-        "fg": "#ffffff",
-        "fg_muted": "#a0a0a0",
-        "fg_subtle": "#707070",
-        "brand": "#0f6cbd",
-        "brand_hover": "#115ea3",
-        "brand_active": "#0c5494",
-        "brand_light": "#1e3a5f",
-        "brand_fg": "#ffffff",
-        "success_bg": "#052505",
-        "success_fg": "#54b054",
-        "success_border": "#0e700e",
-        "warn_bg": "#381a04",
-        "warn_fg": "#f8965d",
-        "danger_bg": "#c50f1f",
-        "danger_fg": "#ffffff",
-        "danger_light": "#3b1115",
-        "log_bg": "#0d0d0d",
-        "log_fg": "#e6e6e6",
-        "input_bg": "#1b1b1b",
-        "tab_active_bg": "#2b2b2b",
-        "tab_inactive_bg": "#181818",
-        "table_header_bg": "#262626",
-        "table_row_even": "#1d1d1d",
-        "table_row_odd": "#222222",
-        "gauge_track": "#2a2a2a",
-    },
-    "light": {
-        "bg": "#f5f5f5",
-        "card": "#ffffff",
-        "card_alt": "#f0f0f0",
-        "card_subtle": "#fafafa",
-        "border": "#e0e0e0",
-        "border_subtle": "#ebebeb",
-        "fg": "#242424",
-        "fg_muted": "#616161",
-        "fg_subtle": "#8a8a8a",
-        "brand": "#0f6cbd",
-        "brand_hover": "#115ea3",
-        "brand_active": "#0c5494",
-        "brand_light": "#ebf3fc",
-        "brand_fg": "#ffffff",
-        "success_bg": "#eefbee",
-        "success_fg": "#0e700e",
-        "success_border": "#92d892",
-        "warn_bg": "#fff8f2",
-        "warn_fg": "#bc4b09",
-        "danger_bg": "#c50f1f",
-        "danger_fg": "#ffffff",
-        "danger_light": "#fdf2f2",
-        "log_bg": "#1a1a1a",
-        "log_fg": "#f0f0f0",
-        "input_bg": "#ffffff",
-        "tab_active_bg": "#ffffff",
-        "tab_inactive_bg": "#e8e8e8",
-        "table_header_bg": "#f0f0f0",
-        "table_row_even": "#ffffff",
-        "table_row_odd": "#f9f9f9",
-        "gauge_track": "#e6e6e6",
-    },
-}
+# Design tokens and view builders live in the sibling gui_ui module.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from gui_ui import (  # noqa: E402  (path setup must run first)
+    COMMON_WINDOWS_APPS,
+    THEMES,
+    build_monitor,
+    build_overview,
+    build_security,
+    build_settings,
+    build_shell,
+    build_tasks,
+    build_vision,
+    mono_font,
+    paint_status_pill,
+    redraw_gauges,
+    ui_font,
+)
+from gui_ui import select_tab as ui_select_tab  # noqa: E402
 
 
 def _enable_dpi_awareness() -> None:
@@ -564,8 +500,14 @@ class AgentGuiApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("AI Bridge Windows Client (User App)")
-        self.root.geometry("960x720")
-        self.root.minsize(820, 600)
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        win_w = min(1180, max(960, screen_w - 120))
+        win_h = min(780, max(620, screen_h - 110))
+        pos_x = max(0, (screen_w - win_w) // 2)
+        pos_y = max(0, (screen_h - win_h) // 2 - 12)
+        self.root.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
+        self.root.minsize(min(940, win_w), min(600, win_h))
 
         # Set custom AI Bridge branding icon
         ico_path = Path(__file__).resolve().parents[2] / "assets" / "ai-bridge.ico"
@@ -591,7 +533,7 @@ class AgentGuiApp:
         self.status_var = tk.StringVar(value="Stopped")
         self.heartbeat_var = tk.StringVar(value="Never")
         self.expiry_var = tk.StringVar(value="—")
-        self.latency_var = tk.StringVar(value="⚡ Latency: —")
+        self.latency_var = tk.StringVar(value="Latency —")
         self.tasks_count = 0
         self.tasks_var = tk.StringVar(value="0")
 
@@ -658,582 +600,20 @@ class AgentGuiApp:
             self.log("AI Bridge Windows Client ready. Click 'Start Agent' to begin polling.", "info")
 
     def _build_shell(self) -> None:
-        """Construct the Fluent 2 Header, Navigation Tabs, and Tab Content Containers."""
-        for w in self.root.winfo_children():
-            w.destroy()
-        t = THEMES[self.theme_name]
-        self.root.configure(bg=t["bg"])
-
-        # 1. Top Brand Header
-        header = tk.Frame(self.root, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        header.pack(fill="x", padx=16, pady=(12, 6))
-
-        hdr_left = tk.Frame(header, bg=t["card"])
-        hdr_left.pack(side="left", padx=14, pady=10)
-
-        logo = tk.Label(
-            hdr_left,
-            text="✓",
-            bg=t["brand"],
-            fg=t["brand_fg"],
-            font=("Segoe UI", 12, "bold"),
-            width=3,
-            pady=2,
-        )
-        logo.pack(side="left", padx=(0, 10))
-
-        titles = tk.Frame(hdr_left, bg=t["card"])
-        titles.pack(side="left")
-        tk.Label(
-            titles,
-            text="AI Bridge Windows Client (User App)",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 13, "bold"),
-            anchor="w",
-        ).pack(anchor="w")
-        tk.Label(
-            titles,
-            text="Fluent 2 Desktop Companion • Unprivileged User Mode • Hardware & Vision Telemetry",
-            bg=t["card"],
-            fg=t["fg_muted"],
-            font=("Segoe UI", 9),
-            anchor="w",
-        ).pack(anchor="w")
-
-        hdr_right = tk.Frame(header, bg=t["card"])
-        hdr_right.pack(side="right", padx=14, pady=10)
-
-        # Realtime status badge
-        self.status_badge = tk.Label(
-            hdr_right,
-            textvariable=self.status_var,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            font=("Segoe UI", 9, "bold"),
-            padx=10,
-            pady=4,
-        )
-        self.status_badge.pack(side="left", padx=(0, 6))
-
-        # Latency pill
-        self.latency_label = tk.Label(
-            hdr_right,
-            textvariable=self.latency_var,
-            bg=t["card_subtle"],
-            fg=t["fg_muted"],
-            font=("Segoe UI", 8, "bold"),
-            padx=8,
-            pady=4,
-        )
-        self.latency_label.pack(side="left", padx=(0, 6))
-
-        tk.Button(
-            hdr_right,
-            text="Web Dashboard ↗",
-            command=self.open_dashboard,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            activebackground=t["border"],
-            relief="flat",
-            font=("Segoe UI", 9, "bold"),
-            padx=10,
-            pady=4,
-            cursor="hand2",
-        ).pack(side="left", padx=(0, 6))
-
-        tk.Button(
-            hdr_right,
-            text="Light" if self.theme_name == "dark" else "Dark",
-            command=self.toggle_theme,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            activebackground=t["border"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=8,
-            pady=4,
-            cursor="hand2",
-        ).pack(side="left", padx=(0, 6))
-
-        tk.Button(
-            hdr_right,
-            text="Tray 🗕",
-            command=self.minimize_to_tray,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            activebackground=t["border"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=8,
-            pady=4,
-            cursor="hand2",
-        ).pack(side="left")
-
-        # 2. Segmented Navigation Tab Bar
-        tab_bar = tk.Frame(self.root, bg=t["bg"])
-        tab_bar.pack(fill="x", padx=16, pady=(4, 6))
-
-        self.tab_titles = [
-            ("📌 Overview", self._build_overview_tab),
-            ("📋 Task Explorer", self._build_tasks_tab),
-            ("💻 System Monitor", self._build_monitor_tab),
-            ("🖼️ Desktop Vision", self._build_vision_tab),
-            ("🛡️ Security & Policy", self._build_security_tab),
-            ("⚙️ Settings", self._build_settings_tab),
-        ]
-
-        self._tab_buttons = []
-        self._tab_frames = []
-
-        tab_btn_row = tk.Frame(tab_bar, bg=t["card_alt"], highlightthickness=1, highlightbackground=t["border"])
-        tab_btn_row.pack(fill="x")
-
-        for idx, (label, builder) in enumerate(self.tab_titles):
-            btn = tk.Button(
-                tab_btn_row,
-                text=label,
-                command=lambda i=idx: self.select_tab(i),
-                bg=t["tab_active_bg"] if idx == self.active_tab_idx else t["card_alt"],
-                fg=t["fg"] if idx == self.active_tab_idx else t["fg_muted"],
-                activebackground=t["tab_active_bg"],
-                activeforeground=t["fg"],
-                relief="flat",
-                font=("Segoe UI", 9, "bold" if idx == self.active_tab_idx else "normal"),
-                padx=14,
-                pady=7,
-                cursor="hand2",
-            )
-            btn.pack(side="left")
-            self._tab_buttons.append(btn)
-
-        # 3. Main Content Container
-        self.content_container = tk.Frame(self.root, bg=t["bg"])
-        self.content_container.pack(fill="both", expand=True, padx=16, pady=(0, 12))
-
-        # Build the initial active tab
-        self.select_tab(self.active_tab_idx)
+        """Compose the application shell (sidebar, header, content, activity dock)."""
+        build_shell(self)
 
     def select_tab(self, idx: int) -> None:
-        """Switch active navigation tab."""
-        self.active_tab_idx = idx
-        t = THEMES[self.theme_name]
+        """Switch the active page."""
+        ui_select_tab(self, idx)
 
-        for i, btn in enumerate(self._tab_buttons):
-            if i == idx:
-                btn.configure(
-                    bg=t["tab_active_bg"],
-                    fg=t["brand"] if self.theme_name == "light" else "#5cb2ff",
-                    font=("Segoe UI", 9, "bold"),
-                )
-            else:
-                btn.configure(
-                    bg=t["card_alt"],
-                    fg=t["fg_muted"],
-                    font=("Segoe UI", 9, "normal"),
-                )
-
-        for w in self.content_container.winfo_children():
-            w.destroy()
-
-        # Build target tab
-        _, builder = self.tab_titles[idx]
-        builder(self.content_container)
-
-    # -------------------------------------------------------------------------
-    # TAB 1: OVERVIEW
-    # -------------------------------------------------------------------------
     def _build_overview_tab(self, parent: tk.Frame) -> None:
-        t = THEMES[self.theme_name]
+        """Connection, session controls, KPIs and local guardrails."""
+        build_overview(self, parent)
 
-        # Mode Info Card
-        info_card = tk.Frame(parent, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        info_card.pack(fill="x", pady=(0, 8))
-        info_inner = tk.Frame(info_card, bg=t["card"])
-        info_inner.pack(fill="x", padx=14, pady=8)
-        tk.Label(
-            info_inner,
-            text=(
-                "👤 User Application Mode: This desktop client operates strictly in user space using an "
-                "administrator-issued Device Token. Server policies and fleet provisioning are securely managed on the Web Dashboard."
-            ),
-            bg=t["card"],
-            fg=t["fg_muted"],
-            font=("Segoe UI", 9),
-            wraplength=880,
-            justify="left",
-        ).pack(anchor="w")
-
-        # Telemetry KPI Row
-        kpi_frame = tk.Frame(parent, bg=t["bg"])
-        kpi_frame.pack(fill="x", pady=(0, 8))
-        for col in range(4):
-            kpi_frame.columnconfigure(col, weight=1)
-
-        self._make_kpi_tile(kpi_frame, 0, "DEVICE ID", self.device_id_var, copy_btn=True)
-        self._make_kpi_tile(kpi_frame, 1, "LAST HEARTBEAT", self.heartbeat_var)
-        self._make_kpi_tile(kpi_frame, 2, "TOKEN EXPIRY", self.expiry_var)
-        self._make_kpi_tile(kpi_frame, 3, "TASKS COMPLETED", self.tasks_var)
-
-        # Connection Configuration Card
-        cfg_card = tk.Frame(parent, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        cfg_card.pack(fill="x", pady=(0, 8))
-
-        cfg_inner = tk.Frame(cfg_card, bg=t["card"])
-        cfg_inner.pack(fill="x", padx=14, pady=10)
-        cfg_inner.columnconfigure(1, weight=1)
-
-        tk.Label(
-            cfg_inner,
-            text="Control Plane URL:",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 9, "bold"),
-        ).grid(row=0, column=0, sticky="w", pady=(0, 6), padx=(0, 10))
-
-        self.url_entry = tk.Entry(
-            cfg_inner,
-            textvariable=self.url_var,
-            bg=t["input_bg"],
-            fg=t["fg"],
-            insertbackground=t["fg"],
-            relief="solid",
-            bd=1,
-            font=("Consolas", 10),
-        )
-        self.url_entry.grid(row=0, column=1, sticky="ew", pady=(0, 6), ipady=3)
-
-        tk.Button(
-            cfg_inner,
-            text="⚡ Ping Server",
-            command=self.ping_server,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=10,
-            pady=2,
-            cursor="hand2",
-        ).grid(row=0, column=2, padx=(6, 0), pady=(0, 6))
-
-        tk.Label(
-            cfg_inner,
-            text="Assigned Token:",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 9, "bold"),
-        ).grid(row=1, column=0, sticky="w", padx=(0, 10))
-
-        self.tok_entry = tk.Entry(
-            cfg_inner,
-            textvariable=self.token_var,
-            show="" if self.show_token else "•",
-            bg=t["input_bg"],
-            fg=t["fg"],
-            insertbackground=t["fg"],
-            relief="solid",
-            bd=1,
-            font=("Consolas", 10),
-        )
-        self.tok_entry.grid(row=1, column=1, sticky="ew", ipady=3)
-
-        self.show_btn = tk.Button(
-            cfg_inner,
-            text="Hide" if self.show_token else "Show",
-            command=self._toggle_token_vis,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=8,
-            pady=2,
-            cursor="hand2",
-        )
-        self.show_btn.grid(row=1, column=2, padx=(6, 0))
-
-        tk.Button(
-            cfg_inner,
-            text="Copy Token",
-            command=self._copy_token,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=8,
-            pady=2,
-            cursor="hand2",
-        ).grid(row=1, column=3, padx=(6, 0))
-
-        tk.Button(
-            cfg_inner,
-            text="🔄 Reload",
-            command=self.reload_token_from_disk,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=8,
-            pady=2,
-            cursor="hand2",
-        ).grid(row=1, column=4, padx=(6, 0))
-
-        # Controls row
-        ctrl_row = tk.Frame(cfg_card, bg=t["card"])
-        ctrl_row.pack(fill="x", padx=14, pady=(2, 10))
-
-        self.start_stop_btn = tk.Button(
-            ctrl_row,
-            text="■ Stop Agent" if self.running else "▶ Start Agent",
-            command=self.toggle_agent,
-            bg=t["danger_bg"] if self.running else t["brand"],
-            fg="#ffffff",
-            activebackground=t["brand_hover"],
-            activeforeground="#ffffff",
-            relief="flat",
-            font=("Segoe UI", 10, "bold"),
-            padx=16,
-            pady=6,
-            cursor="hand2",
-        )
-        self.start_stop_btn.pack(side="left", padx=(0, 8))
-
-        tk.Button(
-            ctrl_row,
-            text="Rotate Token",
-            command=self.rotate_token_manual,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=10,
-            pady=6,
-            cursor="hand2",
-        ).pack(side="left", padx=(0, 6))
-
-        tk.Button(
-            ctrl_row,
-            text="Save Config",
-            command=self.save_current_config,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=10,
-            pady=6,
-            cursor="hand2",
-        ).pack(side="left", padx=(0, 10))
-
-        tk.Checkbutton(
-            ctrl_row,
-            text="Auto-start on app launch",
-            variable=self.auto_start_var,
-            command=self.save_current_config,
-            bg=t["card"],
-            fg=t["fg_muted"],
-            selectcolor=t["card_alt"],
-            activebackground=t["card"],
-            activeforeground=t["fg"],
-            font=("Segoe UI", 9),
-        ).pack(side="right")
-
-        # Live Activity Console
-        log_card = tk.Frame(parent, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        log_card.pack(fill="both", expand=True)
-
-        log_hdr = tk.Frame(log_card, bg=t["card"])
-        log_hdr.pack(fill="x", padx=14, pady=(8, 4))
-
-        tk.Label(
-            log_hdr,
-            text="Live Agent Activity & Execution Console",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 10, "bold"),
-        ).pack(side="left")
-
-        tk.Button(
-            log_hdr,
-            text="Export Logs…",
-            command=self.export_logs,
-            bg=t["card_alt"],
-            fg=t["fg_muted"],
-            relief="flat",
-            font=("Segoe UI", 8, "bold"),
-            padx=8,
-            pady=2,
-            cursor="hand2",
-        ).pack(side="right", padx=(4, 0))
-
-        tk.Button(
-            log_hdr,
-            text="Clear",
-            command=self._clear_log,
-            bg=t["card_alt"],
-            fg=t["fg_muted"],
-            relief="flat",
-            font=("Segoe UI", 8, "bold"),
-            padx=8,
-            pady=2,
-            cursor="hand2",
-        ).pack(side="right")
-
-        log_body = tk.Frame(log_card, bg=t["log_bg"])
-        log_body.pack(fill="both", expand=True, padx=14, pady=(0, 10))
-
-        scrollbar = tk.Scrollbar(log_body)
-        scrollbar.pack(side="right", fill="y")
-
-        self.log_text = tk.Text(
-            log_body,
-            bg=t["log_bg"],
-            fg=t["log_fg"],
-            font=("Consolas", 9),
-            relief="flat",
-            wrap="word",
-            yscrollcommand=scrollbar.set,
-            padx=10,
-            pady=8,
-            state="disabled",
-        )
-        self.log_text.pack(side="left", fill="both", expand=True)
-        scrollbar.config(command=self.log_text.yview)
-
-        self.log_text.tag_config("info", foreground="#62abf5")
-        self.log_text.tag_config("ok", foreground="#54b054")
-        self.log_text.tag_config("warn", foreground="#f8965d")
-        self.log_text.tag_config("err", foreground="#eeacb2")
-
-    # -------------------------------------------------------------------------
-    # TAB 2: TASK EXPLORER & INSPECTOR
-    # -------------------------------------------------------------------------
     def _build_tasks_tab(self, parent: tk.Frame) -> None:
-        t = THEMES[self.theme_name]
-
-        # Top Task Toolbar
-        bar = tk.Frame(parent, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        bar.pack(fill="x", pady=(0, 8))
-        bar_inner = tk.Frame(bar, bg=t["card"])
-        bar_inner.pack(fill="x", padx=12, pady=8)
-
-        tk.Label(
-            bar_inner,
-            text=f"Dispatched Tasks History ({len(self.task_history)})",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 10, "bold"),
-        ).pack(side="left")
-
-        tk.Button(
-            bar_inner,
-            text="Clear History",
-            command=self._clear_task_history,
-            bg=t["card_alt"],
-            fg=t["fg_muted"],
-            relief="flat",
-            font=("Segoe UI", 8, "bold"),
-            padx=8,
-            pady=2,
-            cursor="hand2",
-        ).pack(side="right")
-
-        # Split Container: Treeview List on Left, Inspector on Right
-        split = tk.Frame(parent, bg=t["bg"])
-        split.pack(fill="both", expand=True)
-        split.columnconfigure(0, weight=3)
-        split.columnconfigure(1, weight=4)
-        split.rowconfigure(0, weight=1)
-
-        # Left: Task Table
-        table_card = tk.Frame(split, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        table_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-
-        cols = ("time", "id", "tool", "duration", "status")
-        self.task_tree = ttk.Treeview(table_card, columns=cols, show="headings", selectmode="browse")
-        self.task_tree.heading("time", text="Time")
-        self.task_tree.heading("id", text="Task ID")
-        self.task_tree.heading("tool", text="Tool")
-        self.task_tree.heading("duration", text="Duration")
-        self.task_tree.heading("status", text="Status")
-
-        self.task_tree.column("time", width=70, anchor="w")
-        self.task_tree.column("id", width=80, anchor="w")
-        self.task_tree.column("tool", width=140, anchor="w")
-        self.task_tree.column("duration", width=70, anchor="center")
-        self.task_tree.column("status", width=80, anchor="center")
-
-        tree_scroll = tk.Scrollbar(table_card, command=self.task_tree.yview)
-        self.task_tree.configure(yscrollcommand=tree_scroll.set)
-        tree_scroll.pack(side="right", fill="y")
-        self.task_tree.pack(side="left", fill="both", expand=True)
-
-        self.task_tree.bind("<<TreeviewSelect>>", self._on_task_tree_select)
-
-        # Right: Detail Inspector
-        insp_card = tk.Frame(split, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        insp_card.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-
-        insp_hdr = tk.Frame(insp_card, bg=t["card"])
-        insp_hdr.pack(fill="x", padx=12, pady=(10, 6))
-
-        tk.Label(
-            insp_hdr,
-            text="Task Payload Inspector",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 10, "bold"),
-        ).pack(side="left")
-
-        self.copy_payload_btn = tk.Button(
-            insp_hdr,
-            text="Copy Payload",
-            command=self._copy_inspector_payload,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 8),
-            padx=8,
-            pady=2,
-            cursor="hand2",
-        )
-        self.copy_payload_btn.pack(side="right")
-
-        self.insp_meta_label = tk.Label(
-            insp_card,
-            text="Select a task from the list on the left to inspect its arguments and returned result.",
-            bg=t["card"],
-            fg=t["fg_muted"],
-            font=("Segoe UI", 9),
-            anchor="w",
-            padx=12,
-        )
-        self.insp_meta_label.pack(fill="x", pady=(0, 6))
-
-        self.insp_text = tk.Text(
-            insp_card,
-            bg=t["log_bg"],
-            fg=t["log_fg"],
-            font=("Consolas", 9),
-            relief="flat",
-            wrap="word",
-            padx=10,
-            pady=8,
-        )
-        self.insp_text.pack(fill="both", expand=True, padx=12, pady=(0, 10))
-
-        # Populate tasks into tree
-        for item in reversed(self.task_history):
-            self.task_tree.insert(
-                "",
-                "end",
-                iid=item["id"],
-                values=(
-                    item["time"],
-                    item["id"][:8],
-                    item["tool"],
-                    f"{item.get('duration_s', 0):.2f}s",
-                    item["status"].upper(),
-                ),
-            )
+        """Task table with the payload inspector."""
+        build_tasks(self, parent)
 
     def _on_task_tree_select(self, event=None) -> None:
         sel = self.task_tree.selection()
@@ -1280,140 +660,8 @@ class AgentGuiApp:
     # TAB 3: SYSTEM MONITOR
     # -------------------------------------------------------------------------
     def _build_monitor_tab(self, parent: tk.Frame) -> None:
-        t = THEMES[self.theme_name]
-
-        # Top summary bar
-        top_bar = tk.Frame(parent, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        top_bar.pack(fill="x", pady=(0, 8))
-        inner_bar = tk.Frame(top_bar, bg=t["card"])
-        inner_bar.pack(fill="x", padx=14, pady=10)
-
-        tk.Label(
-            inner_bar,
-            text="Real-Time Hardware & Host Telemetry",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 11, "bold"),
-        ).pack(side="left")
-
-        tk.Button(
-            inner_bar,
-            text="Refresh Now",
-            command=self._refresh_system_monitor,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=10,
-            pady=3,
-            cursor="hand2",
-        ).pack(side="right", padx=(8, 0))
-
-        tk.Checkbutton(
-            inner_bar,
-            text="Auto-refresh (every 2s)",
-            variable=self.auto_refresh_monitor_var,
-            bg=t["card"],
-            fg=t["fg_muted"],
-            selectcolor=t["card_alt"],
-            activebackground=t["card"],
-            activeforeground=t["fg"],
-            font=("Segoe UI", 9),
-        ).pack(side="right")
-
-        # 3 Live Hardware Gauges Card
-        gauges_card = tk.Frame(parent, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        gauges_card.pack(fill="x", pady=(0, 8))
-
-        g_inner = tk.Frame(gauges_card, bg=t["card"])
-        g_inner.pack(fill="x", padx=16, pady=14)
-        g_inner.columnconfigure(0, weight=1)
-        g_inner.columnconfigure(1, weight=1)
-        g_inner.columnconfigure(2, weight=1)
-
-        self._build_gauge_widget(g_inner, 0, "CPU UTILIZATION", self.cpu_var)
-        self._build_gauge_widget(g_inner, 1, "SYSTEM RAM", self.ram_var)
-        self._build_gauge_widget(g_inner, 2, "PRIMARY DISK (C:\\)", self.disk_var)
-
-        # Host Specifications Card
-        host_card = tk.Frame(parent, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        host_card.pack(fill="both", expand=True)
-
-        h_inner = tk.Frame(host_card, bg=t["card"])
-        h_inner.pack(fill="both", expand=True, padx=16, pady=14)
-
-        tk.Label(
-            h_inner,
-            text="Host Environment & Network Specifications",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 10, "bold"),
-        ).pack(anchor="w", pady=(0, 10))
-
-        grid = tk.Frame(h_inner, bg=t["card"])
-        grid.pack(fill="both", expand=True)
-        grid.columnconfigure(1, weight=1)
-        grid.columnconfigure(3, weight=1)
-
-        specs = [
-            ("Machine Node:", platform.node()),
-            ("Operating System:", f"{platform.system()} {platform.release()} (Build {platform.version()})"),
-            ("Processor Architecture:", f"{platform.machine()} ({os.cpu_count() or 1} Cores)"),
-            ("Processor Model:", platform.processor() or "x86_64 Compatible"),
-            ("Active IP Address:", self.ip_var.get()),
-            ("System Uptime:", self.uptime_var.get()),
-            ("Python Runtime:", f"Python {platform.python_version()} ({sys.executable})"),
-            ("Security Execution Context:", "Interactive Logged-in User (Standard Privileges)"),
-        ]
-
-        for idx, (label, val) in enumerate(specs):
-            row = idx // 2
-            col_offset = (idx % 2) * 2
-
-            tk.Label(
-                grid,
-                text=label,
-                bg=t["card"],
-                fg=t["fg_muted"],
-                font=("Segoe UI", 9, "bold"),
-            ).grid(row=row, column=col_offset, sticky="w", pady=4, padx=(0, 8))
-
-            val_lbl = tk.Label(
-                grid,
-                text=val,
-                bg=t["card"],
-                fg=t["fg"],
-                font=("Consolas", 9),
-                anchor="w",
-            )
-            val_lbl.grid(row=row, column=col_offset + 1, sticky="w", pady=4, padx=(0, 16))
-
-        # Trigger immediate refresh
-        self._refresh_system_monitor()
-
-    def _build_gauge_widget(self, parent: tk.Frame, col: int, title: str, var: tk.StringVar) -> None:
-        t = THEMES[self.theme_name]
-        box = tk.Frame(parent, bg=t["card_subtle"], highlightthickness=1, highlightbackground=t["border"])
-        box.grid(row=0, column=col, sticky="nsew", padx=(0 if col == 0 else 8, 0))
-
-        inner = tk.Frame(box, bg=t["card_subtle"])
-        inner.pack(fill="both", expand=True, padx=12, pady=10)
-
-        tk.Label(
-            inner,
-            text=title,
-            bg=t["card_subtle"],
-            fg=t["fg_muted"],
-            font=("Segoe UI", 8, "bold"),
-        ).pack(anchor="w")
-
-        tk.Label(
-            inner,
-            textvariable=var,
-            bg=t["card_subtle"],
-            fg=t["fg"],
-            font=("Segoe UI", 12, "bold"),
-        ).pack(anchor="w", pady=(4, 6))
+        """Donut gauges plus the host specification grid."""
+        build_monitor(self, parent)
 
     def _refresh_system_monitor(self) -> None:
         data = gather_system_telemetry()
@@ -1422,6 +670,7 @@ class AgentGuiApp:
         self.disk_var.set(f"{data['disk_free_gb']} GB Free / {data['disk_total_gb']} GB ({data['disk_percent']}%)")
         self.ip_var.set(data["ip_address"])
         self.uptime_var.set(data["uptime"])
+        redraw_gauges(self)
 
     def _system_monitor_loop(self) -> None:
         if self.auto_refresh_monitor_var.get() and self.active_tab_idx == 2:
@@ -1432,148 +681,8 @@ class AgentGuiApp:
     # TAB 4: DESKTOP VISION & SCREEN PREVIEW
     # -------------------------------------------------------------------------
     def _build_vision_tab(self, parent: tk.Frame) -> None:
-        t = THEMES[self.theme_name]
-
-        # Action Toolbar
-        bar = tk.Frame(parent, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        bar.pack(fill="x", pady=(0, 8))
-        inner_bar = tk.Frame(bar, bg=t["card"])
-        inner_bar.pack(fill="x", padx=14, pady=10)
-
-        tk.Label(
-            inner_bar,
-            text="Interactive Desktop Vision & Screenshot Diagnostics",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 11, "bold"),
-        ).pack(side="left")
-
-        tk.Button(
-            inner_bar,
-            text="📸 Capture Test Screenshot",
-            command=self.capture_preview_screenshot,
-            bg=t["brand"],
-            fg="#ffffff",
-            activebackground=t["brand_hover"],
-            activeforeground="#ffffff",
-            relief="flat",
-            font=("Segoe UI", 9, "bold"),
-            padx=12,
-            pady=4,
-            cursor="hand2",
-        ).pack(side="right")
-
-        # Split Container: Preview Canvas on Left, Diagnostics on Right
-        split = tk.Frame(parent, bg=t["bg"])
-        split.pack(fill="both", expand=True)
-        split.columnconfigure(0, weight=5)
-        split.columnconfigure(1, weight=3)
-        split.rowconfigure(0, weight=1)
-
-        # Canvas Box
-        canvas_box = tk.Frame(split, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        canvas_box.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-
-        c_hdr = tk.Frame(canvas_box, bg=t["card"])
-        c_hdr.pack(fill="x", padx=12, pady=(10, 4))
-        tk.Label(
-            c_hdr,
-            text="Live Screen Viewport Preview",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 10, "bold"),
-        ).pack(side="left")
-
-        self.vision_canvas = tk.Canvas(
-            canvas_box,
-            bg=t["log_bg"],
-            highlightthickness=0,
-        )
-        self.vision_canvas.pack(fill="both", expand=True, padx=12, pady=(0, 10))
-
-        # Initial canvas message
-        self.vision_canvas.create_text(
-            260,
-            160,
-            text="Click 'Capture Test Screenshot' above to preview what AI Bridge agents see.",
-            fill=t["fg_muted"],
-            font=("Segoe UI", 10),
-            tags="placeholder",
-        )
-
-        # Right: Vision Diagnostics Card
-        diag_box = tk.Frame(split, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        diag_box.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-
-        d_inner = tk.Frame(diag_box, bg=t["card"])
-        d_inner.pack(fill="both", expand=True, padx=14, pady=12)
-
-        tk.Label(
-            d_inner,
-            text="Desktop Vision Guardrails",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 10, "bold"),
-        ).pack(anchor="w", pady=(0, 8))
-
-        diag_text = (
-            "• Interactive User Session Required:\n"
-            "Desktop vision (capture_desktop_screenshot) and UI automation (perform_approved_ui_action) "
-            "run exclusively inside your logged-in interactive user session.\n\n"
-            "• Least Privilege Guarantee:\n"
-            "The agent does NOT run as SYSTEM and has no hidden background access to other user accounts.\n\n"
-            "• Optimization & Privacy:\n"
-            "Images are encoded in compact base64 JPEG format, scaled to max 1280px width for fast AI inference, "
-            "and sensitive system credentials are never captured in headers."
-        )
-        tk.Label(
-            d_inner,
-            text=diag_text,
-            bg=t["card"],
-            fg=t["fg_muted"],
-            font=("Segoe UI", 9),
-            justify="left",
-            wraplength=300,
-        ).pack(anchor="w", pady=(0, 12))
-
-        self.vision_meta_label = tk.Label(
-            d_inner,
-            text="No screenshot captured yet.",
-            bg=t["card_subtle"],
-            fg=t["fg"],
-            font=("Consolas", 8),
-            justify="left",
-            wraplength=300,
-            padx=8,
-            pady=8,
-        )
-        self.vision_meta_label.pack(fill="x", pady=(0, 10))
-
-        tk.Button(
-            d_inner,
-            text="Open in Photo Viewer",
-            command=self._open_screenshot_in_viewer,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=10,
-            pady=4,
-            cursor="hand2",
-        ).pack(fill="x", pady=(0, 6))
-
-        tk.Button(
-            d_inner,
-            text="Copy Screenshot Path",
-            command=self._copy_screenshot_path,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=10,
-            pady=4,
-            cursor="hand2",
-        ).pack(fill="x")
+        """Viewport preview and capture diagnostics."""
+        build_vision(self, parent)
 
     def get_current_policy(self):
         """Construct the active Policy instance from current UI and configuration settings."""
@@ -1630,9 +739,11 @@ class AgentGuiApp:
             if hasattr(self, "vision_canvas"):
                 self.vision_canvas.delete("all")
                 # Center image on canvas
+                canvas_w = max(self.vision_canvas.winfo_width(), max_w)
+                canvas_h = max(self.vision_canvas.winfo_height(), max_h)
                 self.vision_canvas.create_image(
-                    max_w // 2,
-                    max_h // 2,
+                    canvas_w // 2,
+                    canvas_h // 2,
                     image=self._preview_image_ref,
                 )
 
@@ -1843,7 +954,8 @@ class AgentGuiApp:
         self.policy_allow_package_install.set(True)
         if "*" not in self.policy_allowed_apps:
             self.policy_allowed_apps.append("*")
-        self.allow_all_apps()
+        self._render_allowed_app_chips()
+        self._update_quick_app_buttons()
         self.save_and_apply_policy()
         self.log("Applied 'Full AI Desktop Control' preset (ChatGPT & Claude can control mouse/keyboard unattended).", "ok")
         messagebox.showinfo(
@@ -1878,738 +990,76 @@ class AgentGuiApp:
         self.log("Applied 'Read-Only Lockdown' preset.", "warn")
 
     def _update_quick_app_buttons(self) -> None:
-        """Refresh styling and active state on quick toggle buttons."""
+        """Refresh styling and active state on the quick application toggles."""
         t = THEMES[self.theme_name]
         for label, app_id in COMMON_WINDOWS_APPS:
             btn = self._quick_app_buttons.get(app_id)
             if not btn or not btn.winfo_exists():
                 continue
-            is_allowed = app_id in self.policy_allowed_apps
-            if is_allowed:
-                btn.configure(
-                    text=f"✓ {label}",
-                    bg=t["success_bg"],
-                    fg=t["success_fg"],
-                    highlightbackground=t["success_border"],
-                    highlightthickness=1,
-                    font=("Segoe UI", 8, "bold"),
-                )
-            else:
-                btn.configure(
-                    text=f"+ {label}",
-                    bg=t["card_alt"],
-                    fg=t["fg_muted"],
-                    highlightbackground=t["border"],
-                    highlightthickness=1,
-                    font=("Segoe UI", 8),
-                )
+            allowed = app_id in self.policy_allowed_apps
+            btn.configure(
+                text=f"\u2713 {label}" if allowed else label,
+                bg=t["success_bg"] if allowed else t["card_alt"],
+                fg=t["success_fg"] if allowed else t["fg_muted"],
+                activebackground=t["accent_soft"] if allowed else t["border"],
+                activeforeground=t["fg"],
+                highlightbackground=t["success_border"] if allowed else t["border"],
+                highlightthickness=1,
+                font=ui_font(8, "bold" if allowed else "normal"),
+            )
 
     def _render_allowed_app_chips(self) -> None:
-        """Render badge chips for currently allowed applications."""
+        """Render the allowlist as removable chips."""
         if not self._app_chips_frame or not self._app_chips_frame.winfo_exists():
             return
         t = THEMES[self.theme_name]
-        for w in self._app_chips_frame.winfo_children():
-            w.destroy()
+        for widget in self._app_chips_frame.winfo_children():
+            widget.destroy()
 
         if not self.policy_allowed_apps:
             tk.Label(
                 self._app_chips_frame,
-                text="⚠️ No applications allowed. Desktop automation cannot launch any executables.",
+                text="No applications allowed - desktop automation cannot launch any executable.",
                 bg=t["card"],
                 fg=t["warn_fg"],
-                font=("Segoe UI", 9, "italic"),
-                padx=6,
-                pady=6,
-            ).pack(anchor="w")
+                font=ui_font(9),
+                anchor="w",
+                justify="left",
+            ).pack(fill="x", pady=4)
             return
 
-        sorted_apps = sorted(self.policy_allowed_apps)
         row = None
-        for i, app_name in enumerate(sorted_apps):
-            if i % 6 == 0:
+        for index, app_name in enumerate(sorted(self.policy_allowed_apps)):
+            if index % 6 == 0:
                 row = tk.Frame(self._app_chips_frame, bg=t["card"])
-                row.pack(fill="x", pady=2)
+                row.pack(fill="x", pady=3)
             chip = tk.Frame(row, bg=t["card_alt"], highlightthickness=1, highlightbackground=t["border"])
-            chip.pack(side="left", padx=3)
+            chip.pack(side="left", padx=(0, 6))
             tk.Label(
+                chip, text=app_name, bg=t["card_alt"], fg=t["fg"], font=mono_font(8, "bold"), padx=8, pady=3
+            ).pack(side="left")
+            close = tk.Label(
                 chip,
-                text=f" {app_name} ",
+                text="\u2715",
                 bg=t["card_alt"],
-                fg=t["fg"],
-                font=("Consolas", 9, "bold"),
-            ).pack(side="left", padx=(2, 0))
-            tk.Button(
-                chip,
-                text="✕",
-                command=lambda a=app_name: self.disallow_app(a),
-                bg=t["card_alt"],
-                fg=t["fg_muted"],
-                activebackground=t["card_alt"],
-                activeforeground=t["danger_bg"],
-                relief="flat",
-                font=("Segoe UI", 8, "bold"),
-                padx=4,
-                cursor="hand2",
-            ).pack(side="right")
-
-    # -------------------------------------------------------------------------
-    # TAB 5: SECURITY & POLICY GUARDRAILS
-    # -------------------------------------------------------------------------
-    def _build_security_tab(self, parent: tk.Frame) -> None:
-        t = THEMES[self.theme_name]
-
-        # Scrollable container for full policy controls
-        canvas = tk.Canvas(parent, bg=t["bg"], highlightthickness=0)
-        vbar = tk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scroll_content = tk.Frame(canvas, bg=t["bg"])
-
-        scroll_content.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
-        )
-        canvas_window = canvas.create_window((0, 0), window=scroll_content, anchor="nw")
-
-        def _on_canvas_configure(e):
-            canvas.itemconfig(canvas_window, width=e.width)
-
-        canvas.bind("<Configure>", _on_canvas_configure)
-        canvas.configure(yscrollcommand=vbar.set)
-
-        # Mousewheel binding when hovering canvas
-        canvas.bind(
-            "<Enter>",
-            lambda _: canvas.bind_all(
-                "<MouseWheel>",
-                lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"),
-            ),
-        )
-        canvas.bind("<Leave>", lambda _: canvas.unbind_all("<MouseWheel>"))
-
-        vbar.pack(side="right", fill="y")
-        canvas.pack(side="left", fill="both", expand=True)
-
-        # Top Banner & Actions Toolbar
-        hdr = tk.Frame(scroll_content, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        hdr.pack(fill="x", pady=(0, 8))
-        h_inner = tk.Frame(hdr, bg=t["card"])
-        h_inner.pack(fill="x", padx=14, pady=10)
-
-        left_hdr = tk.Frame(h_inner, bg=t["card"])
-        left_hdr.pack(side="left")
-        tk.Label(
-            left_hdr,
-            text="🛡️ Device Execution Policy & Guardrail Manager",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 11, "bold"),
-        ).pack(anchor="w")
-
-        status_row = tk.Frame(left_hdr, bg=t["card"])
-        status_row.pack(anchor="w", pady=(2, 0))
-        tk.Label(
-            status_row,
-            text="Status:",
-            bg=t["card"],
-            fg=t["fg_muted"],
-            font=("Segoe UI", 8),
-        ).pack(side="left", padx=(0, 4))
-        tk.Label(
-            status_row,
-            textvariable=self.policy_status_var,
-            bg=t["card_alt"],
-            fg=t["brand"] if self.theme_name == "light" else "#5cb2ff",
-            font=("Segoe UI", 8, "bold"),
-            padx=6,
-            pady=1,
-        ).pack(side="left")
-
-        # Action Buttons on Right
-        btn_box = tk.Frame(h_inner, bg=t["card"])
-        btn_box.pack(side="right")
-
-        tk.Button(
-            btn_box,
-            text="☁️ Sync from Cloud",
-            command=lambda: self.fetch_policy_from_server(notify_ui=True),
-            bg=t["card_alt"],
-            fg=t["fg"],
-            activebackground=t["card_alt"],
-            activeforeground=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=10,
-            pady=4,
-            cursor="hand2",
-        ).pack(side="left", padx=(0, 6))
-
-        tk.Button(
-            btn_box,
-            text="💾 Save & Apply Policy",
-            command=self.save_and_apply_policy,
-            bg=t["brand"],
-            fg="#ffffff",
-            activebackground=t["brand_hover"],
-            activeforeground="#ffffff",
-            relief="flat",
-            font=("Segoe UI", 9, "bold"),
-            padx=12,
-            pady=4,
-            cursor="hand2",
-        ).pack(side="left")
-
-        # ---------------------------------------------------------------------
-        # QUICK PRESETS BAR (One-click configuration for AI Remote Control)
-        # ---------------------------------------------------------------------
-        preset_card = tk.Frame(scroll_content, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        preset_card.pack(fill="x", pady=(0, 8))
-        pc_inner = tk.Frame(preset_card, bg=t["card"])
-        pc_inner.pack(fill="x", padx=16, pady=10)
-
-        p_left = tk.Frame(pc_inner, bg=t["card"])
-        p_left.pack(side="left")
-        tk.Label(
-            p_left,
-            text="⚡ Quick Role Presets (ChatGPT, Claude & MCP):",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 10, "bold"),
-        ).pack(anchor="w")
-        tk.Label(
-            p_left,
-            text="Instantly configure guardrails for AI agents controlling your Windows desktop.",
-            bg=t["card"],
-            fg=t["fg_muted"],
-            font=("Segoe UI", 8),
-        ).pack(anchor="w")
-
-        p_btns = tk.Frame(pc_inner, bg=t["card"])
-        p_btns.pack(side="right")
-
-        tk.Button(
-            p_btns,
-            text="🚀 Full AI Desktop Control (Mouse & Keyboard)",
-            command=self.apply_full_desktop_preset,
-            bg=t["brand"],
-            fg="#ffffff",
-            activebackground=t["brand_hover"],
-            activeforeground="#ffffff",
-            relief="flat",
-            font=("Segoe UI", 9, "bold"),
-            padx=12,
-            pady=4,
-            cursor="hand2",
-        ).pack(side="left", padx=4)
-
-        tk.Button(
-            p_btns,
-            text="🛡️ Standard Workstation",
-            command=self.apply_workstation_preset,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            activebackground=t["card_alt"],
-            activeforeground=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=10,
-            pady=4,
-            cursor="hand2",
-        ).pack(side="left", padx=4)
-
-        tk.Button(
-            p_btns,
-            text="🔒 Read-Only Lockdown",
-            command=self.apply_lockdown_preset,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            activebackground=t["card_alt"],
-            activeforeground=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=10,
-            pady=4,
-            cursor="hand2",
-        ).pack(side="left", padx=4)
-
-        # ---------------------------------------------------------------------
-        # CARD 1: Autonomous Execution Guardrails & Risk Ceilings
-        # ---------------------------------------------------------------------
-        c1 = tk.Frame(scroll_content, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        c1.pack(fill="x", pady=(0, 8))
-        c1_inner = tk.Frame(c1, bg=t["card"])
-        c1_inner.pack(fill="x", padx=16, pady=12)
-
-        tk.Label(
-            c1_inner,
-            text="⚙️ Autonomous Execution Guardrails",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 10, "bold"),
-        ).pack(anchor="w", pady=(0, 6))
-
-        tk.Checkbutton(
-            c1_inner,
-            text="🖥️ Enable Desktop Vision & Automation (capture_desktop_screenshot, launch_approved_application, perform_approved_ui_action)",
-            variable=self.policy_desktop_enabled,
-            command=self.save_current_config,
-            bg=t["card"],
-            fg=t["fg"],
-            selectcolor=t["card_alt"],
-            activebackground=t["card"],
-            activeforeground=t["fg"],
-            font=("Segoe UI", 9, "bold"),
-        ).pack(anchor="w", pady=2)
-
-        tk.Checkbutton(
-            c1_inner,
-            text="⚡ Allow Tier-3 Autonomous Execution Unattended (Sensitive operations like workspace edits and tests execute without manual approval)",
-            variable=self.policy_allow_tier3,
-            command=self.save_current_config,
-            bg=t["card"],
-            fg=t["fg"],
-            selectcolor=t["card_alt"],
-            activebackground=t["card"],
-            activeforeground=t["fg"],
-            font=("Segoe UI", 9, "bold"),
-        ).pack(anchor="w", pady=2)
-
-        row_toggles = tk.Frame(c1_inner, bg=t["card"])
-        row_toggles.pack(fill="x", pady=4)
-
-        tk.Checkbutton(
-            row_toggles,
-            text="💻 Allow Shell Commands (run_shell)",
-            variable=self.policy_allow_shell,
-            command=self.save_current_config,
-            bg=t["card"],
-            fg=t["fg"],
-            selectcolor=t["card_alt"],
-            activebackground=t["card"],
-            activeforeground=t["fg"],
-            font=("Segoe UI", 9),
-        ).pack(side="left", padx=(0, 14))
-
-        tk.Checkbutton(
-            row_toggles,
-            text="📝 Allow Workspace File Writes",
-            variable=self.policy_allow_writes,
-            command=self.save_current_config,
-            bg=t["card"],
-            fg=t["fg"],
-            selectcolor=t["card_alt"],
-            activebackground=t["card"],
-            activeforeground=t["fg"],
-            font=("Segoe UI", 9),
-        ).pack(side="left", padx=(0, 14))
-
-        tk.Checkbutton(
-            row_toggles,
-            text="📦 Allow Package Installation",
-            variable=self.policy_allow_package_install,
-            command=self.save_current_config,
-            bg=t["card"],
-            fg=t["fg"],
-            selectcolor=t["card_alt"],
-            activebackground=t["card"],
-            activeforeground=t["fg"],
-            font=("Segoe UI", 9),
-        ).pack(side="left")
-
-        # Unattended Ceiling Radios
-        ceiling_box = tk.Frame(c1_inner, bg=t["card_subtle"], highlightthickness=1, highlightbackground=t["border"])
-        ceiling_box.pack(fill="x", pady=(8, 0))
-        cb_in = tk.Frame(ceiling_box, bg=t["card_subtle"])
-        cb_in.pack(fill="x", padx=12, pady=8)
-
-        tk.Label(
-            cb_in,
-            text="Unattended Risk Tier Ceiling:",
-            bg=t["card_subtle"],
-            fg=t["fg"],
-            font=("Segoe UI", 9, "bold"),
-        ).pack(anchor="w")
-
-        radio_row = tk.Frame(cb_in, bg=t["card_subtle"])
-        radio_row.pack(fill="x", pady=(4, 0))
-
-        tier_opts = [
-            (1, "Tier 1: Read-Only"),
-            (2, "Tier 2: Safe Writes"),
-            (3, "Tier 3: Autonomous (Recommended)"),
-            (4, "Tier 4: High-Risk Unconfined"),
-        ]
-        for val, lbl in tier_opts:
-            tk.Radiobutton(
-                radio_row,
-                text=lbl,
-                value=val,
-                variable=self.policy_max_tier,
-                command=self.save_current_config,
-                bg=t["card_subtle"],
-                fg=t["fg"],
-                selectcolor=t["card_alt"],
-                activebackground=t["card_subtle"],
-                activeforeground=t["fg"],
-                font=("Segoe UI", 8),
-            ).pack(side="left", padx=(0, 14))
-
-        # ---------------------------------------------------------------------
-        # CARD 2: Allowed Windows Applications (Allow / Disallow Apps)
-        # ---------------------------------------------------------------------
-        c2 = tk.Frame(scroll_content, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        c2.pack(fill="x", pady=(0, 8))
-        c2_inner = tk.Frame(c2, bg=t["card"])
-        c2_inner.pack(fill="x", padx=16, pady=12)
-
-        tk.Label(
-            c2_inner,
-            text="🪟 Allowed Windows Applications (Application Allowlist)",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 10, "bold"),
-        ).pack(anchor="w")
-
-        tk.Label(
-            c2_inner,
-            text="AI Bridge desktop automation (launch_approved_application) can ONLY launch applications explicitly present in this list. Click quick toggles below or enter custom executables.",
-            bg=t["card"],
-            fg=t["fg_muted"],
-            font=("Segoe UI", 8),
-            wraplength=850,
-            justify="left",
-        ).pack(anchor="w", pady=(2, 8))
-
-        # Quick 1-Click Common App Toggles
-        tk.Label(
-            c2_inner,
-            text="Quick Application Toggles:",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 9, "bold"),
-        ).pack(anchor="w", pady=(0, 4))
-
-        quick_row1 = tk.Frame(c2_inner, bg=t["card"])
-        quick_row1.pack(fill="x", pady=2)
-        quick_row2 = tk.Frame(c2_inner, bg=t["card"])
-        quick_row2.pack(fill="x", pady=2)
-
-        self._quick_app_buttons.clear()
-        for idx, (label, app_id) in enumerate(COMMON_WINDOWS_APPS):
-            target_row = quick_row1 if idx < 5 else quick_row2
-            btn = tk.Button(
-                target_row,
-                text=label,
-                command=lambda aid=app_id: self.toggle_quick_app(aid),
-                relief="flat",
-                padx=8,
+                fg=t["fg_subtle"],
+                font=ui_font(8, "bold"),
+                padx=6,
                 pady=3,
                 cursor="hand2",
             )
-            btn.pack(side="left", padx=3)
-            self._quick_app_buttons[app_id] = btn
+            close.pack(side="left")
+            close.bind("<Button-1>", lambda _event, a=app_name: self.disallow_app(a))
+            close.bind("<Enter>", lambda _event, w=close: w.configure(fg=t["danger_bg"]))
+            close.bind("<Leave>", lambda _event, w=close: w.configure(fg=t["fg_subtle"]))
 
-        # Custom Executable Input Bar
-        add_frame = tk.Frame(c2_inner, bg=t["card_subtle"], highlightthickness=1, highlightbackground=t["border"])
-        add_frame.pack(fill="x", pady=(10, 8))
-        add_inner = tk.Frame(add_frame, bg=t["card_subtle"])
-        add_inner.pack(fill="x", padx=10, pady=6)
+    def _build_security_tab(self, parent: tk.Frame) -> None:
+        """Device policy: presets, guardrails, tier ceiling, allowlist and risk matrix."""
+        build_security(self, parent)
 
-        tk.Label(
-            add_inner,
-            text="Custom App Executable:",
-            bg=t["card_subtle"],
-            fg=t["fg"],
-            font=("Segoe UI", 9, "bold"),
-        ).pack(side="left", padx=(0, 8))
-
-        custom_app_var = tk.StringVar()
-        entry = tk.Entry(
-            add_inner,
-            textvariable=custom_app_var,
-            bg=t["input_bg"],
-            fg=t["fg"],
-            insertbackground=t["fg"],
-            relief="flat",
-            font=("Consolas", 9),
-            width=28,
-        )
-        entry.pack(side="left", padx=(0, 8))
-
-        def _do_add():
-            val = custom_app_var.get().strip()
-            if val:
-                self.add_custom_app(val)
-                custom_app_var.set("")
-
-        entry.bind("<Return>", lambda _: _do_add())
-
-        tk.Button(
-            add_inner,
-            text="+ Add Application",
-            command=_do_add,
-            bg=t["brand"],
-            fg="#ffffff",
-            activebackground=t["brand_hover"],
-            activeforeground="#ffffff",
-            relief="flat",
-            font=("Segoe UI", 9, "bold"),
-            padx=10,
-            pady=2,
-            cursor="hand2",
-        ).pack(side="left")
-
-        # Bulk Actions
-        tk.Button(
-            add_inner,
-            text="Allow All Standard Apps",
-            command=self.allow_all_standard_apps,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 8),
-            padx=8,
-            pady=2,
-            cursor="hand2",
-        ).pack(side="right", padx=(4, 0))
-
-        tk.Button(
-            add_inner,
-            text="Disallow All Apps",
-            command=self.disallow_all_apps,
-            bg=t["card_alt"],
-            fg=t["warn_fg"],
-            relief="flat",
-            font=("Segoe UI", 8),
-            padx=8,
-            pady=2,
-            cursor="hand2",
-        ).pack(side="right")
-
-        # Chips Container
-        tk.Label(
-            c2_inner,
-            text="Currently Allowed Applications (Click ✕ to disallow):",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 9, "bold"),
-        ).pack(anchor="w", pady=(4, 4))
-
-        self._app_chips_frame = tk.Frame(c2_inner, bg=t["card"])
-        self._app_chips_frame.pack(fill="x", pady=(0, 4))
-
-        self._render_allowed_app_chips()
-        self._update_quick_app_buttons()
-
-        # ---------------------------------------------------------------------
-        # CARD 3: Tool Risk Classification & Guardrail Matrix
-        # ---------------------------------------------------------------------
-        c3 = tk.Frame(scroll_content, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        c3.pack(fill="x", pady=(0, 12))
-        c3_inner = tk.Frame(c3, bg=t["card"])
-        c3_inner.pack(fill="x", padx=16, pady=12)
-
-        tiers = [
-            ("🟢 Tier 1: Read-Only Diagnostics", "Pre-Authorized", "get_system_info, get_resource_usage, list_processes, get_service_status"),
-            ("🟢 Tier 2: Safe Workspace Navigation", "Confined", "read_workspace_file, search_workspace, list_workspace"),
-            ("🟡 Tier 3: Local Modification & Vision", "Policy Governed", "capture_desktop_screenshot, launch_approved_application, create/edit files, tests"),
-            ("🔴 Tier 4: Critical Deployments", "Approval Required", "deploy_application, unconfined high-risk operations (require Admin Approval)"),
-        ]
-
-        tk.Label(
-            c3_inner,
-            text="Tool Risk Classification Matrix:",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 10, "bold"),
-        ).pack(anchor="w", pady=(0, 6))
-
-        for name, badge, desc in tiers:
-            row = tk.Frame(c3_inner, bg=t["card_subtle"], highlightthickness=1, highlightbackground=t["border"])
-            row.pack(fill="x", pady=2)
-            r_in = tk.Frame(row, bg=t["card_subtle"])
-            r_in.pack(fill="x", padx=10, pady=4)
-
-            tk.Label(
-                r_in,
-                text=name,
-                bg=t["card_subtle"],
-                fg=t["fg"],
-                font=("Segoe UI", 9, "bold"),
-            ).pack(side="left")
-
-            tk.Label(
-                r_in,
-                text=badge,
-                bg=t["card_alt"],
-                fg=t["brand"] if self.theme_name == "light" else "#5cb2ff",
-                font=("Segoe UI", 8, "bold"),
-                padx=6,
-                pady=1,
-            ).pack(side="right")
-
-            tk.Label(
-                row,
-                text=f"Permitted tools: {desc}",
-                bg=t["card_subtle"],
-                fg=t["fg_muted"],
-                font=("Consolas", 8),
-            ).pack(anchor="w", padx=10, pady=(0, 4))
-
-    # -------------------------------------------------------------------------
-    # TAB 6: SETTINGS & WINDOWS INTEGRATION
-    # -------------------------------------------------------------------------
     def _build_settings_tab(self, parent: tk.Frame) -> None:
-        t = THEMES[self.theme_name]
-
-        # Top Bar
-        top_bar = tk.Frame(parent, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        top_bar.pack(fill="x", pady=(0, 8))
-        inner_bar = tk.Frame(top_bar, bg=t["card"])
-        inner_bar.pack(fill="x", padx=14, pady=10)
-
-        tk.Label(
-            inner_bar,
-            text="Client Preferences & Windows Integration",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 11, "bold"),
-        ).pack(side="left")
-
-        tk.Button(
-            inner_bar,
-            text="Save Settings",
-            command=self.save_current_config,
-            bg=t["brand"],
-            fg="#ffffff",
-            activebackground=t["brand_hover"],
-            activeforeground="#ffffff",
-            relief="flat",
-            font=("Segoe UI", 9, "bold"),
-            padx=14,
-            pady=4,
-            cursor="hand2",
-        ).pack(side="right")
-
-        # Body Container
-        card = tk.Frame(parent, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        card.pack(fill="both", expand=True)
-
-        c_inner = tk.Frame(card, bg=t["card"])
-        c_inner.pack(fill="both", expand=True, padx=16, pady=14)
-
-        # Windows startup checkbox
-        tk.Label(
-            c_inner,
-            text="Windows System Integration:",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 10, "bold"),
-        ).pack(anchor="w", pady=(0, 8))
-
-        tk.Checkbutton(
-            c_inner,
-            text="Launch AI Bridge automatically on Windows Login (HKCU Run Key)",
-            variable=self.windows_autostart_var,
-            command=self._on_autostart_toggle,
-            bg=t["card"],
-            fg=t["fg"],
-            selectcolor=t["card_alt"],
-            activebackground=t["card"],
-            activeforeground=t["fg"],
-            font=("Segoe UI", 9),
-        ).pack(anchor="w", pady=2)
-
-        tk.Checkbutton(
-            c_inner,
-            text="Minimize to System Tray on window close (keep running in background)",
-            variable=self.minimize_to_tray_var,
-            command=self.save_current_config,
-            bg=t["card"],
-            fg=t["fg"],
-            selectcolor=t["card_alt"],
-            activebackground=t["card"],
-            activeforeground=t["fg"],
-            font=("Segoe UI", 9),
-        ).pack(anchor="w", pady=2)
-
-        tk.Checkbutton(
-            c_inner,
-            text="Show Windows desktop notifications when tasks execute",
-            variable=self.notifications_var,
-            command=self.save_current_config,
-            bg=t["card"],
-            fg=t["fg"],
-            selectcolor=t["card_alt"],
-            activebackground=t["card"],
-            activeforeground=t["fg"],
-            font=("Segoe UI", 9),
-        ).pack(anchor="w", pady=2)
-
-        tk.Label(
-            c_inner,
-            text="Poller Tuning:",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 10, "bold"),
-        ).pack(anchor="w", pady=(14, 8))
-
-        poll_row = tk.Frame(c_inner, bg=t["card"])
-        poll_row.pack(fill="x", pady=2)
-        tk.Label(
-            poll_row,
-            text="Long-Poll Timeout (seconds):",
-            bg=t["card"],
-            fg=t["fg_muted"],
-            font=("Segoe UI", 9),
-        ).pack(side="left", padx=(0, 10))
-
-        tk.Spinbox(
-            poll_row,
-            from_=5,
-            to=60,
-            textvariable=self.poll_wait_var,
-            width=6,
-            bg=t["input_bg"],
-            fg=t["fg"],
-            font=("Consolas", 10),
-        ).pack(side="left")
-
-        tk.Label(
-            c_inner,
-            text="Configuration Backup & Diagnostics:",
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 10, "bold"),
-        ).pack(anchor="w", pady=(14, 8))
-
-        btn_row = tk.Frame(c_inner, bg=t["card"])
-        btn_row.pack(fill="x", pady=4)
-
-        tk.Button(
-            btn_row,
-            text="Export Logs to File…",
-            command=self.export_logs,
-            bg=t["card_alt"],
-            fg=t["fg"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=10,
-            pady=4,
-            cursor="hand2",
-        ).pack(side="left", padx=(0, 8))
-
-        tk.Button(
-            btn_row,
-            text="Reset to Defaults",
-            command=self._reset_defaults,
-            bg=t["card_alt"],
-            fg=t["fg_muted"],
-            relief="flat",
-            font=("Segoe UI", 9),
-            padx=10,
-            pady=4,
-            cursor="hand2",
-        ).pack(side="left")
+        """Windows integration, poller tuning and diagnostics."""
+        build_settings(self, parent)
 
     def _on_autostart_toggle(self) -> None:
         enabled = self.windows_autostart_var.get()
@@ -2681,11 +1131,8 @@ class AgentGuiApp:
         ).pack(fill="x", padx=12, pady=(0, 6))
 
     def _apply_theme(self) -> None:
-        t = THEMES[self.theme_name]
-        if self.running:
-            self.status_badge.configure(bg=t["success_bg"], fg=t["success_fg"])
-        else:
-            self.status_badge.configure(bg=t["card_alt"], fg=t["fg_muted"])
+        """Repaint status surfaces that are not rebuilt on a state change."""
+        paint_status_pill(self)
 
     def toggle_theme(self) -> None:
         self.theme_name = "light" if self.theme_name == "dark" else "dark"
@@ -2745,10 +1192,10 @@ class AgentGuiApp:
         def _do_ping():
             ok, lat, detail = test_connection_ping(url)
             if ok:
-                self.root.after(0, lambda: self.latency_var.set(f"⚡ {lat:.0f} ms"))
+                self.root.after(0, lambda: self.latency_var.set(f"{lat:.0f} ms"))
                 self.log(f"Ping {url} -> {detail} ({lat:.1f} ms)", "ok")
             else:
-                self.root.after(0, lambda: self.latency_var.set("⚡ Failed"))
+                self.root.after(0, lambda: self.latency_var.set("Failed"))
                 self.log(f"Ping {url} failed: {detail} ({lat:.1f} ms)", "warn")
 
         threading.Thread(target=_do_ping, daemon=True).start()
@@ -2856,7 +1303,8 @@ class AgentGuiApp:
         self.stop_event.clear()
         t = THEMES[self.theme_name]
         if hasattr(self, "start_stop_btn"):
-            self.start_stop_btn.configure(text="■ Stop Agent", bg=t["danger_bg"])
+            if getattr(self, "start_stop_btn", None) is not None and self.start_stop_btn.winfo_exists():
+                self.start_stop_btn.configure(text="■  Stop agent", bg=t["danger_bg"], fg=t["danger_fg"])
         self.status_var.set("● Connecting…")
         self._apply_theme()
 
@@ -2870,7 +1318,8 @@ class AgentGuiApp:
         self.stop_event.set()
         t = THEMES[self.theme_name]
         if hasattr(self, "start_stop_btn"):
-            self.start_stop_btn.configure(text="▶ Start Agent", bg=t["brand"])
+            if getattr(self, "start_stop_btn", None) is not None and self.start_stop_btn.winfo_exists():
+                self.start_stop_btn.configure(text="▶  Start agent", bg=t["brand"], fg=t["brand_fg"])
         self.status_var.set("Stopped")
         self._apply_theme()
         self.log("Stopping agent polling loop...", "warn")
