@@ -930,6 +930,9 @@ def attach_ai_routes(
         Wait for the result and return it in a single response.
         """
         actor, role = _resolve_auth(req, x_admin_token, x_session_token)
+        # A viewer may read the fleet but must never execute a tool: the local
+        # branch below runs on the control-plane host itself.
+        require_role("operator", x_admin_token, x_session_token, req.headers.get("authorization"))
         if app.state.emergency_stop:
             raise HTTPException(status_code=403, detail="Emergency stop is active; no tool executions accepted.")
 

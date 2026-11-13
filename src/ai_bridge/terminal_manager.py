@@ -99,7 +99,7 @@ class TerminalSession:
                 if not os.path.exists(shell):
                     shell = "/bin/sh"
 
-                env = os.environ.copy()
+                env = {k: v for k, v in os.environ.items() if k not in ("AI_BRIDGE_ADMIN_TOKEN", "AI_BRIDGE_DEVICE_TOKEN", "AI_BRIDGE_OIDC_CLIENT_SECRET", "AI_BRIDGE_CSRF_SECRET")}
                 env["TERM"] = "xterm-256color"
                 env["COLORTERM"] = "truecolor"
 
@@ -125,7 +125,7 @@ class TerminalSession:
         if system != "Windows":
             shell_cmd = ["/bin/sh", "-i"]
 
-        env = os.environ.copy()
+        env = {k: v for k, v in os.environ.items() if k not in ("AI_BRIDGE_ADMIN_TOKEN", "AI_BRIDGE_DEVICE_TOKEN", "AI_BRIDGE_OIDC_CLIENT_SECRET", "AI_BRIDGE_CSRF_SECRET")}
         env["TERM"] = "xterm-256color"
 
         self.proc = subprocess.Popen(

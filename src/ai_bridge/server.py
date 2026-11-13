@@ -65,7 +65,7 @@ def _consume_local_approval(tool_name: str) -> bool:
 def _require_host_tools_enabled(is_admin: bool = False) -> None:
     if is_admin:
         return
-    if os.environ.get("AI_BRIDGE_DISABLE_HOST_TOOLS", "0") == "1":
+    if os.environ.get("AI_BRIDGE_DISABLE_HOST_TOOLS", "1") == "1":
         raise PermissionError("Unconfined host tools are disabled (AI_BRIDGE_DISABLE_HOST_TOOLS=1).")
 
 
@@ -951,7 +951,8 @@ def run_diagnostic_task(task_name: str) -> str:
 @mcp.tool()
 @device_aware()
 def run_shell(command: str, working_directory: str = "", timeout: int = 0, device: str | None = None) -> dict:
-    """Run a shell command on any enrolled device in the fleet or local host.
+    """Run a command as an argv list (no shell interpretation) on any enrolled device or the local host.
+    Pipes, redirection and && are not interpreted; pass the executable and its arguments.
     device (optional): Target device name, hostname, ID, or 'local'. Defaults to active device or local host.
     Tier-3 sensitive tool: executed on the target device via control-plane dispatch.
     timeout=0 (default) means standard execution without time limit. Output truncated per stream."""
@@ -972,7 +973,7 @@ def read_file(path: str, max_chars: int = 100000, device: str | None = None) -> 
     bearer = _bearer_token()
     is_admin = bool(admin_tok and bearer and hmac.compare_digest(bearer, admin_tok))
     _require_host_tools_enabled(is_admin=is_admin)
-    return tools.read_file(path, max_chars)
+    return tools.read_file(path, max_chars, is_admin=is_admin)
 
 
 @mcp.tool()
@@ -985,7 +986,7 @@ def write_file(path: str, content: str, overwrite: bool = False, device: str | N
     bearer = _bearer_token()
     is_admin = bool(admin_tok and bearer and hmac.compare_digest(bearer, admin_tok))
     _require_host_tools_enabled(is_admin=is_admin)
-    return tools.write_file(path, content, overwrite)
+    return tools.write_file(path, content, overwrite, is_admin=is_admin)
 
 
 @mcp.tool()

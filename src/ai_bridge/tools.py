@@ -12,6 +12,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1099,48 +1100,48 @@ _SCRUB_ENV_KEYS = frozenset({
 })
 
 
-def run_shell(
-    command: str,
-    working_directory: str = "",
-    timeout: int = 0,
-    *,
-    approval_granted: bool = False,
-    is_admin: bool = False,
-    policy: Policy | None = None,
-) -> dict:
-    """Run a shell command on this host. Tier-3 sensitive tool gated by policy / approval."""
-    _check("run_shell", approval_granted=approval_granted, is_admin=is_admin, policy=policy)
-    timeout_arg = min(int(timeout), 3600) if timeout and int(timeout) > 0 else 300
-    cwd = None
-    if working_directory:
-        try:
-            cwd = str(confined_path(working_directory))
-        except ValueError:
-            host_tools_enabled = os.environ.get("AI_BRIDGE_DISABLE_HOST_TOOLS", "1") == "0"
-            if (host_tools_enabled or (policy and policy.unrestricted) or is_admin) and os.path.isabs(working_directory) and os.path.isdir(working_directory):
-                cwd = working_directory
-            else:
-                raise
-    else:
+def _split_argv(command: str) -> list[str]:
+    """Split a command line into argv without involving a shell."""
+    if not isinstance(command, str) or not command.strip():
+        raise ValueError("command must be a non-empty string.")
+    lexer = shlex.shlex(command, posix=(os.name != "nt"))
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        argv = list(lexer)
+    except ValueError as exc:
+        raise ValueError(f"command could not be parsed: {exc}") from exc
+    if os.name == "nt":
+        cleaned = []
+        for token in argv:
+            if len(token) >= 2 and token[0] == token[-1] and token[0] in ('"', "'"):
+                token = token[1:-1]
+            cleaned.append(token)
+        argv = cleaned
+    return [a for a in argv if a]
+
+
+def _run_cwd(working_directory: str, *, is_admin: bool, policy: Policy | None) -> str | None:
+    if not working_directory:
         try:
             ws = workspace_root()
-            if ws.is_dir():
-                cwd = str(ws)
-        except Exception:
-            cwd = None
-
-    child_env = {k: v for k, v in os.environ.items() if k not in _SCRUB_ENV_KEYS}
-
+        except Exception:  # noqa: BLE001
+            return None
+        return str(ws) if ws.is_dir() else None
     try:
-        proc = subprocess.run(
-            command,
-            shell=True,
-            cwd=cwd,
-            env=child_env,
-            capture_output=True,
-            text=True,
-            timeout=timeout_arg,
-        )
+        return str(confined_path(working_directory))
+    except ValueError:
+        host_tools_enabled = os.environ.get("AI_BRIDGE_DISABLE_HOST_TOOLS", "1") == "0"
+        if (host_tools_enabled or (policy and policy.unrestricted) or is_admin) and os.path.isabs(working_directory) and os.path.isdir(working_directory):
+            return working_directory
+        raise
+
+
+def _run_argv(argv: list[str], cwd: str | None, timeout_arg: int) -> dict:
+    child_env = {k: v for k, v in os.environ.items() if k not in _SCRUB_ENV_KEYS}
+    try:
+        proc = subprocess.run(argv, shell=False, cwd=cwd, env=child_env,
+                              capture_output=True, text=True, timeout=timeout_arg)
         return {
             "returncode": proc.returncode,
             "stdout": redact((proc.stdout or "")[-20000:]),
@@ -1153,16 +1154,92 @@ def run_shell(
             "stdout": "",
             "stderr": f"command timed out after {timeout_arg}s",
         }
+    except FileNotFoundError:
+        return {"returncode": None, "error": f"executable not found: {argv[0]}", "stdout": "", "stderr": ""}
     except Exception as exc:  # noqa: BLE001
         return {"returncode": None, "error": redact(str(exc))}
 
 
-def read_file(path: str, max_chars: int = 100000, *, policy: Policy | None = None) -> str:
-    """Read a UTF-8 text file by absolute path."""
+def _host_file_access_allowed(is_admin: bool, policy: Policy | None) -> bool:
+    if is_admin or (policy and policy.unrestricted):
+        return True
+    return os.environ.get("AI_BRIDGE_DISABLE_HOST_TOOLS", "1") == "0"
+
+
+def _confine_file_path(path: str, *, is_admin: bool = False, policy: Policy | None = None) -> Path:
+    """Workspace paths are always allowed; anything else needs explicit host access."""
+    target = Path(path).expanduser()
+    try:
+        resolved = target.resolve()
+    except OSError:
+        resolved = target.absolute()
+    root = workspace_root()
+    if resolved == root or root in resolved.parents:
+        return target
+    if _host_file_access_allowed(is_admin, policy):
+        return target
+    raise PermissionError(
+        "Path is outside the configured workspace and host file access is disabled "
+        "(set AI_BRIDGE_DISABLE_HOST_TOOLS=0 or use an unrestricted policy)."
+    )
+
+
+def run_shell(
+    command: str,
+    working_directory: str = "",
+    timeout: int = 0,
+    *,
+    approval_granted: bool = False,
+    is_admin: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Run a command as an argv list (shell=False). Tier-3 sensitive tool.
+
+    The line is split with shlex and the first token is the executable, so
+    pipes, redirection, &&, globbing and variable expansion are NOT
+    interpreted. Shell semantics exist only in `terminal_exec`, which is
+    reserved for the control plane's interactive terminal relay.
+    """
+    _check("run_shell", approval_granted=approval_granted, is_admin=is_admin, policy=policy)
+    argv = _split_argv(command)
+    timeout_arg = min(int(timeout), 3600) if timeout and int(timeout) > 0 else 300
+    return _run_argv(argv, _run_cwd(working_directory, is_admin=is_admin, policy=policy), timeout_arg)
+
+
+def terminal_exec(
+    command: str,
+    working_directory: str = "",
+    timeout: int = 0,
+    *,
+    approval_granted: bool = False,
+    is_admin: bool = False,
+    policy: Policy | None = None,
+) -> dict:
+    """Run a command through the platform shell in argv form (never shell=True).
+
+    Only the control plane's live-terminal relay calls this so typed shell
+    commands behave as a shell user expects. It is not an MCP tool.
+    """
+    _check("terminal_exec", approval_granted=approval_granted, is_admin=is_admin, policy=policy)
+    if not isinstance(command, str) or not command.strip():
+        raise ValueError("command must be a non-empty string.")
+    timeout_arg = min(int(timeout), 3600) if timeout and int(timeout) > 0 else 300
+    if os.name == "nt":
+        argv = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command]
+    else:
+        shell = os.environ.get("SHELL", "/bin/bash")
+        if not os.path.exists(shell):
+            shell = "/bin/sh"
+        argv = [shell, "-c", command]
+    return _run_argv(argv, _run_cwd(working_directory, is_admin=is_admin, policy=policy), timeout_arg)
+
+
+def read_file(path: str, max_chars: int = 100000, *, is_admin: bool = False, policy: Policy | None = None) -> str:
+    """Read a UTF-8 text file, confined to the workspace unless host access is enabled."""
     from pathlib import Path
 
     _check("read_file", policy=policy)
-    target = Path(path).expanduser()
+    target = _confine_file_path(path, is_admin=is_admin, policy=policy)
     if is_secret_name(target):
         raise ValueError("Refusing to read a file whose name suggests it holds secrets.")
     try:
@@ -1180,7 +1257,7 @@ def write_file(path: str, content: str, overwrite: bool = False, *, approval_gra
     from pathlib import Path
 
     _check("write_file", approval_granted=approval_granted, is_admin=is_admin, policy=policy)
-    target = Path(path).expanduser()
+    target = _confine_file_path(path, is_admin=is_admin, policy=policy)
     if is_secret_name(target):
         raise ValueError("Refusing to write a file whose name suggests it holds secrets.")
     if target.exists() and not overwrite:
@@ -1484,10 +1561,15 @@ def update_fleet_agent(
     eff_policy = policy or default_policy()
     _check("update_fleet_agent", approval_granted=approval_granted, policy=eff_policy)
     import subprocess
-    cmd = (
-        "git fetch origin main && git checkout -f -B main origin/main && git rev-parse --short HEAD"
-    )
-    res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
+
+    def _git(*git_args: str):
+        return subprocess.run(["git", *git_args], shell=False, capture_output=True, text=True, timeout=60)
+
+    res = _git("fetch", "origin", "main")
+    if res.returncode == 0:
+        res = _git("checkout", "-f", "-B", "main", "origin/main")
+    if res.returncode == 0:
+        res = _git("rev-parse", "--short", "HEAD")
     return {
         "ok": res.returncode == 0,
         "returncode": res.returncode,

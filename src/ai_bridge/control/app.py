@@ -750,6 +750,39 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         merged["device_policy"] = custom
         return merged
 
+    _POLICY_ESCALATION_FLAGS = (
+        "unrestricted", "allow_writes", "allow_tier3", "desktop_enabled",
+        "allow_shell", "allow_package_install", "allow_file_deletion",
+    )
+
+    def reject_policy_widening(effective: dict, proposed: dict) -> None:
+        """A device may only narrow the policy an administrator gave it.
+
+        The control plane sends this stored policy back down to the agent, so
+        without this check a device token could set unrestricted=True (or
+        raise max_tier_unattended to 4) and permanently escape the tier,
+        approval and path-confinement checks.
+        """
+        current = effective or {}
+        for key in _POLICY_ESCALATION_FLAGS:
+            if proposed.get(key) is True and not current.get(key):
+                raise HTTPException(status_code=403, detail=f"Device tokens cannot enable '{key}'; an administrator must.")
+        ceiling = proposed.get("max_tier_unattended")
+        if ceiling is not None and int(ceiling) > int(current.get("max_tier_unattended") or 0):
+            raise HTTPException(status_code=403, detail="Device tokens cannot raise 'max_tier_unattended'; an administrator must.")
+        for key in ("allowed_apps", "allowed_services", "allowed_tools"):
+            wanted = proposed.get(key)
+            if wanted is None:
+                continue
+            current_list = current.get(key)
+            if current_list is None and key == "allowed_tools":
+                continue  # previously unrestricted; any explicit list narrows it
+            if not set(wanted) <= set(current_list or []):
+                raise HTTPException(status_code=403, detail=f"Device tokens cannot add entries to '{key}'; an administrator must.")
+        denied = proposed.get("denied_tools")
+        if denied is not None and not set(current.get("denied_tools") or []) <= set(denied):
+            raise HTTPException(status_code=403, detail="Device tokens cannot remove entries from 'denied_tools'.")
+
     device_ttl_days = int(os.environ.get("AI_BRIDGE_DEVICE_TOKEN_TTL_DAYS", "7"))
 
     def device_row(x_device_token: str | None):
@@ -990,6 +1023,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             if dev_row["id"] != device_id:
                 raise HTTPException(status_code=403, detail="Device token not authorized for this device_id.")
             actor = f"device:{device_id}"
+            reject_policy_widening(get_effective_device_policy(dev_row), body.model_dump())
         else:
             actor = require_role("admin", x_admin_token, x_session_token)
         row = conn.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
@@ -1003,13 +1037,9 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
     @app.delete("/api/devices/{device_id}/policy")
     def reset_device_policy_api(device_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None), x_device_token: str | None = Header(default=None)):
-        if x_device_token:
-            dev_row = device_row(x_device_token)
-            if dev_row["id"] != device_id:
-                raise HTTPException(status_code=403, detail="Device token not authorized for this device_id.")
-            actor = f"device:{device_id}"
-        else:
-            actor = require_role("admin", x_admin_token, x_session_token)
+        # Only an administrator may remove a device policy: resetting to the
+        # (possibly wider) global policy is a privilege increase.
+        actor = require_role("admin", x_admin_token, x_session_token)
         row = conn.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Device not found.")
@@ -2881,7 +2911,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         args = {"command": command, "working_directory": cwd or "", "timeout": 35}
         conn.execute(
             "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, created_at, updated_at) VALUES (?,?,?,?,?,3,'queued',?,?)",
-            (task_id, target_dev_id, dev_row["tenant"], "run_shell", json.dumps(args), now_ts, now_ts),
+            (task_id, target_dev_id, dev_row["tenant"], "terminal_exec", json.dumps(args), now_ts, now_ts),
         )
         conn.commit()
         notify_tasks()
@@ -2906,7 +2936,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
     ):
-        actor = require_role("operator", x_admin_token, x_session_token)
+        actor = require_role("admin", x_admin_token, x_session_token)
         cols = int(body.get("cols", 120))
         rows = int(body.get("rows", 35))
         dev_label = "local"
@@ -2935,7 +2965,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
     ):
-        require_role("viewer", x_admin_token, x_session_token)
+        require_role("admin", x_admin_token, x_session_token)
         sessions = terminal_manager.list_terminal_sessions(device_id=device_id)
         return {"sessions": sessions}
 
@@ -2952,7 +2982,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     ):
         admin_tok = x_admin_token or token
         sess_tok = x_session_token or session_token
-        require_role("viewer", admin_tok, sess_tok, authorization)
+        require_role("admin", admin_tok, sess_tok, authorization)
         sess = terminal_manager.get_terminal_session(session_id)
         if sess is None:
             raise HTTPException(status_code=404, detail="Terminal session not found.")
@@ -2966,7 +2996,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
     ):
-        require_role("operator", x_admin_token, x_session_token)
+        require_role("admin", x_admin_token, x_session_token)
         sess = terminal_manager.get_terminal_session(session_id)
         if sess is None:
             raise HTTPException(status_code=404, detail="Terminal session not found.")
@@ -2982,7 +3012,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
     ):
-        require_role("operator", x_admin_token, x_session_token)
+        require_role("admin", x_admin_token, x_session_token)
         sess = terminal_manager.get_terminal_session(session_id)
         if sess is None:
             raise HTTPException(status_code=404, detail="Terminal session not found.")
@@ -2998,7 +3028,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
     ):
-        actor = require_role("operator", x_admin_token, x_session_token)
+        actor = require_role("admin", x_admin_token, x_session_token)
         ok = terminal_manager.close_terminal_session(session_id)
         audit(actor, device_id, "close_terminal_session", {"session_id": session_id}, "allowed")
         return {"ok": ok}
@@ -3610,10 +3640,12 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     def update_agent_policy(body: DevicePolicyIn, x_device_token: str | None = Header(default=None)):
         row = device_row(x_device_token)
         policy_data = body.model_dump()
+        reject_policy_widening(get_effective_device_policy(row), policy_data)
         conn.execute("UPDATE devices SET policy_json=? WHERE id=?", (json.dumps(policy_data), row["id"]))
         conn.commit()
         audit("device", row["id"], "agent_update_policy", policy_data, "allowed")
-        eff = get_effective_device_policy(row)
+        # Re-read: the caller must see the policy that was actually stored.
+        eff = get_effective_device_policy(row["id"])
         return {
             "device_id": row["id"],
             "custom_policy": policy_data,
@@ -3672,7 +3704,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 and (ap_row["expires_at"] is None or ap_row["expires_at"] > now_ts)
                 and ap_row["tool"] == out["tool"]
             )
-        elif str(out.get("id") or "").startswith("term-"):
+        elif str(out.get("id") or "").startswith("term-") and out.get("tool") == "terminal_exec":
             out["approval_granted"] = True
         else:
             out["approval_granted"] = False
