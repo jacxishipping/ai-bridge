@@ -46,6 +46,8 @@ import {
   Wrench,
   Globe,
   Link2,
+  Pencil,
+  X,
 } from "lucide-react";
 import { useDashboardStore } from "../state/dashboardStore";
 import { api, sessionToken, token } from "../api";
@@ -345,6 +347,7 @@ export const AiApiHubView: React.FC = () => {
   // Custom 24/7 agents
   const [agents, setAgents] = useState<CustomAgent[]>([]);
   const [agentFormOpen, setAgentFormOpen] = useState(false);
+  const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
   const [agentName, setAgentName] = useState("");
   const [agentInstruction, setAgentInstruction] = useState("");
   const [agentProvider, setAgentProvider] = useState("openai");
@@ -354,6 +357,7 @@ export const AiApiHubView: React.FC = () => {
   const [agentDeviceIds, setAgentDeviceIds] = useState<string[]>([]);
   const [agentMcpServerIds, setAgentMcpServerIds] = useState<string[]>([]);
   const [agentAllowedTools, setAgentAllowedTools] = useState<string[]>([]);
+  const [agentMemory, setAgentMemory] = useState("");
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentNotice, setAgentNotice] = useState<{ severity: "success" | "error" | "info"; text: string } | null>(null);
   const [agentRunsOpen, setAgentRunsOpen] = useState<Record<string, boolean>>({});
@@ -484,14 +488,47 @@ export const AiApiHubView: React.FC = () => {
   }, [isLive]);
 
   const openAgentForm = (): void => {
+    setEditingAgentId(null);
+    setAgentName("");
+    setAgentInstruction("");
+    setAgentDeviceIds(devices.filter((d) => d.status === "online").map((d) => d.id));
+    setAgentInterval("300");
     const provider = aiSettings?.provider || "openai";
     setAgentProvider(provider);
     setAgentModel(provider === "custom" ? aiSettings?.custom_model || "" : aiSettings?.model || "");
     setAgentBaseUrl(aiSettings?.custom_base_url || "");
     setAgentMcpServerIds(mcpServers.filter((s) => s.enabled).map((s) => s.id));
     setAgentAllowedTools([]);
+    setAgentMemory("");
     setAgentFormOpen(true);
     setAgentNotice(null);
+  };
+
+  const handleEditAgent = (agent: CustomAgent): void => {
+    setEditingAgentId(agent.id);
+    setAgentName(agent.name);
+    setAgentInstruction(agent.instruction);
+    setAgentProvider(agent.provider || "openai");
+    setAgentModel(agent.model || "");
+    setAgentBaseUrl(agent.base_url || "");
+    setAgentInterval(String(agent.interval_seconds || 300));
+    setAgentDeviceIds(agent.device_ids || []);
+    setAgentMcpServerIds(agent.mcp_server_ids || []);
+    setAgentAllowedTools(agent.allowed_tools || []);
+    setAgentMemory(agent.memory || "");
+    setAgentFormOpen(true);
+    setAgentNotice(null);
+  };
+
+  const handleCloseAgentForm = (): void => {
+    setAgentFormOpen(false);
+    setEditingAgentId(null);
+    setAgentName("");
+    setAgentInstruction("");
+    setAgentDeviceIds([]);
+    setAgentMcpServerIds([]);
+    setAgentAllowedTools([]);
+    setAgentMemory("");
   };
 
   const handleCreateMcpServer = async (): Promise<void> => {
@@ -550,7 +587,7 @@ export const AiApiHubView: React.FC = () => {
     }
   };
 
-  const handleCreateAgent = async (): Promise<void> => {
+  const handleSaveAgent = async (): Promise<void> => {
     if (!agentName.trim() || !agentInstruction.trim() || agentDeviceIds.length === 0) {
       setAgentNotice({ severity: "error", text: "Give the agent a name, an objective, and at least one device." });
       return;
@@ -562,25 +599,36 @@ export const AiApiHubView: React.FC = () => {
     setAgentBusy(true);
     setAgentNotice(null);
     try {
-      await api.createAgent({
-        name: agentName.trim(),
-        instruction: agentInstruction.trim(),
-        provider: agentProvider,
-        model: agentModel.trim() || undefined,
-        base_url: agentProvider === "custom" ? agentBaseUrl.trim() || undefined : undefined,
-        device_ids: agentDeviceIds,
-        interval_seconds: Math.max(30, parseInt(agentInterval, 10) || 300),
-        enabled: true,
-        allowed_tools: agentAllowedTools.length > 0 ? agentAllowedTools : undefined,
-        mcp_server_ids: agentMcpServerIds,
-      });
-      setAgentNotice({ severity: "success", text: `${agentName.trim()} is live and will run on its interval.` });
-      setAgentName("");
-      setAgentInstruction("");
-      setAgentDeviceIds([]);
-      setAgentMcpServerIds([]);
-      setAgentAllowedTools([]);
-      setAgentFormOpen(false);
+      if (editingAgentId) {
+        await api.updateAgent(editingAgentId, {
+          name: agentName.trim(),
+          instruction: agentInstruction.trim(),
+          provider: agentProvider,
+          model: agentModel.trim() || undefined,
+          base_url: agentProvider === "custom" ? agentBaseUrl.trim() || undefined : undefined,
+          device_ids: agentDeviceIds,
+          interval_seconds: Math.max(30, parseInt(agentInterval, 10) || 300),
+          allowed_tools: agentAllowedTools,
+          mcp_server_ids: agentMcpServerIds,
+          memory: agentMemory,
+        });
+        setAgentNotice({ severity: "success", text: `${agentName.trim()} updated successfully.` });
+      } else {
+        await api.createAgent({
+          name: agentName.trim(),
+          instruction: agentInstruction.trim(),
+          provider: agentProvider,
+          model: agentModel.trim() || undefined,
+          base_url: agentProvider === "custom" ? agentBaseUrl.trim() || undefined : undefined,
+          device_ids: agentDeviceIds,
+          interval_seconds: Math.max(30, parseInt(agentInterval, 10) || 300),
+          enabled: true,
+          allowed_tools: agentAllowedTools.length > 0 ? agentAllowedTools : undefined,
+          mcp_server_ids: agentMcpServerIds,
+        });
+        setAgentNotice({ severity: "success", text: `${agentName.trim()} is live and will run on its interval.` });
+      }
+      handleCloseAgentForm();
       await loadAgents(true);
     } catch (error) {
       setAgentNotice({ severity: "error", text: describeError(error) });
@@ -1141,6 +1189,16 @@ export const AiApiHubView: React.FC = () => {
                           color="neutral"
                           size="sm"
                           disabled={agentBusy}
+                          onClick={() => handleEditAgent(agent)}
+                          startIcon={<Pencil className="w-3.5 h-3.5" />}
+                        >
+                          Edit
+                        </JXButton>
+                        <JXButton
+                          variant="outlined"
+                          color="neutral"
+                          size="sm"
+                          disabled={agentBusy}
                           onClick={() => void handleToggleAgent(agent)}
                           startIcon={agent.enabled ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                         >
@@ -1263,6 +1321,17 @@ export const AiApiHubView: React.FC = () => {
 
             {agentFormOpen && (
               <div className="mt-4 space-y-3 rounded-lg border border-[var(--product-line)] bg-[var(--product-canvas)] p-4">
+                <div className="flex items-center justify-between border-b border-[var(--product-line)] pb-2.5">
+                  <div className="flex items-center gap-2">
+                    {editingAgentId ? <Pencil className="w-4 h-4 text-primary-400" /> : <Bot className="w-4 h-4 text-primary-400" />}
+                    <span className="text-sm font-semibold text-[var(--product-text-primary)]">
+                      {editingAgentId ? `Edit Agent: ${agentName || "Untitled"}` : "Configure 24/7 autonomous agent"}
+                    </span>
+                  </div>
+                  <JXButton variant="text" color="neutral" size="sm" onClick={handleCloseAgentForm}>
+                    <X className="w-4 h-4" />
+                  </JXButton>
+                </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <JXTextField
                     label="Agent name"
@@ -1429,23 +1498,39 @@ export const AiApiHubView: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                {editingAgentId && (
+                  <div>
+                    <label className="mb-1 block text-xs font-mono text-[var(--product-text-tertiary)]">
+                      Agent persistent memory / notes
+                    </label>
+                    <textarea
+                      aria-label="Agent memory"
+                      rows={2}
+                      value={agentMemory}
+                      onChange={(e) => setAgentMemory(e.target.value)}
+                      placeholder="Agent memory or persistent operational state..."
+                      className="w-full resize-none rounded-lg border border-[var(--product-line)] bg-[var(--product-surface)] p-3 text-xs text-[var(--product-text-secondary)] focus:outline-none"
+                    />
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
                   <JXButton
                     variant="contained"
                     color="primary"
                     size="md"
                     loading={agentBusy}
                     disabled={!isLive || agentBusy || !agentName.trim() || !agentInstruction.trim() || agentDeviceIds.length === 0}
-                    onClick={() => void handleCreateAgent()}
-                    startIcon={<Sparkles className="w-4 h-4" />}
+                    onClick={() => void handleSaveAgent()}
+                    startIcon={editingAgentId ? <Check className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
                   >
-                    Create 24/7 agent
+                    {editingAgentId ? "Update agent" : "Create 24/7 agent"}
                   </JXButton>
-                  <JXButton variant="text" color="neutral" size="sm" onClick={() => setAgentFormOpen(false)}>
+                  <JXButton variant="text" color="neutral" size="sm" onClick={handleCloseAgentForm}>
                     Cancel
                   </JXButton>
                   <span className="flex items-center gap-1 text-xs text-[var(--product-text-tertiary)]">
-                    <Clock3 className="w-3.5 h-3.5" /> Repeats until you pause or delete it.
+                    <Clock3 className="w-3.5 h-3.5" /> {editingAgentId ? "Updates apply on the agent's next cycle." : "Repeats until you pause or delete it."}
                   </span>
                 </div>
               </div>
