@@ -3772,6 +3772,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         return await call_next(request)
 
     from . import ai_api, v1_routes
+    from .custom_agents import AgentRunner, install_custom_agent_routes
     ai_api.attach_ai_routes(
         app,
         conn,
@@ -3794,6 +3795,15 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         get_effective_device_policy,
         audit,
     )
+
+    # Persistent 24/7 custom agents: CRUD endpoints plus the background runner.
+    agent_runner = AgentRunner(
+        conn,
+        _execute_workflow_step_sync,
+        is_paused=lambda: bool(getattr(app.state, "emergency_stop", False)),
+    )
+    install_custom_agent_routes(app, conn, require_role, audit, agent_runner)
+    agent_runner.start()
 
     # Mount frontend SPA static files if dashboard build dist exists
     dist_dir = Path("/app/apps/dashboard/dist")

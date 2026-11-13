@@ -175,6 +175,14 @@ export const api = {
   getAiSettings: () => call("/api/settings/ai"),
   saveAiSettings: (body: { provider: string; model?: string; api_key?: string; base_url?: string; test_connection?: boolean; clear?: boolean }) =>
     call("/api/settings/ai", "POST", body),
+  agents: () => call("/api/agents"),
+  createAgent: (body: { name: string; instruction: string; provider: string; model?: string; base_url?: string; device_ids: string[]; interval_seconds: number; enabled: boolean }) =>
+    call("/api/agents", "POST", body),
+  updateAgent: (id: string, body: { enabled?: boolean; name?: string; instruction?: string; provider?: string; model?: string; base_url?: string; device_ids?: string[]; interval_seconds?: number }) =>
+    call(`/api/agents/${encodeURIComponent(id)}`, "PATCH", body),
+  deleteAgent: (id: string) => call(`/api/agents/${encodeURIComponent(id)}`, "DELETE"),
+  runAgentNow: (id: string) => call(`/api/agents/${encodeURIComponent(id)}/run`, "POST", {}),
+  agentRuns: (id: string) => call(`/api/agents/${encodeURIComponent(id)}/runs?limit=10`),
   aiChat: (body: { messages: any[]; provider?: string; model?: string; api_key?: string; base_url?: string; device?: string }) =>
     call("/api/ai/chat", "POST", body),
   workflowTemplates: () => call("/api/workflows/templates"),
