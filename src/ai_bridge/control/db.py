@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS custom_agents (
   next_run_at REAL NOT NULL,
   last_result TEXT DEFAULT '',
   last_error TEXT DEFAULT '',
+  memory TEXT DEFAULT '',
   consecutive_failures INTEGER NOT NULL DEFAULT 0,
   last_skip_reason TEXT DEFAULT '',
   run_count INTEGER NOT NULL DEFAULT 0,

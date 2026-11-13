@@ -136,10 +136,13 @@ def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]]) -> str:
         f"- {d.get('name')} (id {d['id']}, {d.get('os') or 'unknown OS'}, {d.get('status') or 'unknown'})"
         for d in devices
     ) or "- local (the control-plane host)"
+    memory = str(agent.get("memory") or "").strip()
+    memory_block = f"\nMemory from previous cycles (most recent last):\n{memory}\n" if memory else ""
     return (
         f"You are '{agent.get('name')}', an autonomous operator agent managed by AI Bridge.\n"
         f"Objective:\n{agent.get('instruction')}\n\n"
         f"Bound devices (pass one of these ids in the `device` argument):\n{listing}\n\n"
+        f"{memory_block}"
         "Rules:\n"
         "1. Move the objective forward every cycle; do not repeat work already completed.\n"
         "2. Prefer read-only inspection before changes, and verify what you changed.\n"
@@ -443,10 +446,15 @@ class AgentRunner:
                 tenant=tenant,
             )
 
+            existing_memory = str(fresh.get("memory") or "").strip()
+            entry = f"[{time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(finished))}] {response_text[:1500].strip()}"
+            new_memory = (existing_memory + "\n" + entry).strip() if existing_memory else entry
+            if len(new_memory) > 8000:
+                new_memory = new_memory[-8000:]
             self._conn.execute(
                 "UPDATE custom_agents SET status='idle', last_run_at=?, last_result=?, last_error='', "
-                "last_skip_reason='', consecutive_failures=0, run_count=run_count+1, updated_at=? WHERE id=?",
-                (finished, response_text[:4000], finished, agent_id),
+                "last_skip_reason='', memory=?, consecutive_failures=0, run_count=run_count+1, updated_at=? WHERE id=?",
+                (finished, response_text[:4000], new_memory, finished, agent_id),
             )
             self._conn.execute(
                 "UPDATE agent_runs SET status='completed', finished_at=?, duration_ms=?, response=?, "
@@ -634,10 +642,11 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
             next_run = _now()
         # Reset failure counter on manual resume.
         reset_failures = 0 if (body.enabled is True) else current.get("consecutive_failures", 0)
+        memory = current.get("memory") if body.memory is None else body.memory
         conn.execute(
             "UPDATE custom_agents SET name=?, instruction=?, provider=?, model=?, base_url=?, "
             "device_ids_json=?, interval_seconds=?, enabled=?, status=?, next_run_at=?, "
-            "consecutive_failures=?, updated_at=? WHERE id=?",
+            "memory=?, consecutive_failures=?, updated_at=? WHERE id=?",
             (
                 (body.name or current["name"]).strip(),
                 (body.instruction or current["instruction"]).strip(),
@@ -649,6 +658,7 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
                 enabled,
                 "idle" if enabled else "paused",
                 next_run,
+                memory,
                 reset_failures,
                 _now(),
                 agent_id,
@@ -738,6 +748,7 @@ class AgentPatch(BaseModel):
     device_ids: list[str] | None = None
     interval_seconds: int | None = None
     enabled: bool | None = None
+    memory: str | None = None
 
 
 def _serialize(conn: Any, agent: dict[str, Any]) -> dict[str, Any]:

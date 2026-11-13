@@ -96,6 +96,7 @@ interface CustomAgent {
   last_error?: string;
   run_count: number;
   consecutive_failures?: number;
+  memory?: string;
 }
 
 function describeError(error: unknown): string {
@@ -484,6 +485,19 @@ export const AiApiHubView: React.FC = () => {
     }
   };
 
+  const handleClearAgentMemory = async (agent: CustomAgent): Promise<void> => {
+    setAgentBusy(true);
+    try {
+      await api.updateAgent(agent.id, { memory: "" });
+      setAgentNotice({ severity: "success", text: `Memory cleared for ${agent.name}.` });
+      await loadAgents(true);
+    } catch (error) {
+      setAgentNotice({ severity: "error", text: describeError(error) });
+    } finally {
+      setAgentBusy(false);
+    }
+  };
+
   const handlePing = (providerId: string) => {
     setProviders((prev) =>
       prev.map((p) => (p.id === providerId ? { ...p, isPinging: true } : p))
@@ -779,6 +793,20 @@ export const AiApiHubView: React.FC = () => {
                         Consecutive failures: {agent.consecutive_failures} (auto-pauses at 5)
                       </p>
                     )}
+                    {agent.memory ? (
+                      <div className="mt-1">
+                        <p className="line-clamp-3 text-xs text-indigo-300">Memory: {agent.memory}</p>
+                        <JXButton
+                          variant="text"
+                          color="neutral"
+                          size="sm"
+                          disabled={agentBusy}
+                          onClick={() => void handleClearAgentMemory(agent)}
+                        >
+                          Clear memory
+                        </JXButton>
+                      </div>
+                    ) : null}
                     <div className="mt-2">
                       <JXButton
                         variant="text"
