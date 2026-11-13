@@ -143,3 +143,26 @@ def test_install_agent_can_run_diagnose_without_mandatory_parameters():
     # Mandatory params would make `-Diagnose` alone block on a prompt.
     assert "[Parameter(Mandatory=$true)]" not in text
     assert "-not $ControlUrl -or -not $DeviceToken" in text
+
+def test_install_agent_keeps_the_token_out_of_the_task_definition():
+    text = _text(Path("deployment/windows/install-agent.ps1"))
+    task_line = next(line for line in text.splitlines() if "schtasks /create" in line)
+
+    # 'schtasks /query /v' exposes task actions to anyone who can query tasks,
+    # so the credential belongs in the launcher the task points at.
+    assert "$DeviceToken" not in task_line
+    assert "--device-token" not in task_line
+    assert "cmd.exe /c '$Launcher'" in text
+    assert "run-agent.cmd" in text
+
+
+def test_install_agent_restricts_and_verifies_the_launcher_acl():
+    text = _text(Path("deployment/windows/install-agent.ps1"))
+
+    # Same DACL the wizard applies, set through .NET: the old icacls grant was
+    # rejected outright and left the file writable.
+    assert "SetAccessRuleProtection($true, $false)" in text
+    assert "ReadAndExecute" in text
+    assert "Restrict-AgentLauncherAcl -Path $Launcher -RunAs $User" in text
+    # Read back rather than assumed, so an unapplied DACL cannot pass silently.
+    assert "AreAccessRulesProtected" in text

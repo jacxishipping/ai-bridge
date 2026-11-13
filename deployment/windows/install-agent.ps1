@@ -7,10 +7,10 @@
 # Usage: .\install-agent.ps1 -ControlUrl https://your-domain -DeviceToken <token-from-dashboard>
 #        .\install-agent.ps1 -ControlUrl https://your-domain -DeviceToken <token> -User ai-bridge
 #        .\install-agent.ps1 -Diagnose    (print a support report; installs nothing)
-# NOTE: the token is passed on the scheduled task's command line, so it is
-# visible to local administrators via the task definition. For a personal
-# machine that is acceptable; for a shared machine, prefer a token
-# file readable only by the service account instead.
+# NOTE: the token is never part of the task definition ('schtasks /query /v'
+# shows task actions to anyone who can query tasks). The task runs
+# run-agent.cmd, a launcher holding the token whose ACL makes it read-only for
+# the account the agent runs as.
 # Requires Python 3.12, 3.13 or 3.14 (the range the agent is exercised on).
 # The venv is built from an explicitly selected interpreter: 'py -3' resolves
 # to the newest installed build, so it silently chose an untested 3.15 here.
@@ -232,7 +232,85 @@ if (Test-Path $ReqFile) {
 }
 & $VenvPy -m pip install -e .
 $AgentPath = Join-Path $RepoRoot "agents\windows\agent_main.py"
-$taskCmd = "'$VenvPy' '$AgentPath' --control-url $ControlUrl --device-token $DeviceToken"
+$InstallDir = Join-Path $env:ProgramData "ai-bridge"
+if (-not (Test-Path $InstallDir)) { New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null }
+$Launcher = Join-Path $InstallDir "run-agent.cmd"
+
+# The task definition is readable with 'schtasks /query /v', so the credential
+# lives in a launcher file instead. Same DACL the setup wizard applies: SYSTEM
+# and Administrators full control, the account the agent runs as read-only.
+function Restrict-AgentLauncherAcl {
+    param([string]$Path, [string]$RunAs = "")
+    $acl = Get-Acl -LiteralPath $Path
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRule($rule) }
+    $system = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18")
+    $admins = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
+    $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+    $allow = [System.Security.AccessControl.AccessControlType]::Allow
+    $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($system, "FullControl", $allow)))
+    $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($admins, "FullControl", $allow)))
+
+    # The agent's own account must be able to read the launcher, even when
+    # -User names someone other than the person running this script.
+    $readers = @($me)
+    if ($RunAs) {
+        try {
+            $runSid = (New-Object System.Security.Principal.NTAccount($RunAs)).Translate(
+                [System.Security.Principal.SecurityIdentifier])
+            if (-not ($readers | Where-Object { $_.Value -eq $runSid.Value })) { $readers += $runSid }
+        } catch {
+            Write-Host "[WARN] Could not resolve '$RunAs' to grant it read access to the launcher." -ForegroundColor Yellow
+        }
+    }
+    foreach ($sid in $readers) {
+        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($sid, "ReadAndExecute", $allow)))
+    }
+    Set-Acl -LiteralPath $Path -AclObject $acl
+
+    # Read the ACL back: an unapplied icacls call is how this used to fail open.
+    $after = Get-Acl -LiteralPath $Path
+    $problems = @()
+    if (-not $after.AreAccessRulesProtected) { $problems += "inheritance is still enabled" }
+    $inherited = @($after.Access | Where-Object { $_.IsInherited })
+    if ($inherited.Count -gt 0) { $problems += "$($inherited.Count) inherited entries remain" }
+    foreach ($sid in $readers) {
+        $ace = @($after.Access | Where-Object {
+            -not $_.IsInherited -and
+            $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -eq $sid.Value
+        })
+        if ($ace.Count -eq 0) {
+            $problems += "no explicit entry for $($sid.Value)"
+        } elseif ("$($ace[0].FileSystemRights)" -match "Write|Modify|FullControl") {
+            $problems += "$($sid.Value) can still write ($($ace[0].FileSystemRights))"
+        }
+    }
+    if ($problems.Count -gt 0) {
+        Write-Host "[WARN] Launcher ACL is not read-only ($($problems -join '; ')); the token in $Path may be writable." -ForegroundColor Yellow
+    } else {
+        $entries = @($after.Access | ForEach-Object {
+            $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value + "=" + $_.FileSystemRights
+        }) -join "; "
+        Write-Host "[OK] Launcher ACL: read-only for the agent account ($entries)" -ForegroundColor Green
+    }
+}
+
+$launcherLines = @(
+    "@echo off",
+    "setlocal",
+    "set `"AI_BRIDGE_CONTROL_URL=$($ControlUrl.TrimEnd('/'))`"",
+    "set `"AI_BRIDGE_DEVICE_TOKEN=$DeviceToken`"",
+    "`"$VenvPy`" `"$AgentPath`""
+)
+Set-Content -Path $Launcher -Value $launcherLines -Encoding ASCII
+Restrict-AgentLauncherAcl -Path $Launcher -RunAs $User
+Write-Host "[OK] Agent launcher written to $Launcher (token kept out of the task definition)" -ForegroundColor Green
+
+# Single quotes around the path deliberately: PowerShell drops double quotes on
+# the way to schtasks, which stored '/c <path>' and would break on any path
+# containing a space. With single quotes schtasks writes '/c "<path>"' into the
+# definition, verified by running a task against a launcher in a spaced folder.
+$taskCmd = "cmd.exe /c '$Launcher'"
 schtasks /create /tn "AI Bridge Agent" /tr $taskCmd /sc onstart /ru $User /rl limited /f
 Write-Host "Agent scheduled to run as '$User'. Start it with: schtasks /run /tn 'AI Bridge Agent'"
 Write-Host "Desktop automation is a separate interactive helper (agents/windows/desktop_helper.py) and must be started in a logged-in session."
