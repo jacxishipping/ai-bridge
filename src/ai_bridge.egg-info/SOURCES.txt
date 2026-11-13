@@ -27,6 +27,8 @@ src/ai_bridge.egg-info/dependency_links.txt
 src/ai_bridge.egg-info/entry_points.txt
 src/ai_bridge.egg-info/requires.txt
 src/ai_bridge.egg-info/top_level.txt
+src/ai_bridge/connectors/__init__.py
+src/ai_bridge/connectors/microsoft365.py
 src/ai_bridge/control/__init__.py
 src/ai_bridge/control/__main__.py
 src/ai_bridge/control/ai_api.py
