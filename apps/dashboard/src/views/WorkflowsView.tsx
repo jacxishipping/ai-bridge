@@ -4,7 +4,7 @@
  * preview from WorkflowsDemoView, which is the only place fixtures live.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Workflow, Plus, Search, RefreshCw, StopCircle, X, AlertTriangle, Copy, Check, Trash2, RotateCcw } from "lucide-react";
+import { Workflow, Plus, Search, RefreshCw, StopCircle, X, AlertTriangle, Copy, Check, Trash2, RotateCcw, BookmarkPlus, Clock } from "lucide-react";
 import { api, token, sessionToken } from "../api";
 import WorkflowsDemoView from "./WorkflowsDemoView";
 
@@ -19,7 +19,7 @@ interface Wf {
   current_step: number; total_steps: number; steps: WfStepDef[]; results: WfStepResult[];
   error?: string | null; created_at?: number; updated_at?: number; completed_at?: number | null;
 }
-interface Template { id: string; name: string; description?: string; steps: WfStepDef[] }
+interface Template { id: string; name: string; description?: string; steps: WfStepDef[]; custom?: boolean }
 interface ToolSpec { name: string; description?: string; category?: string; tier?: number; parameters?: any }
 interface DraftStep { name: string; action: string; args: string; verifyText: string }
 
@@ -250,6 +250,41 @@ function WorkflowsLive() {
     }
   };
 
+  const saveAsTemplate = async () => {
+    if (!selected) return;
+    try {
+      await api.createWorkflowTemplate({ name: selected.name, description: `Saved from ${selected.id}`, steps: selected.steps });
+      setNotice({ kind: "ok", text: `Saved "${selected.name}" as a reusable template.` });
+      void refresh();
+    } catch (e) {
+      setNotice({ kind: "error", text: errMsg(e) });
+    }
+  };
+
+  const removeTemplate = async (tplId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await api.deleteWorkflowTemplate(tplId);
+      setTemplates((prev) => prev.filter((t) => t.id !== tplId));
+      setNotice({ kind: "ok", text: "Custom template deleted." });
+    } catch (e2) {
+      setNotice({ kind: "error", text: errMsg(e2) });
+    }
+  };
+
+  const scheduleRun = async () => {
+    if (!selected) return;
+    const raw = window.prompt("Schedule interval in seconds (minimum 60):", "3600");
+    if (!raw) return;
+    const interval = Math.max(60, Number(raw) || 3600);
+    try {
+      await api.scheduleWorkflow(selected.id, { interval_seconds: interval });
+      setNotice({ kind: "ok", text: `Scheduled "${selected.name}" every ${interval}s.` });
+    } catch (e) {
+      setNotice({ kind: "error", text: errMsg(e) });
+    }
+  };
+
   const openBuilder = (tpl?: Template) => {
     setName(tpl ? tpl.name : "");
     setDraft(tpl ? tpl.steps.map(draftFromDef) : [{ name: "", action: tools[0]?.name || "", args: "{}", verifyText: "" }]);
@@ -368,10 +403,17 @@ function WorkflowsLive() {
             <span className="text-[10px] uppercase text-[var(--product-text-dim)] font-mono">Templates</span>
             {!templates.length && <p className="text-xs text-[var(--product-text-dim)]">No templates available.</p>}
             {templates.map((t) => (
-              <button key={t.id} type="button" onClick={() => openBuilder(t)} className="w-full text-left p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] hover:border-indigo-500/50 text-xs">
-                <span className="text-[var(--product-text-secondary)] font-semibold block">{t.name}</span>
-                <span className="text-[10px] text-[var(--product-text-dim)]">{t.description} ({t.steps.length} steps)</span>
-              </button>
+              <div key={t.id} onClick={() => openBuilder(t)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") openBuilder(t); }} className="w-full text-left p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] hover:border-indigo-500/50 text-xs cursor-pointer flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="text-[var(--product-text-secondary)] font-semibold block truncate">{t.name}</span>
+                  <span className="text-[10px] text-[var(--product-text-dim)]">{t.description} ({t.steps.length} steps)</span>
+                </div>
+                {t.custom && (
+                  <button type="button" title="Delete custom template" onClick={(e) => void removeTemplate(t.id, e)} className="p-1 text-[var(--product-text-dim)] hover:text-rose-400 shrink-0">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </section>
@@ -405,6 +447,12 @@ function WorkflowsLive() {
                       <>
                         <button type="button" onClick={() => void retry(false)} className="px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 hover:bg-indigo-500/20 text-indigo-300 font-mono text-xs flex items-center gap-1.5">
                           <RotateCcw className="w-3.5 h-3.5" /> Re-run
+                        </button>
+                        <button type="button" onClick={() => void saveAsTemplate()} className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 text-emerald-300 font-mono text-xs flex items-center gap-1.5">
+                          <BookmarkPlus className="w-3.5 h-3.5" /> Save Template
+                        </button>
+                        <button type="button" onClick={() => void scheduleRun()} className="px-3 py-1.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/20 text-cyan-300 font-mono text-xs flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5" /> Schedule
                         </button>
                         <button type="button" onClick={() => void remove()} className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-rose-300 font-mono text-xs flex items-center gap-1.5">
                           <Trash2 className="w-3.5 h-3.5" /> Delete

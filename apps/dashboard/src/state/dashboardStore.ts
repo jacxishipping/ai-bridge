@@ -707,15 +707,56 @@ class DashboardStore {
 
     if (typeof window !== "undefined") {
       setTimeout(() => {
-        if (isLiveAuthenticated()) void this.syncWithBackend();
+        if (isLiveAuthenticated()) {
+          void this.syncWithBackend();
+          void this.startEventStream();
+        }
       }, 50);
       setInterval(() => {
         if (this.state.autoPollEnabled && isLiveAuthenticated()) {
           void this.syncWithBackend();
         }
-      }, 10000);
+      }, 15000);
     }
   }
+
+  private eventStreamActive = false;
+
+  private startEventStream = async (): Promise<void> => {
+    if (this.eventStreamActive || typeof fetch === "undefined" || !isLiveAuthenticated()) return;
+    this.eventStreamActive = true;
+    const headers: Record<string, string> = {};
+    const adminTok = token();
+    const sessTok = sessionToken();
+    if (adminTok) headers["X-Admin-Token"] = adminTok;
+    if (sessTok) headers["X-Session-Token"] = sessTok;
+    try {
+      const resp = await fetch(api.eventsStreamUrl(), { headers });
+      if (!resp.ok || !resp.body) return;
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("data:") && line.includes('"sync"') && this.state.autoPollEnabled) {
+            void this.syncWithBackend();
+          }
+        }
+      }
+    } catch {
+      // Fallback to interval polling
+    } finally {
+      this.eventStreamActive = false;
+      if (typeof window !== "undefined" && isLiveAuthenticated()) {
+        setTimeout(() => void this.startEventStream(), 5000);
+      }
+    }
+  };
 
   public syncWithBackend = async (): Promise<void> => {
     const adminTok = token();

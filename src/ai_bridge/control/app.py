@@ -350,6 +350,27 @@ class WorkflowRetryIn(BaseModel):
     from_failed_step: bool = True
 
 
+class WorkflowTemplateIn(BaseModel):
+    name: str
+    description: str = ""
+    steps: list[dict] = []
+    tenant: str = "default"
+
+
+class WorkflowScheduleIn(BaseModel):
+    name: str | None = None
+    interval_seconds: int = 3600
+    device_id: str | None = None
+
+
+class AlertConfigIn(BaseModel):
+    slack_webhook: str = ""
+    discord_webhook: str = ""
+    telegram_token: str = ""
+    telegram_chat_id: str = ""
+    generic_webhook: str = ""
+
+
 class TriggerIn(BaseModel):
     name: str
     device_id: str | None = None
@@ -1830,9 +1851,72 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
     # --- Autonomous Workflows & Multi-Turn Plan Execution -----------------
     @app.get("/api/workflows/templates")
-    def get_workflow_templates(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+    def get_workflow_templates(tenant: str = "default", x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         require_role("viewer", x_admin_token, x_session_token)
-        return {"templates": WORKFLOW_TEMPLATES}
+        custom_rows = conn.execute(
+            "SELECT * FROM workflow_templates WHERE tenant=? ORDER BY created_at DESC",
+            (tenant,),
+        ).fetchall()
+        custom = [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "description": r["description"] or "",
+                "steps": json.loads(r["steps_json"] or "[]"),
+                "custom": True,
+                "created_by": r["created_by"],
+            }
+            for r in custom_rows
+        ]
+        return {"templates": [*custom, *WORKFLOW_TEMPLATES]}
+
+    @app.post("/api/workflows/templates")
+    def create_workflow_template(body: WorkflowTemplateIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        if not body.name.strip() or not body.steps:
+            raise HTTPException(status_code=400, detail="Template name and at least one step are required.")
+        tpl_id = "tpl-" + uuid.uuid4().hex[:10]
+        now_ts = dbmod.now()
+        conn.execute(
+            "INSERT INTO workflow_templates (id, name, description, steps_json, tenant, created_by, created_at) VALUES (?,?,?,?,?,?,?)",
+            (tpl_id, body.name.strip(), body.description.strip(), json.dumps(body.steps), body.tenant, actor, now_ts),
+        )
+        conn.commit()
+        audit(actor, "", "create_workflow_template", {"template_id": tpl_id, "name": body.name.strip()}, "allowed", tenant=body.tenant)
+        return {"id": tpl_id, "name": body.name.strip(), "description": body.description.strip(), "steps": body.steps, "custom": True}
+
+    @app.delete("/api/workflows/templates/{template_id}")
+    def delete_workflow_template(template_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        cur = conn.execute("DELETE FROM workflow_templates WHERE id=?", (template_id,))
+        conn.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Custom template not found.")
+        audit(actor, "", "delete_workflow_template", {"template_id": template_id}, "allowed")
+        return {"template_id": template_id, "deleted": True}
+
+    @app.post("/api/workflows/{workflow_id}/schedule")
+    def schedule_workflow(workflow_id: str, body: WorkflowScheduleIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM workflows WHERE id=?", (workflow_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Workflow not found.")
+        steps = json.loads(row["steps_json"] or "[]")
+        if not steps:
+            raise HTTPException(status_code=400, detail="Workflow has no steps to schedule.")
+        interval = max(60, int(body.interval_seconds or 3600))
+        sched_id = uuid.uuid4().hex[:12]
+        now_ts = dbmod.now()
+        first_step = steps[0]
+        sched_name = (body.name or f"Workflow: {row['name']}").strip()
+        dev_id = body.device_id if body.device_id is not None else (row["device_id"] or "")
+        conn.execute(
+            "INSERT INTO schedules (id, name, tenant, device_id, interval_seconds, tool, args_json, next_run_at, enabled, created_at) VALUES (?,?,?,?,?,?,?,?,1,?)",
+            (sched_id, sched_name, row["tenant"], dev_id, interval, first_step.get("action", "get_system_info"), json.dumps(first_step.get("args") or {}), now_ts + interval, now_ts),
+        )
+        conn.commit()
+        audit(actor, dev_id, "schedule_workflow", {"workflow_id": workflow_id, "schedule_id": sched_id, "interval_seconds": interval}, "allowed", tenant=row["tenant"])
+        return {"schedule_id": sched_id, "name": sched_name, "interval_seconds": interval}
 
     @app.get("/api/workflows")
     def list_workflows(
@@ -3980,6 +4064,171 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     )
     install_custom_agent_routes(app, conn, require_role, audit, agent_runner)
     agent_runner.start()
+
+    # --- Real-Time SSE Event Stream, Alerts Config, Backups & Tenants -------
+    @app.get("/api/events/stream")
+    async def stream_control_events(
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+
+        def _snapshot_sig() -> str:
+            t_row = conn.execute("SELECT COUNT(*) AS n, COALESCE(MAX(updated_at), 0) AS m FROM tasks").fetchone()
+            a_row = conn.execute("SELECT COUNT(*) AS n, COALESCE(MAX(created_at), 0) AS m, COALESCE(MAX(decided_at), 0) AS d FROM approvals").fetchone()
+            d_row = conn.execute("SELECT COUNT(*) AS n, COALESCE(MAX(last_seen), 0) AS m FROM devices").fetchone()
+            return f"{t_row['n']}:{t_row['m']}|{a_row['n']}:{a_row['m']}:{a_row['d']}|{d_row['n']}:{d_row['m']}"
+
+        async def _gen():
+            last_sig = _snapshot_sig()
+            yield f"data: {json.dumps({'type': 'connected', 'ts': dbmod.now()})}\n\n"
+            while True:
+                await asyncio.sleep(1.5)
+                try:
+                    sig = _snapshot_sig()
+                    if sig != last_sig:
+                        last_sig = sig
+                        yield f"data: {json.dumps({'type': 'sync', 'ts': dbmod.now()})}\n\n"
+                except Exception:
+                    break
+
+        return StreamingResponse(_gen(), media_type="text/event-stream")
+
+    def _load_alert_settings() -> dict[str, str]:
+        row = conn.execute("SELECT value FROM settings WHERE key='alert_webhooks'").fetchone()
+        stored: dict[str, str] = {}
+        if row and row["value"]:
+            try:
+                stored = json.loads(row["value"]) or {}
+            except Exception:
+                stored = {}
+        env_cfg = alertsmod.get_alert_config()
+        return {
+            "slack_webhook": stored.get("slack_webhook") or env_cfg["slack_webhook"],
+            "discord_webhook": stored.get("discord_webhook") or env_cfg["discord_webhook"],
+            "telegram_token": stored.get("telegram_token") or env_cfg["telegram_token"],
+            "telegram_chat_id": stored.get("telegram_chat_id") or env_cfg["telegram_chat_id"],
+            "generic_webhook": stored.get("generic_webhook") or env_cfg["generic_webhook"],
+        }
+
+    def _record_alert_delivery(channel: str, event_type: str, severity: str, title: str, ok: bool, detail: str = "") -> None:
+        conn.execute(
+            "INSERT INTO alert_deliveries (id, channel, event_type, severity, title, status, detail, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (uuid.uuid4().hex[:12], channel, event_type, severity, title, "delivered" if ok else "failed", detail, dbmod.now()),
+        )
+        conn.commit()
+
+    @app.get("/api/alerts/config")
+    def get_alerts_config_route(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("admin", x_admin_token, x_session_token)
+        cfg = _load_alert_settings()
+        return {
+            "slack_webhook": cfg["slack_webhook"],
+            "discord_webhook": cfg["discord_webhook"],
+            "telegram_chat_id": cfg["telegram_chat_id"],
+            "telegram_configured": bool(cfg["telegram_token"] and cfg["telegram_chat_id"]),
+            "generic_webhook": cfg["generic_webhook"],
+        }
+
+    @app.put("/api/alerts/config")
+    def update_alerts_config_route(body: AlertConfigIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_admin(x_admin_token, x_session_token)
+        existing = _load_alert_settings()
+        payload = {
+            "slack_webhook": body.slack_webhook.strip(),
+            "discord_webhook": body.discord_webhook.strip(),
+            "telegram_token": body.telegram_token.strip() or existing.get("telegram_token", ""),
+            "telegram_chat_id": body.telegram_chat_id.strip(),
+            "generic_webhook": body.generic_webhook.strip(),
+        }
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('alert_webhooks', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (json.dumps(payload),),
+        )
+        conn.commit()
+        audit(actor, "", "update_alert_config", {"channels": [k for k, v in payload.items() if v]}, "allowed")
+        return {"saved": True}
+
+    @app.post("/api/alerts/test")
+    def test_alerts_route(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_admin(x_admin_token, x_session_token)
+        cfg = _load_alert_settings()
+        results = alertsmod.dispatch_alert(
+            "test_alert",
+            "info",
+            "AI Bridge Test Alert",
+            {"actor": actor, "source": "dashboard"},
+            async_dispatch=False,
+            config_override=cfg,
+        )
+        for ch, ok in results.items():
+            _record_alert_delivery(ch, "test_alert", "info", "AI Bridge Test Alert", bool(ok), f"Triggered by {actor}")
+        if not results:
+            _record_alert_delivery("none", "test_alert", "info", "AI Bridge Test Alert", False, "No alert channels configured")
+        return {"results": results}
+
+    @app.get("/api/alerts/deliveries")
+    def list_alert_deliveries(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("viewer", x_admin_token, x_session_token)
+        rows = conn.execute("SELECT * FROM alert_deliveries ORDER BY created_at DESC LIMIT 50").fetchall()
+        return [dict(r) for r in rows]
+
+    backup_dir = Path(os.environ.get("AI_BRIDGE_BACKUP_DIR", "") or (Path.home() / ".ai-bridge" / "backups"))
+
+    @app.get("/api/admin/backups")
+    def list_backups(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("admin", x_admin_token, x_session_token)
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        items = []
+        for p in sorted(backup_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+            if p.is_file() and p.suffix in (".db", ".json"):
+                st = p.stat()
+                items.append({"filename": p.name, "size_bytes": st.st_size, "created_at": st.st_mtime})
+        return {"items": items, "backend": "postgres" if dbmod.is_postgres(conn) else "sqlite"}
+
+    @app.post("/api/admin/backups")
+    def create_backup(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_admin(x_admin_token, x_session_token)
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+        if not dbmod.is_postgres(conn) and db_path and Path(str(db_path)).exists():
+            from ai_bridge.control.backup import verified_backup
+            dest = backup_dir / f"aibridge-backup-{stamp}.db"
+            verified_backup(Path(str(db_path)), dest)
+        else:
+            dest = backup_dir / f"aibridge-snapshot-{stamp}.json"
+            snapshot = {}
+            for tbl in ("devices", "tasks", "approvals", "policies", "workflows", "workflow_templates", "schedules", "triggers", "custom_agents", "mcp_servers"):
+                try:
+                    snapshot[tbl] = [dict(r) for r in conn.execute(f"SELECT * FROM {tbl}").fetchall()]
+                except Exception:
+                    snapshot[tbl] = []
+            dest.write_text(json.dumps(snapshot, indent=2, default=str), encoding="utf-8")
+        audit(actor, "", "create_backup", {"filename": dest.name, "size_bytes": dest.stat().st_size}, "allowed")
+        return {"filename": dest.name, "size_bytes": dest.stat().st_size, "created_at": dest.stat().st_mtime}
+
+    @app.get("/api/admin/backups/{filename}")
+    def download_backup(filename: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("admin", x_admin_token, x_session_token)
+        safe_name = Path(filename).name
+        target = backup_dir / safe_name
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="Backup file not found.")
+        from fastapi.responses import FileResponse
+        return FileResponse(target, filename=safe_name)
+
+    @app.get("/api/tenants")
+    def list_tenants(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        require_role("viewer", x_admin_token, x_session_token)
+        tenants = {"default"}
+        for tbl in ("devices", "tasks", "workflows", "custom_agents", "mcp_servers"):
+            try:
+                for r in conn.execute(f"SELECT DISTINCT tenant FROM {tbl}").fetchall():
+                    if r["tenant"]:
+                        tenants.add(r["tenant"])
+            except Exception:
+                pass
+        return {"tenants": sorted(tenants)}
 
     # Mount frontend SPA static files if dashboard build dist exists
     dist_dir = Path("/app/apps/dashboard/dist")

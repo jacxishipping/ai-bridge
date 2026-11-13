@@ -143,9 +143,14 @@ def dispatch_alert(
     details: dict | None = None,
     device_id: str | None = None,
     async_dispatch: bool = True,
+    config_override: dict[str, str] | None = None,
 ) -> dict[str, bool]:
     """Dispatch an alert across all configured channels."""
     cfg = get_alert_config()
+    if config_override:
+        for k, v in config_override.items():
+            if isinstance(v, str) and v.strip():
+                cfg[k] = v.strip()
     details_dict = details or {}
     results = {}
 

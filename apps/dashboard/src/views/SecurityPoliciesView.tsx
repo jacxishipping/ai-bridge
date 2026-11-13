@@ -8,6 +8,7 @@ import { api, token, sessionToken } from "../api";
 import { SecurityPoliciesDemo } from "./SecurityPoliciesDemo";
 import { JXButton } from "../ui";
 import { useScrollShadow } from "../hooks/useScrollShadow";
+import { AccountsPanel } from "./live/AccountsPanel";
 
 type Tri = "inherit" | "allow" | "deny";
 interface ToolRow { tool: string; tier: number; tier_name: string; allowed: boolean }
@@ -93,6 +94,15 @@ const LiveSecurityPolicies: React.FC = () => {
 
   // Webhook
   const [hookUrl, setHookUrl] = useState("");
+  const [slackWebhook, setSlackWebhook] = useState("");
+  const [discordWebhook, setDiscordWebhook] = useState("");
+  const [telegramToken, setTelegramToken] = useState("");
+  const [telegramChatId, setTelegramChatId] = useState("");
+  const [genericAlertWebhook, setGenericAlertWebhook] = useState("");
+  const [deliveries, setDeliveries] = useState<any[]>([]);
+  const [backups, setBackups] = useState<any[]>([]);
+  const [backupBackend, setBackupBackend] = useState("");
+  const [tenants, setTenants] = useState<string[]>(["default"]);
   const [hookConfigured, setHookConfigured] = useState<boolean | null>(null);
   const [hookError, setHookError] = useState("");
 
@@ -158,6 +168,19 @@ const LiveSecurityPolicies: React.FC = () => {
   useEffect(() => {
     api.getWebhook().then((w) => { setHookConfigured(Boolean(w?.configured)); setHookUrl(""); setHookError(""); })
       .catch((e) => { setHookConfigured(null); setHookError(isForbidden(e) ? "Admin role required to view webhook settings." : errMsg(e)); });
+    api.alertsConfig().then((cfg) => {
+      if (!cfg) return;
+      setSlackWebhook(cfg.slack_webhook || "");
+      setDiscordWebhook(cfg.discord_webhook || "");
+      setTelegramChatId(cfg.telegram_chat_id || "");
+      setGenericAlertWebhook(cfg.generic_webhook || "");
+    }).catch(() => {});
+    api.alertDeliveries().then((rows) => { if (Array.isArray(rows)) setDeliveries(rows); }).catch(() => {});
+    api.backups().then((res) => {
+      if (Array.isArray(res?.items)) setBackups(res.items);
+      if (res?.backend) setBackupBackend(res.backend);
+    }).catch(() => {});
+    api.tenants().then((res) => { if (Array.isArray(res?.tenants)) setTenants(res.tenants); }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -561,6 +584,105 @@ const LiveSecurityPolicies: React.FC = () => {
             </div>
           </>
         )}
+      </section>
+
+      {/* Multi-Channel Alert Webhooks & Delivery History */}
+      <section className={cardCls} aria-label="Multi-channel alerts">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold text-[var(--product-text)]">Alert channels &amp; delivery history</h2>
+          <div className="flex items-center gap-2">
+            <JXButton variant="contained" color="primary" size="sm" disabled={!canEdit || busy} onClick={async () => {
+              setBusy(true);
+              try {
+                await api.updateAlertsConfig({ slack_webhook: slackWebhook, discord_webhook: discordWebhook, telegram_token: telegramToken, telegram_chat_id: telegramChatId, generic_webhook: genericAlertWebhook });
+                flash("ok", "Alert channels saved.");
+              } catch (e) { flash("err", errMsg(e)); } finally { setBusy(false); }
+            }}>Save channels</JXButton>
+            <JXButton variant="outlined" color="primary" size="sm" disabled={!canEdit || busy} onClick={async () => {
+              setBusy(true);
+              try {
+                const res = await api.testAlerts();
+                const rows = await api.alertDeliveries().catch(() => []);
+                if (Array.isArray(rows)) setDeliveries(rows);
+                flash("ok", `Test alert dispatched: ${JSON.stringify(res?.results || {})}`);
+              } catch (e) { flash("err", errMsg(e)); } finally { setBusy(false); }
+            }}>Send test alert</JXButton>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <div><span className="text-[var(--product-text-tertiary)] block mb-1">Slack Webhook URL</span><input className={inputCls} disabled={!canEdit} placeholder="https://hooks.slack.com/services/..." value={slackWebhook} onChange={(e) => setSlackWebhook(e.target.value)} /></div>
+          <div><span className="text-[var(--product-text-tertiary)] block mb-1">Discord Webhook URL</span><input className={inputCls} disabled={!canEdit} placeholder="https://discord.com/api/webhooks/..." value={discordWebhook} onChange={(e) => setDiscordWebhook(e.target.value)} /></div>
+          <div><span className="text-[var(--product-text-tertiary)] block mb-1">Telegram Bot Token</span><input className={inputCls} type="password" disabled={!canEdit} placeholder="123456:ABC-..." value={telegramToken} onChange={(e) => setTelegramToken(e.target.value)} /></div>
+          <div><span className="text-[var(--product-text-tertiary)] block mb-1">Telegram Chat ID</span><input className={inputCls} disabled={!canEdit} placeholder="-1001234567890" value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} /></div>
+          <div className="md:col-span-2"><span className="text-[var(--product-text-tertiary)] block mb-1">Generic Incident Webhook URL</span><input className={inputCls} disabled={!canEdit} placeholder="https://alerts.example.com/webhook" value={genericAlertWebhook} onChange={(e) => setGenericAlertWebhook(e.target.value)} /></div>
+        </div>
+        {deliveries.length > 0 && (
+          <div className="overflow-x-auto rounded-lg border border-[var(--product-line)]">
+            <table className="w-full text-left text-xs font-mono">
+              <thead className="bg-[var(--product-canvas)] text-[var(--product-text-tertiary)]">
+                <tr><th className="p-2">Channel</th><th className="p-2">Event</th><th className="p-2">Status</th><th className="p-2">Detail</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {deliveries.slice(0, 10).map((d) => (
+                  <tr key={d.id}>
+                    <td className="p-2 text-[var(--product-text-secondary)]">{d.channel}</td>
+                    <td className="p-2 text-[var(--product-text-tertiary)]">{d.event_type}</td>
+                    <td className="p-2"><span className={d.status === "delivered" ? "text-emerald-300" : "text-rose-300"}>{d.status}</span></td>
+                    <td className="p-2 text-[var(--product-text-dim)]">{d.detail}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Database Backups */}
+      <section className={cardCls} aria-label="Database backups">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-[var(--product-text)]">Database backups &amp; snapshots</h2>
+            <p className="text-xs text-[var(--product-text-tertiary)]">Backend: {backupBackend || "auto"} • Verified offline-safe snapshots.</p>
+          </div>
+          <JXButton variant="contained" color="primary" size="sm" disabled={!canEdit || busy} onClick={async () => {
+            setBusy(true);
+            try {
+              const created = await api.createBackup();
+              const res = await api.backups();
+              if (Array.isArray(res?.items)) setBackups(res.items);
+              flash("ok", `Backup created: ${created.filename}`);
+            } catch (e) { flash("err", errMsg(e)); } finally { setBusy(false); }
+          }}>Create backup</JXButton>
+        </div>
+        {backups.length === 0 ? (
+          <p className="text-xs text-[var(--product-text-tertiary)]">No backups created yet.</p>
+        ) : (
+          <ul className="divide-y divide-slate-800/60 text-xs font-mono">
+            {backups.slice(0, 10).map((b) => (
+              <li key={b.filename} className="py-2 flex items-center justify-between gap-3">
+                <span className="text-[var(--product-text-secondary)]">{b.filename}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-[var(--product-text-tertiary)]">{Math.round((b.size_bytes || 0) / 1024)} KB</span>
+                  <a href={api.backupDownloadUrl(b.filename)} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">Download</a>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* RBAC Users & Tenants */}
+      <section className={cardCls} aria-label="Users and tenants">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold text-[var(--product-text)]">Users, RBAC &amp; tenants</h2>
+          <div className="flex flex-wrap items-center gap-1.5 text-xs font-mono">
+            <span className="text-[var(--product-text-tertiary)]">Tenants:</span>
+            {tenants.map((tn) => (
+              <span key={tn} className="px-2 py-0.5 rounded bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)]">{tn}</span>
+            ))}
+          </div>
+        </div>
+        <AccountsPanel admin={canEdit} />
       </section>
     </div>
   );

@@ -209,6 +209,9 @@ export const api = {
   aiChat: (body: { messages: any[]; provider?: string; model?: string; api_key?: string; base_url?: string; device?: string }) =>
     call("/api/ai/chat", "POST", body),
   workflowTemplates: () => call("/api/workflows/templates"),
+  createWorkflowTemplate: (body: { name: string; description?: string; steps: any[]; tenant?: string }) =>
+    call("/api/workflows/templates", "POST", body),
+  deleteWorkflowTemplate: (id: string) => call(`/api/workflows/templates/${encodeURIComponent(id)}`, "DELETE"),
   workflows: (status?: string) => call(`/api/workflows${status ? `?status=${encodeURIComponent(status)}` : ""}`),
   workflowDetail: (id: string) => call(`/api/workflows/${encodeURIComponent(id)}`),
   submitWorkflow: (body: { name: string; device_id?: string; steps: any[]; stop_on_failure?: boolean; max_retries?: number; require_step_approval?: boolean }) =>
@@ -216,7 +219,19 @@ export const api = {
   cancelWorkflow: (id: string) => call(`/api/workflows/${encodeURIComponent(id)}/cancel`, "POST", {}),
   retryWorkflow: (id: string, from_failed_step = true) => call(`/api/workflows/${encodeURIComponent(id)}/retry`, "POST", { from_failed_step }),
   deleteWorkflow: (id: string) => call(`/api/workflows/${encodeURIComponent(id)}`, "DELETE"),
+  scheduleWorkflow: (id: string, body: { name?: string; interval_seconds?: number; device_id?: string }) =>
+    call(`/api/workflows/${encodeURIComponent(id)}/schedule`, "POST", body),
   streamWorkflowUrl: (id: string) => `${BASE}/api/workflows/${encodeURIComponent(id)}/stream`,
+  eventsStreamUrl: () => `${BASE}/api/events/stream`,
+  alertsConfig: () => call("/api/alerts/config"),
+  updateAlertsConfig: (body: { slack_webhook?: string; discord_webhook?: string; telegram_token?: string; telegram_chat_id?: string; generic_webhook?: string }) =>
+    call("/api/alerts/config", "PUT", body),
+  testAlerts: () => call("/api/alerts/test", "POST", {}),
+  alertDeliveries: () => call("/api/alerts/deliveries"),
+  backups: () => call("/api/admin/backups"),
+  createBackup: () => call("/api/admin/backups", "POST", {}),
+  backupDownloadUrl: (filename: string) => `${BASE}/api/admin/backups/${encodeURIComponent(filename)}`,
+  tenants: () => call("/api/tenants"),
   fleetTelemetry: () => call("/api/fleet/telemetry"),
   deviceTelemetry: (id: string, limit = 50) => call(`/api/devices/${encodeURIComponent(id)}/telemetry?limit=${limit}`),
   fleetBroadcast: (body: { tool: string; args?: any; target_os?: string; target_device_ids?: string[] }) =>
