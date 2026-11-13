@@ -22,7 +22,7 @@ for (const width of [390, 1440]) {
       const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
       expect(results.violations).toEqual([]);
       expect(errors).toEqual([]);
-      if (view !== "login") await expect(page.getByRole("note")).toContainText("Demo workspace");
+      if (view !== "login") await expect(page.getByRole("note").filter({ hasText: "Demo workspace" })).toBeVisible();
     });
   }
 }
@@ -185,10 +185,12 @@ for (const width of [320, 768]) {
   });
 }
 
-test("legacy light preference does not create mixed unreadable surfaces", async ({ page }) => {
+test("saved light preference is honoured without unreadable surfaces", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("ai_bridge_theme", "light"));
   await page.goto("/#/overview");
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  // Light mode is a shipped feature, so a saved preference must be respected rather
+  // than forced back to dark; the surface checks below still have to hold.
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
 });
 

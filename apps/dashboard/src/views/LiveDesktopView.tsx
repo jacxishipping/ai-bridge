@@ -1457,9 +1457,11 @@ export const LiveDesktopView: React.FC = () => {
 
       {/* Floating Dual-Control Takeover Bar */}
       <div className="p-3 rounded-2xl bg-[var(--product-surface)]/90 border border-[var(--product-line)] shadow-xl flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           {/* Mode Segmented Switch */}
-          <div className="flex p-1 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)]">
+          {/* Both control rows are wider than a 390px phone, so they scroll inside
+              themselves instead of pushing the whole view sideways. */}
+          <div className="flex max-w-full overflow-x-auto p-1 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)]">
             <button
               type="button"
               onClick={() => void applySessionMode("view_only")}
@@ -1501,7 +1503,7 @@ export const LiveDesktopView: React.FC = () => {
           <div className="h-6 w-px bg-[var(--product-raised)] hidden sm:block mx-1"></div>
 
           {/* Kinematic Input Toggles */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex min-w-0 max-w-full items-center gap-1.5 overflow-x-auto">
             <button
               type="button"
               onClick={() => setMouseLinked(!mouseLinked)}

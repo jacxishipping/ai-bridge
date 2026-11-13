@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { ArrowUpRight, RefreshCw, ShieldCheck } from "lucide-react";
-import { api, clearCredentials, token, sessionToken } from "../api";
+import { api, ApiError, clearCredentials, token, sessionToken } from "../api";
 import { GlassModal, JXAlert, JXBadge, JXButton } from "../ui";
 import { Brand } from "../Brand";
 import { DensityControl } from "../DensityControl";
@@ -22,15 +22,20 @@ export function LiveControlView() {
   const [confirm, setConfirm] = useState(false);
   const [acting, setActing] = useState(false);
   const [actionError, setActionError] = useState("");
+  // A 401 clears the stored credential, which would otherwise make the view look
+  // like guest demo mode and quietly show sample data after a session ends.
+  const [expired, setExpired] = useState(false);
   const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
+    const wasAuthenticated = Boolean(token() || sessionToken());
     try {
       const [identity, health, devices] = await Promise.all([api.me(), api.health(), api.devices()]);
       setSnapshot({ identity, health, devices: Array.isArray(devices) ? devices : devices.devices || [], checkedAt: new Date() });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to load the control plane.";
+      if (wasAuthenticated && err instanceof ApiError && err.status === 401) setExpired(true);
       // Suppress expected demo-mode errors from console to reduce noise
       if (!isLive && typeof console !== "undefined") {
         // eslint-disable-next-line no-console
@@ -57,6 +62,17 @@ export function LiveControlView() {
     } catch (err) { setActionError(err instanceof Error ? err.message : "The server rejected this action."); }
     finally { setActing(false); }
   };
+  if (expired) {
+    return <main className="product-live">
+      <header className="product-topbar">
+        <div className="product-container flex min-h-14 flex-wrap items-center justify-between gap-3 py-2"><Brand /></div>
+      </header>
+      <div className="product-container space-y-4 py-6" lang="en" dir="ltr">
+        <JXAlert severity="error" title="Session expired" description="Your session expired. No sample data is shown while the session is invalid." />
+        <JXButton color="primary" onClick={() => { clearCredentials(); navigate("login"); }}>Return to sign in</JXButton>
+      </div>
+    </main>;
+  }
   return <main className="product-live">
     <header className="product-topbar">
       <div className="product-container flex min-h-14 flex-wrap items-center justify-between gap-3 py-2">

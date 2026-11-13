@@ -44,8 +44,9 @@ export const LoginView: React.FC = () => {
     setError("");
     try {
       await authenticate(method === "token" ? { token: token.trim() } : { username: username.trim(), password });
+      // A successful sign-in lands on the live control plane, not the demo overview.
       await dashboardStore.refreshLive();
-      navigate("overview");
+      navigate("live");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed. Please try again.");
     } finally { setBusy(false); }
