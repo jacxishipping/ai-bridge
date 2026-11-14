@@ -3,12 +3,12 @@ import { ArrowRight, ListChecks, Server, ShieldCheck } from "lucide-react";
 import {
   BentoGrid,
   GlassModal,
+  InteractiveCard,
   JXButton,
-  JXCard,
-  JXCardContent,
   MagneticButton,
   ProductGlass,
   ProductMetricCard,
+  ProductModePill,
 } from "../ui";
 import { token, sessionToken } from "../api";
 import { PageEmpty } from "../components/PageEmpty";
@@ -32,11 +32,7 @@ export const OverviewView: React.FC = () => {
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-xl font-semibold text-[var(--product-text)]">Fleet overview</h1>
-          {!isLive && (
-            <span className="rounded-full border border-amber-500/40 bg-amber-950/40 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-amber-200">
-              Sample data
-            </span>
-          )}
+          <ProductModePill live={isLive} detail={isLive ? "Control plane" : "Sample fleet"} />
         </div>
         <Freshness checkedAt={Date.now()} label={isLive ? "Live snapshot" : "Demo snapshot"} />
       </div>
@@ -51,17 +47,15 @@ export const OverviewView: React.FC = () => {
     </header>
 
     {!isLive && (
-      <ProductGlass className="p-1">
-        <PageEmpty
-          demo
-          title="Exploring the demo overview"
-          description="Numbers and devices on this page are simulated. Connect a control plane to see your real fleet."
-          actionLabel="Connect server"
-          onAction={() => navigate("login")}
-          secondaryLabel="Open live home"
-          onSecondary={() => navigate("live")}
-        />
-      </ProductGlass>
+      <PageEmpty
+        demo
+        title="Exploring the demo overview"
+        description="Numbers and devices on this page are simulated. Connect a control plane to see your real fleet."
+        actionLabel="Connect server"
+        onAction={() => navigate("login")}
+        secondaryLabel="Open live home"
+        onSecondary={() => navigate("live")}
+      />
     )}
 
     <BentoGrid>
@@ -117,39 +111,25 @@ export const OverviewView: React.FC = () => {
       </ProductGlass>
 
       <div className="space-y-3">
-        <JXCard className="!p-0">
-          <JXCardContent>
-            <button type="button" onClick={() => navigate("devices")} className="flex w-full items-start gap-3 p-1 text-left">
-              <Server className="mt-0.5 h-4 w-4 shrink-0 text-indigo-300" aria-hidden="true" />
+        {([
+          { view: "devices" as const, icon: Server, tone: "text-indigo-300", title: "Fleet inventory", hint: "Enroll agents and inspect nodes" },
+          { view: "human-approvals" as const, icon: ShieldCheck, tone: "text-amber-300", title: "Approvals queue", hint: `${pending} waiting for review` },
+          { view: "mcp-and-oauth" as const, icon: ListChecks, tone: "text-emerald-300", title: "MCP connections", hint: "ChatGPT, Claude, Gemini setup" },
+        ]).map((item) => (
+          <InteractiveCard
+            key={item.view}
+            hoverLift
+            className="product-surface rounded-xl! border border-[var(--product-line)]! bg-[var(--product-surface)]/70! p-0! shadow-none!"
+          >
+            <button type="button" onClick={() => navigate(item.view)} className="flex w-full items-start gap-3 p-4 text-left">
+              <item.icon className={`mt-0.5 h-4 w-4 shrink-0 ${item.tone}`} aria-hidden="true" />
               <span>
-                <span className="block text-sm font-medium text-[var(--product-text)]">Fleet inventory</span>
-                <span className="mt-1 block text-xs text-[var(--product-text-tertiary)]">Enroll agents and inspect nodes</span>
+                <span className="block text-sm font-medium text-[var(--product-text)]">{item.title}</span>
+                <span className="mt-1 block text-xs text-[var(--product-text-tertiary)]">{item.hint}</span>
               </span>
             </button>
-          </JXCardContent>
-        </JXCard>
-        <JXCard className="!p-0">
-          <JXCardContent>
-            <button type="button" onClick={() => navigate("human-approvals")} className="flex w-full items-start gap-3 p-1 text-left">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" aria-hidden="true" />
-              <span>
-                <span className="block text-sm font-medium text-[var(--product-text)]">Approvals queue</span>
-                <span className="mt-1 block text-xs text-[var(--product-text-tertiary)]">{pending} waiting for review</span>
-              </span>
-            </button>
-          </JXCardContent>
-        </JXCard>
-        <JXCard className="!p-0">
-          <JXCardContent>
-            <button type="button" onClick={() => navigate("mcp-and-oauth")} className="flex w-full items-start gap-3 p-1 text-left">
-              <ListChecks className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" aria-hidden="true" />
-              <span>
-                <span className="block text-sm font-medium text-[var(--product-text)]">MCP connections</span>
-                <span className="mt-1 block text-xs text-[var(--product-text-tertiary)]">ChatGPT, Claude, Gemini setup</span>
-              </span>
-            </button>
-          </JXCardContent>
-        </JXCard>
+          </InteractiveCard>
+        ))}
       </div>
     </div>
 

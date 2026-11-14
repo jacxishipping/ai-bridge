@@ -23,7 +23,17 @@ import {
   JXAlert,
   GlassModal,
   BreadcrumbTrail,
+  FloatingActionButton,
+  MagneticButton,
+  ProductGlass,
+  ProductMetricCard,
+  ProductModePill,
+  ProductNotice,
+  ProductSegmented,
+  ProductStatusDot,
+  ProductStepProgress,
 } from "../ui";
+import { PageEmpty } from "../components/PageEmpty";
 import {
   Server,
   Activity,
@@ -267,26 +277,28 @@ export const DevicesView: React.FC = () => {
     <div className="w-full space-y-4">
       {/* Top Context & Header Ribbon */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-[var(--product-line)]">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-[var(--product-text)] mt-1">
-            Devices
-          </h1>
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-xl font-bold tracking-tight text-[var(--product-text)] mt-1">
+              Devices
+            </h1>
+            <ProductModePill live={isLive} />
+          </div>
         </div>
 
         <JXStack direction="row" spacing="sm" className="items-center flex-wrap">
-          <JXButton
-            variant="contained"
-            color="primary"
-            size="sm"
+          <MagneticButton
+            variant="solid"
+            tone="primary"
+            className="hidden sm:inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm"
             onClick={() => {
               setEnrollError("");
               setEnrollModalOpen(true);
             }}
-            startIcon={<PlusCircle className="w-3.5 h-3.5" />}
-            className="bg-indigo-600 hover:bg-indigo-500 font-semibold"
           >
-            <span>Add device</span>
-          </JXButton>
+            <PlusCircle className="w-3.5 h-3.5" aria-hidden="true" />
+            Add device
+          </MagneticButton>
 
           <JXButton
             variant="outlined"
@@ -316,106 +328,55 @@ export const DevicesView: React.FC = () => {
         </JXStack>
       </div>
 
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <ProductMetricCard label="Total" value={totalCount} hint="Enrolled" onClick={() => setStatusFilter("all")} />
+        <ProductMetricCard label="Online" value={onlineCount} hint="Heartbeat ok" trend={onlineCount > 0 ? "up" : "flat"} onClick={() => setStatusFilter("online")} />
+        <ProductMetricCard label="Unresponsive" value={unresponsiveCount} hint="Needs check" trend={unresponsiveCount > 0 ? "down" : "flat"} onClick={() => setStatusFilter("unresponsive")} />
+        <ProductMetricCard label="Offline" value={offlineCount} hint="No heartbeat" onClick={() => setStatusFilter("offline")} />
+      </div>
+
       {deviceActionNotice && (
-        <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-xs font-mono text-indigo-300">
+        <ProductNotice tone={deviceActionNotice.includes("failed") || deviceActionNotice.includes("Failed") ? "error" : "info"}>
           {deviceActionNotice}
-        </div>
+        </ProductNotice>
       )}
 
       {/* Filter Toolbar: Status Chips, Platform Segmented Controls, Search */}
-      <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
-        <JXCardContent>
+      <ProductGlass className="p-4">
           <div className="space-y-4">
             <div className="flex flex-col gap-3">
-              {/* Status Filter Chips — horizontally scrollable on mobile */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
-                <span className="text-xs font-mono text-[var(--product-text-tertiary)] uppercase tracking-wider flex-shrink-0">
-                  Status:
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-mono text-[var(--product-text-tertiary)] uppercase tracking-wider shrink-0">
+                  Status
                 </span>
-                <JXButton
-                  variant={statusFilter === "all" ? "contained" : "soft"}
-                  color={statusFilter === "all" ? "primary" : "neutral"}
-                  size="sm"
-                  onClick={() => setStatusFilter("all")}
-                  className="text-xs flex-shrink-0"
-                >
-                  All ({totalCount})
-                </JXButton>
-                <JXButton
-                  variant={statusFilter === "online" ? "contained" : "soft"}
-                  color={statusFilter === "online" ? "success" : "neutral"}
-                  size="sm"
-                  onClick={() => setStatusFilter("online")}
-                  className="text-xs flex-shrink-0"
-                >
-                  Online ({onlineCount})
-                </JXButton>
-                <JXButton
-                  variant={statusFilter === "unresponsive" ? "contained" : "soft"}
-                  color={statusFilter === "unresponsive" ? "warning" : "neutral"}
-                  size="sm"
-                  onClick={() => setStatusFilter("unresponsive")}
-                  className="text-xs flex-shrink-0"
-                >
-                  Unresponsive ({unresponsiveCount})
-                </JXButton>
-                <JXButton
-                  variant={statusFilter === "offline" ? "contained" : "soft"}
-                  color={statusFilter === "offline" ? "error" : "neutral"}
-                  size="sm"
-                  onClick={() => setStatusFilter("offline")}
-                  className="text-xs flex-shrink-0"
-                >
-                  Offline ({offlineCount})
-                </JXButton>
+                <ProductSegmented
+                  ariaLabel="Filter by status"
+                  value={statusFilter}
+                  onChange={setStatusFilter}
+                  options={[
+                    { id: "all", label: `All (${totalCount})` },
+                    { id: "online", label: `Online (${onlineCount})` },
+                    { id: "unresponsive", label: `Unresponsive (${unresponsiveCount})` },
+                    { id: "offline", label: `Offline (${offlineCount})` },
+                  ]}
+                />
               </div>
 
-              {/* Platform Segmented Buttons — horizontally scrollable on mobile */}
-              <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[var(--product-raised)]/80 border border-[var(--product-line)] overflow-x-auto -mx-1 px-1 scrollbar-hide">
-                <button
-                  type="button"
-                  onClick={() => setPlatformFilter("all")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all flex-shrink-0 ${
-                    platformFilter === "all"
-                      ? "bg-indigo-600 text-white font-semibold"
-                      : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
-                  }`}
-                >
-                  All
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPlatformFilter("windows")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all flex-shrink-0 ${
-                    platformFilter === "windows"
-                      ? "bg-indigo-600 text-white font-semibold"
-                      : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
-                  }`}
-                >
-                  Windows ({windowsCount})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPlatformFilter("linux")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all flex-shrink-0 ${
-                    platformFilter === "linux"
-                      ? "bg-indigo-600 text-white font-semibold"
-                      : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
-                  }`}
-                >
-                  Linux ({linuxCount})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPlatformFilter("darwin")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all flex-shrink-0 ${
-                    platformFilter === "darwin"
-                      ? "bg-indigo-600 text-white font-semibold"
-                      : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
-                  }`}
-                >
-                  macOS ({macCount})
-                </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-mono text-[var(--product-text-tertiary)] uppercase tracking-wider shrink-0">
+                  Platform
+                </span>
+                <ProductSegmented
+                  ariaLabel="Filter by platform"
+                  value={platformFilter}
+                  onChange={setPlatformFilter}
+                  options={[
+                    { id: "all", label: "All" },
+                    { id: "windows", label: `Windows (${windowsCount})` },
+                    { id: "linux", label: `Linux (${linuxCount})` },
+                    { id: "darwin", label: `macOS (${macCount})` },
+                  ]}
+                />
               </div>
             </div>
 
@@ -454,8 +415,7 @@ export const DevicesView: React.FC = () => {
               </div>
             </div>
           </div>
-        </JXCardContent>
-      </JXCard>
+      </ProductGlass>
 
       {/* SmartDataTable: 7 Columns Device Inventory */}
       <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)] overflow-hidden">
@@ -479,8 +439,22 @@ export const DevicesView: React.FC = () => {
                 <tbody className="divide-y divide-slate-800/60">
                   {filteredDevices.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-12 text-center text-[var(--product-text-tertiary)]">
-                        No matching devices.
+                      <td colSpan={5} className="p-4">
+                        <PageEmpty
+                          title="No matching devices"
+                          description="Try clearing filters, or enroll a new edge agent."
+                          actionLabel="Add device"
+                          onAction={() => {
+                            setEnrollError("");
+                            setEnrollModalOpen(true);
+                          }}
+                          secondaryLabel="Reset filters"
+                          onSecondary={() => {
+                            setSearchQuery("");
+                            setStatusFilter("all");
+                            setPlatformFilter("all");
+                          }}
+                        />
                       </td>
                     </tr>
                   ) : (
@@ -488,6 +462,7 @@ export const DevicesView: React.FC = () => {
                       const isOnline = device.status === "online";
                       const isUnresponsive = device.status === "unresponsive";
                       const isSelected = device.id === selectedDeviceId;
+                      const statusTone = isOnline ? "online" : isUnresponsive ? "warn" : "offline";
 
                       return (
                         <tr
@@ -498,30 +473,11 @@ export const DevicesView: React.FC = () => {
                         >
                           {/* 1. Status ping dot */}
                           <td className="py-3 px-3 whitespace-nowrap">
-                            <div className="flex items-center gap-2">
-                              <span className="relative flex h-2.5 w-2.5">
-                                <span
-                                  className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
-                                    isOnline
-                                      ? "bg-emerald-400"
-                                      : isUnresponsive
-                                      ? "bg-amber-400"
-                                      : "bg-rose-500"
-                                  }`}
-                                />
-                              </span>
-                              <span
-                                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                                  isOnline
-                                    ? "bg-emerald-500/10 text-emerald-400"
-                                    : isUnresponsive
-                                    ? "bg-amber-500/10 text-amber-400"
-                                    : "bg-rose-500/10 text-rose-400"
-                                }`}
-                              >
-                                {isOnline ? "Online" : isUnresponsive ? "Unresponsive" : "Offline"}
-                              </span>
-                            </div>
+                            <ProductStatusDot
+                              status={statusTone}
+                              pulse={isOnline}
+                              label={isOnline ? "Online" : isUnresponsive ? "Unresponsive" : "Offline"}
+                            />
                           </td>
 
                           {/* 2. Device Identity & UUID & Arch */}
@@ -661,6 +617,17 @@ export const DevicesView: React.FC = () => {
         </JXCardContent>
       </JXCard>
 
+      <div className="fixed bottom-5 right-4 z-30 sm:hidden">
+        <FloatingActionButton
+          label="Add"
+          aria-label="Add device"
+          onClick={() => {
+            setEnrollError("");
+            setEnrollModalOpen(true);
+          }}
+        />
+      </div>
+
       {/* Enroll Device Modal */}
       {enrollModalOpen && (
         <GlassModal
@@ -669,6 +636,10 @@ export const DevicesView: React.FC = () => {
           title={isLive ? "Enroll new device" : "Preview device enrollment"}
         >
           <div className="space-y-4 max-w-xl w-full text-xs font-mono">
+            <ProductStepProgress
+              steps={["Name", "Token", "Install"]}
+              current={tokenProvisioned || enrolledToken ? 2 : 0}
+            />
             <p className="text-[var(--product-text-tertiary)] text-xs">
               {isLive
                 ? "Generate a live enrollment token from the control plane and run the provisioning command on the target host."

@@ -11,7 +11,7 @@ import { Keyboard } from "lucide-react";
 import { SidebarNav } from "./SidebarNav";
 import { TopHeader } from "./TopHeader";
 import { CommandPaletteModal } from "./CommandPaletteModal";
-import { ProductGlass } from "../ui";
+import { ProductGlass, ProductStatusDot } from "../ui";
 import { token, sessionToken, clearCredentials, apiOrigin } from "../api";
 import type { ViewId } from "../types/dashboard";
 
@@ -96,7 +96,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
           <ProductGlass className="shrink-0 rounded-none! border-x-0! border-t-0! border-b border-emerald-800/40! bg-emerald-950/20! px-4 py-2 text-xs text-emerald-400 sm:px-6">
             <div role="note" className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-emerald-400 animate-pulse" />
+                <ProductStatusDot status="online" pulse />
                 <strong className="font-medium text-emerald-300">Live control plane</strong>
                 <span className="truncate text-emerald-400/80">API {apiOrigin.replace(/^https?:\/\//, "")}</span>
               </div>
@@ -106,9 +106,10 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
         ) : (
           <ProductGlass className="shrink-0 rounded-none! border-x-0! border-t-0! border-b border-amber-700/50! bg-amber-950/30! px-4 py-2 text-xs text-amber-100/90 sm:px-6">
             <div role="note" className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <ProductStatusDot status="warn" pulse={false} />
                 <strong className="font-medium text-amber-200">SAMPLE DATA · DEMO</strong>
-                <span className="ms-2 text-amber-100/70">Not connected to a control plane. Metrics and devices below are simulated.</span>
+                <span className="text-amber-100/70">Not connected to a control plane. Metrics and devices below are simulated.</span>
               </div>
               <button type="button" onClick={() => { window.location.hash = "#/login"; }} className="shrink-0 text-xs text-indigo-300 hover:text-indigo-200 underline">Connect server</button>
             </div>

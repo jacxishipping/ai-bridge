@@ -13,26 +13,34 @@ import {
   AdaptiveGlass,
   BentoGrid,
   BreadcrumbTrail,
+  FloatingActionButton,
   FrostedGlass,
+  GlassToolbar,
   HoldToConfirmButton,
   InteractiveCard,
   MagneticButton,
+  NumberCounter,
   ShimmerButton,
+  SlideToAction,
   TiltCard,
   JXAlert as Alert, JXBox, JXButton as Button, JXCard as Card, JXChip, JXTabs as Tabs, JXTextField as TextField,
 } from "@jacxishippingorg/jx-ui-react";
-import { TrendingUp, TrendingDown, Minus, X } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, X, Wifi, WifiOff } from "lucide-react";
 
 export * from "@jacxishippingorg/jx-ui-react";
 export {
   AdaptiveGlass,
   BentoGrid,
   BreadcrumbTrail,
+  FloatingActionButton,
   FrostedGlass,
+  GlassToolbar,
   HoldToConfirmButton,
   InteractiveCard,
   MagneticButton,
+  NumberCounter,
   ShimmerButton,
+  SlideToAction,
   TiltCard,
 };
 
@@ -62,6 +70,7 @@ export function ProductMetricCard({
 }) {
   const TrendIcon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : Minus;
   const trendTone = trend === "up" ? "text-emerald-400" : trend === "down" ? "text-rose-400" : "text-[var(--product-text-tertiary)]";
+  const numeric = typeof value === "number" ? value : null;
   return (
     <InteractiveCard
       hoverLift
@@ -70,7 +79,13 @@ export function ProductMetricCard({
       <button type="button" onClick={onClick} className="flex w-full flex-col gap-1 p-4 text-left">
         <span className="text-xs font-medium text-[var(--product-text-tertiary)]">{label}</span>
         <span className="flex items-baseline gap-2">
-          <span className="font-mono text-2xl font-semibold tabular-nums text-[var(--product-text)]">{value}</span>
+          {numeric !== null ? (
+            <span className="[&>div]:text-[var(--product-text)]! [&>div]:text-2xl! [&>div]:font-semibold!">
+              <NumberCounter value={numeric} />
+            </span>
+          ) : (
+            <span className="font-mono text-2xl font-semibold tabular-nums text-[var(--product-text)]">{value}</span>
+          )}
           {trend && <TrendIcon className={`h-3.5 w-3.5 ${trendTone}`} aria-hidden="true" />}
         </span>
         {hint && <span className="text-[11px] text-[var(--product-text-dim)]">{hint}</span>}
@@ -85,6 +100,180 @@ export function ProductGlass({ children, className = "" }: React.PropsWithChildr
     <AdaptiveGlass className={`rounded-2xl border border-[var(--product-line)] bg-[var(--product-surface)]/50 ${className}`}>
       {children}
     </AdaptiveGlass>
+  );
+}
+
+/** Status radar — product wrapper because library PulseIndicator/StatusIndicator are fixed demos. */
+export function ProductStatusDot({
+  status = "online",
+  label,
+  pulse = true,
+  className = "",
+}: {
+  status?: "online" | "offline" | "warn" | "idle";
+  label?: string;
+  pulse?: boolean;
+  className?: string;
+}) {
+  const tone =
+    status === "online" ? "bg-emerald-400" :
+    status === "warn" ? "bg-amber-400" :
+    status === "idle" ? "bg-slate-400" :
+    "bg-rose-500";
+  const text =
+    status === "online" ? "text-emerald-400" :
+    status === "warn" ? "text-amber-400" :
+    status === "idle" ? "text-[var(--product-text-tertiary)]" :
+    "text-rose-400";
+  return (
+    <span className={`inline-flex items-center gap-2 ${className}`} role="status">
+      <span className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center">
+        {pulse && status === "online" && (
+          <span className={`absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping ${tone}`} />
+        )}
+        <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${tone}`} />
+      </span>
+      {label && <span className={`text-[11px] font-semibold ${text}`}>{label}</span>}
+    </span>
+  );
+}
+
+/** Sliding pill selector — SegmentedControl in the package is a Daily/Weekly stub. */
+export function ProductSegmented<T extends string>({
+  options,
+  value,
+  onChange,
+  ariaLabel = "Options",
+  className = "",
+}: {
+  options: Array<{ id: T; label: string }>;
+  value: T;
+  onChange: (id: T) => void;
+  ariaLabel?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={ariaLabel}
+      className={`inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border border-[var(--product-line)] bg-[var(--product-raised)]/80 p-1 ${className}`}
+    >
+      {options.map((opt) => {
+        const active = opt.id === value;
+        return (
+          <button
+            key={opt.id}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(opt.id)}
+            className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-mono transition-all ${
+              active
+                ? "bg-indigo-600 font-semibold text-white shadow-sm"
+                : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
+            }`}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Live / demo island pill (ConnectionStatus / LiveActivity in the package are hardcoded). */
+export function ProductModePill({
+  live,
+  detail,
+  className = "",
+}: {
+  live: boolean;
+  detail?: string;
+  className?: string;
+}) {
+  return (
+    <span
+      role="status"
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs shadow-sm ${
+        live
+          ? "border-emerald-500/40 bg-emerald-950/50 text-emerald-200"
+          : "border-amber-500/40 bg-amber-950/40 text-amber-100"
+      } ${className}`}
+    >
+      {live ? <Wifi className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+      <ProductStatusDot status={live ? "online" : "warn"} pulse={live} />
+      <span className="font-medium">{live ? "Live" : "Demo"}</span>
+      {detail && <span className="max-w-[14rem] truncate opacity-80">{detail}</span>}
+    </span>
+  );
+}
+
+/** Compact glass notice for post-action feedback. */
+export function ProductNotice({
+  children,
+  tone = "info",
+  className = "",
+}: React.PropsWithChildren<{ tone?: "info" | "success" | "warning" | "error"; className?: string }>) {
+  const tones = {
+    info: "border-indigo-500/30 bg-indigo-500/10 text-indigo-200",
+    success: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
+    warning: "border-amber-500/30 bg-amber-500/10 text-amber-100",
+    error: "border-rose-500/30 bg-rose-500/10 text-rose-200",
+  };
+  return (
+    <div role="status">
+      <ProductGlass className={`px-3 py-2 text-xs font-mono ${tones[tone]} ${className}`}>
+        {children}
+      </ProductGlass>
+    </div>
+  );
+}
+
+/** Wizard / enrollment step rail — MultiStepProgress in the package is a fixed demo. */
+export function ProductStepProgress({
+  steps,
+  current,
+  className = "",
+}: {
+  steps: string[];
+  current: number;
+  className?: string;
+}) {
+  return (
+    <ol className={`flex flex-wrap items-center gap-2 text-xs ${className}`} aria-label="Progress">
+      {steps.map((step, index) => {
+        const done = index < current;
+        const active = index === current;
+        return (
+          <li key={step} className="flex items-center gap-2">
+            {index > 0 && (
+              <span className={`h-0.5 w-5 ${done || active ? "bg-indigo-500" : "bg-[var(--product-line)]"}`} aria-hidden="true" />
+            )}
+            <span
+              className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
+                done || active
+                  ? "bg-indigo-600 text-white"
+                  : "bg-[var(--product-raised)] text-[var(--product-text-tertiary)]"
+              }`}
+              aria-current={active ? "step" : undefined}
+            >
+              {index + 1}
+            </span>
+            <span className={active ? "font-semibold text-[var(--product-text)]" : "text-[var(--product-text-tertiary)]"}>
+              {step}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** Dense filter/action strip on AdaptiveGlass. */
+export function ProductToolbar({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
+  return (
+    <GlassToolbar>
+      <div className={`flex flex-wrap items-center gap-2 ${className}`}>{children}</div>
+    </GlassToolbar>
   );
 }
 
