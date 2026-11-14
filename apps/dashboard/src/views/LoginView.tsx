@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { ArrowRight, KeyRound, UserRound } from "lucide-react";
-import { JXAlert, JXButton, JXCard, JXCardContent, JXTextField, JXLinearProgress } from "../ui";
+import { FrostedGlass, JXAlert, JXButton, JXCardContent, JXTextField, JXLinearProgress, ShimmerButton } from "../ui";
 import { Brand, BrandArt } from "../Brand";
 import { api, apiOrigin, authenticate, probeControlHealth } from "../api";
 import { dashboardStore, useDashboardStore } from "../state/dashboardStore";
@@ -74,9 +74,9 @@ export const LoginView: React.FC = () => {
       <div className="space-y-3">
         <h1>{t("Connect to AI Bridge")}</h1>
       </div>
-      <JXCard>
+      <FrostedGlass className="rounded-2xl border border-[color:var(--product-line)] bg-[var(--product-surface)]/70 p-1">
         <JXCardContent>
-          <div className="space-y-4">
+          <div className="space-y-4 p-3 sm:p-4">
             <div className="grid grid-cols-2 gap-2" role="group" aria-label={t("Sign-in method")}>
               <JXButton color={method === "token" ? "primary" : "neutral"} variant={method === "token" ? "contained" : "outlined"}
                 aria-pressed={method === "token"} onClick={() => { setMethod("token"); setError(""); }} startIcon={<KeyRound className="h-4 w-4" />}>{t("Admin token")}</JXButton>
@@ -113,9 +113,22 @@ export const LoginView: React.FC = () => {
                     )}
                   </div>
                 </>}
-              <JXButton type="submit" fullWidth loading={busy} loadingLabel={t("Signing in…")}
-                disabled={busy || probing || Boolean(health && !health.ok)}
-                endIcon={<ArrowRight className="h-4 w-4 rtl:rotate-180" />}>{t("Sign in")}</JXButton>
+              {health?.ok ? (
+                <ShimmerButton
+                  type="submit"
+                  tone="primary"
+                  variant="solid"
+                  disabled={busy || probing}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium"
+                >
+                  {busy ? t("Signing in…") : t("Sign in")}
+                  {!busy && <ArrowRight className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />}
+                </ShimmerButton>
+              ) : (
+                <JXButton type="submit" fullWidth loading={busy} loadingLabel={t("Signing in…")}
+                  disabled={busy || probing || Boolean(health && !health.ok)}
+                  endIcon={<ArrowRight className="h-4 w-4 rtl:rotate-180" />}>{t("Sign in")}</JXButton>
+              )}
             </form>
             {health && !health.ok && (
               <JXButton fullWidth variant="outlined" color="neutral" onClick={() => {
@@ -129,7 +142,7 @@ export const LoginView: React.FC = () => {
             </div>
           </div>
         </JXCardContent>
-      </JXCard>
+      </FrostedGlass>
       <p lang="en" dir="ltr" className="text-xs leading-relaxed text-[color:var(--product-text-tertiary)]">Credentials are kept for this browser session, not saved permanently.</p>
     </div>
     <div className="product-auth-art"><BrandArt /></div>

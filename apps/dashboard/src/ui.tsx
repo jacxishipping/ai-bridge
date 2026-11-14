@@ -10,11 +10,31 @@
  */
 import React, { useEffect, useId, useRef, useState } from "react";
 import {
+  AdaptiveGlass,
+  BentoGrid,
+  BreadcrumbTrail,
+  FrostedGlass,
+  HoldToConfirmButton,
+  InteractiveCard,
+  MagneticButton,
+  ShimmerButton,
+  TiltCard,
   JXAlert as Alert, JXBox, JXButton as Button, JXCard as Card, JXChip, JXTabs as Tabs, JXTextField as TextField,
 } from "@jacxishippingorg/jx-ui-react";
-import { X } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, X } from "lucide-react";
 
 export * from "@jacxishippingorg/jx-ui-react";
+export {
+  AdaptiveGlass,
+  BentoGrid,
+  BreadcrumbTrail,
+  FrostedGlass,
+  HoldToConfirmButton,
+  InteractiveCard,
+  MagneticButton,
+  ShimmerButton,
+  TiltCard,
+};
 
 export function JXAlert(props: React.ComponentProps<typeof Alert>) {
   return <Alert {...props} technicalDetails={props.technicalDetails ?? ""} actionLabel={props.actionLabel ?? ""} />;
@@ -22,10 +42,50 @@ export function JXAlert(props: React.ComponentProps<typeof Alert>) {
 
 // v3.0's lockWidth forces every control to at least 180px, including icons and
 // controls in narrow grids. Use content sizing; loading labels remain explicit.
-export function JXButton(props: React.ComponentProps<typeof Button>) {
-  return <Button {...props} lockWidth={false} halo={false} spring={false}
+export function JXButton(props: React.ComponentProps<typeof Button> & { tactile?: boolean }) {
+  const { tactile, ...rest } = props;
+  return <Button {...rest} lockWidth={false} halo={Boolean(tactile)} spring={Boolean(tactile)}
     data-tone={props.color || "primary"} data-variant={props.variant || "contained"}
-    className={`product-button max-w-full whitespace-normal! h-auto! shadow-none! rounded-md! ${props.className || ""}`} />;
+    className={`product-button max-w-full whitespace-normal! h-auto! ${tactile ? "" : "shadow-none!"} rounded-md! ${props.className || ""}`} />;
+}
+
+/** Compact operational metric tile built on InteractiveCard (JXUI advanced). */
+export function ProductMetricCard({
+  label, value, hint, trend, onClick, className = "",
+}: {
+  label: string;
+  value: React.ReactNode;
+  hint?: string;
+  trend?: "up" | "down" | "flat";
+  onClick?: () => void;
+  className?: string;
+}) {
+  const TrendIcon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : Minus;
+  const trendTone = trend === "up" ? "text-emerald-400" : trend === "down" ? "text-rose-400" : "text-[var(--product-text-tertiary)]";
+  return (
+    <InteractiveCard
+      hoverLift
+      className={`product-surface rounded-2xl! border border-[var(--product-line)]! bg-[var(--product-surface)]/70! p-0! shadow-none! ${className}`}
+    >
+      <button type="button" onClick={onClick} className="flex w-full flex-col gap-1 p-4 text-left">
+        <span className="text-xs font-medium text-[var(--product-text-tertiary)]">{label}</span>
+        <span className="flex items-baseline gap-2">
+          <span className="font-mono text-2xl font-semibold tabular-nums text-[var(--product-text)]">{value}</span>
+          {trend && <TrendIcon className={`h-3.5 w-3.5 ${trendTone}`} aria-hidden="true" />}
+        </span>
+        {hint && <span className="text-[11px] text-[var(--product-text-dim)]">{hint}</span>}
+      </button>
+    </InteractiveCard>
+  );
+}
+
+/** Glass surface for hero / wizard panels without breaking operational density elsewhere. */
+export function ProductGlass({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
+  return (
+    <AdaptiveGlass className={`rounded-2xl border border-[var(--product-line)] bg-[var(--product-surface)]/50 ${className}`}>
+      {children}
+    </AdaptiveGlass>
+  );
 }
 
 export function JXStack({ direction = "row", spacing = "sm", className = "", children, ...props }:

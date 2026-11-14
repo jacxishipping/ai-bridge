@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { AlertTriangle, Menu, Search, Square, Play } from "lucide-react";
-import { GlassModal, JXButton } from "../ui";
+import { GlassModal, HoldToConfirmButton, JXButton } from "../ui";
 import { Brand } from "../Brand";
 import { DensityControl } from "../DensityControl";
 import { LanguageControl } from "../LanguageControl";
@@ -58,12 +58,18 @@ export const TopHeader: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
               ? (stopped ? "Clear the global Emergency All-Stop on the control plane and allow enrolled devices to resume picking up queued tasks." : "Immediately halt all autonomous agent execution across every enrolled device connected to the control plane.")
               : (stopped ? "Resume the simulated fleet. Cancelled sample tasks will not restart." : "Cancel pending and running sample tasks in this browser only. Real computers are not affected.")}
           </p>
-          <div className="flex flex-wrap justify-end gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-3">
             <JXButton variant="outlined" color="neutral" onClick={() => setConfirmOpen(false)}>Cancel</JXButton>
-            <JXButton color={stopped ? "success" : "error"} onClick={async () => {
-              if (stopped) await resume(); else await stop();
-              setConfirmOpen(false);
-            }}>{stopped ? (isLive ? "Resume fleet" : "Resume demo") : (isLive ? "Emergency All-Stop" : "Stop demo tasks")}</JXButton>
+            <HoldToConfirmButton
+              label={stopped ? (isLive ? "Hold to resume fleet" : "Hold to resume demo") : (isLive ? "Hold for Emergency All-Stop" : "Hold to stop demo tasks")}
+              tone={stopped ? "success" : "danger"}
+              variant="solid"
+              holdDurationMs={isLive ? 1200 : 700}
+              onConfirm={async () => {
+                if (stopped) await resume(); else await stop();
+                setConfirmOpen(false);
+              }}
+            />
           </div>
         </div>
       </GlassModal>

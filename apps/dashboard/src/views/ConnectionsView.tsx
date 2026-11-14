@@ -18,6 +18,8 @@ import {
   JXTextField,
   JXGrid,
   JXGridItem,
+  MagneticButton,
+  ProductGlass,
 } from "../ui";
 import {
   Network,
@@ -496,8 +498,7 @@ export const ConnectionsView: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <JXCard className="border-[var(--product-line)] bg-[var(--product-surface)]/60">
-        <JXCardContent>
+      <ProductGlass className="p-5">
           <div className="space-y-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -527,11 +528,16 @@ export const ConnectionsView: React.FC = () => {
                 startIcon={copiedMcp ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}>
                 {copiedMcp ? "Copied" : "Copy MCP URL"}
               </JXButton>
-              <JXButton variant="contained" color="primary" size="md" loading={mcpProbe === "checking"}
-                disabled={!isLive} onClick={() => void testMcpToolsList()}
-                startIcon={<Play className="w-4 h-4" />}>
-                Test tools/list
-              </JXButton>
+              <MagneticButton
+                variant="solid"
+                tone="primary"
+                disabled={!isLive || mcpProbe === "checking"}
+                className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm disabled:opacity-50"
+                onClick={() => void testMcpToolsList()}
+              >
+                <Play className="w-4 h-4" aria-hidden="true" />
+                {mcpProbe === "checking" ? "Testing…" : "Test tools/list"}
+              </MagneticButton>
               {!isLive && (
                 <JXButton variant="outlined" color="neutral" size="md"
                   onClick={() => navigate("login")}>
@@ -551,8 +557,7 @@ export const ConnectionsView: React.FC = () => {
               <li>Register per-chatbot OAuth clients via scripts/setup_mcp_chatbots.py when ready</li>
             </ol>
           </div>
-        </JXCardContent>
-      </JXCard>
+      </ProductGlass>
 
       {!isLive && (
         <PageEmpty
