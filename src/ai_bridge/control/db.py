@@ -179,7 +179,11 @@ CREATE INDEX IF NOT EXISTS idx_alert_deliveries_ts ON alert_deliveries(created_a
 
 
 def to_pg_sql(sql: str) -> str:
-    """Translate SQLite '?' parameter placeholders and upsert syntax to PostgreSQL."""
+    """Translate SQLite '?' parameter placeholders and upsert syntax to PostgreSQL.
+
+    Literal ``%`` (including LIKE wildcards and text inside quotes) is escaped to
+    ``%%`` so psycopg does not treat it as a pyformat placeholder.
+    """
     parts = []
     in_single = False
     in_double = False
@@ -195,6 +199,9 @@ def to_pg_sql(sql: str) -> str:
             parts.append(ch)
         elif ch == '?' and not in_single and not in_double:
             parts.append('%s')
+        elif ch == '%':
+            # Escape before/alongside %s conversion; LIKE 'foo%' must become 'foo%%'.
+            parts.append('%%')
         else:
             parts.append(ch)
         i += 1

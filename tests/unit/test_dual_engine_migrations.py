@@ -14,6 +14,15 @@ def test_to_pg_sql_translation():
     assert dbmod.to_pg_sql("INSERT INTO audit (a, b) VALUES (?, ?)") == "INSERT INTO audit (a, b) VALUES (%s, %s)"
     # String literal with ? should be preserved
     assert dbmod.to_pg_sql("SELECT 'question?' AS q, id FROM t WHERE id=?") == "SELECT 'question?' AS q, id FROM t WHERE id=%s"
+    # LIKE wildcards and other literal % must be escaped for psycopg pyformat
+    assert (
+        dbmod.to_pg_sql("SELECT key FROM settings WHERE key LIKE 'plane.human_takeover.%'")
+        == "SELECT key FROM settings WHERE key LIKE 'plane.human_takeover.%%'"
+    )
+    assert (
+        dbmod.to_pg_sql("SELECT id FROM custom_agents WHERE id LIKE 'agent-role-%' AND tenant=?")
+        == "SELECT id FROM custom_agents WHERE id LIKE 'agent-role-%%' AND tenant=%s"
+    )
 
 
 def test_row_dict_access():
