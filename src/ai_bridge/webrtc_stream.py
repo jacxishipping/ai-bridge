@@ -44,7 +44,15 @@ def generate_ephemeral_turn_credentials(
     secret: str | None = None,
 ) -> list[dict[str, Any]]:
     """Generate RFC 5766 / REST API ephemeral TURN credentials using HMAC-SHA1 for symmetric NAT traversal."""
-    turn_secret = secret or os.environ.get("AI_BRIDGE_TURN_SECRET", "aibridge_turn_shared_secret_2026")
+    turn_secret = secret or os.environ.get("AI_BRIDGE_TURN_SECRET", "").strip()
+    if not turn_secret:
+        profile = os.environ.get("AI_BRIDGE_PROFILE", os.environ.get("RENDER", "")).strip().lower()
+        prodish = profile in ("production", "prod", "1", "true") or bool(os.environ.get("RENDER"))
+        if prodish:
+            raise RuntimeError(
+                "AI_BRIDGE_TURN_SECRET must be set in production; refusing default shared secret."
+            )
+        turn_secret = "aibridge_turn_shared_secret_2026"
     host = turn_host or os.environ.get("AI_BRIDGE_TURN_HOST", "jxiptvplayer.app")
     expiry = int(time.time()) + ttl_seconds
     username = f"{expiry}:{username_prefix}"

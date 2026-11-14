@@ -491,6 +491,12 @@ def execute_agent(
                                 updated_mem = updated_mem[-8000:]
                             agent["memory"] = updated_mem
                             conn.execute("UPDATE custom_agents SET memory=?, updated_at=? WHERE id=?", (updated_mem, _now(), agent["id"]))
+                            try:
+                                from . import agent_memory
+
+                                agent_memory.append_memory_chunk(conn, agent["id"], fact, tenant=agent.get("tenant", "default"))
+                            except Exception:
+                                pass
                             conn.commit()
                             result = {"ok": True, "remembered": fact}
                     elif tool_name == "agent_notify":

@@ -51,6 +51,11 @@ if _PROMETHEUS_AVAILABLE:
         "Current number of queued or pending tasks awaiting device pickup",
     )
 
+    STALE_RUNNING_TASKS = Gauge(
+        "aibridge_stale_running_tasks",
+        "Tasks in running state older than the configured lease window",
+    )
+
     # 3. HTTP Request Metrics
     HTTP_REQUESTS_TOTAL = Counter(
         "aibridge_http_requests_total",
@@ -69,6 +74,7 @@ else:
     QUEUE_DEPTH = None
     HTTP_REQUESTS_TOTAL = None
     UPTIME_SECONDS = None
+    STALE_RUNNING_TASKS = None
 
 
 def record_task_execution(tool: str, status: str, duration: float | None = None) -> None:
@@ -104,6 +110,18 @@ def update_fleet_gauges(conn: Any) -> None:
         q_row = conn.execute("SELECT COUNT(*) AS cnt FROM tasks WHERE status='queued'").fetchone()
         q_depth = q_row["cnt"] if hasattr(q_row, "keys") else (q_row[0] if q_row else 0)
         QUEUE_DEPTH.set(q_depth)
+
+        from . import orchestration as orchmod
+
+        from . import db as dbmod
+
+        cutoff = dbmod.now() - orchmod.DEFAULT_RUNNING_LEASE_SEC
+        stale_row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM tasks WHERE status='running' AND updated_at < ?",
+            (cutoff,),
+        ).fetchone()
+        stale_cnt = stale_row["cnt"] if hasattr(stale_row, "keys") else (stale_row[0] if stale_row else 0)
+        STALE_RUNNING_TASKS.set(stale_cnt)
 
         # Device counts by status
         dev_rows = conn.execute("SELECT status, os, COUNT(*) as cnt FROM devices WHERE revoked=0 GROUP BY status, os").fetchall()

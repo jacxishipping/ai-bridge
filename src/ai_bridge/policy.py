@@ -119,6 +119,12 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "browser_wait_for_selector": RiskTier.SENSITIVE,
     "browser_select_option": RiskTier.SENSITIVE,
     "browser_download_file": RiskTier.SENSITIVE,
+    "browserbase_create_session": RiskTier.SENSITIVE,
+    "browserbase_end_session": RiskTier.READ_ONLY,
+    "you_web_search": RiskTier.READ_ONLY,
+    "you_fetch_contents": RiskTier.READ_ONLY,
+    "git_create_branch": RiskTier.SENSITIVE,
+    "git_checkpoint": RiskTier.SENSITIVE,
 }
 
 @dataclass(frozen=True)
