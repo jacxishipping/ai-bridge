@@ -39,7 +39,8 @@ Set these via the host environment or Render env groups — never commit them to
 
 | Variable | Purpose |
 | :--- | :--- |
-| `AI_BRIDGE_ADMIN_TOKEN` | Legacy admin bearer (required in production for operator API access) |
+| `AI_BRIDGE_ADMIN_TOKEN` | Legacy admin bearer (**critical** in production readiness; also signs quick-approval HMAC) |
+| `AI_BRIDGE_PUBLIC_BASE_URL` | Public https:// origin (http:// fails production readiness) |
 | `AI_BRIDGE_DEVICE_TOKEN` | Agent enrollment secret (per device; rotate via `/api/agent/rotate`) |
 | `AI_BRIDGE_TURN_SECRET` | HMAC secret for ephemeral TURN credentials (`webrtc_stream.py`) |
 | `AI_BRIDGE_TURN_URL` / `AI_BRIDGE_TURN_USERNAME` / `AI_BRIDGE_TURN_CREDENTIAL` | Static TURN ICE entry (alternative to ephemeral secret) |
@@ -48,8 +49,11 @@ Set these via the host environment or Render env groups — never commit them to
 | `AI_BRIDGE_BROWSERBASE_API_KEY` | Browserbase connector |
 | `AI_BRIDGE_YOU_API_KEY` / `YOU_API_KEY` | You.com search connector |
 | `AI_BRIDGE_PROFILE` | Set to `production` to enable fail-closed deploy gates (`/health/ready`) |
+| `AI_BRIDGE_HTTP_ALLOW_ANON` | Must not be `1` in production (blocks readiness) |
+| `AI_BRIDGE_ALLOW_UNSAFE_BROWSER` | Explicit ack when Chromium sandbox is disabled in production |
+| `AI_BRIDGE_OIDC_*` | Enables in-tree OIDC login (`/api/auth/oidc/*`) when provider env is set |
 
-Logs and audit entries pass through `security.redact()`; device tokens are stripped from structured JSON logs. Playwright uses an isolated profile under `{workspace}/.ai-bridge/browser-profiles/` unless `AI_BRIDGE_ALLOW_BROWSER_NO_SANDBOX=1` (Docker/CI only).
+Logs and audit entries pass through `security.redact()`; device tokens are stripped from structured JSON logs. Playwright uses an isolated profile under `{workspace}/.ai-bridge/browser-profiles/` unless `AI_BRIDGE_ALLOW_BROWSER_NO_SANDBOX=1` (Docker/CI only). TLS for the control plane terminates at the reverse proxy; device mTLS is optional at that proxy layer (not plane-native).
 
 ### Browser hard isolation (Phase 9)
 
@@ -68,4 +72,5 @@ Native encode: `AI_BRIDGE_NATIVE_ENCODE` (`off` | `auto` | `prefer` | `required`
   - Tier 2: Low-risk confined workspace writes.
   - Tier 3: Interactive desktop input & process launch (`desktop_mouse_move`, `desktop_click`, `desktop_keyboard`, `desktop_scroll`, `desktop_open_application`, `desktop_execute_command`).
   - Tier 4: High-risk system mutations (always require explicit human approval).
-- **Append-Only Audit Trail**: Every session creation, mode transition, human takeover, policy change, and MCP tool execution is recorded in `/api/v1/audit` with redacted payloads.
+- **Append-Only Audit Trail**: Every session creation, mode transition, human takeover, policy change, and MCP tool execution is recorded in `/api/v1/audit` (and control-plane `/api/audit`) with redacted payloads. New audit rows persist `prev_hash` / `entry_hash` for a durable integrity chain. Sensitive dispatch tools (≥ tier 3, supervisor, desktop/shell mutators, connectors) also emit dispatch-time audit via `dispatch_audit.py`.
+- **Production readiness**: `GET /health/ready` fails closed in production when TURN/ICE, admin token, anon-MCP, http public URL, or unsafe browser sandbox issues are critical. Full checklist is operator-only at `GET /health/production-checklist`.

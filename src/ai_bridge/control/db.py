@@ -407,11 +407,51 @@ def now() -> float:
     return time.time()
 
 
+def _ensure_audit_hash_columns(conn: Any) -> None:
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(audit)").fetchall()}
+    except Exception:
+        cols = set()
+    if "entry_hash" not in cols:
+        try:
+            conn.execute("ALTER TABLE audit ADD COLUMN entry_hash TEXT")
+        except Exception:
+            pass
+    if "prev_hash" not in cols:
+        try:
+            conn.execute("ALTER TABLE audit ADD COLUMN prev_hash TEXT")
+        except Exception:
+            pass
+
+
 def audit(conn: Any, *, tenant: str, actor: str, device_id: str,
           tool: str, args: dict, decision: str, result: str = "") -> None:
     safe_args = redact_obj(json.loads(json.dumps(args or {}, default=str)))
     safe_result = redact(result or "")[:2000]
-    conn.execute("INSERT INTO audit (ts, tenant, actor, device_id, tool, args_json, decision, result)"
-                 " VALUES (?,?,?,?,?,?,?,?)",
-                 (now(), tenant, actor, device_id, tool, json.dumps(safe_args, default=str), decision, safe_result))
+    args_json = json.dumps(safe_args, default=str)
+    ts = now()
+    _ensure_audit_hash_columns(conn)
+    prev_hash = "0" * 64
+    try:
+        tip = conn.execute(
+            "SELECT entry_hash FROM audit WHERE entry_hash IS NOT NULL AND entry_hash != '' "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if tip and tip["entry_hash"]:
+            prev_hash = str(tip["entry_hash"])
+    except Exception:
+        prev_hash = "0" * 64
+    # id is assigned on insert; hash uses provisional fields then updated with id.
+    cur = conn.execute(
+        "INSERT INTO audit (ts, tenant, actor, device_id, tool, args_json, decision, result, prev_hash, entry_hash)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (ts, tenant, actor, device_id, tool, args_json, decision, safe_result, prev_hash, None),
+    )
+    row_id = cur.lastrowid
+    payload = f"{prev_hash}|{row_id}|{ts}|{actor}|{device_id}|{tool}|{args_json}|{decision}"
+    entry_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    try:
+        conn.execute("UPDATE audit SET entry_hash=? WHERE id=?", (entry_hash, row_id))
+    except Exception:
+        pass
     conn.commit()

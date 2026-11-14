@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from unittest.mock import patch
 
 import pytest
@@ -12,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from ai_bridge import browser_tools
 from ai_bridge.control import dispatch, dispatch_audit, production_readiness, task_runtime
-from ai_bridge.control.app import create_app
+from ai_bridge.control.app import create_app, make_quick_sig
 from ai_bridge.control import metrics as metricsmod
 from ai_bridge.logging_config import JSONFormatter
 from ai_bridge.policy import Policy
@@ -63,26 +64,96 @@ def test_browser_no_sandbox_only_when_explicit(monkeypatch):
     assert "--no-sandbox" in (opts["args"] or [])
 
 
+def _clear_prod_env(monkeypatch) -> None:
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("AI_BRIDGE_HTTP_ALLOW_ANON", raising=False)
+    monkeypatch.delenv("AI_BRIDGE_ALLOW_BROWSER_NO_SANDBOX", raising=False)
+    monkeypatch.delenv("AI_BRIDGE_ALLOW_UNSAFE_BROWSER", raising=False)
+    monkeypatch.delenv("AI_BRIDGE_PUBLIC_BASE_URL", raising=False)
+
+
 def test_production_readiness_turn_missing(monkeypatch, tmp_path):
+    _clear_prod_env(monkeypatch)
     monkeypatch.setenv("AI_BRIDGE_PROFILE", "production")
+    monkeypatch.setenv("AI_BRIDGE_ADMIN_TOKEN", "adm-p8-turn")
     monkeypatch.delenv("AI_BRIDGE_TURN_SECRET", raising=False)
     monkeypatch.delenv("AI_BRIDGE_ICE_SERVERS", raising=False)
-    app = create_app(admin_token="adm-p8", db_path=tmp_path / "prod.db")
+    monkeypatch.delenv("AI_BRIDGE_TURN_URL", raising=False)
+    app = create_app(admin_token="adm-p8-turn", db_path=tmp_path / "prod.db")
     checklist = production_readiness.assess_production_readiness(app.state.conn)
     assert checklist["production_profile"] is True
     assert checklist["ok"] is False
     assert any(i["code"] == "turn_secret_missing" for i in checklist["issues"])
+    assert "browser_isolation" in checklist
+
+
+def test_production_readiness_admin_and_anon_critical(monkeypatch, tmp_path):
+    _clear_prod_env(monkeypatch)
+    monkeypatch.setenv("AI_BRIDGE_PROFILE", "production")
+    monkeypatch.setenv("AI_BRIDGE_TURN_SECRET", "turn-secret-for-tests")
+    monkeypatch.delenv("AI_BRIDGE_ADMIN_TOKEN", raising=False)
+    app = create_app(admin_token=None, db_path=tmp_path / "admin.db")
+    checklist = production_readiness.assess_production_readiness(app.state.conn)
+    assert checklist["ok"] is False
+    assert any(i["code"] == "admin_token_unset" and i["severity"] == "critical" for i in checklist["issues"])
+
+    monkeypatch.setenv("AI_BRIDGE_ADMIN_TOKEN", "adm-ok")
+    monkeypatch.setenv("AI_BRIDGE_HTTP_ALLOW_ANON", "1")
+    checklist2 = production_readiness.assess_production_readiness(app.state.conn)
+    assert checklist2["ok"] is False
+    assert any(i["code"] == "anon_mcp_enabled" for i in checklist2["issues"])
+
+
+def test_production_readiness_browser_sandbox_and_http_url(monkeypatch, tmp_path):
+    _clear_prod_env(monkeypatch)
+    monkeypatch.setenv("AI_BRIDGE_PROFILE", "production")
+    monkeypatch.setenv("AI_BRIDGE_ADMIN_TOKEN", "adm-br")
+    monkeypatch.setenv("AI_BRIDGE_TURN_SECRET", "turn-secret")
+    monkeypatch.setenv("AI_BRIDGE_ALLOW_BROWSER_NO_SANDBOX", "1")
+    monkeypatch.setenv("AI_BRIDGE_PUBLIC_BASE_URL", "http://insecure.example")
+    app = create_app(admin_token="adm-br", db_path=tmp_path / "br.db")
+    checklist = production_readiness.assess_production_readiness(app.state.conn)
+    assert checklist["ok"] is False
+    codes = {i["code"] for i in checklist["issues"]}
+    assert "browser_sandbox_disabled" in codes
+    assert "public_base_url_http" in codes
+
+    monkeypatch.setenv("AI_BRIDGE_ALLOW_UNSAFE_BROWSER", "1")
+    monkeypatch.setenv("AI_BRIDGE_PUBLIC_BASE_URL", "https://secure.example")
+    checklist2 = production_readiness.assess_production_readiness(app.state.conn)
+    codes2 = {i["code"] for i in checklist2["issues"] if i["severity"] == "critical"}
+    assert "browser_sandbox_disabled" not in codes2
+    assert "public_base_url_http" not in codes2
+
+
+def test_quick_sig_refuses_hardcoded_secret_in_prod(monkeypatch):
+    _clear_prod_env(monkeypatch)
+    monkeypatch.setenv("AI_BRIDGE_PROFILE", "production")
+    monkeypatch.delenv("AI_BRIDGE_ADMIN_TOKEN", raising=False)
+    with pytest.raises(ValueError, match="production"):
+        make_quick_sig(None, "appr1", "approved")
+    monkeypatch.setenv("AI_BRIDGE_ADMIN_TOKEN", "prod-admin")
+    sig = make_quick_sig(None, "appr1", "approved")
+    assert len(sig) == 32
 
 
 def test_health_ready_503_without_turn_in_prod(monkeypatch, tmp_path):
+    _clear_prod_env(monkeypatch)
     monkeypatch.setenv("AI_BRIDGE_PROFILE", "production")
+    monkeypatch.setenv("AI_BRIDGE_ADMIN_TOKEN", "adm-p8r")
     monkeypatch.delenv("AI_BRIDGE_TURN_SECRET", raising=False)
+    monkeypatch.delenv("AI_BRIDGE_ICE_SERVERS", raising=False)
+    monkeypatch.delenv("AI_BRIDGE_TURN_URL", raising=False)
     app = create_app(admin_token="adm-p8r", db_path=tmp_path / "ready.db")
     client = TestClient(app)
     res = client.get("/health/ready")
     assert res.status_code == 503
     detail = res.json()["detail"]
-    assert detail["production_checklist"]["ok"] is False
+    assert detail["ok"] is False
+    assert detail["status"] == "not_ready"
+    assert "codes" in detail
+    assert "turn_secret_missing" in detail["codes"]
+    assert "production_checklist" not in detail
 
 
 def test_fleet_health_requires_operator(tmp_path):
@@ -111,9 +182,17 @@ def test_supervisor_handoff_audited(tmp_path):
     assert res.status_code == 200
     assert len(res.json().get("queued") or []) >= 3
     row = app.state.conn.execute(
-        "SELECT tool FROM audit WHERE tool='supervisor_handoff_enqueue' ORDER BY id DESC LIMIT 1"
+        "SELECT tool, entry_hash FROM audit WHERE tool='supervisor_handoff_enqueue' ORDER BY id DESC LIMIT 1"
     ).fetchone()
     assert row is not None
+    assert row["entry_hash"]
+
+
+def test_dispatch_audits_sensitive_tools():
+    assert dispatch_audit.should_audit_tool("firecrawl_scrape") is True
+    assert dispatch_audit.should_audit_tool("supervisor_enqueue_handoff") is True
+    assert dispatch_audit.should_audit_tool("capture_desktop_screenshot") is True
+    assert dispatch_audit.should_audit_tool("get_system_info") is False
 
 
 def test_dispatch_connector_audit_callback(monkeypatch):
@@ -144,31 +223,71 @@ def test_concurrent_claim_and_cancel_under_load(tmp_path):
     client = TestClient(app)
     headers = {"X-Admin-Token": admin}
     devices = []
-    for i in range(3):
+    for i in range(10):
         reg = client.post(
             "/api/devices/enroll",
             json={"name": f"n{i}", "os": "Linux"},
             headers=headers,
         ).json()
         devices.append((reg["device_id"], reg["device_token"]))
+    # 3 tasks per device = 30 tasks
     for dev_id, _ in devices:
-        client.post(
-            "/api/tasks",
-            json={"device_id": dev_id, "tool": "get_system_info", "args": {}},
-            headers=headers,
-        )
+        for _ in range(3):
+            client.post(
+                "/api/tasks",
+                json={"device_id": dev_id, "tool": "get_system_info", "args": {}},
+                headers=headers,
+            )
     t0 = time.perf_counter()
-    claimed = []
-    for _dev_id, tok in devices:
-        nxt = client.get("/api/agent/tasks/next?wait=0", headers={"X-Device-Token": tok})
-        if nxt.json().get("task"):
-            claimed.append(nxt.json()["task"]["id"])
-    assert len(claimed) == 3
-    assert time.perf_counter() - t0 < 2.0
-    if claimed:
-        client.post(f"/api/tasks/{claimed[0]}/cancel", headers=headers)
-        row = app.state.conn.execute("SELECT status FROM tasks WHERE id=?", (claimed[0],)).fetchone()
-        assert row["status"] in {"cancelled", "running", "completed"}
+    claimed: list[str] = []
+
+    def _drain(tok: str) -> list[str]:
+        """Claim → complete/cancel cycle (one running lease per device)."""
+        got: list[str] = []
+        for i in range(3):
+            nxt = client.get("/api/agent/tasks/next?wait=0", headers={"X-Device-Token": tok})
+            task = nxt.json().get("task")
+            if not task:
+                break
+            tid = task["id"]
+            got.append(tid)
+            if i == 0:
+                client.post(f"/api/tasks/{tid}/cancel", headers=headers)
+            else:
+                client.post(
+                    f"/api/agent/tasks/{tid}/result",
+                    json={"status": "completed", "result": "{}"},
+                    headers={"X-Device-Token": tok},
+                )
+        return got
+
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        futs = [pool.submit(_drain, tok) for _dev_id, tok in devices]
+        for fut in as_completed(futs):
+            claimed.extend(fut.result())
+
+    elapsed = time.perf_counter() - t0
+    assert len(claimed) == 30
+    assert len(set(claimed)) == 30  # no double-claim
+    assert elapsed < 5.0
+    statuses = [
+        app.state.conn.execute("SELECT status FROM tasks WHERE id=?", (tid,)).fetchone()["status"]
+        for tid in claimed
+    ]
+    assert all(s in {"cancelled", "completed"} for s in statuses)
+    assert statuses.count("cancelled") == 10
+    assert statuses.count("completed") == 20
+
+
+def test_audit_list_exposes_entry_hash(tmp_path):
+    admin = "adm-p8hash"
+    app = create_app(admin_token=admin, db_path=tmp_path / "hash.db")
+    client = TestClient(app)
+    headers = {"X-Admin-Token": admin}
+    client.post("/api/devices/enroll", json={"name": "h", "os": "Linux"}, headers=headers)
+    rows = client.get("/api/audit", headers=headers).json()
+    assert isinstance(rows, list) and rows
+    assert rows[0].get("entry_hash") or rows[0].get("hash")
 
 
 def test_live_activity_multi_device(tmp_path):
@@ -202,8 +321,10 @@ def test_live_activity_multi_device(tmp_path):
 
 def test_metrics_phase8_depth(tmp_path, monkeypatch):
     monkeypatch.delenv("AI_BRIDGE_PROFILE", raising=False)
+    monkeypatch.delenv("RENDER", raising=False)
     app = create_app(admin_token="adm-p8m", db_path=tmp_path / "met8.db")
     payload, _ = metricsmod.get_metrics_payload(app.state.conn)
     text = payload.decode("utf-8", errors="replace")
     if metricsmod._PROMETHEUS_AVAILABLE:
         assert 'phase="8"' in text
+        assert "aibridge_advanced_phase_depth" in text
