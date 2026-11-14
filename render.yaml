@@ -2,8 +2,15 @@
 # How to use: push this repo to GitHub/GitLab, connect it in Render, and
 # create a Blueprint from render.yaml. Set AI_BRIDGE_ADMIN_TOKEN in the
 # Render dashboard (marked sync: false, so it is never in this file).
-# NOTE: set DATABASE_URL (Postgres/Timescale) in the Render dashboard for
-# durable state. Without it the control plane uses SQLite on ephemeral disk.
+# Postgres is provisioned below and wired via fromDatabase. Override
+# DATABASE_URL in the dashboard only if you use an external Timescale URL.
+databases:
+  - name: ai-bridge-db
+    plan: basic-256mb
+    region: frankfurt
+    databaseName: aibridge
+    user: aibridge
+
 services:
   - type: web
     name: ai-bridge-control
@@ -17,7 +24,9 @@ services:
       - key: AI_BRIDGE_ADMIN_TOKEN
         sync: false
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: ai-bridge-db
+          property: connectionString
       - key: AI_BRIDGE_PUBLIC_URL
         value: "https://ai-bridge-control.onrender.com"
       - key: AI_BRIDGE_OAUTH_ISSUER
@@ -48,8 +57,7 @@ services:
         source: /*
         destination: /index.html
     envVars:
-      # Set this AFTER the control service exists, to its onrender.com URL,
-      # then redeploy the static site. Until then, run the dashboard locally
-      # with VITE_API_URL=<control-url>.
+      # Baked into the static build. Keep in sync with AI_BRIDGE_PUBLIC_URL /
+      # the control service hostname after any rename.
       - key: VITE_API_URL
-        sync: false
+        value: "https://ai-bridge-control.onrender.com"

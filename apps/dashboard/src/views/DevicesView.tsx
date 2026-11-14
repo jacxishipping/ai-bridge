@@ -60,7 +60,7 @@ import {
   Ban,
   Trash2,
 } from "lucide-react";
-import { api, token, sessionToken } from "../api";
+import { api, apiOrigin, token, sessionToken } from "../api";
 import { useDashboardStore } from "../state/dashboardStore";
 import type { EnrolledDevice, PlatformType, DeviceStatus } from "../types/dashboard";
 
@@ -167,15 +167,22 @@ export const DevicesView: React.FC = () => {
     return list;
   }, [devices, statusFilter, platformFilter, searchQuery, sortField, sortOrder]);
 
-  const originUrl =
-    typeof window !== "undefined" && window.location?.origin
-      ? window.location.origin
-      : "http://127.0.0.1:8000";
-  const activeEnrollToken = enrolledToken || "brg_enroll_99a8b172f3e84ac91b4";
-  const linuxEnrollCommand = `curl -sSL ${originUrl}/install.sh | bash -s -- --token=${activeEnrollToken} --gateway=${originUrl} --env=production`;
-  const windowsEnrollCommand = `irm ${originUrl}/install.ps1 | iex -ArgumentList "-Token ${activeEnrollToken} -Gateway ${originUrl} -Env production"`;
+  const controlUrl = apiOrigin.replace(/\/$/, "") || "http://127.0.0.1:8000";
+  const hasRealToken = Boolean(enrolledToken);
+  const linuxEnrollCommand = hasRealToken
+    ? `curl -sSL ${controlUrl}/install.sh | bash -s -- -y --device-token=${enrolledToken} --control-url=${controlUrl}`
+    : `# Generate an enrollment token first, then run:\n# curl -sSL ${controlUrl}/install.sh | bash -s -- -y --device-token=<TOKEN> --control-url=${controlUrl}`;
+  const windowsEnrollCommand = hasRealToken
+    ? `iwr ${controlUrl}/install.ps1 -OutFile install-ai-bridge.ps1; powershell -ExecutionPolicy Bypass -File .\\install-ai-bridge.ps1 -ControlUrl '${controlUrl}' -DeviceToken '${enrolledToken}'`
+    : `# Generate an enrollment token first, then:\n# iwr ${controlUrl}/install.ps1 -OutFile install-ai-bridge.ps1; powershell -File .\\install-ai-bridge.ps1 -ControlUrl '${controlUrl}' -DeviceToken <TOKEN>`;
 
   const handleCopyEnrollCommand = useCallback(async () => {
+    if (!hasRealToken) {
+      setClipboardError(isLive
+        ? "Generate an enrollment token before copying the install command."
+        : "Connect to a control plane to issue a real device token.");
+      return;
+    }
     const text = enrollPlatformTab === "linux" ? linuxEnrollCommand : windowsEnrollCommand;
     setClipboardError("");
     try {
@@ -183,9 +190,9 @@ export const DevicesView: React.FC = () => {
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2000);
     } catch {
-      setClipboardError("Clipboard access was denied. Select and copy the sample command manually.");
+      setClipboardError("Clipboard access was denied. Select and copy the install command manually.");
     }
-  }, [enrollPlatformTab, linuxEnrollCommand, windowsEnrollCommand]);
+  }, [enrollPlatformTab, hasRealToken, isLive, linuxEnrollCommand, windowsEnrollCommand]);
 
   const handleEnrollDevice = useCallback(async () => {
     setEnrollError("");
@@ -637,14 +644,19 @@ export const DevicesView: React.FC = () => {
         >
           <div className="space-y-4 max-w-xl w-full text-xs font-mono">
             <ProductStepProgress
-              steps={["Name", "Token", "Install"]}
-              current={tokenProvisioned || enrolledToken ? 2 : 0}
+              steps={["Name", "Token", "Install", "Heartbeat"]}
+              current={hasRealToken ? 2 : 0}
             />
             <p className="text-[var(--product-text-tertiary)] text-xs">
               {isLive
-                ? "Generate a live enrollment token from the control plane and run the provisioning command on the target host."
-                : "This is an enrollment preview. The token and commands are examples, not valid credentials. Do not run these sample commands."}
+                ? `Installers are served from the control plane (${controlUrl}/install.sh). After install, open Live home and wait for the first heartbeat.`
+                : "Demo preview only — no real device token is issued. Connect a control plane to enroll."}
             </p>
+            {hasRealToken && (
+              <ProductNotice tone="success">
+                Token ready. Copy the install command, run it on the host, then watch Live home for the first heartbeat.
+              </ProductNotice>
+            )}
             {clipboardError && <p role="alert" className="text-rose-300">{clipboardError}</p>}
             {enrollError && <p role="alert" className="text-rose-300">{enrollError}</p>}
 
@@ -772,22 +784,23 @@ export const DevicesView: React.FC = () => {
                   {enrollPlatformTab === "linux" ? linuxEnrollCommand : windowsEnrollCommand}
                 </pre>
                 <div className="absolute right-3 top-3">
-                  <JXButton
-                    variant="contained"
-                    color="primary"
-                    size="sm"
-                    onClick={handleCopyEnrollCommand}
-                    startIcon={
-                      copiedCode ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-300" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                      )
-                    }
-                    className="bg-indigo-600 hover:bg-indigo-500 text-xs"
-                  >
-                    {copiedCode ? "Copied!" : "Copy"}
-                  </JXButton>
+                <JXButton
+                  variant="contained"
+                  color="primary"
+                  size="sm"
+                  disabled={!hasRealToken}
+                  onClick={handleCopyEnrollCommand}
+                  startIcon={
+                    copiedCode ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-300" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )
+                  }
+                  className="bg-indigo-600 hover:bg-indigo-500 text-xs"
+                >
+                  {copiedCode ? "Copied!" : hasRealToken ? "Copy" : "Token first"}
+                </JXButton>
                 </div>
               </div>
             </div>

@@ -47,6 +47,14 @@ def test_combined_app_serves_mcp_and_health(monkeypatch, tmp_path):
         assert health.status_code == 200
         assert health.json()["status"] == "ok"
 
+        install_sh = client.get("/install.sh")
+        assert install_sh.status_code == 200, install_sh.text
+        assert "device-token" in install_sh.text or "control-url" in install_sh.text
+
+        install_ps1 = client.get("/install.ps1")
+        assert install_ps1.status_code == 200, install_ps1.text
+        assert "DeviceToken" in install_ps1.text or "ControlUrl" in install_ps1.text
+
         well_known = client.get("/.well-known/oauth-authorization-server")
         assert well_known.status_code == 200
         assert "authorization_endpoint" in well_known.json()

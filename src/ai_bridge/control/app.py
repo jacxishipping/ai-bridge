@@ -33,7 +33,7 @@ import httpx
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.datastructures import Headers
 
@@ -837,6 +837,39 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
     from .workspace import install_workspace_routes
     install_workspace_routes(app, conn, require_role, audit)
+
+    def _install_asset(relative: str) -> Path:
+        """Resolve installer scripts from the repo (or packaged) tree."""
+        here = Path(__file__).resolve()
+        candidates = [
+            here.parents[3] / relative,  # repo root when running from source
+            here.parents[2] / relative,  # src/ layout fallback
+            Path.cwd() / relative,
+        ]
+        for path in candidates:
+            if path.is_file():
+                return path
+        raise HTTPException(status_code=404, detail=f"Installer not found: {relative}")
+
+    @app.get("/install.sh", summary="Linux/macOS agent installer", include_in_schema=False)
+    def install_sh():
+        from fastapi.responses import FileResponse as _FileResponse
+        path = _install_asset("magic-install.sh")
+        return _FileResponse(path, media_type="text/x-shellscript", filename="install.sh")
+
+    @app.get("/install.ps1", summary="Windows agent installer", include_in_schema=False)
+    def install_ps1():
+        from fastapi.responses import FileResponse as _FileResponse
+        for relative in (
+            "deployment/windows/install-agent.ps1",
+            "deployment/windows/Install-AIBridge.ps1",
+        ):
+            try:
+                path = _install_asset(relative)
+                return _FileResponse(path, media_type="text/plain", filename="install.ps1")
+            except HTTPException:
+                continue
+        raise HTTPException(status_code=404, detail="Windows installer not found")
 
     @app.get("/health", summary="Health check", description="Returns basic health status of the control plane including version and emergency stop state.")
     def health():

@@ -36,7 +36,6 @@ import {
   RotateCcw,
   Eye,
   FileCode,
-  Terminal,
   Server,
   Bot,
   User,
@@ -75,27 +74,31 @@ export const HumanApprovalsView: React.FC = () => {
   const [queueFilter, setQueueFilter] = useState<"all" | "pending">("all");
   const activeApproval = approvals.find((a) => a.id === selectedId) || approvals[0];
 
-  // Live SLA countdown timer computed from activeApproval.expiresAt
-  const computeRemaining = (expiresAt?: string) => {
-    if (!expiresAt) return 300;
-    const ms = new Date(expiresAt).getTime() - Date.now();
-    return Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1000)) : 300;
-  };
-  const [countdownSeconds, setCountdownSeconds] = useState<number>(() => computeRemaining(activeApproval?.expiresAt));
-
+  // Tick once per second so per-row SLA countdowns update without sharing selected state.
+  const [, setTick] = useState(0);
   useEffect(() => {
-    setCountdownSeconds(computeRemaining(activeApproval?.expiresAt));
-    const timer = setInterval(() => {
-      setCountdownSeconds(computeRemaining(activeApproval?.expiresAt));
-    }, 1000);
+    const timer = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(timer);
-  }, [activeApproval?.id, activeApproval?.expiresAt]);
+  }, []);
 
-  const formatCountdown = (secs: number) => {
-    if (secs <= 0 && activeApproval?.expiresAt) return "00:00";
+  const computeRemaining = (expiresAt?: string): number | null => {
+    if (!expiresAt) return null;
+    const ms = new Date(expiresAt).getTime() - Date.now();
+    return Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1000)) : null;
+  };
+
+  const formatCountdown = (secs: number | null) => {
+    if (secs === null) return "No SLA";
+    if (secs <= 0) return "00:00";
     const m = Math.floor(secs / 60);
     const s = secs % 60;
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const dangerousTokensFor = (command: string, existing?: string[]) => {
+    if (existing?.length) return existing;
+    const patterns = ["-rf", "--no-preserve-root", "rm", "sudo", "systemctl", "kill", "format", "mkfs", "dd", "chmod", "iptables"];
+    return command.split(/\s+/).filter((word) => patterns.some((p) => word === p || word.includes(p)));
   };
 
   // Mandatory Safety Checklist state
@@ -182,17 +185,21 @@ export const HumanApprovalsView: React.FC = () => {
       return;
     }
 
-    setHistoryRecords((prev) => [
-      {
-        id: activeApproval.id,
-        command: activeApproval.command,
-        decidedBy: isLive ? (operatorProfile.name || "Operator") : "Sarah J.",
-        verdict: "approved",
-        timestamp: new Date().toISOString(),
-        justification: "Operator authorized execution following safety verification.",
-      },
-      ...prev,
-    ]);
+    if (!isLive) {
+      setHistoryRecords((prev) => [
+        {
+          id: activeApproval.id,
+          command: activeApproval.command,
+          decidedBy: "Sarah J.",
+          verdict: "approved",
+          timestamp: new Date().toISOString(),
+          justification: "Operator authorized execution following safety verification.",
+        },
+        ...prev,
+      ]);
+    } else {
+      await refreshLive?.();
+    }
 
     // Reset checklist
     setChecklist({
@@ -212,17 +219,21 @@ export const HumanApprovalsView: React.FC = () => {
       return;
     }
 
-    setHistoryRecords((prev) => [
-      {
-        id: activeApproval.id,
-        command: activeApproval.command,
-        decidedBy: isLive ? (operatorProfile.name || "Operator") : "Sarah J.",
-        verdict: "denied",
-        timestamp: new Date().toISOString(),
-        justification: rejectionReason,
-      },
-      ...prev,
-    ]);
+    if (!isLive) {
+      setHistoryRecords((prev) => [
+        {
+          id: activeApproval.id,
+          command: activeApproval.command,
+          decidedBy: "Sarah J.",
+          verdict: "denied",
+          timestamp: new Date().toISOString(),
+          justification: rejectionReason,
+        },
+        ...prev,
+      ]);
+    } else {
+      await refreshLive?.();
+    }
 
     setShowDenyModal(false);
     setRejectionReason("");
@@ -411,9 +422,9 @@ export const HumanApprovalsView: React.FC = () => {
                     {isPending && (
                       <div className="mt-3 pt-2.5 border-t border-[var(--product-line)]/80 flex items-center justify-between text-[11px] font-mono">
                         <span className="text-[var(--product-text-tertiary)]">Auto-kill SLA</span>
-                        <span className="text-amber-400 font-bold flex items-center gap-1">
+                        <span className={`font-bold flex items-center gap-1 ${req.expiresAt ? "text-amber-400" : "text-[var(--product-text-tertiary)]"}`}>
                           <Clock className="w-3 h-3" />
-                          {formatCountdown(countdownSeconds)}
+                          {formatCountdown(computeRemaining(req.expiresAt))}
                         </span>
                       </div>
                     )}
@@ -455,13 +466,16 @@ export const HumanApprovalsView: React.FC = () => {
                     </div>
                     <div>
                       <span className="text-[var(--product-text-tertiary)] uppercase tracking-wider block text-[10px]">
-                        Cryptographic Proof
+                        SLA remaining
                       </span>
                       <span className="text-[var(--product-text-secondary)] truncate block">
-                        Ed25519 Verified
+                        {formatCountdown(computeRemaining(activeApproval.expiresAt))}
                       </span>
                     </div>
                   </div>
+                  <p className="mt-3 text-[11px] text-[var(--product-text-tertiary)]">
+                    Checklist items are operator attestation only — they are not validated by the control plane.
+                  </p>
                 </JXCardContent>
               </JXCard>
 
@@ -480,56 +494,61 @@ export const HumanApprovalsView: React.FC = () => {
                       {renderHighlightedCommand(activeApproval.command)}
                     </div>
 
-                    {activeApproval.argsDiff && (
-                      <div className="p-3 rounded-lg bg-[var(--product-canvas)]/60 border border-[var(--product-line)]/80 space-y-1.5 text-xs font-mono">
-                        <div className="text-[var(--product-text-tertiary)]">
-                          Dangerous AST parameter tokens:{" "}
-                          <span className="text-rose-400 font-bold">
-                            {activeApproval.argsDiff.dangerousTokens.join(", ")}
-                          </span>
+                    {(() => {
+                      const tokens = dangerousTokensFor(
+                        activeApproval.command,
+                        activeApproval.argsDiff?.dangerousTokens
+                      );
+                      if (!tokens.length && !activeApproval.argsDiff?.proposed) return null;
+                      return (
+                        <div className="p-3 rounded-lg bg-[var(--product-canvas)]/60 border border-[var(--product-line)]/80 space-y-1.5 text-xs font-mono">
+                          {tokens.length > 0 && (
+                            <div className="text-[var(--product-text-tertiary)]">
+                              Flagged tokens:{" "}
+                              <span className="text-rose-400 font-bold">{tokens.join(", ")}</span>
+                            </div>
+                          )}
+                          {activeApproval.argsDiff?.proposed && (
+                            <div className="text-[var(--product-text-tertiary)]">
+                              Parsed target scope:{" "}
+                              <span className="text-[var(--product-text-secondary)] font-semibold">
+                                {activeApproval.argsDiff.proposed}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                        <div className="text-[var(--product-text-tertiary)]">
-                          Parsed Target Scope:{" "}
-                          <span className="text-[var(--product-text-secondary)] font-semibold">
-                            {activeApproval.argsDiff.proposed}
-                          </span>
-                        </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 </JXCardContent>
               </JXCard>
 
-              {/* Remote Visual Context Screenshot */}
-              <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
-                <JXCardHeader
-                  title="Desktop context"
-                  icon={<Eye className="w-4 h-4 text-cyan-400" />}
-                />
-                <JXCardContent>
-                  <div className="rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] p-6 flex flex-col items-center justify-center text-center space-y-3">
-                    <div className="w-full max-w-md h-40 rounded-lg border border-[var(--product-line)] bg-[var(--product-surface)] flex flex-col items-center justify-center relative overflow-hidden">
-                      <div className="absolute top-2 left-2 text-[10px] font-mono text-[var(--product-text-tertiary)]">
-                        {activeApproval.deviceHostname} (1920x1080@60Hz)
-                      </div>
-                      <Terminal className="w-10 h-10 text-[var(--product-text-dim)] mb-2" />
-                      <div className="px-3 py-1 rounded bg-rose-500/20 border border-rose-500/40 text-[11px] font-mono text-rose-300">
-                        Targeting Terminal PID #4912
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-mono text-[var(--product-text-tertiary)]">
-                      Visual context verified: No uncommitted workspace edits in active foreground window.
-                    </span>
-                  </div>
-                </JXCardContent>
-              </JXCard>
+              {activeApproval.screenshotUrl ? (
+                <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
+                  <JXCardHeader
+                    title="Desktop context"
+                    icon={<Eye className="w-4 h-4 text-cyan-400" />}
+                  />
+                  <JXCardContent>
+                    <img
+                      src={activeApproval.screenshotUrl}
+                      alt={`Desktop context for ${activeApproval.deviceHostname}`}
+                      className="w-full max-h-64 rounded-xl border border-[var(--product-line)] object-contain bg-[var(--product-canvas)]"
+                    />
+                  </JXCardContent>
+                </JXCard>
+              ) : (
+                <ProductNotice tone="info">
+                  No desktop screenshot attached to this approval. Review the command string and host carefully before authorizing.
+                </ProductNotice>
+              )}
 
               {/* Mandatory Safety Checklist & Decision Action Ribbon */}
               {activeApproval.status === "pending" && (
                 <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
                   <JXCardHeader
                     title="Safety checklist"
-                    subheader="Complete all checks before approving."
+                    subheader="Operator attestation — complete all checks before approving."
                     icon={<CheckSquare className="w-4 h-4 text-emerald-400" />}
                   />
                   <JXCardContent>
