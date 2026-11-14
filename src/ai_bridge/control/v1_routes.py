@@ -560,6 +560,41 @@ def attach_v1_routes(
         fps = max(1, min(60, int(body.fps)))
         bitrate_kbps = max(250, min(50000, int(body.bitrate_kbps)))
 
+        from . import desktop_capabilities as desktop_capabilitiesmod
+        import platform as _platform
+
+        # Reject non-Windows hosts before creating a session or queueing start_webrtc_stream.
+        dev_row = None
+        if body.device_id == "local":
+            device_os = _platform.system()
+        else:
+            dev_row = conn.execute(
+                "SELECT * FROM devices WHERE id=? AND revoked=0", (body.device_id,)
+            ).fetchone()
+            if dev_row is None:
+                raise HTTPException(status_code=404, detail="Device not found.")
+            try:
+                device_os = dev_row["os"]
+            except (KeyError, IndexError, TypeError):
+                device_os = None
+            if device_os is None and hasattr(dev_row, "keys"):
+                device_os = dict(dev_row).get("os")
+        gate = desktop_capabilitiesmod.stream_gate_for_os(device_os)
+        if not gate.get("allowed") or not desktop_capabilitiesmod.platform_supports_webrtc_desktop_stream(device_os):
+            detail = (
+                f"WebRTC desktop stream unavailable for platform "
+                f"{gate.get('platform') or device_os or 'unknown'}: {gate.get('detail') or gate.get('reason')}. "
+                "Live Desktop streaming is supported on Windows desktop hosts only."
+            )
+            audit(
+                actor,
+                body.device_id,
+                "v1_create_session",
+                {"mode": mode, "gate": gate, "device_os": device_os},
+                "denied",
+            )
+            raise HTTPException(status_code=400, detail=detail)
+
         eff_policy = get_effective_device_policy(body.device_id)
         if body.device_id == "local":
             eff_policy = {**eff_policy, "desktop_enabled": True}
@@ -620,9 +655,6 @@ def attach_v1_routes(
                 sess["error"] = str(exc)
             save_webrtc_session_db(conn, app.state, sess)
         else:
-            dev_row = conn.execute("SELECT * FROM devices WHERE id=? AND revoked=0", (body.device_id,)).fetchone()
-            if dev_row is None:
-                raise HTTPException(status_code=404, detail="Device not found.")
             task_id = uuid.uuid4().hex[:12]
             now_ts = dbmod.now()
             args = {

@@ -302,6 +302,53 @@ def test_v1_webrtc_session_endpoints(tmp_path):
     assert term.json()["status"] in ("ended", "terminated")
 
 
+def test_v1_session_create_rejects_linux_and_macos(tmp_path):
+    """Platform honesty gate: do not queue start_webrtc_stream for non-Windows devices."""
+    admin_token = "adm-tok-v1-gate"
+    app = create_app(admin_token=admin_token, db_path=tmp_path / "control-v1-gate.db")
+    client = TestClient(app)
+    headers = {"X-Admin-Token": admin_token}
+
+    linux = client.post(
+        "/api/devices/enroll",
+        json={"name": "lin-node", "os": "Linux"},
+        headers=headers,
+    ).json()
+    mac = client.post(
+        "/api/devices/enroll",
+        json={"name": "mac-node", "os": "Darwin"},
+        headers=headers,
+    ).json()
+
+    # Persist check: gate must read enrolled OS from devices table.
+    assert app.state.conn.execute(
+        "SELECT os FROM devices WHERE id=?", (linux["device_id"],)
+    ).fetchone()[0] == "Linux"
+    assert app.state.conn.execute(
+        "SELECT os FROM devices WHERE id=?", (mac["device_id"],)
+    ).fetchone()[0] == "Darwin"
+
+    for device_id, family in (
+        (linux["device_id"], "Linux"),
+        (mac["device_id"], "Darwin"),
+    ):
+        res = client.post(
+            "/api/v1/sessions",
+            json={"device_id": device_id, "mode": "view_only", "fps": 15},
+            headers=headers,
+        )
+        assert res.status_code == 400, f"{family} expected 400, got {res.status_code}: {res.text}"
+        detail = str(res.json().get("detail") or "").lower()
+        assert "unavailable" in detail or "windows" in detail
+        assert family.lower() in detail or (family == "Darwin" and ("darwin" in detail or "macos" in detail))
+
+    # No start_webrtc_stream task should have been queued for either device.
+    for token in (linux["device_token"], mac["device_token"]):
+        task_res = client.get("/api/agent/tasks/next", headers={"X-Device-Token": token})
+        assert task_res.status_code == 200
+        assert task_res.json().get("task") is None
+
+
 def test_fleet_desktop_frames_endpoint(tmp_path):
     admin_token = "adm-tok-p4"
     app = create_app(admin_token=admin_token, db_path=tmp_path / "control.db")

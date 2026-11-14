@@ -197,19 +197,38 @@ def _desktop_platform_capabilities() -> dict[str, Any]:
             "session": "interactive user session required; service-as-SYSTEM is not used for desktop work",
         }
     if sys_name == "Linux":
-        has_gui = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+        has_x11 = bool(os.environ.get("DISPLAY"))
+        has_wayland = bool(os.environ.get("WAYLAND_DISPLAY"))
+        has_gui = has_x11 or has_wayland
+        wayland_only = has_wayland and not has_x11
         xdo = shutil.which("xdotool") is not None
-        reason = "linux_headless_no_display" if not has_gui else ("linux_xdotool_missing" if not xdo else "")
+        if not has_gui:
+            reason = "linux_headless_no_display"
+        elif wayland_only:
+            # xdotool is an X11 tool; pure Wayland sessions cannot be driven reliably.
+            reason = "linux_wayland_xdotool_unsupported"
+        elif not xdo:
+            reason = "linux_xdotool_missing"
+        else:
+            reason = ""
         if not desktop_enabled:
             reason = reason or "desktop_disabled"
+        available = bool(desktop_enabled and has_x11 and xdo and not wayland_only)
         return {
-            "available": desktop_enabled and has_gui and xdo,
+            "available": available,
             "stream_available": False,
             "ocr_available": False,
             "som_available": False,
             "webrtc_desktop": False,
-            "reason": reason or "limited_linux_xdotool_only",
-            "session": "Linux GUI session with xdotool required for mouse/keyboard; no fleet WebRTC desktop stream.",
+            "reason": reason or "limited_linux_x11_xdotool_only",
+            "session": (
+                "Wayland-only session: xdotool/input automation unsupported without X11 DISPLAY; "
+                "no fleet WebRTC desktop stream."
+                if wayland_only
+                else "Linux X11 session with xdotool required for mouse/keyboard; no fleet WebRTC desktop stream."
+            ),
+            "input_backend": "none" if wayland_only or not xdo else "xdotool",
+            "display": "wayland_only" if wayland_only else ("x11" if has_x11 else "none"),
         }
     if sys_name == "Darwin":
         reason = "" if desktop_enabled else "desktop_disabled"
@@ -710,8 +729,25 @@ def perform_approved_ui_action(
         return _win32_ui_action(
             action, x=x, y=y, text=text, key=key, title=title, delta=delta, **extra
         )
+    if platform.system() == "Darwin":
+        return {
+            "available": False,
+            "reason": "macos_desktop_automation_unverified",
+            "note": "macOS desktop input automation is not verified on-target.",
+        }
+    # Linux: xdotool requires an X11 DISPLAY. Pure Wayland sessions are unsupported.
+    if bool(os.environ.get("WAYLAND_DISPLAY")) and not os.environ.get("DISPLAY"):
+        return {
+            "available": False,
+            "reason": "linux_wayland_xdotool_unsupported",
+            "note": "UI automation on Wayland-only sessions is unsupported; needs X11 DISPLAY + xdotool.",
+        }
     if shutil.which("xdotool") is None:
-        return {"available": False, "note": "UI automation on Linux requires xdotool (or Windows user32)."}
+        return {
+            "available": False,
+            "reason": "linux_xdotool_missing",
+            "note": "UI automation on Linux requires xdotool under X11 (or Windows user32).",
+        }
     if action == "get_screen_size":
         out = diagnostics._run(["xdotool", "getdisplaygeometry"])
         parts = out.strip().split()

@@ -22,6 +22,9 @@ interface OpsPulse {
   recent_failures?: { id: string; tool: string; status: string }[];
   running_agents?: { id: string; name: string }[];
   desktop_platforms?: { platform: string; stream_available?: boolean; ocr_available?: boolean; reason?: string }[];
+  /** Control-plane process host only — not the selected fleet device. */
+  host_os?: string;
+  host_live_status?: { stream_available?: boolean; available?: boolean; reason?: string; system?: string };
   native_encode?: { available?: boolean; enabled?: boolean; reason?: string };
 }
 
@@ -76,17 +79,22 @@ export function LiveControlView() {
           recent_failures: activity?.recent_failures,
           running_agents: activity?.running_agents,
           desktop_platforms,
+          host_os: typeof caps?.host_os === "string" ? caps.host_os : undefined,
+          host_live_status: {
+            stream_available: Boolean(host.stream_available),
+            available: Boolean(host.available),
+            reason: typeof host.reason === "string" ? host.reason : undefined,
+            system: typeof host.system === "string" ? host.system : undefined,
+          },
           native_encode: {
-            available: Boolean(native.available ?? host.stream_available ?? host.available),
-            enabled: Boolean(native.enabled ?? host.stream_available),
+            available: Boolean(native.available),
+            enabled: Boolean(native.enabled),
             reason:
               typeof native.reason === "string"
                 ? native.reason
-                : typeof host.reason === "string"
-                  ? host.reason
-                  : typeof caps?.host_os === "string"
-                    ? `host=${caps.host_os}`
-                    : undefined,
+                : typeof caps?.host_os === "string"
+                  ? `control_plane_host=${caps.host_os}`
+                  : undefined,
           },
         });
       }
@@ -225,16 +233,26 @@ export function LiveControlView() {
                 <span>{opsPulse.running_agents!.length} agents running</span>
               )}
               {(opsPulse.desktop_platforms?.length ?? 0) > 0 && (
-                <span>
-                  Desktop:{" "}
+                <span title="Static fleet matrix — not the selected device">
+                  Fleet matrix:{" "}
                   {opsPulse.desktop_platforms!
                     .map((p) => `${p.platform}${p.stream_available ? "" : " (no stream)"}`)
                     .join(" · ")}
                 </span>
               )}
+              <span
+                title={
+                  opsPulse.host_live_status?.reason ||
+                  "host_live_status / native_encode reflect the control-plane process host, not the selected fleet device"
+                }
+              >
+                Control-plane host
+                {opsPulse.host_os ? ` (${opsPulse.host_os})` : ""} desktop{" "}
+                {opsPulse.host_live_status?.stream_available ? "stream-capable" : "no stream"}
+              </span>
               {opsPulse.native_encode?.reason && (
                 <span title={opsPulse.native_encode.reason}>
-                  Host desktop {opsPulse.native_encode.enabled ? "ready" : "limited"}
+                  Control-plane native encode {opsPulse.native_encode.enabled ? "on" : "off/limited"}
                 </span>
               )}
             </div>
