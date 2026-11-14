@@ -43,7 +43,23 @@ Windows isolates background services from interactive user desktops. To operate 
 - **Disconnect Safety**: `SendInputController::ReleaseAllHeldKeys()` is invoked automatically whenever a WebRTC DataChannel closes, a session mode changes to `view_only`, or a session is terminated, preventing stuck modifier keys (`Ctrl`, `Alt`, `Shift`, `Win`).
 - **Rate Limiting**: Token-bucket rate limiter caps remote input at 250 events/second.
 
-## 4. Building and Testing
+## 4. Installing the native service
+
+Elevated PowerShell (binaries under `windows-agent/build/Release`, or omit
+`-SkipBuild` to CMake-build first):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\windows-agent\installer\install-service.ps1 `
+    -ControlUrl "https://your-control-plane" `
+    -DeviceToken "YOUR_DEVICE_TOKEN"
+```
+
+This performs `sc create` for `AIBridgeAgent`, writes
+`%ProgramData%\ai-bridge\native-agent.json` + a pipe HMAC secret, registers the
+desktop agent at logon (HKLM Run + scheduled task), and starts the service.
+Desktop capture still requires an interactive logged-in session.
+
+## 5. Building and Testing
 ```powershell
 cmake -S windows-agent -B windows-agent/build
 cmake --build windows-agent/build --config Release

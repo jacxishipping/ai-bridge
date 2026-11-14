@@ -1,18 +1,18 @@
-"""Signed release verification (Ed25519).
+"""Signed release verification and optional apply (Ed25519).
 
 Workflow:
   1. Maintainer:  python -m ai_bridge.updates keygen --out-dir keys/
                   python -m ai_bridge.updates sign --private-key keys/private.pem
                          --manifest release.json   # signs {name, version, files[]}
-  2. Agent:       python agents/linux/agent_main.py --check-update
+  2. Agent:       python agents/windows/agent_main.py --check-update
                          --manifest-url https://example.com/release.json
                          --signature-url https://example.com/release.json.sig
                          --public-key keys/public.pem
      The agent verifies the signature BEFORE downloading any file, and
      refuses (non-zero exit) on a bad signature or a file-hash mismatch.
-     Verification is the security gate; installation remains a deliberate
-     operator step (restart the service with the new code), not silent
-     auto-install — see docs/security.md.
+  3. Optional silent apply (Windows fleets): set AI_BRIDGE_ALLOW_AUTO_UPDATE=1 and
+     pass --apply-update. Files download into a staging dir, hashes are re-checked,
+     then staged into the install root. The agent does not restart itself.
 
 Requires the `cryptography` package (a declared dependency).
 """
@@ -21,7 +21,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
+import shutil
 import sys
+import urllib.request
 from pathlib import Path
 
 
@@ -73,6 +76,68 @@ def verify_file_hashes(manifest: dict, base_dir: Path) -> list[str]:
         if not p.is_file() or hash_file(p) != entry.get("sha256"):
             bad.append(entry["path"])
     return bad
+
+
+def auto_update_allowed() -> bool:
+    return os.environ.get("AI_BRIDGE_ALLOW_AUTO_UPDATE", "").strip().lower() in ("1", "true", "yes")
+
+
+def download_and_stage_update(
+    manifest: dict,
+    *,
+    staging_dir: Path,
+    install_dir: Path | None = None,
+    apply: bool = False,
+) -> dict:
+    """Download manifest files into staging, verify hashes, optionally apply into install_dir.
+
+    Each manifest file entry must include ``path``, ``sha256``, and ``url``.
+    """
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    downloaded: list[str] = []
+    for entry in manifest.get("files", []):
+        rel = entry.get("path")
+        url = entry.get("url")
+        expected = entry.get("sha256")
+        if not rel or not url or not expected:
+            raise ValueError(f"manifest file entry missing path/url/sha256: {entry}")
+        dest = staging_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(url, timeout=60) as resp:
+            dest.write_bytes(resp.read())
+        if hash_file(dest) != expected:
+            dest.unlink(missing_ok=True)
+            raise ValueError(f"hash mismatch after download: {rel}")
+        downloaded.append(rel)
+
+    bad = verify_file_hashes(manifest, staging_dir)
+    if bad:
+        raise ValueError(f"staging hash verification failed: {bad}")
+
+    applied: list[str] = []
+    if apply:
+        if not auto_update_allowed():
+            raise PermissionError(
+                "Silent apply refused: set AI_BRIDGE_ALLOW_AUTO_UPDATE=1 to enable."
+            )
+        if install_dir is None:
+            raise ValueError("install_dir is required when apply=True")
+        install_dir.mkdir(parents=True, exist_ok=True)
+        for rel in downloaded:
+            src = staging_dir / rel
+            dst = install_dir / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            applied.append(rel)
+
+    return {
+        "ok": True,
+        "version": manifest.get("version"),
+        "downloaded": downloaded,
+        "applied": applied,
+        "staging_dir": str(staging_dir),
+        "install_dir": str(install_dir) if install_dir else "",
+    }
 
 def main(argv: list[str] | None = None) -> int:
     import argparse

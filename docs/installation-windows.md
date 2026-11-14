@@ -3,9 +3,18 @@
 The canonical installer is the setup wizard: double-click
 `deployment\windows\Setup.bat`, or run
 `python deployment\windows\installer_gui.py --silent` for automation.
-`Install-AIBridge.ps1` is kept only as a compatibility shim that forwards to the
-wizard, and `install-agent.ps1` remains the low-level registrar for headless or
-service installs.
+
+**Unified Mode (Attended / Headless / Service):**
+
+| Mode | Meaning | Entry |
+| :--- | :--- | :--- |
+| `Attended` | Tray/desktop client in an interactive session | `Install-AIBridge.ps1 -Mode Attended` |
+| `Headless` | Poller at user sign-in (limited account) | `Install-AIBridge.ps1 -Mode Headless` or `install-agent.ps1 -Mode Headless` |
+| `Service` | Poller at boot | `install-agent.ps1 -Mode Service` |
+| Native Session-0 | `sc create` + pipe secret + HKLM Run desktop agent | `windows-agent/installer/install-service.ps1` |
+
+`Install-AIBridge.ps1` forwards Attended/Headless to the wizard and Service to
+`install-agent.ps1`. `-HeadlessService` is a legacy alias for `-Mode Headless`.
 
 1. Install Python **3.12, 3.13 or 3.14** from python.org (tick "Add python.exe to
    PATH"). Those are the versions the agent is exercised on: this manual path and

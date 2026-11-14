@@ -1,8 +1,8 @@
-"""Interactive Live Terminal (PTY on Linux / ConPTY Pipes on Windows).
+"""Interactive Live Terminal (PTY on Linux / ConPTY on Windows).
 
 Provides high-performance, real-time terminal streaming over SSE:
 - Linux: Full pseudo-terminal via pty.openpty() with ANSI color support, job control, signals.
-- Windows: Piped interactive PowerShell with asynchronous stdout/stderr streaming.
+- Windows: Prefer ConPTY (CreatePseudoConsole) for interactive PowerShell; fall back to pipes.
 - SSE Stream Broadcaster: Real-time chunk delivery to browser dashboard with replay buffer.
 - Bi-directional interactive input: keystrokes, Ctrl+C, tab completion, command execution.
 """
@@ -20,6 +20,142 @@ from typing import Generator
 
 _TERMINAL_SESSIONS: dict[str, "TerminalSession"] = {}
 _LOCK = threading.Lock()
+
+
+def _windows_conpty_available() -> bool:
+    if platform.system() != "Windows":
+        return False
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        return hasattr(kernel32, "CreatePseudoConsole")
+    except Exception:
+        return False
+
+
+def _start_windows_conpty(cols: int, rows: int, env: dict[str, str]):
+    """Spawn PowerShell attached to a ConPTY; return (proc, read_fd, write_fd, hpcon)."""
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    kernel32 = ctypes.windll.kernel32
+    HPCON = wintypes.HANDLE
+    SIZE = wintypes.COORD
+
+    CreatePipe = kernel32.CreatePipe
+    CreatePipe.argtypes = [ctypes.POINTER(wintypes.HANDLE), ctypes.POINTER(wintypes.HANDLE), wintypes.LPVOID, wintypes.DWORD]
+    CreatePipe.restype = wintypes.BOOL
+    CreatePseudoConsole = kernel32.CreatePseudoConsole
+    CreatePseudoConsole.argtypes = [SIZE, wintypes.HANDLE, wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(HPCON)]
+    CreatePseudoConsole.restype = wintypes.HRESULT
+    CloseHandle = kernel32.CloseHandle
+    SetHandleInformation = kernel32.SetHandleInformation
+    HANDLE_FLAG_INHERIT = 0x00000001
+
+    class STARTUPINFOEXW(ctypes.Structure):
+        _fields_ = [
+            ("StartupInfo", wintypes.STARTUPINFOW),
+            ("lpAttributeList", wintypes.LPVOID),
+        ]
+
+    # Pipes: host reads output from out_read; host writes input to in_write.
+    in_read = wintypes.HANDLE()
+    in_write = wintypes.HANDLE()
+    out_read = wintypes.HANDLE()
+    out_write = wintypes.HANDLE()
+    if not CreatePipe(ctypes.byref(in_read), ctypes.byref(in_write), None, 0):
+        raise OSError("CreatePipe (stdin) failed")
+    if not CreatePipe(ctypes.byref(out_read), ctypes.byref(out_write), None, 0):
+        raise OSError("CreatePipe (stdout) failed")
+    SetHandleInformation(in_write, HANDLE_FLAG_INHERIT, 0)
+    SetHandleInformation(out_read, HANDLE_FLAG_INHERIT, 0)
+
+    size = SIZE(cols, rows)
+    hpcon = HPCON()
+    hr = CreatePseudoConsole(size, in_read, out_write, 0, ctypes.byref(hpcon))
+    if hr != 0:
+        CloseHandle(in_read)
+        CloseHandle(in_write)
+        CloseHandle(out_read)
+        CloseHandle(out_write)
+        raise OSError(f"CreatePseudoConsole failed HRESULT=0x{hr & 0xFFFFFFFF:08X}")
+
+    # Close ends duplicated into the console.
+    CloseHandle(in_read)
+    CloseHandle(out_write)
+
+    # Launch powershell attached via PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE.
+    PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016
+    InitializeProcThreadAttributeList = kernel32.InitializeProcThreadAttributeList
+    UpdateProcThreadAttribute = kernel32.UpdateProcThreadAttribute
+    DeleteProcThreadAttributeList = kernel32.DeleteProcThreadAttributeList
+    CreateProcessW = kernel32.CreateProcessW
+
+    size_attr = ctypes.c_size_t(0)
+    InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(size_attr))
+    attr_list = (ctypes.c_byte * size_attr.value)()
+    if not InitializeProcThreadAttributeList(attr_list, 1, 0, ctypes.byref(size_attr)):
+        raise OSError("InitializeProcThreadAttributeList failed")
+    if not UpdateProcThreadAttribute(
+        attr_list, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, hpcon, ctypes.sizeof(hpcon), None, None
+    ):
+        DeleteProcThreadAttributeList(attr_list)
+        raise OSError("UpdateProcThreadAttribute failed")
+
+    si = STARTUPINFOEXW()
+    si.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
+    si.lpAttributeList = ctypes.cast(attr_list, wintypes.LPVOID)
+    pi = wintypes.PROCESS_INFORMATION()
+    cmdline = ctypes.create_unicode_buffer("powershell.exe -NoLogo -NoExit")
+    EXTENDED_STARTUPINFO_PRESENT = 0x00080000
+    ok = CreateProcessW(
+        None,
+        cmdline,
+        None,
+        None,
+        False,
+        EXTENDED_STARTUPINFO_PRESENT,
+        None,
+        None,
+        ctypes.byref(si),
+        ctypes.byref(pi),
+    )
+    DeleteProcThreadAttributeList(attr_list)
+    if not ok:
+        raise OSError("CreateProcessW for ConPTY failed")
+
+    # Convert HANDLEs to Python file descriptors for os.read/os.write.
+    read_fd = msvcrt.open_osfhandle(out_read.value, os.O_RDONLY)
+    write_fd = msvcrt.open_osfhandle(in_write.value, os.O_WRONLY)
+    # Detach ownership from CloseHandle by clearing values we opened as fds.
+    out_read.value = 0
+    in_write.value = 0
+
+    class _ConPtyProc:
+        def __init__(self, process_handle, thread_handle):
+            self._ph = process_handle
+            self._th = thread_handle
+            self.returncode = None
+
+        def poll(self):
+            # 259 = STILL_ACTIVE
+            code = wintypes.DWORD()
+            if kernel32.GetExitCodeProcess(self._ph, ctypes.byref(code)):
+                if code.value != 259:
+                    self.returncode = int(code.value)
+                    return self.returncode
+            return None
+
+        def terminate(self):
+            kernel32.TerminateProcess(self._ph, 1)
+
+        def kill(self):
+            self.terminate()
+
+    proc = _ConPtyProc(pi.hProcess, pi.hThread)
+    return proc, read_fd, write_fd, hpcon
 
 
 class TerminalSession:
@@ -57,6 +193,8 @@ class TerminalSession:
         self.proc: subprocess.Popen | None = None
         self.master_fd: int | None = None
         self.slave_fd: int | None = None
+        self._conpty = None
+        self._backend = "unknown"
 
         self._start_process()
 
@@ -120,13 +258,29 @@ class TerminalSession:
             except Exception:
                 pass
 
-        # Windows / Fallback Piped Process
+        env = {k: v for k, v in os.environ.items() if k not in ("AI_BRIDGE_ADMIN_TOKEN", "AI_BRIDGE_DEVICE_TOKEN", "AI_BRIDGE_OIDC_CLIENT_SECRET", "AI_BRIDGE_CSRF_SECRET")}
+        env["TERM"] = "xterm-256color"
+
+        # Windows ConPTY (preferred) — true interactive console for PowerShell.
+        if system == "Windows" and _windows_conpty_available():
+            try:
+                proc, read_fd, write_fd, hpcon = _start_windows_conpty(self.cols, self.rows, env)
+                self.proc = proc  # type: ignore[assignment]
+                self.master_fd = read_fd
+                self._conpty_write_fd = write_fd
+                self._conpty = hpcon
+                self._backend = "conpty"
+                reader = threading.Thread(target=self._pty_read_loop, daemon=True)
+                reader.start()
+                self._broadcast("[ConPTY] Interactive PowerShell session ready.\r\n")
+                return
+            except Exception as exc:
+                self._broadcast(f"[ConPTY unavailable → pipe fallback: {exc}]\r\n")
+
+        # Fallback: piped PowerShell / shell
         shell_cmd = ["powershell.exe", "-NoLogo", "-NoExit", "-Command", "-"]
         if system != "Windows":
             shell_cmd = ["/bin/sh", "-i"]
-
-        env = {k: v for k, v in os.environ.items() if k not in ("AI_BRIDGE_ADMIN_TOKEN", "AI_BRIDGE_DEVICE_TOKEN", "AI_BRIDGE_OIDC_CLIENT_SECRET", "AI_BRIDGE_CSRF_SECRET")}
-        env["TERM"] = "xterm-256color"
 
         self.proc = subprocess.Popen(
             shell_cmd,
@@ -137,6 +291,7 @@ class TerminalSession:
             bufsize=0,
             env=env,
         )
+        self._backend = "pipe"
 
         reader = threading.Thread(target=self._pipe_read_loop, daemon=True)
         reader.start()
@@ -276,9 +431,12 @@ class TerminalSession:
         raw = data.encode("utf-8", errors="replace")
 
         try:
-            if self.master_fd is not None:
+            write_fd = getattr(self, "_conpty_write_fd", None)
+            if write_fd is not None:
+                os.write(write_fd, raw)
+            elif self.master_fd is not None and self._backend != "conpty":
                 os.write(self.master_fd, raw)
-            elif self.proc and self.proc.stdin:
+            elif self.proc and getattr(self.proc, "stdin", None):
                 self.proc.stdin.write(raw)
                 self.proc.stdin.flush()
         except Exception:
@@ -288,7 +446,19 @@ class TerminalSession:
         """Resize terminal dimensions."""
         self.cols = max(20, cols)
         self.rows = max(5, rows)
-        if self.master_fd is not None and platform.system() in ("Linux", "Darwin"):
+        if self._conpty is not None and platform.system() == "Windows":
+            try:
+                import ctypes
+                from ctypes import wintypes
+
+                SIZE = wintypes.COORD
+                ResizePseudoConsole = ctypes.windll.kernel32.ResizePseudoConsole
+                ResizePseudoConsole.argtypes = [wintypes.HANDLE, SIZE]
+                ResizePseudoConsole.restype = wintypes.HRESULT
+                ResizePseudoConsole(self._conpty, SIZE(self.cols, self.rows))
+            except Exception:
+                pass
+        elif self.master_fd is not None and platform.system() in ("Linux", "Darwin"):
             try:
                 import fcntl
                 import struct
@@ -345,6 +515,21 @@ class TerminalSession:
             except Exception:
                 pass
             self.master_fd = None
+        write_fd = getattr(self, "_conpty_write_fd", None)
+        if write_fd is not None:
+            try:
+                os.close(write_fd)
+            except Exception:
+                pass
+            self._conpty_write_fd = None
+        if self._conpty is not None and platform.system() == "Windows":
+            try:
+                import ctypes
+
+                ctypes.windll.kernel32.ClosePseudoConsole(self._conpty)
+            except Exception:
+                pass
+            self._conpty = None
 
 
 # ============================================================================

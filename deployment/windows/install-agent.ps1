@@ -1,4 +1,4 @@
-# AI Bridge Windows agent installer (run in an elevated PowerShell, once).
+﻿# AI Bridge Windows agent installer (run in an elevated PowerShell, once).
 # Installs the agent as a scheduled task. By default it runs as the
 # account you run the installer with (e.g. your main user account).
 # Pass -User to run as a different existing account, e.g. a dedicated
@@ -18,6 +18,12 @@ param(
     [string]$ControlUrl = "",
     [string]$DeviceToken = "",
     [string]$User = $env:USERNAME,
+    # Unified operator story:
+    #   Attended  — tray/desktop client only (no background poller task)
+    #   Headless  — background poller at SIGN-IN (limited user account)
+    #   Service   — background poller at BOOT (onstart scheduled task; default)
+    [ValidateSet("Attended", "Headless", "Service")]
+    [string]$Mode = "Service",
     [switch]$Diagnose
 )
 $ErrorActionPreference = "Stop"
@@ -306,11 +312,21 @@ Set-Content -Path $Launcher -Value $launcherLines -Encoding ASCII
 Restrict-AgentLauncherAcl -Path $Launcher -RunAs $User
 Write-Host "[OK] Agent launcher written to $Launcher (token kept out of the task definition)" -ForegroundColor Green
 
-# Single quotes around the path deliberately: PowerShell drops double quotes on
-# the way to schtasks, which stored '/c <path>' and would break on any path
-# containing a space. With single quotes schtasks writes '/c "<path>"' into the
-# definition, verified by running a task against a launcher in a spaced folder.
-$taskCmd = "cmd.exe /c '$Launcher'"
-schtasks /create /tn "AI Bridge Agent" /tr $taskCmd /sc onstart /ru $User /rl limited /f
-Write-Host "Agent scheduled to run as '$User'. Start it with: schtasks /run /tn 'AI Bridge Agent'"
+Write-Host "[MODE] Install mode: $Mode" -ForegroundColor Cyan
+if ($Mode -eq "Attended") {
+    Write-Host "[OK] Attended mode: launcher written, but no background task was registered." -ForegroundColor Green
+    Write-Host "     Start the tray client (gui_app.py / AIBridge-Agent.exe) while logged in."
+    Write-Host "     For Headless (sign-in) or Service (boot) pollers, re-run with -Mode Headless|Service."
+} else {
+    # Single quotes around the path deliberately: PowerShell drops double quotes on
+    # the way to schtasks, which stored '/c <path>' and would break on any path
+    # containing a space. With single quotes schtasks writes '/c "<path>"' into the
+    # definition, verified by running a task against a launcher in a spaced folder.
+    $taskCmd = "cmd.exe /c '$Launcher'"
+    $schedule = if ($Mode -eq "Headless") { "ONLOGON" } else { "ONSTART" }
+    schtasks /create /tn "AI Bridge Agent" /tr $taskCmd /sc $schedule /ru $User /rl limited /f
+    if ($LASTEXITCODE -ne 0) { throw "schtasks create failed ($LASTEXITCODE) for mode $Mode" }
+    Write-Host "[OK] Agent scheduled as '$User' ($schedule). Start with: schtasks /run /tn 'AI Bridge Agent'" -ForegroundColor Green
+}
 Write-Host "Desktop automation is a separate interactive helper (agents/windows/desktop_helper.py) and must be started in a logged-in session."
+Write-Host "Modes: Attended (tray only) | Headless (sign-in poller) | Service (boot poller). Native Session-0: windows-agent/installer/install-service.ps1"

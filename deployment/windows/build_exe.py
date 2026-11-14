@@ -22,11 +22,17 @@ ICO_PATH = ASSETS_DIR / "ai-bridge.ico"
 SIGN_TIMESTAMP_DEFAULT = "http://timestamp.digicert.com"
 
 
+def signing_required() -> bool:
+    """True when release builds must refuse unsigned artifacts (fleet default)."""
+    return os.environ.get("AIBRIDGE_REQUIRE_SIGN", "").strip().lower() in ("1", "true", "yes")
+
+
 def signing_requested() -> bool:
     """True when the environment asks for Authenticode signing."""
     return bool(
         os.environ.get("AIBRIDGE_SIGN_CERT", "").strip()
         or os.environ.get("AIBRIDGE_SIGN_THUMBPRINT", "").strip()
+        or signing_required()
     )
 
 
@@ -88,10 +94,23 @@ def build_sign_args(exe: Path, signtool: str, config: dict) -> list[str]:
 
 
 def sign_executable(exe: Path) -> None:
-    """Authenticode-sign one executable. No-op unless signing is configured."""
+    """Authenticode-sign one executable.
+
+    Dev builds may skip signing when no cert is configured. Fleet/release builds
+    set ``AIBRIDGE_REQUIRE_SIGN=1`` so an unsigned artifact aborts the build.
+    """
     config = signing_config()
-    if config is None:
-        print(f"[SIGN] {exe.name}: skipped (set AIBRIDGE_SIGN_CERT or AIBRIDGE_SIGN_THUMBPRINT to sign)")
+    require = signing_required()
+    if config is None or not (config.get("cert") or config.get("thumbprint")):
+        msg = (
+            f"[SIGN] {exe.name}: skipped (set AIBRIDGE_SIGN_CERT or "
+            "AIBRIDGE_SIGN_THUMBPRINT to sign)"
+        )
+        if require:
+            raise RuntimeError(
+                f"{msg}. AIBRIDGE_REQUIRE_SIGN=1 refuses unsigned release artifacts."
+            )
+        print(msg)
         return
 
     signtool = find_signtool()
@@ -112,6 +131,10 @@ def sign_executable(exe: Path) -> None:
         print(f"[SIGN] Verified {exe.name}")
     else:
         detail = (verify.stdout + verify.stderr).strip()[:300]
+        if require:
+            raise RuntimeError(
+                f"AIBRIDGE_REQUIRE_SIGN=1: Authenticode verify failed for {exe.name}: {detail}"
+            )
         print(f"[SIGN] [WARN] Could not verify {exe.name} on this host: {detail}")
 
 
