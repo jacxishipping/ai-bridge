@@ -112,6 +112,23 @@ def test_get_desktop_status_linux_honesty(mock_sys, monkeypatch):
     assert st.get("reason")
 
 
+@patch.object(tools.platform, "system", return_value="Linux")
+def test_get_desktop_status_linux_wayland_honesty(mock_sys, monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.setattr(tools.shutil, "which", lambda _name: "/usr/bin/xdotool")
+    monkeypatch.setattr(
+        tools,
+        "get_settings",
+        lambda: type("S", (), {"desktop_enabled": True})(),
+    )
+    st = tools.get_desktop_status()
+    assert st["stream_available"] is False
+    assert st["available"] is False
+    assert st.get("reason") == "linux_wayland_xdotool_unsupported"
+    assert "wayland" in (st.get("session") or "").lower()
+
+
 @patch.object(tools.platform, "system", return_value="Darwin")
 def test_get_desktop_status_macos_honesty(_mock_sys, monkeypatch):
     monkeypatch.setattr(

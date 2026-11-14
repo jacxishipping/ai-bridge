@@ -11,7 +11,11 @@ from ai_bridge import browser_tools, native_encode, webrtc_stream
 from ai_bridge import tools
 from ai_bridge.control import dispatch, durable_ratelimit, metrics as metricsmod, plane_state
 from ai_bridge.control.app import create_app
-from ai_bridge.control.desktop_capabilities import build_capability_matrix
+from ai_bridge.control.desktop_capabilities import (
+    build_capability_matrix,
+    platform_supports_webrtc_desktop_stream,
+    stream_gate_for_os,
+)
 from ai_bridge.control.v1_routes import (
     bind_control_connection,
     is_device_human_takeover_active,
@@ -83,6 +87,29 @@ def test_capability_matrix_includes_host_status():
     matrix = build_capability_matrix()
     assert matrix["host_os"]
     assert "stream_available" in matrix["host_live_status"]
+    assert matrix["host_live_status"].get("scope") == "control_plane_host"
+    assert "desktop_audio" in matrix
+    assert matrix["desktop_audio"]["capture_implemented"] is False
+
+
+def test_stream_gate_for_os_windows_only():
+    assert platform_supports_webrtc_desktop_stream("Windows 11") is True
+    assert platform_supports_webrtc_desktop_stream("win32") is True
+    assert platform_supports_webrtc_desktop_stream("Ubuntu 24.04") is False
+    assert platform_supports_webrtc_desktop_stream("Linux") is False
+    # Regression: bare \"win\" substring must not match Darwin.
+    assert platform_supports_webrtc_desktop_stream("Darwin") is False
+    assert platform_supports_webrtc_desktop_stream("darwin") is False
+    assert platform_supports_webrtc_desktop_stream("macOS") is False
+    win = stream_gate_for_os("Windows")
+    assert win["allowed"] is True
+    linux = stream_gate_for_os("Linux")
+    assert linux["allowed"] is False
+    assert linux["stream_available"] is False
+    assert "linux" in linux["reason"]
+    mac = stream_gate_for_os("Darwin")
+    assert mac["allowed"] is False
+    assert mac["platform"] == "Darwin"
 
 
 def test_human_takeover_db_visible_without_cache(tmp_path):
@@ -98,13 +125,20 @@ def test_human_takeover_db_visible_without_cache(tmp_path):
 
 
 def test_legacy_webrtc_session_deprecation_header(tmp_path):
+    import platform as _platform
+
     app = create_app(admin_token="adm-rtc", db_path=tmp_path / "rtc9.db")
     client = TestClient(app)
     headers = {"x-admin-token": "adm-rtc"}
     res = client.post("/api/devices/local/desktop/webrtc/session", headers=headers, json={"fps": 15})
-    assert res.status_code == 200
     assert res.headers.get("deprecation") == "true"
     assert "v1/sessions" in (res.headers.get("link") or "")
+    if _platform.system() == "Windows":
+        assert res.status_code == 200
+    else:
+        # Non-Windows control-plane hosts cannot stream local desktop.
+        assert res.status_code == 400
+        assert "unavailable" in str(res.json().get("detail") or "").lower()
 
 
 def test_dispatch_native_encode_status():

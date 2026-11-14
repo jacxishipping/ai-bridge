@@ -17,6 +17,7 @@ import {
   JXBadge,
   JXButton,
   JXSelect,
+  JXAlert,
   ProductModePill,
   ProductStatusDot,
 } from "../ui";
@@ -201,8 +202,10 @@ export const LiveDesktopView: React.FC = () => {
   const [pendingIntent, setPendingIntent] = useState<PendingAgentIntent | null>(null);
   const [countdownRemainingMs, setCountdownRemainingMs] = useState<number>(0);
 
-  // Audio state (WASAPI Opus WebRTC loopback track)
+  // Audio: mute toggle only; live WASAPI Opus capture is not shipped (silent/opt-in placeholder).
   const [isAudioMuted, setIsAudioMuted] = useState<boolean>(true);
+  const [desktopAudioOptIn, setDesktopAudioOptIn] = useState<boolean>(false);
+  const [desktopAudioCaptureLive, setDesktopAudioCaptureLive] = useState<boolean>(false);
 
   // Bi-directional file transfer states (RTCDataChannel 64KB chunked)
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
@@ -1111,6 +1114,13 @@ export const LiveDesktopView: React.FC = () => {
       setTimeout(() => setRecentMacroNotice(null), 2500);
       return;
     }
+    if (String(selectedDevice.platform || "").toLowerCase() !== "windows") {
+      setRecentMacroNotice(
+        `Live Desktop WebRTC streaming is Windows-only. Selected device platform is “${selectedDevice.platform || "unknown"}”.`
+      );
+      setTimeout(() => setRecentMacroNotice(null), 4000);
+      return;
+    }
     cleanupWebrtc();
     try {
       const sess = await api.createSessionV1({
@@ -1374,6 +1384,44 @@ export const LiveDesktopView: React.FC = () => {
   const desktopDevice = live
     ? (liveDevices.find((d) => d.id === selectedDeviceId) || liveDevices[0])
     : undefined;
+  // WebRTC desktop stream / SoM / WASAPI overlays apply to Windows desktop hosts only.
+  const isWindowsStreamHost = Boolean(
+    desktopDevice && String(desktopDevice.platform || "").toLowerCase() === "windows"
+  );
+  const streamUnavailableReason = desktopDevice
+    ? isWindowsStreamHost
+      ? null
+      : `Live Desktop WebRTC streaming is Windows-only. Selected device reports platform “${desktopDevice.platform || "unknown"}” (${desktopDevice.osRelease || "OS not reported"}).`
+    : null;
+
+  useEffect(() => {
+    if (!live) return;
+    let cancelled = false;
+    void api
+      .desktopCapabilities()
+      .then((caps: any) => {
+        if (cancelled) return;
+        const audio = caps?.desktop_audio || {};
+        setDesktopAudioOptIn(Boolean(audio.opt_in));
+        setDesktopAudioCaptureLive(Boolean(audio.capture_implemented));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDesktopAudioOptIn(false);
+        setDesktopAudioCaptureLive(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [live]);
+
+  const audioHonestyTitle = desktopAudioCaptureLive
+    ? isAudioMuted
+      ? "Unmute remote host audio (WASAPI Opus)"
+      : "Mute remote host audio"
+    : desktopAudioOptIn
+      ? "Desktop audio opt-in is on, but capture is a silent PCM placeholder (WASAPI live capture not shipped)"
+      : "Remote desktop audio is off by default — requires AI_BRIDGE_DESKTOP_AUDIO=1 and real WASAPI capture (not shipped)";
 
   return (
     <div className="space-y-5">
@@ -1412,6 +1460,17 @@ export const LiveDesktopView: React.FC = () => {
         />
       )}
 
+      {live && desktopDevice && !isWindowsStreamHost && (
+        <JXAlert
+          severity="warning"
+          title="Desktop stream unavailable on this device"
+          description={
+            streamUnavailableReason ||
+            "Select a Windows desktop automation host. Linux and macOS agents do not expose a WebRTC desktop track."
+          }
+        />
+      )}
+
       {/* Top Header & Breadcrumb Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-[var(--product-line)]">
         <div className="flex items-center gap-3">
@@ -1419,7 +1478,7 @@ export const LiveDesktopView: React.FC = () => {
             <JXSelect
               options={(live ? liveDevices : []).map((d) => ({
                 id: d.id,
-                label: `${d.hostname} (${d.name})`,
+                label: `${d.hostname} (${d.name})${String(d.platform || "").toLowerCase() === "windows" ? "" : " · no stream"}`,
               }))}
               value={desktopDevice?.id || selectedDevice?.id || ""}
               onChange={(val) => setSelectedDeviceId(val)}
@@ -1493,17 +1552,46 @@ export const LiveDesktopView: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => void handleStartWebrtc()}
-            className="px-2.5 py-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-indigo-300 hover:border-indigo-500/50 flex items-center gap-1.5"
+            onClick={() => {
+              if (!isWindowsStreamHost) {
+                setRecentMacroNotice(
+                  streamUnavailableReason || "WebRTC desktop stream requires a Windows host"
+                );
+                setTimeout(() => setRecentMacroNotice(null), 3500);
+                return;
+              }
+              void handleStartWebrtc();
+            }}
+            disabled={live && !isWindowsStreamHost}
+            title={
+              live && !isWindowsStreamHost
+                ? streamUnavailableReason || "Windows desktop host required"
+                : "Start or reconnect WebRTC desktop session"
+            }
+            className={`px-2.5 py-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] flex items-center gap-1.5 ${
+              live && !isWindowsStreamHost
+                ? "text-[var(--product-text-dim)] opacity-60 cursor-not-allowed"
+                : "text-indigo-300 hover:border-indigo-500/50"
+            }`}
           >
             <Radio className="w-3 h-3 text-indigo-400" />
-            <span>{webrtcSessionId ? `WebRTC #${webrtcSessionId.slice(0, 6)}` : "WebRTC Session"}</span>
+            <span>
+              {live && !isWindowsStreamHost
+                ? "Stream unavailable"
+                : webrtcSessionId
+                  ? `WebRTC #${webrtcSessionId.slice(0, 6)}`
+                  : "Start stream"}
+            </span>
           </button>
         </div>
       </div>
 
-      {/* Floating Dual-Control Takeover Bar */}
-      <div className="p-3 rounded-2xl bg-[var(--product-surface)]/90 border border-[var(--product-line)] shadow-xl flex flex-wrap items-center justify-between gap-3">
+      {/* Floating Dual-Control Takeover Bar — takeover/SoM/audio overlays are Windows stream hosts only */}
+      <div
+        className={`p-3 rounded-2xl bg-[var(--product-surface)]/90 border border-[var(--product-line)] shadow-xl flex flex-wrap items-center justify-between gap-3 ${
+          live && !isWindowsStreamHost ? "opacity-70" : ""
+        }`}
+      >
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           {/* Mode Segmented Switch */}
           {/* Both control rows are wider than a 390px phone, so they scroll inside
@@ -1511,6 +1599,7 @@ export const LiveDesktopView: React.FC = () => {
           <div className="flex max-w-full overflow-x-auto p-1 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)]">
             <button
               type="button"
+              disabled={live && !isWindowsStreamHost}
               onClick={() => void applySessionMode("view_only")}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                 controlMode === "observer"
@@ -1523,7 +1612,9 @@ export const LiveDesktopView: React.FC = () => {
             </button>
             <button
               type="button"
+              disabled={live && !isWindowsStreamHost}
               onClick={() => void applySessionMode("human_control")}
+              title={live && !isWindowsStreamHost ? "Operator takeover requires a Windows stream host" : undefined}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                 controlMode === "takeover" && sessionMode === "human_control"
                   ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
@@ -1535,6 +1626,7 @@ export const LiveDesktopView: React.FC = () => {
             </button>
             <button
               type="button"
+              disabled={live && !isWindowsStreamHost}
               onClick={() => void applySessionMode("ai_assisted")}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                 sessionMode === "ai_assisted"
@@ -1610,17 +1702,26 @@ export const LiveDesktopView: React.FC = () => {
 
             <button
               type="button"
+              disabled={live && !isWindowsStreamHost}
               onClick={() => setIsAudioMuted(!isAudioMuted)}
               className={`px-3 py-1.5 rounded-xl text-xs font-mono flex items-center gap-1.5 border transition-all ${
-                !isAudioMuted
+                !isAudioMuted && desktopAudioCaptureLive
                   ? "bg-emerald-600/20 text-emerald-300 border-emerald-500/40"
                   : "bg-[var(--product-canvas)] text-[var(--product-text-dim)] border-[var(--product-line)]"
               }`}
-              title={isAudioMuted ? "Click to unmute remote host audio (WASAPI Opus)" : "Click to mute audio"}
+              title={audioHonestyTitle}
             >
               {isAudioMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
-              <span>{isAudioMuted ? "Audio Muted" : "Audio Active"}</span>
-              <span className={`w-1.5 h-1.5 rounded-full ${!isAudioMuted ? "bg-emerald-400 animate-pulse" : "bg-[var(--product-text-dim)]"}`}></span>
+              <span>
+                {desktopAudioCaptureLive
+                  ? isAudioMuted
+                    ? "Audio Muted"
+                    : "Audio Active"
+                  : desktopAudioOptIn
+                    ? "Audio silent (opt-in)"
+                    : "Audio off (opt-in)"}
+              </span>
+              <span className={`w-1.5 h-1.5 rounded-full ${!isAudioMuted && desktopAudioCaptureLive ? "bg-emerald-400 animate-pulse" : "bg-[var(--product-text-dim)]"}`}></span>
             </button>
 
             <button
@@ -1689,18 +1790,33 @@ export const LiveDesktopView: React.FC = () => {
             </button>
           </div>
 
-          {/* SoM Toggle */}
+          {/* SoM Toggle — Windows OCR/SoM path only */}
           <button
             type="button"
-            onClick={toggleSomOverlay}
+            disabled={live && !isWindowsStreamHost}
+            onClick={() => {
+              if (live && !isWindowsStreamHost) {
+                setRecentMacroNotice("Vision SoM is Windows-only (OCR/SoM not available on Linux/macOS agents).");
+                setTimeout(() => setRecentMacroNotice(null), 3500);
+                return;
+              }
+              toggleSomOverlay();
+            }}
+            title={
+              live && !isWindowsStreamHost
+                ? "Vision SoM requires a Windows desktop host"
+                : "Toggle Set-of-Marks overlay"
+            }
             className={`px-3 py-1.5 rounded-xl text-xs font-mono font-semibold flex items-center gap-1.5 border transition-all ${
-              somOverlay
+              somOverlay && isWindowsStreamHost
                 ? "bg-indigo-600/20 text-indigo-300 border-indigo-500/40"
                 : "bg-[var(--product-canvas)] text-[var(--product-text-tertiary)] border-[var(--product-line)]"
             }`}
           >
             <Crosshair className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Vision SoM [{somOverlay ? "ON" : "OFF"}]</span>
+            <span>
+              Vision SoM [{live && !isWindowsStreamHost ? "N/A" : somOverlay ? "ON" : "OFF"}]
+            </span>
           </button>
 
           {/* Screenshot Button */}

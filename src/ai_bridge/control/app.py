@@ -3258,6 +3258,30 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         if plane_state.is_emergency_stop(conn, app.state):
             raise HTTPException(status_code=503, detail="Emergency stop active.")
         actor = require_role("viewer", x_admin_token, x_session_token)
+        from . import desktop_capabilities as desktop_capabilitiesmod
+        import platform as _platform
+
+        if device_id == "local":
+            device_os = _platform.system()
+        else:
+            gate_row = conn.execute(
+                "SELECT os FROM devices WHERE id=? AND revoked=0", (device_id,)
+            ).fetchone()
+            if gate_row is None:
+                raise HTTPException(status_code=404, detail="Device not found.")
+            try:
+                device_os = gate_row["os"]
+            except (KeyError, IndexError, TypeError):
+                device_os = gate_row[0] if gate_row is not None else None
+        gate = desktop_capabilitiesmod.stream_gate_for_os(device_os)
+        if not gate.get("allowed") or not desktop_capabilitiesmod.platform_supports_webrtc_desktop_stream(device_os):
+            detail = (
+                f"WebRTC desktop stream unavailable for platform "
+                f"{gate.get('platform') or device_os or 'unknown'}: {gate.get('detail') or gate.get('reason')}. "
+                "Live Desktop streaming is supported on Windows desktop hosts only."
+            )
+            audit(actor, device_id, "start_webrtc_stream", {"gate": gate, "device_os": device_os}, "denied")
+            raise HTTPException(status_code=400, detail=detail)
         scale = max(0.2, min(1.0, float(body.get("scale", 0.75))))
         fps = max(1, min(60, int(body.get("fps", 30))))
         bitrate_kbps = body.get("bitrate_kbps")

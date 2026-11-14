@@ -88,7 +88,7 @@ export const DevicesView: React.FC = () => {
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [clipboardError, setClipboardError] = useState("");
   const [enrollDeviceName, setEnrollDeviceName] = useState<string>("edge-worker-node");
-  const [enrollArchRole, setEnrollArchRole] = useState<string>("Standard Worker (Linux x86_64 / arm64)");
+  const [enrollArchRole, setEnrollArchRole] = useState<string>("Desktop Automation Host (Windows)");
   const [sandboxDir, setSandboxDir] = useState<string>("/opt/ai-bridge/workspace");
   const [tokenExpiry, setTokenExpiry] = useState<string>("24h");
   const [tokenProvisioned, setTokenProvisioned] = useState<boolean>(false);
@@ -100,7 +100,7 @@ export const DevicesView: React.FC = () => {
 
   // Quick Dispatch Modal state
   const [dispatchModalDevice, setDispatchModalDevice] = useState<EnrolledDevice | null>(null);
-  const [dispatchTool, setDispatchTool] = useState<string>("desktop.capture_screen");
+  const [dispatchTool, setDispatchTool] = useState<string>("capture_desktop_screenshot");
   const [dispatchSuccessMsg, setDispatchSuccessMsg] = useState<string | null>(null);
 
   // Metrics counters
@@ -684,10 +684,11 @@ export const DevicesView: React.FC = () => {
               </div>
             )}
 
-            {/* Target Architecture & Role selector */}
+            {/* Target Architecture & Role — UI hint only; enroll API does not consume this field */}
             <div className="space-y-1">
               <label className="text-[var(--product-text-secondary)] font-semibold text-xs block">
-                Target Architecture & Role
+                Target Architecture & Role{" "}
+                <span className="font-normal text-[var(--product-text-tertiary)]">(display only — not sent to enroll)</span>
               </label>
               <select
                 aria-label="Target architecture and role"
@@ -698,19 +699,20 @@ export const DevicesView: React.FC = () => {
                 <option value="Standard Worker (Linux x86_64 / arm64)">
                   Standard Worker (Linux x86_64 / arm64)
                 </option>
-                <option value="Desktop Automation Host (Windows / macOS)">
-                  Desktop Automation Host (Windows / macOS)
+                <option value="Desktop Automation Host (Windows)">
+                  Desktop Automation Host (Windows only — WebRTC stream / SoM)
                 </option>
-                <option value="Confidential Compute Isolated Enclave (Intel SGX / AMD SEV)">
-                  Confidential Compute Isolated Enclave (Intel SGX / AMD SEV)
+                <option value="Confidential Compute Isolated Enclave (Intel SGX / AMD SEV) — not wired">
+                  Confidential Compute (SGX / SEV) — decorative, not wired
                 </option>
               </select>
             </div>
 
-            {/* Sandbox Path */}
+            {/* Sandbox Path — decorative; enroll API does not accept sandbox_dir */}
             <div className="space-y-1">
               <label className="text-[var(--product-text-secondary)] font-semibold text-xs block">
-                Sandbox Home Directory
+                Sandbox Home Directory{" "}
+                <span className="font-normal text-[var(--product-text-tertiary)]">(not wired to enroll API)</span>
               </label>
               <JXTextField
                 value={sandboxDir}
@@ -719,7 +721,7 @@ export const DevicesView: React.FC = () => {
                 size="md"
               />
               <span className="text-[11px] text-[var(--product-text-tertiary)]">
-                Directory path where remote agent task processes will isolate execution.
+                Preview-only path label. Enrollment issues a device token only; agent workspace is configured on the host install script / policy, not by this field.
               </span>
             </div>
 
@@ -865,11 +867,12 @@ export const DevicesView: React.FC = () => {
                 onChange={(e) => setDispatchTool(e.target.value)}
                 className="w-full bg-[var(--product-raised)] border border-[var(--product-line)] text-[var(--product-text-secondary)] rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
               >
-                <option value="desktop.capture_screen">desktop.capture_screen (Tier 1 Safe)</option>
-                <option value="process.list">process.list (Tier 1 Safe)</option>
-                <option value="system_info">system_info (Tier 1 Safe)</option>
-                <option value="desktop.list_windows">desktop.list_windows (Tier 1 Safe)</option>
-                <option value="shell.exec">shell.exec (Tier 3 Shell)</option>
+                <option value="capture_desktop_screenshot">capture_desktop_screenshot (read / capture)</option>
+                <option value="list_processes">list_processes (read)</option>
+                <option value="get_system_info">get_system_info (read)</option>
+                <option value="list_desktop_windows">list_desktop_windows (desktop)</option>
+                <option value="get_desktop_status">get_desktop_status (desktop honesty)</option>
+                <option value="run_shell">run_shell (shell — requires approval / tier)</option>
               </select>
             </div>
 
