@@ -31,7 +31,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 import httpx
 
-from fastapi import Body, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Body, FastAPI, Header, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -41,6 +41,7 @@ from .. import tools
 from .. import terminal_manager
 from ..policy import Policy, TOOL_TIERS
 from ..security import redact, redact_obj
+from . import agent_channel
 from . import alerts as alertsmod
 from . import auth as authmod
 from . import metrics as metricsmod
@@ -650,9 +651,15 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     task_cond = threading.Condition()
     app.state.task_cond = task_cond
 
-    def notify_tasks() -> None:
+    def notify_tasks(device_id: str | None = None, task_id: str | None = None, *, cancel: bool = False) -> None:
         with task_cond:
             task_cond.notify_all()
+        if not device_id:
+            return
+        if cancel and task_id:
+            agent_channel.notify_cancel(device_id, task_id)
+        elif not cancel:
+            agent_channel.notify_task_available(device_id, task_id)
 
     def get_webhook_url() -> str:
         row = conn.execute("SELECT value FROM settings WHERE key='webhook_url'").fetchone()
@@ -1491,7 +1498,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                          (task_id, body.device_id, body.tenant, body.tool, json.dumps(body.args), tier.value, status, approval_id, dbmod.now(), dbmod.now()))
         audit(actor, body.device_id, body.tool, body.args, status, tenant=body.tenant)
         if status == "queued":
-            notify_tasks()
+            notify_tasks(body.device_id, task_id)
         elif status == "needs_approval":
             wh_url = get_webhook_url()
             if wh_url:
@@ -1549,7 +1556,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             return {"task_id": task_id, "status": row["status"]}
         conn.execute("UPDATE tasks SET status='cancelled', updated_at=? WHERE id=?", (dbmod.now(), task_id))
         conn.commit()
-        notify_tasks()
+        notify_tasks(row["device_id"], task_id, cancel=True)
         audit("admin", row["device_id"], "cancel_task", {"task_id": task_id}, "allowed")
         return {"task_id": task_id, "status": "cancelled"}
 
@@ -1677,11 +1684,17 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             raise HTTPException(status_code=409, detail="Approval has expired.")
         now = dbmod.now()
         conn.execute("UPDATE approvals SET status=?, decided_by=?, decided_at=? WHERE id=? AND status='pending'", (body.decision, actor, now, approval_id))
+        device_id = None
         if row["task_id"]:
             new_status = "queued" if body.decision == "approved" else "cancelled"
             conn.execute("UPDATE tasks SET status=?, updated_at=? WHERE id=?", (new_status, now, row["task_id"]))
+            trow = conn.execute("SELECT device_id FROM tasks WHERE id=?", (row["task_id"],)).fetchone()
+            device_id = trow["device_id"] if trow else None
         conn.commit()
-        notify_tasks()
+        if device_id and row["task_id"]:
+            notify_tasks(device_id, row["task_id"], cancel=(body.decision != "approved"))
+        else:
+            notify_tasks()
         audit(actor, "", "decide_approval", {"approval_id": approval_id, "decision": body.decision, "reason": body.reason}, "allowed")
         return {"approval_id": approval_id, "status": body.decision, "decided_by": actor, "decided_at": now}
 
@@ -1938,6 +1951,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         app.state.emergency_stop = True
         plane_state.set_emergency_stop(conn, True)
         notify_tasks()
+        agent_channel.notify_emergency_stop(True)
         audit(actor, "", "emergency_stop", {}, "allowed")
         alertsmod.dispatch_alert("emergency_stop", "critical", "EMERGENCY STOP ACTIVATED", {"actor": actor})
         return {"emergency_stop": True}
@@ -1948,6 +1962,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         app.state.emergency_stop = False
         plane_state.set_emergency_stop(conn, False)
         notify_tasks()
+        agent_channel.notify_emergency_stop(False)
         audit("admin", "", "emergency_stop_clear", {}, "allowed")
         return {"emergency_stop": False}
 
@@ -2268,13 +2283,68 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                     step_entry["result"] = res
 
                     if verify_cfg and isinstance(verify_cfg, dict):
-                        v_text = verify_cfg.get("text")
-                        v_timeout = float(verify_cfg.get("timeout_seconds", 8.0))
-                        if v_text:
-                            v_res = _execute_workflow_step_sync("wait_for_text", {"text": v_text, "timeout_seconds": v_timeout}, target_dev, tenant, actor)
+                        v_text = str(verify_cfg.get("text") or verify_cfg.get("expected_text") or "")
+                        v_window = str(verify_cfg.get("window") or verify_cfg.get("expected_window") or "")
+                        v_timeout = float(verify_cfg.get("timeout_seconds", verify_cfg.get("wait_seconds", 8.0)))
+                        v_mode = str(verify_cfg.get("mode") or "verify").strip().lower()
+                        if v_mode in {"visual", "screenshot", "browser_compare"}:
+                            baseline = str(verify_cfg.get("baseline") or verify_cfg.get("name") or "").strip()
+                            if not baseline:
+                                raise RuntimeError("Visual verification requires verify.baseline filename.")
+                            v_res = _execute_workflow_step_sync(
+                                "browser_compare_screenshot",
+                                {
+                                    "baseline": baseline,
+                                    "threshold": float(verify_cfg.get("threshold", 0.08)),
+                                    "full_page": bool(verify_cfg.get("full_page", False)),
+                                    "update_baseline": bool(verify_cfg.get("update_baseline", False)),
+                                },
+                                target_dev,
+                                tenant,
+                                actor,
+                            )
                             step_entry["verification"] = v_res
-                            if not v_res.get("found"):
-                                raise RuntimeError(f"Step verification failed: text '{v_text}' not found after {v_timeout}s.")
+                            if not v_res.get("matched", v_res.get("ok")):
+                                raise RuntimeError(
+                                    f"Step visual verification failed for baseline '{baseline}' "
+                                    f"(rmse={v_res.get('rmse')})."
+                                )
+                        elif v_text or v_window:
+                            if v_mode in {"wait", "poll", "wait_for_text"}:
+                                if not v_text:
+                                    raise RuntimeError("Step verification mode=wait requires text.")
+                                v_res = _execute_workflow_step_sync(
+                                    "wait_for_text",
+                                    {"text": v_text, "timeout_seconds": v_timeout},
+                                    target_dev,
+                                    tenant,
+                                    actor,
+                                )
+                                step_entry["verification"] = v_res
+                                if not v_res.get("found"):
+                                    raise RuntimeError(
+                                        f"Step verification failed: text '{v_text}' not found after {v_timeout}s."
+                                    )
+                            else:
+                                # Closed-loop default: desktop_verify_action (+ post screenshot evidence).
+                                v_res = _execute_workflow_step_sync(
+                                    "desktop_verify_action",
+                                    {
+                                        "expected_text": v_text,
+                                        "expected_window": v_window,
+                                        "wait_seconds": min(v_timeout, 5.0),
+                                        "capture_after": bool(verify_cfg.get("capture_after", True)),
+                                    },
+                                    target_dev,
+                                    tenant,
+                                    actor,
+                                )
+                                step_entry["verification"] = v_res
+                                if not v_res.get("verified", v_res.get("ok")):
+                                    detail = v_text or v_window or "expected UI state"
+                                    raise RuntimeError(
+                                        f"Step verification failed via desktop_verify_action for '{detail}'."
+                                    )
 
                     step_entry["status"] = "completed"
                     success = True
@@ -4167,6 +4237,67 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         # validating a token never makes a device look freshly seen.
         row = device_row(x_device_token)
         return {"device_id": row["id"]}
+
+    @app.websocket("/api/agent/ws")
+    async def agent_ws(websocket: WebSocket):
+        """Persistent wake/cancel side-channel for outbound agents.
+
+        Auth: ``X-Device-Token`` header or ``?token=`` query (agents only).
+        HTTP ``/api/agent/tasks/next`` remains the lease/claim path.
+        """
+        token = websocket.headers.get("x-device-token") or websocket.query_params.get("token")
+        try:
+            row = device_row(token)
+        except HTTPException as exc:
+            await websocket.close(code=4401, reason=str(exc.detail)[:120])
+            return
+        await websocket.accept()
+        try:
+            agent_channel.bind_event_loop(asyncio.get_running_loop())
+        except RuntimeError:
+            pass
+        device_id = row["id"]
+        agent_channel.register(device_id, websocket)
+        plane_state.sync_emergency_stop_to_app(conn, app.state)
+        try:
+            await websocket.send_json(
+                {
+                    "type": "hello",
+                    "device_id": device_id,
+                    "emergency_stop": plane_state.is_emergency_stop(conn, app.state),
+                }
+            )
+            while True:
+                try:
+                    msg = await asyncio.wait_for(websocket.receive_json(), timeout=45.0)
+                except asyncio.TimeoutError:
+                    await websocket.send_json({"type": "ping", "ts": time.time()})
+                    continue
+                except WebSocketDisconnect:
+                    break
+                if not isinstance(msg, dict):
+                    continue
+                mtype = str(msg.get("type") or "")
+                if mtype in {"pong", "heartbeat"}:
+                    conn.execute(
+                        "UPDATE devices SET status='online', last_seen=? WHERE id=?",
+                        (dbmod.now(), device_id),
+                    )
+                    conn.commit()
+                    await websocket.send_json(
+                        {
+                            "type": "heartbeat_ok",
+                            "emergency_stop": plane_state.is_emergency_stop(conn, app.state),
+                        }
+                    )
+                elif mtype == "ping":
+                    await websocket.send_json({"type": "pong", "ts": time.time()})
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            pass
+        finally:
+            agent_channel.unregister(device_id, websocket)
 
     @app.get("/api/agent/policy")
     def get_agent_policy(x_device_token: str | None = Header(default=None)):

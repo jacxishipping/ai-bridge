@@ -171,7 +171,7 @@ def test_connection_ping(url: str) -> tuple[bool, float, str]:
     t0 = time.time()
     try:
         clean_url = url.strip().rstrip("/")
-        req = urllib.request.Request(f"{clean_url}/healthz", method="GET")
+        req = urllib.request.Request(f"{clean_url}/health", method="GET")
         req.add_header("User-Agent", "AI-Bridge-Windows-Client/2.0")
         with urllib.request.urlopen(req, timeout=5) as resp:
             latency = (time.time() - t0) * 1000
@@ -713,11 +713,30 @@ class AgentGuiApp:
         self.root.after(1500, self._queue_loop)
         self.root.after(4000, self.check_for_updates_async)
 
+        self._check_webrtc_deps()
         if self.auto_start_var.get() and self.token_var.get().strip():
             self.log("Auto-start enabled. Connecting to control plane...", "info")
             self.root.after(400, self.start_agent)
         else:
             self.log("AI Bridge Windows Client ready. Click 'Start Agent' to begin polling.", "info")
+
+    def _check_webrtc_deps(self) -> None:
+        """Warn early if Live Desktop / WebRTC extras are missing from this interpreter."""
+        missing: list[str] = []
+        for mod in ("aiortc", "av"):
+            try:
+                __import__(mod)
+            except ImportError:
+                missing.append(mod)
+        if missing:
+            self.log(
+                "WebRTC Live Desktop unavailable — missing packages: "
+                f"{', '.join(missing)}. Install with: "
+                f'"{sys.executable}" -m pip install "ai-bridge[webrtc]"',
+                "warn",
+            )
+        else:
+            self.log("WebRTC dependencies OK (aiortc + av).", "ok")
 
     def _build_shell(self) -> None:
         """Compose the application shell (sidebar, header, content, activity dock)."""

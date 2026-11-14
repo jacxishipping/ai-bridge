@@ -19,6 +19,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import platform
 import threading
@@ -26,6 +27,8 @@ import time
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger("ai_bridge.webrtc")
 
 SESSION_TTL_SECONDS = 600
 DEFAULT_ICE_SERVERS = [{"urls": "stun:stun.l.google.com:19302"}]
@@ -102,8 +105,8 @@ def get_configured_ice_servers() -> list[dict[str, Any]]:
 def desktop_audio_opt_in() -> bool:
     """Return True when desktop audio loopback is explicitly enabled.
 
-    Default is off until WASAPI capture is production-ready. Opt in with
-    ``AI_BRIDGE_DESKTOP_AUDIO=1`` (also accepts ``true`` / ``yes``).
+    Default is off. Opt in with ``AI_BRIDGE_DESKTOP_AUDIO=1`` (also ``true`` / ``yes``).
+    When opted in, prefers WASAPI loopback via ``soundcard``; otherwise silent PCM.
     """
     return os.environ.get("AI_BRIDGE_DESKTOP_AUDIO", "").strip().lower() in ("1", "true", "yes")
 
@@ -111,6 +114,16 @@ def desktop_audio_opt_in() -> bool:
 def desktop_audio_silent_pcm_bytes(samples_per_frame: int = 960, channels: int = 2) -> bytes:
     """Zero-filled s16le PCM used when live capture is unavailable (honest silent track)."""
     return bytes(int(samples_per_frame) * int(channels) * 2)
+
+
+def desktop_audio_capture_implemented() -> bool:
+    """True when this host can open WASAPI/speaker loopback (optional soundcard)."""
+    try:
+        from . import desktop_audio
+
+        return bool(desktop_audio.wasapi_capture_available())
+    except Exception:
+        return False
 
 
 def set_agent_context(control_url: str, device_token: str) -> None:
@@ -413,11 +426,17 @@ class ScreenTrack:
 
 
 class DesktopAudioTrack:
-    """aiortc audio track capturing desktop audio loopback (WASAPI / Opus)."""
+    """aiortc audio track capturing desktop audio loopback (WASAPI / Opus).
+
+    Prefers live WASAPI loopback when ``soundcard`` can open a device; otherwise
+    emits honest silent PCM so negotiation still succeeds.
+    """
 
     def __new__(cls, *args, **kwargs):
         import fractions
         from aiortc import AudioStreamTrack
+
+        from . import desktop_audio as desktop_audio_mod
 
         class _AudioTrack(AudioStreamTrack):
             kind = "audio"
@@ -433,6 +452,18 @@ class DesktopAudioTrack:
                 self._silent_bytes = desktop_audio_silent_pcm_bytes(
                     self._samples_per_frame, self.channels
                 )
+                self._capture = desktop_audio_mod.WasapiLoopbackCapture(
+                    sample_rate=self.sample_rate,
+                    channels=self.channels,
+                    samples_per_frame=self._samples_per_frame,
+                )
+                self._capture_live = bool(self._capture.start())
+                self.audio_backend = self._capture.backend if self._capture_live else "silent_pcm"
+                if not self._capture_live and self._capture.error:
+                    logger.info(
+                        "Desktop audio falling back to silent PCM (%s)",
+                        self._capture.error,
+                    )
 
             async def recv(self):
                 import av
@@ -451,13 +482,25 @@ class DesktopAudioTrack:
                     self._start = time.time()
                     self._timestamp = self._step
 
+                if self._capture_live:
+                    pcm = self._capture.read_pcm(self._silent_bytes)
+                else:
+                    pcm = self._silent_bytes
+
                 frame = av.AudioFrame(format="s16", layout="stereo", samples=self._samples_per_frame)
                 frame.sample_rate = self.sample_rate
                 frame.pts = self._timestamp
                 frame.time_base = fractions.Fraction(1, self.sample_rate)
                 for plane in frame.planes:
-                    plane.update(self._silent_bytes[:len(plane)])
+                    plane.update(pcm[: len(plane)])
                 return frame
+
+            def stop(self):
+                try:
+                    self._capture.stop()
+                except Exception:
+                    pass
+                return super().stop()
 
         return _AudioTrack(*args, **kwargs)
 
@@ -566,6 +609,12 @@ class AgentStreamer:
         try:
             asyncio.run(self._run())
         except Exception as exc:
+            logger.error(
+                "WebRTC stream failed for session %s: %s",
+                self.session_id,
+                exc,
+                exc_info=True,
+            )
             try:
                 self.signaling.post_error(str(exc))
             except Exception:

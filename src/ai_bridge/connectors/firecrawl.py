@@ -92,10 +92,41 @@ def firecrawl_map_site(args: dict | None = None) -> dict:
     return {"ok": True, "provider": "firecrawl", "url": url, "count": len(links), "links": links[:500]}
 
 
+def firecrawl_crawl(args: dict | None = None) -> dict:
+    """Start a Firecrawl crawl (multi-page) and return job id / status payload."""
+    args = args or {}
+    url = str(args.get("url") or "").strip()
+    if not url:
+        raise ValueError("url is required.")
+    payload: dict[str, Any] = {"url": url}
+    if args.get("limit") is not None:
+        payload["limit"] = max(1, min(int(args["limit"]), 100))
+    if args.get("maxDepth") is not None:
+        payload["maxDepth"] = max(0, min(int(args["maxDepth"]), 5))
+    if args.get("includePaths"):
+        payload["includePaths"] = args["includePaths"]
+    if args.get("excludePaths"):
+        payload["excludePaths"] = args["excludePaths"]
+    with httpx.Client(timeout=120.0) as client:
+        res = client.post(f"{API_BASE}/crawl", json=payload, headers=_headers())
+        if res.status_code >= 400:
+            raise FirecrawlError(f"Firecrawl API {res.status_code}: {redact(res.text[:500])}")
+        data = res.json()
+    return {
+        "ok": True,
+        "provider": "firecrawl",
+        "url": url,
+        "id": data.get("id") or data.get("jobId"),
+        "status": data.get("status") or "started",
+        "raw": {k: data.get(k) for k in ("id", "jobId", "status", "url") if k in data},
+    }
+
+
 TOOLS: dict[str, Any] = {
     "firecrawl_scrape": firecrawl_scrape,
     "firecrawl_search": firecrawl_search,
     "firecrawl_map_site": firecrawl_map_site,
+    "firecrawl_crawl": firecrawl_crawl,
 }
 
 TOOL_SPECS: dict[str, dict] = {
@@ -123,6 +154,19 @@ TOOL_SPECS: dict[str, dict] = {
         "parameters": {
             "type": "object",
             "properties": {"url": {"type": "string"}, "search": {"type": "string"}},
+            "required": ["url"],
+        },
+    },
+    "firecrawl_crawl": {
+        "description": "Start a multi-page Firecrawl crawl job.",
+        "category": "research",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"},
+                "limit": {"type": "integer"},
+                "maxDepth": {"type": "integer"},
+            },
             "required": ["url"],
         },
     },

@@ -1505,7 +1505,10 @@ def wait_for_text(
     interval = max(0.2, min(float(poll_interval), 5.0))
     attempts = 0
 
+    from .control.task_runtime import cooperative_sleep, raise_if_cancelled
+
     while True:
+        raise_if_cancelled()
         attempts += 1
         shot_res = capture_desktop_screenshot(approval_granted=approval_granted, policy=eff_policy)
         img_path = shot_res.get("path") if shot_res.get("available") else None
@@ -1535,7 +1538,7 @@ def wait_for_text(
                 "error": f"Timeout waiting for text '{text}' on screen after {elapsed}s.",
             }
         rem = deadline - now
-        time.sleep(min(interval, rem))
+        cooperative_sleep(min(interval, rem), interval=0.25)
 
 
 def verify_screen_contains(
@@ -2216,6 +2219,105 @@ def _som_element_from_rect(
     return row
 
 
+def _collect_uia_elements(
+    *,
+    mons: list[dict[str, Any]],
+    max_elements: int,
+    monitor_index: int | None,
+) -> tuple[list[dict[str, Any]], str]:
+    """Walk UI Automation tree for buttons/edits/links (optional ``comtypes``)."""
+    if sys.platform != "win32":
+        return [], "non_windows"
+    try:
+        import comtypes  # noqa: F401
+        import comtypes.client
+    except ImportError:
+        return [], "comtypes_missing"
+
+    # ControlType IDs (UIAutomationClient.h)
+    interesting = {
+        50000: "button",  # UIA_ButtonControlTypeId
+        50004: "edit",
+        50005: "hyperlink",
+        50006: "image",
+        50008: "listitem",
+        50011: "menuitem",
+        50013: "radiobutton",
+        50016: "checkbox",
+        50018: "tabitem",
+        50019: "text",
+        50020: "tool_bar",
+        50021: "treeitem",
+        50025: "combo_box",
+        50033: "splitbutton",
+    }
+    elements: list[dict[str, Any]] = []
+    try:
+        # Generate / load UIAutomation typelib once.
+        uia_mod = comtypes.client.GetModule("UIAutomationCore.dll")
+        CUIAutomation = getattr(uia_mod, "CUIAutomation", None) or getattr(uia_mod, "CUIAutomation8", None)
+        if CUIAutomation is None:
+            # Fallback CLSID create
+            uia = comtypes.client.CreateObject("{ff48dba4-60ef-4201-aa87-54103eef594e}")
+        else:
+            uia = comtypes.client.CreateObject(CUIAutomation)
+        root = uia.GetRootElement()
+        condition = uia.CreateTrueCondition()
+        # TreeScope_Descendants = 4
+        finder = root.FindAll(4, condition)
+        count = int(finder.Length) if finder is not None else 0
+        for i in range(min(count, max(max_elements * 8, 200))):
+            if len(elements) >= max_elements:
+                break
+            try:
+                el = finder.GetElement(i)
+            except Exception:
+                continue
+            try:
+                ctype = int(el.CurrentControlType)
+            except Exception:
+                continue
+            el_type = interesting.get(ctype)
+            if not el_type:
+                continue
+            try:
+                name = (el.CurrentName or "").strip()
+            except Exception:
+                name = ""
+            if not name:
+                continue
+            try:
+                rect = el.CurrentBoundingRectangle
+                left, top, right, bottom = int(rect.left), int(rect.top), int(rect.right), int(rect.bottom)
+            except Exception:
+                continue
+            w, h = right - left, bottom - top
+            if w < 12 or h < 10:
+                continue
+            try:
+                hwnd = int(el.CurrentNativeWindowHandle or 0)
+            except Exception:
+                hwnd = 0
+            row = _som_element_from_rect(
+                left,
+                top,
+                w,
+                h,
+                mons=mons,
+                idx=len(elements) + 1,
+                label=name[:40],
+                el_type=el_type,
+                hwnd=hwnd,
+                extra={"source": "uia", "confidence": 0.9, "control_type_id": ctype},
+            )
+            if monitor_index is not None and int(row.get("monitor_index", -1)) != int(monitor_index):
+                continue
+            elements.append(row)
+        return elements, "uia_ok" if elements else "uia_empty"
+    except Exception as exc:  # noqa: BLE001
+        return [], f"uia_error:{type(exc).__name__}"
+
+
 def desktop_get_ui_elements(
     *,
     include_controls: bool = True,
@@ -2240,8 +2342,19 @@ def desktop_get_ui_elements(
         screen_h = int(m.get("height", screen_h))
 
     elements: list[dict[str, Any]] = []
+    grounding_source = "none"
 
-    if sys.platform == "win32":
+    if sys.platform == "win32" and include_controls:
+        uia_els, uia_status = _collect_uia_elements(
+            mons=mons, max_elements=max_elements, monitor_index=monitor_index
+        )
+        if uia_els:
+            elements.extend(uia_els)
+            grounding_source = "uia"
+        elif uia_status and uia_status not in {"uia_empty", "comtypes_missing"}:
+            grounding_source = uia_status
+
+    if sys.platform == "win32" and len(elements) < max_elements:
         try:
             import ctypes
             from ctypes import wintypes
@@ -2284,15 +2397,20 @@ def desktop_get_ui_elements(
                     label=title[:40],
                     el_type="window",
                     hwnd=int(hwnd),
+                    extra={"source": "win32", "confidence": 0.75},
                 )
                 if monitor_index is not None and int(row.get("monitor_index", -1)) != int(monitor_index):
                     return True
                 elements.append(row)
+                if grounding_source == "none":
+                    grounding_source = "win32"
+                elif grounding_source == "uia":
+                    grounding_source = "uia+win32"
                 if len(elements) >= max_elements:
                     return False
 
-                # Child controls if enabled
-                if include_controls and len(elements) < max_elements:
+                # Child controls if enabled and UIA did not already fill the budget
+                if include_controls and grounding_source.startswith("uia") is False and len(elements) < max_elements:
                     def _child_cb(chwnd: Any, _clparam: Any) -> bool:
                         if not u.IsWindowVisible(chwnd):
                             return True
@@ -2322,6 +2440,7 @@ def desktop_get_ui_elements(
                             label=label[:30],
                             el_type=cls_name.lower() or "control",
                             hwnd=int(chwnd),
+                            extra={"source": "win32", "confidence": 0.65},
                         )
                         if monitor_index is not None and int(crow.get("monitor_index", -1)) != int(monitor_index):
                             return True
@@ -2334,6 +2453,8 @@ def desktop_get_ui_elements(
 
             cb = WNDENUMPROC(_enum_win_cb)
             u.EnumWindows(cb, 0)
+            if elements and grounding_source == "none":
+                grounding_source = "win32"
         except Exception:
             pass
 
@@ -2379,6 +2500,7 @@ def desktop_get_ui_elements(
         "virtual_desktop": vdesk,
         "monitor_index": monitor_index,
         "monitors": mons,
+        "grounding_source": grounding_source,
         "elements": elements,
     }
 

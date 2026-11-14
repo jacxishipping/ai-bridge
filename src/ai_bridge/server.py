@@ -1481,6 +1481,136 @@ def browser_download_file(url: str, filename: str | None = None) -> dict:
     return browser_tools.browser_download_file(url, filename=filename, approval_granted=approved)
 
 
+@mcp.tool()
+def browser_set_viewport(
+    device: str = "desktop",
+    width: int | None = None,
+    height: int | None = None,
+    is_mobile: bool | None = None,
+) -> dict:
+    """Set desktop/mobile device preset or custom viewport for the browser session."""
+    approved = _consume_local_approval("browser_set_viewport")
+    return browser_tools.browser_set_viewport(
+        device, width=width, height=height, is_mobile=is_mobile, approval_granted=approved
+    )
+
+
+@mcp.tool()
+def browser_expect(
+    text: str | None = None,
+    url_contains: str | None = None,
+    title_contains: str | None = None,
+    selector: str | None = None,
+    screenshot_on_fail: bool = False,
+) -> dict:
+    """Assert text/URL/title/selector on the current page (website test helper)."""
+    approved = _consume_local_approval("browser_expect")
+    return browser_tools.browser_expect(
+        text=text,
+        url_contains=url_contains,
+        title_contains=title_contains,
+        selector=selector,
+        screenshot_on_fail=screenshot_on_fail,
+        approval_granted=approved,
+    )
+
+
+@mcp.tool()
+def browser_wait_for_url(url_contains: str, timeout: int = 15) -> dict:
+    """Wait until the page URL contains the given substring."""
+    approved = _consume_local_approval("browser_wait_for_url")
+    return browser_tools.browser_wait_for_url(url_contains, timeout=timeout, approval_granted=approved)
+
+
+@mcp.tool()
+def browser_diagnostics() -> dict:
+    """Return recent console errors and failed network requests."""
+    approved = _consume_local_approval("browser_diagnostics")
+    return browser_tools.browser_diagnostics(approval_granted=approved)
+
+
+@mcp.tool()
+def browser_compare_screenshot(
+    baseline: str,
+    threshold: float = 0.08,
+    full_page: bool = False,
+    update_baseline: bool = False,
+) -> dict:
+    """Compare the current page screenshot to a workspace visual baseline."""
+    approved = _consume_local_approval("browser_compare_screenshot")
+    return browser_tools.browser_compare_screenshot(
+        baseline,
+        threshold=threshold,
+        full_page=full_page,
+        update_baseline=update_baseline,
+        approval_granted=approved,
+    )
+
+
+@mcp.tool()
+def browser_navigate_with_shot(url: str, wait_until: str = "networkidle", timeout: int = 30) -> dict:
+    """Navigate and capture a viewport screenshot after load."""
+    approved = _consume_local_approval("browser_navigate")
+    return browser_tools.browser_navigate(
+        url,
+        wait_until=wait_until,
+        timeout=timeout,
+        screenshot_after_nav=True,
+        approval_granted=approved,
+    )
+
+
+@mcp.tool()
+def firecrawl_scrape(url: str) -> dict:
+    """Scrape a page to markdown via Firecrawl (requires FIRECRAWL API key)."""
+    from .connectors import firecrawl
+
+    return firecrawl.firecrawl_scrape({"url": url})
+
+
+@mcp.tool()
+def firecrawl_search(query: str, limit: int = 5) -> dict:
+    """Web search via Firecrawl."""
+    from .connectors import firecrawl
+
+    return firecrawl.firecrawl_search({"query": query, "limit": limit})
+
+
+@mcp.tool()
+def firecrawl_map_site(url: str, search: str | None = None) -> dict:
+    """Discover URLs on a site via Firecrawl map."""
+    from .connectors import firecrawl
+
+    args: dict = {"url": url}
+    if search:
+        args["search"] = search
+    return firecrawl.firecrawl_map_site(args)
+
+
+@mcp.tool()
+def firecrawl_crawl(url: str, limit: int = 10) -> dict:
+    """Start a multi-page Firecrawl crawl job."""
+    from .connectors import firecrawl
+
+    return firecrawl.firecrawl_crawl({"url": url, "limit": limit})
+
+
+@mcp.tool()
+def you_web_search(query: str, count: int = 5) -> dict:
+    """Live web search via You.com."""
+    from .connectors import you_search
+
+    return you_search.you_web_search({"query": query, "count": count})
+
+
+@mcp.tool()
+def you_fetch_contents(urls: list[str] | str) -> dict:
+    """Fetch page contents via You.com for one or more URLs."""
+    from .connectors import you_search
+
+    return you_search.you_fetch_contents({"urls": urls})
+
+
 class _BearerAuthMiddleware:
     """Enforce bearer token authentication and normalize Accept & path on Streamable HTTP."""
 

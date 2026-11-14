@@ -59,6 +59,9 @@ except ImportError:
         ) -> _FallbackImageInstance:
             return _FallbackImageInstance(size[0], size[1], bytes(data), mode)
 
+_DXGI_CAMERAS: dict[int, Any] = {}
+_DXGI_FAILED_INDEXES: set[int] = set()
+# Backward-compat aliases used by older tests/helpers.
 _DXGI_CAMERA = None
 _DXGI_FAILED = False
 _NATIVE_DLL = None
@@ -642,37 +645,45 @@ def capture_desktop(monitor_index: int | None = None, scale: float = 1.0) -> Ima
     if platform.system() == "Windows":
         img = _capture_native_cpp(monitor_index=eff_mon)
 
-    # Attempt 1: DXGI Desktop Duplication via bettercam on Windows
-    if img is None and platform.system() == "Windows" and not _DXGI_FAILED and (monitor_index is None or monitor_index == 0):
+    # Attempt 1: DXGI Desktop Duplication via bettercam (any monitor index)
+    if img is None and platform.system() == "Windows" and eff_mon not in _DXGI_FAILED_INDEXES:
         try:
             import bettercam
 
-            if _DXGI_CAMERA is None:
-                _DXGI_CAMERA = bettercam.create(output_idx=0)
-            frame = _DXGI_CAMERA.grab()
+            cam = _DXGI_CAMERAS.get(eff_mon)
+            if cam is None:
+                cam = bettercam.create(output_idx=int(eff_mon))
+                _DXGI_CAMERAS[eff_mon] = cam
+                if eff_mon == 0:
+                    _DXGI_CAMERA = cam
+            frame = cam.grab()
             if frame is not None:
                 img = Image.fromarray(frame, mode="RGB")
                 _LAST_CAPTURE_METRICS.update({
                     "backend": "dxgi_bettercam",
                     "from_dxgi": True,
+                    "monitor_index": int(eff_mon),
                     "capture_time_ms": round((time.perf_counter() - t0) * 1000.0, 2),
                 })
         except Exception:
-            _DXGI_FAILED = True
+            _DXGI_FAILED_INDEXES.add(eff_mon)
+            if eff_mon == 0:
+                _DXGI_FAILED = True
 
-    # Attempt 2: Ultra-Fast Win32 Direct Memory BitBlt
+    # Attempt 2: Ultra-Fast Win32 Direct Memory BitBlt (bbox honors monitor_index)
     if img is None and platform.system() == "Windows":
         try:
             img = _capture_win32_fast(bbox=bbox)
             _LAST_CAPTURE_METRICS.update({
                 "backend": "win32_bitblt",
                 "from_dxgi": False,
+                "monitor_index": int(eff_mon) if bbox else 0,
                 "capture_time_ms": round((time.perf_counter() - t0) * 1000.0, 2),
             })
         except Exception:
             img = None
 
-    # Attempt 3: Standard Pillow ImageGrab
+    # Attempt 3: Standard Pillow ImageGrab (bbox = selected monitor)
     if img is None:
         from PIL import ImageGrab
 
@@ -683,6 +694,7 @@ def capture_desktop(monitor_index: int | None = None, scale: float = 1.0) -> Ima
         _LAST_CAPTURE_METRICS.update({
             "backend": "pil_imagegrab",
             "from_dxgi": False,
+            "monitor_index": int(eff_mon) if bbox else 0,
             "capture_time_ms": round((time.perf_counter() - t0) * 1000.0, 2),
         })
 
