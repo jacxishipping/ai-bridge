@@ -8,7 +8,7 @@
 ## 2. Server-Side Session Permissions
 Session permissions are derived **exclusively on the backend** (`src/ai_bridge/control/v1_routes.py` and `shared/permissions/permissions_matrix.json`) from:
 1. Authenticated user role (`viewer`, `operator`, `admin`)
-2. Device policy (`desktop_enabled`, `allow_tier3`)
+2. Device policy (`desktop_enabled`, `allow_tier3`, `allow_clipboard`, `allow_shell`)
 3. Active session mode (`view_only`, `human_control`, `ai_assisted`)
 
 | Permission Flag | `view_only` | `human_control` | `ai_assisted` |
@@ -16,11 +16,17 @@ Session permissions are derived **exclusively on the backend** (`src/ai_bridge/c
 | `can_view_screen` | Yes | Yes | Yes |
 | `can_send_mouse` | No | Operator/Admin | Operator/Admin |
 | `can_send_keyboard` | No | Operator/Admin | Operator/Admin |
+| `clipboard_sync` | No | Only with `allow_clipboard` | Only with `allow_clipboard` |
 | `can_let_ai_control` | No | No (Suppressed) | Operator/Admin |
 | `can_run_commands` | No | Admin + Tier3 Policy | Admin + Tier3 Policy |
 | `can_transfer_files` | No | Operator/Admin | Operator/Admin |
 
-**Critical Invariant**: Screen-view permission (`can_view_screen`) **never** automatically grants command execution (`can_run_commands`).
+**Critical Invariant**: Screen-view permission (`can_view_screen`) **never** automatically grants command execution (`can_run_commands`). Desktop input also **never** automatically grants `clipboard_sync` — set policy `allow_clipboard` (or `AI_BRIDGE_ALLOW_CLIPBOARD=1`).
+
+## 2b. Signed updates (verify + optional apply)
+- Agents verify Ed25519-signed release manifests before trusting any download (`python -m ai_bridge.updates` / `agent_main.py --check-update`).
+- Silent apply (`--apply-update`) requires `AI_BRIDGE_ALLOW_AUTO_UPDATE=1`, re-checks SHA-256 after download, and stages into the install root without auto-restart.
+- Windows release builds should set `AIBRIDGE_REQUIRE_SIGN=1` so Authenticode-unsigned `AIBridge-*.exe` artifacts fail the build.
 
 ## 3. Human Takeover & AI Action Safety
 - **Immediate Human Takeover**: Switching a session to `human_control` (or engaging Operator Takeover in the dashboard) sets `_HUMAN_TAKEOVER_STATE[device_id]["active"] = True`.

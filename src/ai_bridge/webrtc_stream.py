@@ -284,6 +284,13 @@ class ScreenTrack:
                     from ai_bridge.screen_capture import get_last_capture_metrics
 
                     cap_meta = get_last_capture_metrics()
+                    session_state = {}
+                    try:
+                        from ai_bridge.screen_capture import get_desktop_session_state
+
+                        session_state = get_desktop_session_state()
+                    except Exception:
+                        session_state = {}
                     _STREAM_TELEMETRY[self._session_id] = {
                         "session_id": self._session_id,
                         "codec": "H264",
@@ -300,6 +307,10 @@ class ScreenTrack:
                         "capture_backend": cap_meta.get("backend", "dxgi"),
                         "from_dxgi": bool(cap_meta.get("from_dxgi", False)),
                         "encoder_backend": cap_meta.get("encoder_name") or "H.264 (Media Foundation / PyAV)",
+                        "secure_desktop": bool(session_state.get("secure_desktop") or cap_meta.get("secure_desktop")),
+                        "capture_blocked": bool(session_state.get("capture_blocked")),
+                        "desktop_reason": session_state.get("reason") or "",
+                        "desktop_name": session_state.get("desktop_name") or "",
                         "updated_at": time.time(),
                     }
                 return frame
@@ -475,7 +486,13 @@ class AgentStreamer:
         self._rate_count += 1
         return self._rate_count <= 250
 
-    def _session_allows_input(self, is_mouse: bool = False, is_keyboard: bool = False) -> bool:
+    def _session_allows_input(
+        self,
+        is_mouse: bool = False,
+        is_keyboard: bool = False,
+        *,
+        require_clipboard: bool = False,
+    ) -> bool:
         """Validate each input event against the active session mode and permissions."""
         sess = getattr(self.signaling, "session", None)
         if isinstance(sess, dict):
@@ -488,6 +505,11 @@ class AgentStreamer:
                     return False
                 if is_keyboard and not perms.get("control_keyboard", True):
                     return False
+                # Clipboard is its own session permission — never implied by keyboard alone.
+                if require_clipboard and not perms.get("clipboard_sync", False):
+                    return False
+        elif require_clipboard:
+            return False
         return True
 
     def _handle_input_payload(self, raw_message: str | bytes) -> dict[str, Any]:
@@ -741,7 +763,7 @@ class AgentStreamer:
                 return {"ok": True, "action": "switch_monitor", "monitor_index": new_mon}
 
             if action == "clipboard_sync":
-                if not self._session_allows_input(is_keyboard=True):
+                if not self._session_allows_input(require_clipboard=True):
                     return {"ok": False, "error": "clipboard_sync_denied"}
                 direction = str(data.get("direction") or "set").lower()
                 from ai_bridge.tools import perform_approved_ui_action
@@ -926,19 +948,25 @@ class AgentStreamer:
         except Exception:
             pass
 
-        # 1b. Audio Loopback Track (48kHz Stereo Opus)
-        try:
-            audio_track = DesktopAudioTrack()
-            pc.addTrack(audio_track)
-            audio_caps = RTCRtpSender.getCapabilities("audio")
-            if audio_caps and audio_caps.codecs:
-                opus_codecs = [c for c in audio_caps.codecs if "OPUS" in c.mimeType.upper()]
-                if opus_codecs:
-                    for transceiver in pc.getTransceivers():
-                        if transceiver.kind == "audio" and hasattr(transceiver, "setCodecPreferences"):
-                            transceiver.setCodecPreferences(opus_codecs)
-        except Exception:
-            pass
+        # 1b. Audio loopback (opt-in). Default off until WASAPI capture is production-ready;
+        # enable with AI_BRIDGE_DESKTOP_AUDIO=1. Silent Opus frames keep negotiation honest.
+        if os.environ.get("AI_BRIDGE_DESKTOP_AUDIO", "").strip() in ("1", "true", "yes"):
+            try:
+                audio_track = DesktopAudioTrack()
+                pc.addTrack(audio_track)
+                audio_caps = RTCRtpSender.getCapabilities("audio")
+                if audio_caps and audio_caps.codecs:
+                    opus_codecs = [c for c in audio_caps.codecs if "OPUS" in c.mimeType.upper()]
+                    if opus_codecs:
+                        for transceiver in pc.getTransceivers():
+                            if transceiver.kind == "audio" and hasattr(transceiver, "setCodecPreferences"):
+                                transceiver.setCodecPreferences(opus_codecs)
+                if isinstance(getattr(self.signaling, "session", None), dict):
+                    self.signaling.session["audio_enabled"] = True
+            except Exception as exc:
+                if isinstance(getattr(self.signaling, "session", None), dict):
+                    self.signaling.session["audio_enabled"] = False
+                    self.signaling.session["audio_error"] = str(exc)[:200]
 
         # 2. DataChannel for Ultra-Low Latency Input Injection & Telemetry
         try:
@@ -967,9 +995,48 @@ class AgentStreamer:
             def on_close():
                 release_all_held_keys()
 
+        self._ice_restart_attempts = 0
+
         @pc.on("connectionstatechange")
         async def on_connectionstatechange():
+            if isinstance(getattr(self.signaling, "session", None), dict):
+                self.signaling.session["pc_state"] = pc.connectionState
+                self.signaling.session["ice_state"] = getattr(pc, "iceConnectionState", "")
             if pc.connectionState in ("disconnected", "failed", "closed"):
+                release_all_held_keys()
+                if pc.connectionState == "failed" and isinstance(getattr(self.signaling, "session", None), dict):
+                    self.signaling.session["status"] = "error"
+                    self.signaling.session["error"] = (
+                        "WebRTC peer connection failed — check STUN/TURN "
+                        "(AI_BRIDGE_ICE_SERVERS / AI_BRIDGE_TURN_URL) and network path."
+                    )
+
+        @pc.on("iceconnectionstatechange")
+        async def on_iceconnectionstatechange():
+            ice_state = getattr(pc, "iceConnectionState", "")
+            if isinstance(getattr(self.signaling, "session", None), dict):
+                self.signaling.session["ice_state"] = ice_state
+            if ice_state == "disconnected" and isinstance(getattr(self.signaling, "session", None), dict):
+                self.signaling.session["status"] = "reconnecting"
+                self.signaling.session["warning"] = "ICE disconnected — attempting restart"
+                if self._ice_restart_attempts < 2 and hasattr(pc, "restartIce"):
+                    self._ice_restart_attempts += 1
+                    try:
+                        pc.restartIce()
+                        self.signaling.session["ice_restart_attempt"] = self._ice_restart_attempts
+                    except Exception as exc:
+                        self.signaling.session["warning"] = f"ICE restart failed: {exc}"
+            if ice_state == "connected" and isinstance(getattr(self.signaling, "session", None), dict):
+                self._ice_restart_attempts = 0
+                if self.signaling.session.get("status") == "reconnecting":
+                    self.signaling.session["status"] = "connected"
+                    self.signaling.session.pop("warning", None)
+            if ice_state == "failed" and isinstance(getattr(self.signaling, "session", None), dict):
+                self.signaling.session["status"] = "error"
+                self.signaling.session["error"] = (
+                    "ICE failed — configure TURN for symmetric NAT "
+                    "(AI_BRIDGE_TURN_URL or AI_BRIDGE_ICE_SERVERS)."
+                )
                 release_all_held_keys()
 
         # Wait for gathering to complete, then post offer with inline candidates
@@ -979,6 +1046,9 @@ class AgentStreamer:
             if pc.iceGatheringState == "complete":
                 break
             await asyncio.sleep(0.05)
+        if pc.iceGatheringState != "complete" and isinstance(getattr(self.signaling, "session", None), dict):
+            self.signaling.session["ice_gathering"] = pc.iceGatheringState
+            self.signaling.session["warning"] = "ICE gathering did not complete before offer publish"
         self.signaling.post_offer({"sdp": pc.localDescription.sdp, "type": pc.localDescription.type})
 
         # Wait for viewer's answer, then apply viewer candidates

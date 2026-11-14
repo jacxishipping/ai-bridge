@@ -1497,15 +1497,15 @@ def broadcast_fleet_command(
     }
 
 
-def get_system_monitors() -> list[dict]:
-    """Enumerate all physical and virtual displays on the host machine."""
-    try:
-        from ai_bridge.screen_capture import get_monitors
-        return get_monitors()
-    except Exception:
-        return [{"index": 0, "name": "Display 1 (Default)", "width": 1920, "height": 1080, "is_primary": True}]
-
-
+def get_system_monitors() -> list[dict]:
+    """Enumerate all physical and virtual displays on the host machine."""
+    try:
+        from ai_bridge.screen_capture import get_monitors
+        return get_monitors()
+    except Exception:
+        return [{"index": 0, "name": "Display 1 (Default)", "width": 1920, "height": 1080, "is_primary": True}]
+
+
 def capture_desktop_frame(
     scale: float = 0.75,
     quality: int = 70,
@@ -1724,10 +1724,11 @@ def desktop_get_status(*, device_id: str = "local") -> dict:
     """Return desktop and session status, monitors, capture backend, and human takeover state."""
     _check("desktop_get_status")
     from .control.v1_routes import is_device_human_takeover_active
-    from .screen_capture import get_last_capture_metrics, get_monitors
+    from .screen_capture import get_desktop_session_state, get_last_capture_metrics, get_monitors
 
     base = get_desktop_status()
     takeover = is_device_human_takeover_active(device_id)
+    session_state = get_desktop_session_state()
     return {
         **base,
         "device_id": device_id,
@@ -1735,6 +1736,10 @@ def desktop_get_status(*, device_id: str = "local") -> dict:
         "human_takeover_active": takeover,
         "monitors": get_monitors(),
         "capture_metrics": get_last_capture_metrics(),
+        "session_state": session_state,
+        "secure_desktop": bool(session_state.get("secure_desktop")),
+        "capture_blocked": bool(session_state.get("capture_blocked")),
+        "desktop_reason": session_state.get("reason") or "",
     }
 
 
@@ -2189,6 +2194,22 @@ def get_transfer_storage_dir() -> Path:
     return base
 
 
+def get_transfer_quarantine_dir() -> Path:
+    """Quarantine root for completed inbound transfers pending operator review."""
+    q = get_transfer_storage_dir() / "quarantine"
+    q.mkdir(parents=True, exist_ok=True)
+    return q
+
+
+def max_transfer_bytes() -> int:
+    """Hard cap for inbound transfers (default 512 MiB)."""
+    raw = os.environ.get("AI_BRIDGE_MAX_TRANSFER_BYTES", str(512 * 1024 * 1024)).strip()
+    try:
+        return max(1024, int(raw))
+    except ValueError:
+        return 512 * 1024 * 1024
+
+
 def desktop_handle_file_start(
     transfer_id: str,
     name: str,
@@ -2201,17 +2222,39 @@ def desktop_handle_file_start(
     if not clean_name:
         clean_name = f"transfer_{int(time.time())}.bin"
 
+    limit = max_transfer_bytes()
+    if size and int(size) > limit:
+        return {
+            "ok": False,
+            "error": "file_too_large",
+            "max_bytes": limit,
+            "requested_bytes": int(size),
+        }
+
     storage_root = get_transfer_storage_dir()
+    # Default inbound path is quarantine; explicit downloads/workspace still allowed.
     if target_dir and target_dir.lower() in ("downloads", "workspace"):
         target_path = storage_root / target_dir.lower()
         target_path.mkdir(parents=True, exist_ok=True)
     else:
-        target_path = storage_root
+        target_path = get_transfer_quarantine_dir()
 
     final_path = target_path / clean_name
     temp_path = storage_root / f".{transfer_id}.part"
 
     with _TRANSFERS_LOCK:
+        # Resume: keep existing part file + chunk map when the same transfer_id returns.
+        existing = _ACTIVE_TRANSFERS.get(transfer_id)
+        if existing and existing.get("status") == "in_progress" and Path(existing["temp_path"]).exists():
+            return {
+                "ok": True,
+                "transfer_id": transfer_id,
+                "filename": existing["filename"],
+                "target_path": existing["final_path"],
+                "status": "resume",
+                "received_chunks": existing.get("received_chunks", 0),
+                "received_indexes": sorted(int(k) for k in existing.get("chunks_map", {}).keys()),
+            }
         _ACTIVE_TRANSFERS[transfer_id] = {
             "transfer_id": transfer_id,
             "filename": clean_name,
@@ -2223,6 +2266,8 @@ def desktop_handle_file_start(
             "final_path": str(final_path),
             "started_at": time.time(),
             "status": "in_progress",
+            "quarantined": target_path == get_transfer_quarantine_dir(),
+            "max_bytes": limit,
         }
 
     # Truncate / create empty temp part file
@@ -2237,6 +2282,8 @@ def desktop_handle_file_start(
         "filename": clean_name,
         "target_path": str(final_path),
         "status": "ready_for_chunks",
+        "quarantined": target_path == get_transfer_quarantine_dir(),
+        "max_bytes": limit,
     }
 
 
@@ -2256,6 +2303,26 @@ def desktop_handle_file_chunk(
         raw_bytes = base64.b64decode(chunk_b64)
     except Exception as exc:
         return {"ok": False, "error": f"Base64 decode failed for chunk {chunk_index}: {exc}"}
+
+    with _TRANSFERS_LOCK:
+        # Idempotent resume: skip duplicate chunk indexes already stored.
+        if chunk_index in info.get("chunks_map", {}):
+            curr_bytes = temp_path.stat().st_size if temp_path.exists() else 0
+            return {
+                "ok": True,
+                "transfer_id": transfer_id,
+                "chunk_index": chunk_index,
+                "received_chunks": info["received_chunks"],
+                "total_chunks": info["total_chunks"],
+                "received_bytes": curr_bytes,
+                "expected_bytes": info["expected_size"],
+                "percent": round((info["received_chunks"] / max(1, info["total_chunks"])) * 100, 1),
+                "resumed_skip": True,
+            }
+        limit = int(info.get("max_bytes") or max_transfer_bytes())
+        curr = temp_path.stat().st_size if temp_path.exists() else 0
+        if curr + len(raw_bytes) > limit:
+            return {"ok": False, "error": "file_too_large", "max_bytes": limit}
 
     try:
         with open(temp_path, "ab") as f:

@@ -20,6 +20,17 @@ The installer automatically configures an isolated virtual environment and provi
 
 ## Installation Methods
 
+One operator story — pick a **Mode**:
+
+| Mode | What runs | When | Script |
+| :--- | :--- | :--- | :--- |
+| **Attended** | Tray / desktop client | Interactive session | `Install-AIBridge.ps1 -Mode Attended` (wizard default) |
+| **Headless** | Background poller | At user sign-in | `Install-AIBridge.ps1 -Mode Headless` or `install-agent.ps1 -Mode Headless` |
+| **Service** | Background poller | At boot | `install-agent.ps1 -Mode Service` (or `Install-AIBridge.ps1 -Mode Service`) |
+| **Native Service** | Session-0 `ai_bridge_service.exe` + logon desktop agent | Boot + logon | `windows-agent/installer/install-service.ps1` (`sc create`, pipe secret, HKLM Run) |
+
+`-HeadlessService` remains a legacy alias for `-Mode Headless`.
+
 ### Method 1: Graphical Setup Wizard (Recommended)
 Double-click `Setup.bat` in the repository root (or in `deployment/windows/Setup.bat`).
 
@@ -48,14 +59,14 @@ python deployment/windows/installer_gui.py
 ```
 
 ### Method 2: 1-Click PowerShell (Unattended / Scripted)
-`Install-AIBridge.ps1` is a **compatibility shim**: it resolves a tested Python
-and forwards to `installer_gui.py`, which is the only implementation. Its
-parameters are translated to the wizard's own flags.
+`Install-AIBridge.ps1` resolves a tested Python and forwards to `installer_gui.py`
+(Attended/Headless) or `install-agent.ps1` (Service).
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\deployment\windows\Install-AIBridge.ps1 `
     -ControlUrl "https://jxiptvplayer.app" `
     -DeviceToken "YOUR_DEVICE_TOKEN" `
+    -Mode Attended `
     -AutoStart `
     -CreateShortcuts
 ```
@@ -63,13 +74,12 @@ powershell -ExecutionPolicy Bypass -File .\deployment\windows\Install-AIBridge.p
 #### Parameters:
 * `-ControlUrl <string>`: The URL of the control plane (default: `https://jxiptvplayer.app`).
 * `-DeviceToken <string>`: The device enrollment token obtained from the dashboard.
+* `-Mode Attended|Headless|Service`: Unified install mode (see table above).
 * `-InstallDir <string>`: Where the virtualenv is created (default: `%LOCALAPPDATA%\AIBridge`, as in the wizard).
 * `-AutoStart`: Starts the desktop client at sign-in (HKCU Run).
 * `-CreateShortcuts`: Creates Desktop and Start Menu `.lnk` shortcuts.
-* `-HeadlessService`: Installs the background agent so it runs at sign-in under your own account.
 * `-Silent`: Runs completely headlessly without GUI prompts (the wizard's `--silent`).
-* `-HeadlessService`: registers the agent at sign-in as your own limited account.
-  For a boot-time service install use `install-agent.ps1` instead.
+* `-HeadlessService`: Legacy alias for `-Mode Headless`.
 
 ---
 
@@ -120,14 +130,16 @@ python deployment\windows\build_exe.py --all
 Both exes carry Explorer version metadata (`ProductName`, `FileDescription`,
 `FileVersion`) read from `pyproject.toml`.
 
-### Code signing (optional)
+### Code signing (release default)
 
 Version metadata does not create SmartScreen reputation - that requires an
-Authenticode signature. The build signs both executables when signing is
-configured through the environment, and skips the step otherwise:
+Authenticode signature. Dev builds may skip signing when no cert is set.
+**Fleet/release builds set `AIBRIDGE_REQUIRE_SIGN=1`** so unsigned artifacts
+abort the build instead of shipping.
 
 | Variable | Required | Purpose |
 | :--- | :--- | :--- |
+| `AIBRIDGE_REQUIRE_SIGN` | release | `1` / `true` — refuse unsigned `AIBridge-*.exe` artifacts |
 | `AIBRIDGE_SIGN_CERT` | one of these | Path to a `.pfx`/`.p12` containing the certificate and private key |
 | `AIBRIDGE_SIGN_PASSWORD` | no | Password for the PFX (omit when it has none) |
 | `AIBRIDGE_SIGN_THUMBPRINT` | one of these | SHA-1 thumbprint of a certificate in the current user's store; used when `AIBRIDGE_SIGN_CERT` is unset |

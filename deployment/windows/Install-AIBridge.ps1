@@ -8,15 +8,15 @@
 # This shim exists so existing scripted call sites keep working. It accepts the
 # historical parameters, resolves a tested Python, and forwards to the wizard.
 # Behaviour differences worth knowing:
-#   * -HeadlessService registers the agent at SIGN-IN as your own limited
-#     account. The old script created an on-boot task running as your user.
-#     For a boot-time service install, use deployment/windows/install-agent.ps1.
+#   * Prefer -Mode Attended|Headless|Service (unified story). -HeadlessService
+#     remains as an alias for -Mode Headless.
+#   * -Mode Service forwards to install-agent.ps1 for a boot-time poller.
 #   * -LaunchAfterInstall only applies with -Silent/-NoGui; the interactive
 #     wizard asks the operator instead.
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File .\Install-AIBridge.ps1
-#   powershell -ExecutionPolicy Bypass -File .\Install-AIBridge.ps1 -ControlUrl "https://jxiptvplayer.app" -DeviceToken "YOUR_TOKEN" -Silent -HeadlessService -CreateShortcuts -AutoStart
+#   powershell -ExecutionPolicy Bypass -File .\Install-AIBridge.ps1 -ControlUrl "https://…" -DeviceToken "…" -Silent -Mode Headless -CreateShortcuts -AutoStart
 #   powershell -ExecutionPolicy Bypass -File .\Install-AIBridge.ps1 -Diagnose
 # ==============================================================================
 
@@ -25,6 +25,8 @@ param(
     [string]$ControlUrl = "https://jxiptvplayer.app",
     [string]$DeviceToken = "",
     [string]$InstallDir = "",
+    [ValidateSet("Attended", "Headless", "Service")]
+    [string]$Mode = "",
     [switch]$Diagnose,
     [switch]$AutoStart,
     [switch]$CreateShortcuts,
@@ -127,12 +129,27 @@ if (-not $selection) {
     exit 1
 }
 
+# Resolve unified mode (Mode wins; HeadlessService is legacy alias).
+$resolvedMode = if ($Mode) { $Mode } elseif ($HeadlessService) { "Headless" } else { "Attended" }
+
+# Boot-time Service mode uses the dedicated agent installer (scheduled task).
+if ($resolvedMode -eq "Service" -and ($Silent -or $NoGui)) {
+    if (-not (Test-Path $AgentInstaller)) {
+        Write-Host "[FAIL] Service mode requires $AgentInstaller" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "[INFO] Service mode → install-agent.ps1 -Mode Service" -ForegroundColor Cyan
+    & $AgentInstaller -ControlUrl $ControlUrl -DeviceToken $DeviceToken -Mode Service
+    exit $LASTEXITCODE
+}
+
 # --- Forward to the wizard ---------------------------------------------------
 $forward = @($Wizard)
 $interactive = -not ($Silent -or $NoGui)
 
 if ($interactive) {
     Write-Host "[INFO] Launching the AI Bridge setup wizard (canonical installer)." -ForegroundColor Cyan
+    Write-Host "[INFO] Modes: Attended (tray) | Headless (sign-in poller) | Service (boot poller via install-agent.ps1)." -ForegroundColor DarkGray
 } else {
     $forward += @("--silent")
     # Native commands drop zero-length arguments, so an unset token would make
@@ -142,14 +159,12 @@ if ($interactive) {
     if ($InstallDir) { $forward += @("--install-dir", $InstallDir) }
     if (-not $CreateShortcuts) { $forward += "--no-shortcuts" }
     if (-not $AutoStart) { $forward += "--no-autostart" }
-    if (-not $HeadlessService) { $forward += "--no-agent" }
+    if ($resolvedMode -eq "Attended") { $forward += "--no-agent" }
     if ($SkipPackageInstall) { $forward += "--no-packages" }
     if (-not $LaunchAfterInstall) { $forward += "--no-launch" }
 
-    Write-Host "[INFO] Forwarding to the wizard:" -ForegroundColor Cyan
+    Write-Host "[INFO] Forwarding to the wizard (mode=$resolvedMode):" -ForegroundColor Cyan
     Write-Host ("       {0} {1}" -f $selection.Exe, (($selection.Args + $forward) -join " ")) -ForegroundColor DarkGray
-    Write-Host "[INFO] -HeadlessService registers the agent at SIGN-IN as your own limited account." -ForegroundColor DarkGray
-    Write-Host "       For a boot-time service install, use install-agent.ps1 instead." -ForegroundColor DarkGray
 }
 
 Push-Location $RepoRoot

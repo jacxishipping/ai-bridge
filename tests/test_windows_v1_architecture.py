@@ -60,14 +60,23 @@ def test_v1_session_permission_derivation():
     assert p_view["control_mouse"] is False
     assert p_view["control_keyboard"] is False
     assert p_view["execute_commands"] is False
+    assert p_view["clipboard_sync"] is False
 
     # 2. human_control / ai_assisted grants screen & input when desktop_enabled,
     #    but screen-view permission NEVER automatically grants command execution!
+    #    Clipboard is also opt-in (allow_clipboard), not implied by desktop_enabled.
     p_assist = derive_session_permissions("ai_assisted", {"desktop_enabled": True, "allow_shell": False})
     assert p_assist["view_screen"] is True
     assert p_assist["control_mouse"] is True
     assert p_assist["control_keyboard"] is True
     assert p_assist["execute_commands"] is False
+    assert p_assist["clipboard_sync"] is False
+
+    p_clip = derive_session_permissions(
+        "ai_assisted",
+        {"desktop_enabled": True, "allow_shell": False, "allow_clipboard": True},
+    )
+    assert p_clip["clipboard_sync"] is True
 
     # 3. execute_commands is only granted when allow_shell is explicitly enabled in policy
     p_shell = derive_session_permissions("ai_assisted", {"desktop_enabled": True, "allow_shell": True})

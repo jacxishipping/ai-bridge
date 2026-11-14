@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 import threading
 import time
 import uuid
@@ -80,6 +81,13 @@ def derive_session_permissions(mode: str, effective_policy: dict[str, Any]) -> d
     desktop_ok = bool(effective_policy.get("desktop_enabled", True))
     shell_ok = bool(effective_policy.get("allow_shell", False) or effective_policy.get("unrestricted", False))
     writes_ok = bool(effective_policy.get("allow_writes", False))
+    # Clipboard is an explicit session permission — not implied by desktop_enabled alone.
+    # Opt in with policy allow_clipboard / unrestricted, or AI_BRIDGE_ALLOW_CLIPBOARD=1.
+    clipboard_ok = bool(
+        effective_policy.get("allow_clipboard", False)
+        or effective_policy.get("unrestricted", False)
+        or os.environ.get("AI_BRIDGE_ALLOW_CLIPBOARD", "").strip().lower() in ("1", "true", "yes")
+    )
 
     if norm_mode == "view_only":
         return {
@@ -98,7 +106,7 @@ def derive_session_permissions(mode: str, effective_policy: dict[str, Any]) -> d
         "view_screen": True,
         "control_mouse": desktop_ok,
         "control_keyboard": desktop_ok,
-        "clipboard_sync": desktop_ok,
+        "clipboard_sync": bool(desktop_ok and clipboard_ok),
         "file_read": True,
         "file_write": writes_ok,
         "execute_commands": shell_ok,
@@ -697,7 +705,7 @@ def attach_v1_routes(
         if sess is None:
             raise HTTPException(status_code=404, detail="Session not found.")
         perms = sess.get("permissions") or {}
-        if not perms.get("clipboard_sync", True):
+        if not perms.get("clipboard_sync", False):
             raise HTTPException(status_code=403, detail="Clipboard synchronization is disabled for this session.")
         action = str(body.get("action") or "get").lower()
         from .. import tools

@@ -212,6 +212,70 @@ def get_last_capture_metrics() -> dict[str, Any]:
     return dict(_LAST_CAPTURE_METRICS)
 
 
+def get_desktop_session_state() -> dict[str, Any]:
+    """Honest Windows session/desktop capture readiness for operators and the plane.
+
+    Reports lock / UAC / secure-desktop conditions so Live Desktop can show why
+    frames or input stopped, instead of silent black frames.
+    """
+    state: dict[str, Any] = {
+        "platform": platform.system(),
+        "secure_desktop": False,
+        "desktop_name": "",
+        "session_active": True,
+        "capture_blocked": False,
+        "reason": "",
+        "metrics": get_last_capture_metrics(),
+    }
+    if platform.system() != "Windows":
+        state["reason"] = "not_windows"
+        return state
+
+    # Prefer last DXGI metrics when available.
+    if bool(state["metrics"].get("secure_desktop")):
+        state["secure_desktop"] = True
+        state["capture_blocked"] = True
+        state["reason"] = "secure_desktop_active"
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        OpenInputDesktop = user32.OpenInputDesktop
+        OpenInputDesktop.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        OpenInputDesktop.restype = wintypes.HDESK
+        CloseDesktop = user32.CloseDesktop
+        GetUserObjectInformationW = user32.GetUserObjectInformationW
+
+        DESKTOP_READOBJECTS = 0x0001
+        UOI_NAME = 2
+        desk = OpenInputDesktop(0, False, DESKTOP_READOBJECTS)
+        if not desk:
+            state["session_active"] = False
+            state["capture_blocked"] = True
+            state["reason"] = state["reason"] or "no_input_desktop"
+            return state
+        try:
+            buf = ctypes.create_unicode_buffer(256)
+            needed = wintypes.DWORD(0)
+            ok = GetUserObjectInformationW(desk, UOI_NAME, buf, ctypes.sizeof(buf), ctypes.byref(needed))
+            name = buf.value if ok else ""
+            state["desktop_name"] = name
+            lowered = name.lower()
+            if lowered in ("winlogon", "disconnect", "screensaver"):
+                state["secure_desktop"] = True
+                state["capture_blocked"] = True
+                state["reason"] = f"desktop:{name}"
+            elif not state["reason"]:
+                state["reason"] = "interactive"
+        finally:
+            CloseDesktop(desk)
+    except Exception as exc:
+        state["reason"] = f"probe_failed:{exc}"
+    return state
+
+
 def get_monitors() -> list[dict[str, Any]]:
     """Enumerate all connected displays and their bounding rectangles."""
     monitors: list[dict[str, Any]] = []
