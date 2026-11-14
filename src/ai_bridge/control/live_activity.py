@@ -26,7 +26,57 @@ def _enrich_task_row(row: Any) -> dict[str, Any]:
     d["project"] = args.get("_project") or args.get("project")
     d["task_tag"] = args.get("_task") or args.get("task")
     d["role_agent"] = args.get("_role_agent")
+    d["handoff_id"] = args.get("_handoff_id")
+    d["parent_task_id"] = args.get("_parent_task_id")
+    d["step_index"] = args.get("_step_index")
+    d["profile"] = args.get("_profile")
+    d["mode"] = args.get("_mode")
+    d["goal"] = args.get("_goal") or args.get("goal")
     return d
+
+
+def _group_handoffs(items: list[dict[str, Any]], failures: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group active + recent failed tasks by _handoff_id for the live pulse."""
+    buckets: dict[str, dict[str, Any]] = {}
+    for src in (items, failures):
+        for item in src:
+            hid = item.get("handoff_id")
+            if not hid:
+                continue
+            bucket = buckets.setdefault(
+                str(hid),
+                {
+                    "handoff_id": hid,
+                    "profile": item.get("profile"),
+                    "mode": item.get("mode"),
+                    "goal": item.get("goal"),
+                    "roles": [],
+                    "tasks": [],
+                    "blocked_reason": None,
+                    "status": "in_progress",
+                },
+            )
+            role = item.get("role")
+            if role and role not in bucket["roles"]:
+                bucket["roles"].append(role)
+            bucket["tasks"].append(
+                {
+                    "id": item.get("id"),
+                    "tool": item.get("tool"),
+                    "status": item.get("status"),
+                    "role": role,
+                    "step_index": item.get("step_index"),
+                }
+            )
+            st = str(item.get("status") or "")
+            if st in {"failed", "timed_out"} and not bucket["blocked_reason"]:
+                bucket["blocked_reason"] = f"{role or item.get('tool')} {st}"
+                bucket["status"] = "blocked"
+            elif st in {"queued", "running"} and bucket["status"] != "blocked":
+                bucket["status"] = "in_progress"
+                if not bucket["blocked_reason"]:
+                    bucket["blocked_reason"] = f"waiting on {role or item.get('tool')}"
+    return list(buckets.values())[:20]
 
 
 def build_live_activity(conn: Any, app_state: Any, *, limit: int = 50) -> dict[str, Any]:
@@ -79,12 +129,33 @@ def build_live_activity(conn: Any, app_state: Any, *, limit: int = 50) -> dict[s
         if a["consecutive_failures"] and a["status"] != "running"
     ]
 
+    role_agents = []
+    try:
+        role_rows = conn.execute(
+            "SELECT id, name, enabled, status FROM custom_agents WHERE id LIKE 'agent-role-%' ORDER BY name"
+        ).fetchall()
+        role_agents = [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "role": str(r["id"]).removeprefix("agent-role-"),
+                "enabled": bool(r["enabled"]),
+                "status": r["status"],
+            }
+            for r in role_rows
+        ]
+    except Exception:
+        role_agents = []
+
+    handoffs = _group_handoffs(active_items, recent_failures)
     sweep = getattr(app_state, "last_stale_sweep", {}) or {}
     return {
         "items": active_items,
         "recent_failures": recent_failures,
         "running_agents": running_agents,
         "agents_with_errors": agents_with_errors,
+        "role_agents": role_agents,
+        "handoffs": handoffs,
         "emergency_stop": plane_state.is_emergency_stop(conn, app_state),
         "last_stale_sweep": sweep,
         "ts": dbmod.now(),

@@ -377,6 +377,10 @@ export const AiApiHubView: React.FC = () => {
   const [askBusy, setAskBusy] = useState(false);
   const [memoryTargetAgent, setMemoryTargetAgent] = useState<CustomAgent | null>(null);
   const [memoryDraft, setMemoryDraft] = useState("");
+  const [memoryChunks, setMemoryChunks] = useState<{ content: string; project_tag?: string; task_tag?: string; chunk_index?: number }[]>([]);
+  const [memoryProjectFilter, setMemoryProjectFilter] = useState("");
+  const [memoryTaskFilter, setMemoryTaskFilter] = useState("");
+  const [memoryChunkDraft, setMemoryChunkDraft] = useState("");
   const [agentRuns, setAgentRuns] = useState<Record<string, any[]>>({});
   const [agentRunsLoading, setAgentRunsLoading] = useState<Record<string, boolean>>({});
 
@@ -994,9 +998,32 @@ export const AiApiHubView: React.FC = () => {
     }
   };
 
+  const loadMemoryChunks = async (agentId: string, project?: string, task?: string): Promise<void> => {
+    try {
+      const res = await api.agentMemoryChunks(agentId, {
+        project: project || undefined,
+        task: task || undefined,
+        limit: 50,
+      });
+      setMemoryChunks(Array.isArray(res?.chunks) ? res.chunks : []);
+    } catch {
+      setMemoryChunks([]);
+    }
+  };
+
+  const openMemoryEditor = (agent: CustomAgent): void => {
+    setMemoryTargetAgent(agent);
+    setMemoryDraft(agent.memory || "");
+    setMemoryProjectFilter("");
+    setMemoryTaskFilter("");
+    setMemoryChunkDraft("");
+    void loadMemoryChunks(agent.id);
+  };
+
   const handleClearAgentMemory = async (agent: CustomAgent): Promise<void> => {
     setAgentBusy(true);
     try {
+      await api.clearAgentMemoryChunks(agent.id).catch(() => null);
       await api.updateAgent(agent.id, { memory: "" });
       setAgentNotice({ severity: "success", text: `Memory cleared for ${agent.name}.` });
       await loadAgents(true);
@@ -1717,7 +1744,7 @@ export const AiApiHubView: React.FC = () => {
                             color="neutral"
                             size="sm"
                             disabled={agentBusy}
-                            onClick={() => { setMemoryTargetAgent(agent); setMemoryDraft(agent.memory || ""); }}
+                            onClick={() => openMemoryEditor(agent)}
                           >
                             Edit memory
                           </JXButton>
@@ -1739,7 +1766,7 @@ export const AiApiHubView: React.FC = () => {
                           color="neutral"
                           size="sm"
                           disabled={agentBusy}
-                          onClick={() => { setMemoryTargetAgent(agent); setMemoryDraft(""); }}
+                          onClick={() => openMemoryEditor(agent)}
                         >
                           Add pinned memory
                         </JXButton>
@@ -2486,18 +2513,113 @@ export const AiApiHubView: React.FC = () => {
 
       {memoryTargetAgent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Edit agent memory">
-          <div className="w-full max-w-lg rounded-2xl bg-[var(--product-surface)] border border-[var(--product-line)] p-5 space-y-4">
+          <div className="w-full max-w-lg rounded-2xl bg-[var(--product-surface)] border border-[var(--product-line)] p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-[var(--product-text)]">Memory — {memoryTargetAgent.name}</h3>
               <button type="button" onClick={() => setMemoryTargetAgent(null)} className="text-xs text-[var(--product-text-tertiary)]">Close</button>
             </div>
             <textarea
-              rows={8}
+              rows={6}
               value={memoryDraft}
               onChange={(e) => setMemoryDraft(e.target.value)}
               placeholder="Pinned facts, context, or operational notes persisted across cycles..."
               className="w-full rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] p-3 font-mono text-xs text-[var(--product-text)]"
             />
+            <div className="space-y-2 border-t border-[var(--product-line)] pt-3">
+              <p className="text-xs font-medium text-[var(--product-text-secondary)]">Project / task chunks</p>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  className="rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] px-2 py-1 text-xs"
+                  placeholder="project filter"
+                  value={memoryProjectFilter}
+                  onChange={(e) => setMemoryProjectFilter(e.target.value)}
+                />
+                <input
+                  className="rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] px-2 py-1 text-xs"
+                  placeholder="task filter"
+                  value={memoryTaskFilter}
+                  onChange={(e) => setMemoryTaskFilter(e.target.value)}
+                />
+                <JXButton
+                  variant="outlined"
+                  color="neutral"
+                  size="sm"
+                  onClick={() => void loadMemoryChunks(memoryTargetAgent.id, memoryProjectFilter, memoryTaskFilter)}
+                >
+                  Filter
+                </JXButton>
+                <JXButton
+                  variant="outlined"
+                  color="neutral"
+                  size="sm"
+                  disabled={agentBusy}
+                  onClick={async () => {
+                    setAgentBusy(true);
+                    try {
+                      await api.clearAgentMemoryChunks(memoryTargetAgent.id, {
+                        project: memoryProjectFilter || undefined,
+                        task: memoryTaskFilter || undefined,
+                      });
+                      await loadMemoryChunks(memoryTargetAgent.id, memoryProjectFilter, memoryTaskFilter);
+                    } catch (error) {
+                      setAgentNotice({ severity: "error", text: describeError(error) });
+                    } finally {
+                      setAgentBusy(false);
+                    }
+                  }}
+                >
+                  Clear chunks
+                </JXButton>
+              </div>
+              <ul className="max-h-40 space-y-1 overflow-auto text-xs text-[var(--product-text-tertiary)]">
+                {memoryChunks.length === 0 ? (
+                  <li>No chunks yet.</li>
+                ) : (
+                  memoryChunks.map((c, i) => (
+                    <li key={`${c.chunk_index ?? i}-${i}`} className="rounded bg-[var(--product-canvas)] px-2 py-1">
+                      {(c.project_tag || c.task_tag) && (
+                        <span className="mr-2 text-[var(--product-text-secondary)]">
+                          {[c.project_tag && `p:${c.project_tag}`, c.task_tag && `t:${c.task_tag}`].filter(Boolean).join(" ")}
+                        </span>
+                      )}
+                      {c.content}
+                    </li>
+                  ))
+                )}
+              </ul>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  className="min-w-[12rem] flex-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] px-2 py-1 text-xs"
+                  placeholder="New chunk fact"
+                  value={memoryChunkDraft}
+                  onChange={(e) => setMemoryChunkDraft(e.target.value)}
+                />
+                <JXButton
+                  variant="contained"
+                  color="primary"
+                  size="sm"
+                  disabled={agentBusy || !memoryChunkDraft.trim()}
+                  onClick={async () => {
+                    setAgentBusy(true);
+                    try {
+                      await api.appendAgentMemoryChunk(memoryTargetAgent.id, {
+                        content: memoryChunkDraft.trim(),
+                        project: memoryProjectFilter || undefined,
+                        task: memoryTaskFilter || undefined,
+                      });
+                      setMemoryChunkDraft("");
+                      await loadMemoryChunks(memoryTargetAgent.id, memoryProjectFilter, memoryTaskFilter);
+                    } catch (error) {
+                      setAgentNotice({ severity: "error", text: describeError(error) });
+                    } finally {
+                      setAgentBusy(false);
+                    }
+                  }}
+                >
+                  Append chunk
+                </JXButton>
+              </div>
+            </div>
             <div className="flex justify-end gap-2">
               <JXButton variant="outlined" color="neutral" size="sm" onClick={() => setMemoryTargetAgent(null)}>Cancel</JXButton>
               <JXButton variant="contained" color="primary" size="sm" disabled={agentBusy} onClick={() => void handleSaveAgentMemory()}>

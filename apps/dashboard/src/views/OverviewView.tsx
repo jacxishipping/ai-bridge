@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ArrowRight, ListChecks, Server, ShieldCheck } from "lucide-react";
 import {
   BentoGrid,
@@ -10,7 +10,7 @@ import {
   ProductMetricCard,
   ProductModePill,
 } from "../ui";
-import { token, sessionToken } from "../api";
+import { api, token, sessionToken } from "../api";
 import { PageEmpty } from "../components/PageEmpty";
 import { Freshness } from "../components/Freshness";
 import { useDashboardStore } from "../state/dashboardStore";
@@ -22,10 +22,39 @@ export const OverviewView: React.FC = () => {
   const approvals = useDashboardStore((s) => s.approvals);
   const navigate = useDashboardStore((s) => s.setCurrentView);
   const [selectedTask, setSelectedTask] = useState<TaskInvocation | null>(null);
+  const [metricsSummary, setMetricsSummary] = useState<{
+    completed_1h?: number;
+    failed_1h?: number;
+    queue_depth?: number;
+    stale_device_count?: number;
+    avg_task_duration_sec?: number | null;
+  } | null>(null);
+  const [recentFailures, setRecentFailures] = useState<{ id: string; tool: string; role?: string }[]>([]);
   const isLive = Boolean(token() || sessionToken());
   const online = devices.filter((device) => device.status === "online").length;
   const active = tasks.filter((task) => task.status === "running" || task.status === "pending").length;
   const pending = approvals.filter((approval) => approval.status === "pending").length;
+
+  useEffect(() => {
+    if (!isLive) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [summary, activity] = await Promise.all([
+          api.metricsSummary().catch(() => null),
+          api.liveActivity(20).catch(() => null),
+        ]);
+        if (cancelled) return;
+        if (summary) setMetricsSummary(summary);
+        if (activity?.recent_failures) setRecentFailures(activity.recent_failures.slice(0, 5));
+      } catch {
+        /* keep store KPIs */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLive]);
 
   return <div className="space-y-5">
     <header className="flex flex-wrap items-center justify-between gap-4">
@@ -59,7 +88,7 @@ export const OverviewView: React.FC = () => {
     )}
 
     <BentoGrid>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <ProductMetricCard
           label="Devices online"
           value={`${online} / ${devices.length}`}
@@ -81,8 +110,70 @@ export const OverviewView: React.FC = () => {
           trend={pending > 0 ? "down" : "flat"}
           onClick={() => navigate("human-approvals")}
         />
+        <ProductMetricCard
+          label="Completed (1h)"
+          value={metricsSummary?.completed_1h ?? "—"}
+          hint="Control-plane throughput"
+          trend="flat"
+          onClick={() => navigate("task-queue-and-vision")}
+        />
+        <ProductMetricCard
+          label="Failed (1h)"
+          value={metricsSummary?.failed_1h ?? "—"}
+          hint={
+            metricsSummary?.stale_device_count
+              ? `${metricsSummary.stale_device_count} stale heartbeats`
+              : "Recent failures"
+          }
+          trend={(metricsSummary?.failed_1h ?? 0) > 0 ? "down" : "flat"}
+          onClick={() => navigate("live")}
+        />
+        <ProductMetricCard
+          label="Queue depth"
+          value={metricsSummary?.queue_depth ?? "—"}
+          hint={
+            metricsSummary?.avg_task_duration_sec != null
+              ? `avg ${metricsSummary.avg_task_duration_sec}s`
+              : "Queued tasks"
+          }
+          trend="flat"
+          onClick={() => navigate("task-queue-and-vision")}
+        />
       </div>
     </BentoGrid>
+
+    {isLive && recentFailures.length > 0 && (
+      <ProductGlass className="p-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-[var(--product-text)]">Recent failures</h2>
+          <JXButton
+            variant="outlined"
+            color="neutral"
+            size="sm"
+            onClick={async () => {
+              const role = recentFailures.find((f) => f.role)?.role || "developer";
+              try {
+                await api.supervisorRecover({ role });
+                const activity = await api.liveActivity(20).catch(() => null);
+                if (activity?.recent_failures) setRecentFailures(activity.recent_failures.slice(0, 5));
+              } catch {
+                /* ignore */
+              }
+            }}
+          >
+            Recover failed role
+          </JXButton>
+        </div>
+        <ul className="divide-y divide-[var(--product-line)]/80 text-sm">
+          {recentFailures.map((f) => (
+            <li key={f.id} className="flex flex-wrap justify-between gap-2 py-2 text-[var(--product-text-tertiary)]">
+              <span className="break-all text-[var(--product-text-secondary)]">{f.tool}</span>
+              <span>{f.role || f.id}</span>
+            </li>
+          ))}
+        </ul>
+      </ProductGlass>
+    )}
 
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
       <ProductGlass className="p-4 lg:col-span-2">

@@ -105,7 +105,7 @@ def test_supervisor_handoff_audited(tmp_path):
     dev_id = reg["device_id"]
     res = client.post(
         "/api/supervisor/handoff",
-        json={"device_id": dev_id, "goal": "harden phase 8"},
+        json={"device_id": dev_id, "goal": "harden phase 8", "mode": "fanout"},
         headers=headers,
     )
     assert res.status_code == 200

@@ -147,6 +147,32 @@ export const api = {
   tasks: (deviceId?: string) => call(`/api/tasks${deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ""}`),
   taskHistory: (params: { q: string; status: string; device_id: string; tenant: string; page: number }) =>
     call(`/api/tasks/history?${new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)]))}`),
+  taskEvents: (taskId: string, limit = 50) =>
+    call(`/api/tasks/${encodeURIComponent(taskId)}/events?limit=${limit}`),
+  metricsSummary: () => call("/api/metrics/summary"),
+  agentMemoryChunks: (agentId: string, params?: { project?: string; task?: string; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.project) q.set("project", params.project);
+    if (params?.task) q.set("task", params.task);
+    if (params?.limit != null) q.set("limit", String(params.limit));
+    const qs = q.toString();
+    return call(`/api/agents/${encodeURIComponent(agentId)}/memory/chunks${qs ? `?${qs}` : ""}`);
+  },
+  appendAgentMemoryChunk: (agentId: string, body: { content: string; project?: string; task?: string }) =>
+    call(`/api/agents/${encodeURIComponent(agentId)}/memory/chunks`, "POST", body),
+  clearAgentMemoryChunks: (agentId: string, params?: { project?: string; task?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.project) q.set("project", params.project);
+    if (params?.task) q.set("task", params.task);
+    const qs = q.toString();
+    return call(`/api/agents/${encodeURIComponent(agentId)}/memory/chunks${qs ? `?${qs}` : ""}`, "DELETE");
+  },
+  liveActivityStreamUrl: () => {
+    const st = sessionToken();
+    const at = token();
+    const authQuery = st ? `?session_token=${encodeURIComponent(st)}` : at ? `?token=${encodeURIComponent(at)}` : "";
+    return `${BASE}/api/activity/stream${authQuery}`;
+  },
   taskDetail: (id: string) => call(`/api/tasks/${id}`),
   submitTask: (device_id: string, tool: string, args: any = {}, tenant?: string, requestKey = crypto.randomUUID()) =>
     call("/api/tasks", "POST", { device_id, tool, args, tenant }, { "Idempotency-Key": requestKey }),
@@ -275,6 +301,20 @@ export const api = {
   fleetTelemetry: () => call("/api/fleet/telemetry"),
   fleetHealth: () => call("/api/fleet/health"),
   liveActivity: (limit = 40) => call(`/api/activity/live?limit=${limit}`),
+  roles: () => call("/api/roles"),
+  enableRole: (roleId: string, enabled = true) =>
+    call(`/api/roles/${encodeURIComponent(roleId)}/enable?enabled=${enabled ? "true" : "false"}`, "POST", {}),
+  supervisorHandoff: (body: {
+    device_id: string;
+    goal?: string;
+    tenant?: string;
+    profile?: string;
+    mode?: "gated" | "fanout";
+  }) => call("/api/supervisor/handoff", "POST", body),
+  supervisorHandoffStatus: (handoffId: string) =>
+    call(`/api/supervisor/handoffs/${encodeURIComponent(handoffId)}`),
+  supervisorRecover: (body: { role: string; device_id?: string }) =>
+    call("/api/supervisor/recover", "POST", body),
   deviceTelemetry: (id: string, limit = 50) => call(`/api/devices/${encodeURIComponent(id)}/telemetry?limit=${limit}`),
   fleetBroadcast: (body: { tool: string; args?: any; target_os?: string; target_device_ids?: string[] }) =>
     call("/api/fleet/broadcast", "POST", body),

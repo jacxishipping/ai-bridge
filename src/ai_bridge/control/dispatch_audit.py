@@ -13,6 +13,8 @@ _AUDIT_TOOL_NAMES = frozenset(
     {
         "supervisor_delegate_role",
         "supervisor_enqueue_handoff",
+        "supervisor_recover_role_tasks",
+        "agent_run_role",
     }
 )
 

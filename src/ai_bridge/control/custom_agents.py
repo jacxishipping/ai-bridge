@@ -182,10 +182,17 @@ _AGENT_NATIVE_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "agent_remember",
-            "description": "Persist an important fact, observation, or learned rule into long-term agent memory so it survives future cycles.",
+            "description": (
+                "Persist an important fact, observation, or learned rule into long-term agent memory "
+                "so it survives future cycles. Optionally tag with project and task for scoped recall."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {"fact": {"type": "string", "description": "Concise fact to remember."}},
+                "properties": {
+                    "fact": {"type": "string", "description": "Concise fact to remember."},
+                    "project": {"type": "string", "description": "Project tag for scoped memory."},
+                    "task": {"type": "string", "description": "Task / handoff tag for scoped memory."},
+                },
                 "required": ["fact"],
             },
         },
@@ -227,7 +234,10 @@ _AGENT_NATIVE_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "agent_delegate",
-            "description": "Delegate a subtask to another specialized custom agent (by id or name) and receive its response.",
+            "description": (
+                "Delegate a subtask to another specialized custom agent (by id, name, or role). "
+                "Use queue=true (default for Supervisor) to enqueue on the shared task system."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -237,6 +247,11 @@ _AGENT_NATIVE_TOOLS: list[dict[str, Any]] = [
                         "description": "Role catalog id (supervisor, planner, developer, ...) maps to agent-role-*.",
                     },
                     "prompt": {"type": "string", "description": "Task or question for the target agent."},
+                    "queue": {
+                        "type": "boolean",
+                        "description": "When true, enqueue agent_run_role on the shared task queue instead of nested in-process execution.",
+                    },
+                    "device": {"type": "string", "description": "Device id for queued role runs (optional)."},
                 },
                 "required": ["prompt"],
             },
@@ -287,13 +302,69 @@ def _peer_agents_block(conn: Any, agent: dict[str, Any]) -> str:
         return ""
 
 
-def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]], mcp_servers: list[dict[str, Any]] | None = None, fleet_context: str = "", peer_agents: str = "") -> str:
+def _infer_memory_tags(conn: Any, agent: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Best-effort project/task tags from recent role-tagged tasks."""
+    try:
+        agent_id = str(agent.get("id") or "")
+        rows = conn.execute(
+            "SELECT args_json FROM tasks ORDER BY updated_at DESC LIMIT 40"
+        ).fetchall()
+        for row in rows:
+            try:
+                args = json.loads(row["args_json"] or "{}")
+            except Exception:
+                continue
+            if not isinstance(args, dict):
+                continue
+            role_agent = str(args.get("_role_agent") or "")
+            if role_agent and agent_id and role_agent != agent_id:
+                continue
+            project = str(args.get("_project") or args.get("project") or "").strip() or None
+            task = (
+                str(args.get("_task") or args.get("task") or args.get("_handoff_id") or "").strip() or None
+            )
+            if project or task:
+                return project, task
+    except Exception:
+        pass
+    return None, None
+
+
+def _system_prompt(
+    agent: dict[str, Any],
+    devices: list[dict[str, Any]],
+    mcp_servers: list[dict[str, Any]] | None = None,
+    fleet_context: str = "",
+    peer_agents: str = "",
+    conn: Any | None = None,
+    project_tag: str | None = None,
+    task_tag: str | None = None,
+) -> str:
     listing = "\n".join(
         f"- {d.get('name')} (id {d['id']}, {d.get('os') or 'unknown OS'}, {d.get('status') or 'unknown'})"
         for d in devices
     ) or "- local (the control-plane host)"
     memory = str(agent.get("memory") or "").strip()
     memory_block = f"\nMemory from previous cycles (most recent last):\n{memory}\n" if memory else ""
+    chunk_block = ""
+    if conn is not None:
+        try:
+            from . import agent_memory
+
+            chunks = agent_memory.query_agent_memory(
+                conn,
+                str(agent.get("id") or ""),
+                project_tag=project_tag,
+                task_tag=task_tag,
+                limit=12,
+            )
+            if not chunks and (project_tag or task_tag):
+                chunks = agent_memory.load_agent_memory(conn, str(agent.get("id") or ""), limit=8)
+            chunk_block = agent_memory.format_chunks_for_prompt(chunks)
+            if chunk_block:
+                chunk_block = "\n" + chunk_block
+        except Exception:
+            chunk_block = ""
 
     mcp_block = ""
     if mcp_servers:
@@ -324,6 +395,7 @@ def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]], mcp_ser
         f"{peer_agents}"
         f"{fleet_context}"
         f"{memory_block}"
+        f"{chunk_block}"
         "Rules:\n"
         "1. Move the objective forward every cycle; do not repeat work already completed.\n"
         "2. Prefer read-only inspection before changes, and verify what you changed.\n"
@@ -396,13 +468,26 @@ def execute_agent(
 
     fleet_ctx = _fleet_context_block(conn, devices)
     peer_ctx = _peer_agents_block(conn, agent) if _depth < 2 else ""
+    project_tag, task_tag = _infer_memory_tags(conn, agent)
     default_prompt = (
         "Run one work cycle now "
         f"({time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC). "
         "Act on the objective, then summarise what you did."
     )
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": _system_prompt(agent, devices, mcp_servers, fleet_ctx, peer_ctx)},
+        {
+            "role": "system",
+            "content": _system_prompt(
+                agent,
+                devices,
+                mcp_servers,
+                fleet_ctx,
+                peer_ctx,
+                conn=conn,
+                project_tag=project_tag,
+                task_tag=task_tag,
+            ),
+        },
         {"role": "user", "content": (user_prompt or "").strip() or default_prompt},
     ]
     steps: list[dict[str, Any]] = []
@@ -503,21 +588,28 @@ def execute_agent(
                                 updated_mem = updated_mem[-8000:]
                             agent["memory"] = updated_mem
                             conn.execute("UPDATE custom_agents SET memory=?, updated_at=? WHERE id=?", (updated_mem, _now(), agent["id"]))
+                            proj = str(tool_args.get("project") or tool_args.get("_project") or "").strip() or None
+                            task_t = str(tool_args.get("task") or tool_args.get("_task") or "").strip() or None
+                            if not proj and not task_t:
+                                inferred_p, inferred_t = _infer_memory_tags(conn, agent)
+                                proj = proj or inferred_p
+                                task_t = task_t or inferred_t
+                            chunk = None
                             try:
                                 from . import agent_memory
 
-                                agent_memory.append_memory_chunk(
+                                chunk = agent_memory.append_memory_chunk(
                                     conn,
                                     agent["id"],
                                     fact,
                                     tenant=agent.get("tenant", "default"),
-                                    project_tag=str(tool_args.get("project") or tool_args.get("_project") or "").strip() or None,
-                                    task_tag=str(tool_args.get("task") or tool_args.get("_task") or "").strip() or None,
+                                    project_tag=proj,
+                                    task_tag=task_t,
                                 )
                             except Exception:
                                 pass
                             conn.commit()
-                            result = {"ok": True, "remembered": fact}
+                            result = {"ok": True, "remembered": fact, "chunk": chunk, "project": proj, "task": task_t}
                     elif tool_name == "agent_notify":
                         title = str(tool_args.get("title") or f"Agent {agent.get('name')}").strip()
                         msg = str(tool_args.get("message") or "").strip()
@@ -531,16 +623,32 @@ def execute_agent(
                             result = {"ok": False, "error": "Maximum agent delegation depth (2) reached."}
                         else:
                             from .role_catalog import ROLES
+                            from . import supervisor as supervisormod
 
-                            target_key = str(tool_args.get("target_agent") or tool_args.get("role") or "").strip()
-                            sub_prompt = str(tool_args.get("prompt") or "").strip()
+                            role_arg = str(tool_args.get("role") or "").strip().lower()
+                            target_key = str(tool_args.get("target_agent") or role_arg or "").strip()
+                            sub_prompt = str(tool_args.get("prompt") or tool_args.get("message") or "").strip()
+                            is_supervisor = str(agent.get("id") or "").startswith("agent-role-supervisor") or str(
+                                agent.get("name") or ""
+                            ).lower() == "supervisor"
+                            queue_raw = tool_args.get("queue")
+                            if queue_raw is None:
+                                use_queue = bool(is_supervisor)
+                            else:
+                                use_queue = bool(queue_raw)
                             if not target_key:
                                 result = {"ok": False, "error": "target_agent or role is required."}
                             elif not sub_prompt:
                                 result = {"ok": False, "error": "prompt is required."}
                             else:
+                                role_for_queue = role_arg if role_arg in ROLES else None
                                 if target_key in ROLES:
+                                    role_for_queue = target_key
                                     target_key = f"agent-role-{target_key}"
+                                elif target_key.startswith("agent-role-"):
+                                    maybe = target_key.removeprefix("agent-role-")
+                                    if maybe in ROLES:
+                                        role_for_queue = maybe
                                 t_row = conn.execute(
                                     "SELECT * FROM custom_agents WHERE id=? OR LOWER(name)=LOWER(?) LIMIT 1",
                                     (target_key, target_key),
@@ -549,12 +657,41 @@ def execute_agent(
                                     result = {"ok": False, "error": f"Target agent '{target_key}' not found."}
                                 elif t_row["id"] == agent.get("id"):
                                     result = {"ok": False, "error": "Cannot delegate to self."}
+                                elif use_queue:
+                                    if not role_for_queue:
+                                        result = {
+                                            "ok": False,
+                                            "error": "queue=true requires a role catalog id (role=planner|developer|...).",
+                                        }
+                                    else:
+                                        q_dev = _resolve_device(devices, tool_args.get("device")) or (
+                                            devices[0]["id"] if devices else "local"
+                                        )
+                                        queued = supervisormod.enqueue_agent_run_role(
+                                            conn,
+                                            device_id=q_dev,
+                                            tenant=tenant,
+                                            role=role_for_queue,
+                                            prompt=sub_prompt,
+                                            parent_task_id=None,
+                                            goal=sub_prompt[:200],
+                                        )
+                                        result = {
+                                            "ok": True,
+                                            "queued": True,
+                                            "task_id": queued.get("task_id"),
+                                            "handoff_id": queued.get("handoff_id"),
+                                            "agent_id": t_row["id"],
+                                            "agent_name": t_row["name"],
+                                            "role": role_for_queue,
+                                        }
                                 else:
                                     sub_res = execute_agent(
                                         conn, dict(t_row), tool_executor, user_prompt=sub_prompt, _depth=_depth + 1
                                     )
                                     result = {
                                         "ok": True,
+                                        "queued": False,
                                         "agent_id": t_row["id"],
                                         "agent_name": t_row["name"],
                                         "response": sub_res.get("response"),
@@ -749,6 +886,7 @@ class AgentRunner:
             try:
                 if self._is_paused and self._is_paused():
                     continue
+                self._claim_agent_run_role_tasks()
                 now = _now()
                 due = self._conn.execute(
                     "SELECT * FROM custom_agents WHERE enabled=1 AND next_run_at<=? "
@@ -772,6 +910,101 @@ class AgentRunner:
                     ).start()
             except Exception:  # noqa: BLE001 - the runner must survive transient DB errors
                 time.sleep(1)
+
+    def _claim_agent_run_role_tasks(self) -> None:
+        """Claim shared-queue agent_run_role tasks and execute the target role agent."""
+        rows = self._conn.execute(
+            "SELECT * FROM tasks WHERE tool='agent_run_role' AND status='queued' "
+            "ORDER BY created_at ASC LIMIT 3"
+        ).fetchall()
+        for row in rows:
+            task = dict(row)
+            task_id = task["id"]
+            now = _now()
+            # Optimistic claim
+            cur = self._conn.execute(
+                "UPDATE tasks SET status='running', updated_at=? WHERE id=? AND status='queued'",
+                (now, task_id),
+            )
+            self._conn.commit()
+            if cur.rowcount == 0:
+                continue
+            threading.Thread(
+                target=self._run_queued_role_task,
+                args=(task,),
+                name=f"agent-run-role-{task_id}",
+                daemon=True,
+            ).start()
+
+    def _run_queued_role_task(self, task: dict[str, Any]) -> None:
+        task_id = str(task.get("id") or "")
+        try:
+            try:
+                args = json.loads(task.get("args_json") or "{}")
+            except Exception:
+                args = {}
+            if not isinstance(args, dict):
+                args = {}
+            role = str(args.get("role") or args.get("_role") or "").strip().lower()
+            prompt = str(args.get("prompt") or "").strip()
+            target = str(args.get("target_agent") or (f"agent-role-{role}" if role else "")).strip()
+            if not prompt or not target:
+                self._conn.execute(
+                    "UPDATE tasks SET status='failed', result=?, updated_at=? WHERE id=?",
+                    (json.dumps({"ok": False, "error": "role/prompt required"}), _now(), task_id),
+                )
+                self._conn.commit()
+                return
+            t_row = self._conn.execute(
+                "SELECT * FROM custom_agents WHERE id=? OR LOWER(name)=LOWER(?) LIMIT 1",
+                (target, target),
+            ).fetchone()
+            if t_row is None:
+                self._conn.execute(
+                    "UPDATE tasks SET status='failed', result=?, updated_at=? WHERE id=?",
+                    (json.dumps({"ok": False, "error": f"agent '{target}' not found"}), _now(), task_id),
+                )
+                self._conn.commit()
+                return
+            # Temporarily ensure the role agent can run even if disabled for scheduled ticks.
+            agent_dict = dict(t_row)
+            agent_dict["enabled"] = 1
+            result = execute_agent(self._conn, agent_dict, self._tool_executor, user_prompt=prompt, _depth=1)
+            payload = {
+                "ok": True,
+                "agent_id": agent_dict.get("id"),
+                "agent_name": agent_dict.get("name"),
+                "role": role,
+                "response": result.get("response"),
+                "steps_count": len(result.get("steps") or []),
+            }
+            self._conn.execute(
+                "UPDATE tasks SET status='completed', result=?, updated_at=? WHERE id=?",
+                (json.dumps(payload, default=str)[:50000], _now(), task_id),
+            )
+            self._conn.commit()
+            try:
+                from . import supervisor as supervisormod
+
+                fresh = self._conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+                if fresh is not None:
+                    supervisormod.advance_handoff(self._conn, fresh, status="completed")
+            except Exception:
+                pass
+        except Exception as exc:  # noqa: BLE001
+            try:
+                self._conn.execute(
+                    "UPDATE tasks SET status='failed', result=?, updated_at=? WHERE id=?",
+                    (json.dumps({"ok": False, "error": str(exc)})[:5000], _now(), task_id),
+                )
+                self._conn.commit()
+                from . import supervisor as supervisormod
+
+                fresh = self._conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+                if fresh is not None:
+                    supervisormod.advance_handoff(self._conn, fresh, status="failed")
+            except Exception:
+                pass
 
     def _run_one(self, agent: dict[str, Any]) -> None:
         agent_id = str(agent["id"])
@@ -868,6 +1101,20 @@ class AgentRunner:
             new_memory = (existing_memory + "\n" + entry).strip() if existing_memory else entry
             if len(new_memory) > 8000:
                 new_memory = new_memory[-8000:]
+            try:
+                from . import agent_memory
+
+                proj, task_t = _infer_memory_tags(self._conn, fresh)
+                agent_memory.append_memory_chunk(
+                    self._conn,
+                    agent_id,
+                    entry,
+                    tenant=tenant,
+                    project_tag=proj,
+                    task_tag=task_t,
+                )
+            except Exception:
+                pass
             self._conn.execute(
                 "UPDATE custom_agents SET status='idle', last_run_at=?, last_result=?, last_error='', "
                 "last_skip_reason='', memory=?, consecutive_failures=0, run_count=run_count+1, updated_at=? WHERE id=?",
@@ -1088,6 +1335,13 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
                 agent_id,
             ),
         )
+        if body.memory is not None and not str(body.memory or "").strip():
+            try:
+                from . import agent_memory
+
+                agent_memory.clear_agent_memory(conn, agent_id)
+            except Exception:
+                pass
         conn.commit()
         audit(actor, "", "update_custom_agent", {"agent_id": agent_id, "enabled": bool(enabled)}, "allowed")
         updated = conn.execute("SELECT * FROM custom_agents WHERE id=?", (agent_id,)).fetchone()
@@ -1104,6 +1358,12 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
         if not row:
             raise HTTPException(status_code=404, detail="Agent not found.")
         conn.execute("DELETE FROM agent_runs WHERE agent_id=?", (agent_id,))
+        try:
+            from . import agent_memory
+
+            agent_memory.clear_agent_memory(conn, agent_id)
+        except Exception:
+            pass
         conn.execute("DELETE FROM custom_agents WHERE id=?", (agent_id,))
         conn.commit()
         audit(actor, "", "delete_custom_agent", {"agent_id": agent_id}, "allowed")
@@ -1171,6 +1431,82 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
         )
         return {"ok": True, "agent_id": agent_id, "chunks": chunks, "project": project, "task": task}
 
+    @app.post("/api/agents/{agent_id}/memory/chunks")
+    def append_agent_memory_chunk(
+        agent_id: str,
+        body: MemoryChunkIn,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        row = conn.execute("SELECT id, tenant, memory FROM custom_agents WHERE id=?", (agent_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Agent not found.")
+        content = (body.content or "").strip()
+        if not content:
+            raise HTTPException(status_code=400, detail="content is required.")
+        from . import agent_memory
+
+        chunk = agent_memory.append_memory_chunk(
+            conn,
+            agent_id,
+            content,
+            tenant=str(row["tenant"] or "default"),
+            project_tag=body.project,
+            task_tag=body.task,
+        )
+        # Mirror into legacy column for operators who only edit the text field.
+        cur_mem = str(row["memory"] or "").strip()
+        pinned = f"[PINNED {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}] {content}"
+        updated_mem = (cur_mem + "\n" + pinned).strip() if cur_mem else pinned
+        if len(updated_mem) > 8000:
+            updated_mem = updated_mem[-8000:]
+        conn.execute(
+            "UPDATE custom_agents SET memory=?, updated_at=? WHERE id=?",
+            (updated_mem, _now(), agent_id),
+        )
+        conn.commit()
+        audit(
+            actor,
+            "",
+            "agent_memory_append",
+            {"agent_id": agent_id, "project": body.project, "task": body.task},
+            "allowed",
+        )
+        return {"ok": True, "agent_id": agent_id, "chunk": chunk}
+
+    @app.delete("/api/agents/{agent_id}/memory/chunks")
+    def clear_agent_memory_chunks(
+        agent_id: str,
+        project: str | None = None,
+        task: str | None = None,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        row = conn.execute("SELECT id FROM custom_agents WHERE id=?", (agent_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Agent not found.")
+        from . import agent_memory
+
+        cleared = agent_memory.clear_agent_memory(
+            conn, agent_id, project_tag=project, task_tag=task
+        )
+        if not project and not task:
+            conn.execute(
+                "UPDATE custom_agents SET memory='', updated_at=? WHERE id=?",
+                (_now(), agent_id),
+            )
+            conn.commit()
+        audit(
+            actor,
+            "",
+            "agent_memory_clear",
+            {"agent_id": agent_id, "deleted": cleared.get("deleted"), "project": project, "task": task},
+            "allowed",
+        )
+        return cleared
+
     @app.post("/api/agents/{agent_id}/ask")
     def ask_agent(
         agent_id: str,
@@ -1214,6 +1550,12 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
 
 class AgentAskIn(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
+
+
+class MemoryChunkIn(BaseModel):
+    content: str = Field(min_length=1, max_length=500_000)
+    project: str | None = None
+    task: str | None = None
 
 
 class AgentIn(BaseModel):

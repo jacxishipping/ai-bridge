@@ -2,23 +2,29 @@
 from __future__ import annotations
 
 import json
-import uuid
 from typing import Any
 
 from . import db as dbmod
+
+# Roles that are enabled on seed so peer discovery / Supervisor handoffs work.
+_ENABLED_ON_SEED = frozenset({"supervisor", "planner"})
 
 ROLES: dict[str, dict[str, Any]] = {
     "supervisor": {
         "name": "Supervisor",
         "instruction": (
             "You coordinate other agents. Pause unsafe work, delegate subtasks, "
-            "and require approvals before tier-4 actions."
+            "and require approvals before tier-4 actions. Prefer queue-backed "
+            "agent_delegate and supervisor_enqueue_handoff so peers share the task system."
         ),
         "allowed_tools": [
             "agent_delegate",
+            "agent_run_role",
             "agent_run_workflow",
             "agent_notify",
             "supervisor_delegate_role",
+            "supervisor_enqueue_handoff",
+            "supervisor_recover_role_tasks",
             "dev_workspace_plan",
             "get_system_info",
             "list_processes",
@@ -34,6 +40,7 @@ ROLES: dict[str, dict[str, Any]] = {
             "search_workspace",
             "list_workspace",
             "agent_remember",
+            "supervisor_enqueue_handoff",
         ],
     },
     "researcher": {
@@ -75,7 +82,17 @@ ROLES: dict[str, dict[str, Any]] = {
     "computer_operator": {
         "name": "Computer Operator",
         "instruction": "Operate the desktop with grounding screenshots and bounded UI tools.",
-        "allowed_tools": ["desktop_get_screenshot", "desktop_click", "desktop_keyboard", "set_of_marks_screenshot"],
+        "allowed_tools": [
+            "capture_desktop_screenshot",
+            "capture_desktop_frame",
+            "desktop_get_screenshot",
+            "desktop_click",
+            "desktop_keyboard",
+            "click_element",
+            "set_of_marks_screenshot",
+            "desktop_verify_action",
+            "list_ui_elements",
+        ],
     },
     "browser_operator": {
         "name": "Browser Operator",
@@ -115,12 +132,19 @@ ROLES: dict[str, dict[str, Any]] = {
             "browser_compare_screenshot",
             "browser_diagnostics",
             "browser_set_viewport",
+            "desktop_verify_action",
         ],
     },
     "security_auditor": {
         "name": "Security Auditor",
         "instruction": "Review policy, audit trails, and risky tool usage patterns.",
-        "allowed_tools": ["search_workspace", "git_diff", "get_recent_logs", "agent_notify"],
+        "allowed_tools": [
+            "search_workspace",
+            "git_diff",
+            "get_recent_logs",
+            "agent_notify",
+            "browser_diagnostics",
+        ],
     },
     "recovery": {
         "name": "Recovery",
@@ -131,13 +155,40 @@ ROLES: dict[str, dict[str, Any]] = {
             "list_processes",
             "create_backup",
             "supervisor_delegate_role",
+            "supervisor_recover_role_tasks",
+            "supervisor_enqueue_handoff",
         ],
     },
 }
 
 
+def list_roles(conn: Any | None = None) -> list[dict[str, Any]]:
+    """Catalog roles with optional enabled state from custom_agents."""
+    enabled_map: dict[str, bool] = {}
+    if conn is not None:
+        rows = conn.execute(
+            "SELECT id, enabled FROM custom_agents WHERE id LIKE 'agent-role-%'"
+        ).fetchall()
+        for row in rows:
+            rid = str(row["id"] or "").removeprefix("agent-role-")
+            enabled_map[rid] = bool(row["enabled"])
+    out = []
+    for role_id, spec in ROLES.items():
+        out.append(
+            {
+                "id": role_id,
+                "name": spec["name"],
+                "instruction": spec["instruction"],
+                "allowed_tools": list(spec.get("allowed_tools") or []),
+                "agent_id": f"agent-role-{role_id}",
+                "enabled": enabled_map.get(role_id, role_id in _ENABLED_ON_SEED),
+            }
+        )
+    return out
+
+
 def seed_role_catalog(conn: Any, *, tenant: str = "default") -> int:
-    """Insert workflow templates + disabled custom agent stubs for each role (idempotent)."""
+    """Insert/update workflow templates + custom agent stubs for each role (idempotent)."""
     now = dbmod.now()
     created = 0
     for role_id, spec in ROLES.items():
@@ -147,7 +198,7 @@ def seed_role_catalog(conn: Any, *, tenant: str = "default") -> int:
             steps = [
                 {
                     "tool": "agent_delegate",
-                    "args": {"role": role_id, "message": f"Run as {spec['name']} role."},
+                    "args": {"role": role_id, "message": f"Run as {spec['name']} role.", "queue": True},
                 }
             ]
             conn.execute(
@@ -165,6 +216,7 @@ def seed_role_catalog(conn: Any, *, tenant: str = "default") -> int:
             )
             created += 1
         agent_id = f"agent-role-{role_id}"
+        enabled = 1 if role_id in _ENABLED_ON_SEED else 0
         row = conn.execute("SELECT id FROM custom_agents WHERE id=?", (agent_id,)).fetchone()
         if row is None:
             conn.execute(
@@ -181,7 +233,7 @@ def seed_role_catalog(conn: Any, *, tenant: str = "default") -> int:
                     None,
                     json.dumps([]),
                     86400,
-                    0,
+                    enabled,
                     "idle",
                     now + 86400,
                     json.dumps(spec["allowed_tools"]),
@@ -190,6 +242,18 @@ def seed_role_catalog(conn: Any, *, tenant: str = "default") -> int:
                 ),
             )
             created += 1
+        else:
+            # Keep allowlists and Supervisor/Planner enablement in sync (no create count).
+            if role_id in _ENABLED_ON_SEED:
+                conn.execute(
+                    "UPDATE custom_agents SET instruction=?, allowed_tools_json=?, enabled=1, updated_at=? WHERE id=?",
+                    (spec["instruction"], json.dumps(spec["allowed_tools"]), now, agent_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE custom_agents SET instruction=?, allowed_tools_json=?, updated_at=? WHERE id=?",
+                    (spec["instruction"], json.dumps(spec["allowed_tools"]), now, agent_id),
+                )
     handoff_id = "role-handoff-supervisor-planner-developer"
     if conn.execute("SELECT id FROM workflow_templates WHERE id=?", (handoff_id,)).fetchone() is None:
         from . import supervisor as sup
@@ -200,7 +264,7 @@ def seed_role_catalog(conn: Any, *, tenant: str = "default") -> int:
                 "args": step.get("args") or {},
                 "name": step.get("name"),
             }
-            for step in sup.supervisor_handoff_plan("{{goal}}")
+            for step in sup.supervisor_handoff_plan("{{goal}}", profile="code")
         ]
         conn.execute(
             "INSERT INTO workflow_templates (id, name, description, steps_json, tenant, created_by, created_at) "
@@ -208,7 +272,7 @@ def seed_role_catalog(conn: Any, *, tenant: str = "default") -> int:
             (
                 handoff_id,
                 "Handoff: Supervisor → Planner → Developer",
-                "Queues role-tagged planning, git status, and structured test tasks.",
+                "Queues role-tagged planning, git status, and structured test tasks (gated by default).",
                 json.dumps(steps),
                 tenant,
                 "system",
@@ -216,6 +280,5 @@ def seed_role_catalog(conn: Any, *, tenant: str = "default") -> int:
             ),
         )
         created += 1
-    if created:
-        conn.commit()
+    conn.commit()
     return created

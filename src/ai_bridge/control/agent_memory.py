@@ -125,6 +125,54 @@ def load_agent_memory(conn: Any, agent_id: str, *, limit: int = 50) -> list[dict
     return [dict(r) for r in reversed(rows)]
 
 
+def clear_agent_memory(
+    conn: Any,
+    agent_id: str,
+    *,
+    project_tag: str | None = None,
+    task_tag: str | None = None,
+) -> dict:
+    """Delete memory chunks for an agent, optionally scoped by project/task tags."""
+    ensure_memory_table(conn)
+    q = "DELETE FROM agent_memory_chunks WHERE agent_id=?"
+    params: list[Any] = [agent_id]
+    if project_tag:
+        q += " AND project_tag=?"
+        params.append(project_tag.strip())
+    if task_tag:
+        q += " AND task_tag=?"
+        params.append(task_tag.strip())
+    cur = conn.execute(q, tuple(params))
+    conn.commit()
+    return {"ok": True, "agent_id": agent_id, "deleted": int(cur.rowcount or 0), "project": project_tag, "task": task_tag}
+
+
+def format_chunks_for_prompt(chunks: list[dict], *, max_chars: int = 4000) -> str:
+    """Render tagged chunks for system-prompt injection (newest already ordered ascending)."""
+    if not chunks:
+        return ""
+    lines: list[str] = []
+    used = 0
+    for ch in chunks:
+        content = str(ch.get("content") or "").strip()
+        if not content:
+            continue
+        tags = []
+        if ch.get("project_tag"):
+            tags.append(f"project={ch['project_tag']}")
+        if ch.get("task_tag"):
+            tags.append(f"task={ch['task_tag']}")
+        prefix = f"[{', '.join(tags)}] " if tags else ""
+        line = f"- {prefix}{content}"
+        if used + len(line) > max_chars:
+            break
+        lines.append(line)
+        used += len(line) + 1
+    if not lines:
+        return ""
+    return "Durable memory chunks (project/task tagged):\n" + "\n".join(lines) + "\n"
+
+
 def export_agent_memory(conn: Any, agent_id: str) -> str:
     chunks = load_agent_memory(conn, agent_id, limit=500)
     return json.dumps(chunks, ensure_ascii=False)

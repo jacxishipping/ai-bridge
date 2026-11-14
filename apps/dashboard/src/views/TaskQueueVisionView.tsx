@@ -153,7 +153,7 @@ const PRESETS = [
 export const TaskQueueVisionView: React.FC = () => {
   const devices = useDashboardStore((s) => s.devices);
   const selectedDeviceId = useDashboardStore((s) => s.selectedDeviceId);
-  const tasks = useDashboardStore((s) => s.tasks);
+  const storeTasks = useDashboardStore((s) => s.tasks);
   const approvals = useDashboardStore((s) => s.approvals);
   const resolveApproval = useDashboardStore((s) => s.resolveApproval);
   const dispatchTask = useDashboardStore((s) => s.dispatchTask);
@@ -176,8 +176,12 @@ export const TaskQueueVisionView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [deviceFilter, setDeviceFilter] = useState<string>("all");
   const [page, setPage] = useState<number>(1);
+  const [useServerHistory, setUseServerHistory] = useState<boolean>(false);
+  const [historyTasks, setHistoryTasks] = useState<TaskInvocation[]>([]);
+  const [historyTotal, setHistoryTotal] = useState<number>(0);
   const PAGE_SIZE = 12;
-  const [selectedTaskId, setSelectedTaskId] = useState<string>(tasks[0]?.id || "TSK-89213");
+  const tasks = useServerHistory && isLive ? historyTasks : storeTasks;
+  const [selectedTaskId, setSelectedTaskId] = useState<string>(storeTasks[0]?.id || "TSK-89213");
   const [zoomLevel, setZoomLevel] = useState<number>(1.0); // 1.0 = Fit, 1.5, 2.0
   const [somEnabled, setSomEnabled] = useState<boolean>(true);
   const [selectedMarkId, setSelectedMarkId] = useState<number | null>(null);
@@ -414,8 +418,67 @@ export const TaskQueueVisionView: React.FC = () => {
     }
   }, [editingTask, editTool, editArgsJson, refreshLive]);
 
-  // Filtered task list
+  useEffect(() => {
+    if (!useServerHistory || !isLive) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.taskHistory({
+          q: searchQuery,
+          status: statusFilter === "all" ? "all" : statusFilter,
+          device_id: deviceFilter === "all" ? "" : deviceFilter,
+          tenant: "default",
+          page,
+        });
+        if (cancelled) return;
+        const items = (Array.isArray(res?.items) ? res.items : []).map((row: Record<string, unknown>) => {
+          let args: Record<string, unknown> = {};
+          try {
+            args =
+              typeof row.args_json === "string"
+                ? JSON.parse(row.args_json as string)
+                : ((row.args as Record<string, unknown>) || {});
+          } catch {
+            args = {};
+          }
+          const tierNum = Number(row.tier ?? 1);
+          const riskTier: TaskRiskTier =
+            tierNum >= 4
+              ? "tier4_kernel"
+              : tierNum >= 3
+                ? "tier3_shell"
+                : tierNum >= 2
+                  ? "tier2_workspace"
+                  : "tier1_safe";
+          return {
+            id: String(row.id || ""),
+            tool: String(row.tool || ""),
+            status: String(row.status || "pending") as TaskStatus,
+            deviceId: String(row.device_id || ""),
+            deviceHostname: String(row.device_id || ""),
+            riskTier,
+            args,
+            invoker: "history",
+            createdAt: String(row.created_at || ""),
+          } as TaskInvocation;
+        });
+        setHistoryTasks(items);
+        setHistoryTotal(Number(res?.total) || items.length);
+      } catch {
+        if (!cancelled) {
+          setHistoryTasks([]);
+          setHistoryTotal(0);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [useServerHistory, isLive, searchQuery, statusFilter, deviceFilter, page]);
+
+  // Filtered task list (client-side when not using server history)
   const filteredTasks = useMemo(() => {
+    if (useServerHistory && isLive) return tasks;
     const q = searchQuery.trim().toLowerCase();
     return tasks.filter((t) => {
       if (statusFilter !== "all" && t.status !== statusFilter) return false;
@@ -425,18 +488,23 @@ export const TaskQueueVisionView: React.FC = () => {
       }
       return true;
     });
-  }, [tasks, statusFilter, deviceFilter, searchQuery]);
+  }, [tasks, statusFilter, deviceFilter, searchQuery, useServerHistory, isLive]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const pagedTasks = useMemo(
-    () => filteredTasks.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
-    [filteredTasks, safePage]
+  const totalPages = Math.max(
+    1,
+    useServerHistory && isLive
+      ? Math.ceil(historyTotal / PAGE_SIZE)
+      : Math.ceil(filteredTasks.length / PAGE_SIZE)
   );
+  const safePage = Math.min(page, totalPages);
+  const pagedTasks = useMemo(() => {
+    if (useServerHistory && isLive) return filteredTasks;
+    return filteredTasks.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  }, [filteredTasks, safePage, useServerHistory, isLive]);
 
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, deviceFilter, searchQuery]);
+  }, [statusFilter, deviceFilter, searchQuery, useServerHistory]);
 
   // Active inspected task
   const activeTask = useMemo(() => {
@@ -740,11 +808,24 @@ export const TaskQueueVisionView: React.FC = () => {
               />
               <JXCardContent>
               <div className="space-y-3">
+                {isLive && (
+                  <label className="flex items-center gap-2 text-xs text-[var(--product-text-secondary)]">
+                    <input
+                      type="checkbox"
+                      checked={useServerHistory}
+                      onChange={(e) => {
+                        setUseServerHistory(e.target.checked);
+                        setPage(1);
+                      }}
+                    />
+                    Search full server history (paginated)
+                  </label>
+                )}
                 {/* Status Filter Chips & Queue Actions */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
                   <div className="flex flex-wrap items-center gap-2">
                   {[
-                    { id: "all", label: "All", count: tasks.length },
+                    { id: "all", label: "All", count: useServerHistory ? historyTotal : tasks.length },
                     { id: "completed", label: "Completed", count: tasks.filter((t) => t.status === "completed").length },
                     { id: "running", label: "Running", count: tasks.filter((t) => t.status === "running").length },
                     { id: "needs_approval", label: "Needs Approval", count: tasks.filter((t) => t.status === "needs_approval").length },

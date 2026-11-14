@@ -1,8 +1,35 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { api } from "../../api";
 import { JXButton } from "../../ui";
 import { TaskComposer } from "./TaskComposer";
 import { argsOf, deviceName, Empty, Field, fieldClass, LiveDevice, LiveTask, normalizeTaskStatus, Pagination, Payload, ReadState, taskStates, taskStatus, text, time, useRead } from "./shared";
+
+function TaskEvents({ taskId }: { taskId: string }) {
+  const [events, setEvents] = useState<{ event: string; created_at?: number; detail?: Record<string, unknown> }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void api.taskEvents(taskId).then((res) => {
+      if (!cancelled) setEvents(Array.isArray(res?.events) ? res.events : []);
+    }).catch(() => {
+      if (!cancelled) setEvents([]);
+    });
+    return () => { cancelled = true; };
+  }, [taskId]);
+  if (!events.length) return null;
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium text-[var(--product-text-secondary)]">Execution trail</p>
+      <ul className="space-y-1 text-xs text-[var(--product-text-tertiary)]">
+        {events.map((e, i) => (
+          <li key={`${e.event}-${e.created_at ?? i}`}>
+            <span className="font-medium text-[var(--product-text-secondary)]">{e.event}</span>
+            {e.created_at != null && <span> · {time(e.created_at)}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function TaskResult({ task }: { task: LiveTask }) {
   if (task.result == null || task.result === "") return <p className="text-sm text-[var(--product-text-tertiary)]">
@@ -82,6 +109,7 @@ export function TasksPanel({ devices, device, canAct, onlyTool, status = "all", 
           <div className="mt-4 min-w-0 space-y-4 pl-3">
             <TaskResult task={task} />
             <Payload title="Task details" value={{ id: task.id, device_id: task.device_id, tool: task.tool, tier: task.tier, args: argsOf(task) }} />
+            <TaskEvents taskId={task.id} />
             {safeRetry && <JXButton color="neutral" variant="outlined" disabled={!canAct || !!error} onClick={() => setComposer({ tool: task.tool, args: argsOf(task), device: target })}>Review retry</JXButton>}
             {task.status === "failed" && !safeRetry && <p className="text-xs text-[var(--product-text-tertiary)]">No automatic retry. Review the result before creating another task.</p>}
           </div>
