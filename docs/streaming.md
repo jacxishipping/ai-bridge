@@ -37,7 +37,7 @@ Windows Desktop
 
 ## 2b. Desktop audio (F11)
 - **Default: off.** Video-only streams until operators opt in (`webrtc_stream.desktop_audio_opt_in`).
-- Set `AI_BRIDGE_DESKTOP_AUDIO=1` (or `true`/`yes`) to attach `DesktopAudioTrack` (Opus negotiation; silent s16le PCM frames keep negotiation honest when live WASAPI capture is unavailable — no fake live audio).
+- Set `AI_BRIDGE_DESKTOP_AUDIO=1` (or `true`/`yes`) to attach `DesktopAudioTrack`. Prefers WASAPI speaker loopback via optional `soundcard` (`pip install "ai-bridge[webrtc]"`); if loopback cannot open, emits silent s16le PCM so negotiation still succeeds (`desktop_audio.py`, capabilities `capture_implemented` / `probe`).
 - Task dispatch defaults to **fps=30** with optional `monitor_index` / `bitrate_kbps` (`dispatch._start_webrtc_from_task`). Canonical session create is `POST /api/v1/sessions` (dashboard Live Desktop). Legacy `POST /api/devices/{id}/desktop/webrtc/session` returns `Deprecation` headers.
 
 ## 3. Input Transport (`RTCDataChannel("input")`)

@@ -25,8 +25,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.4", "Pillow>=10.0"]
 desktop = ["Pillow>=10.0"]
-webrtc = ["aiortc>=1.8", "av>=11.0", "Pillow>=10.0"]
-windows = ["aiortc>=1.8", "av>=11.0", "Pillow>=10.0", "pystray>=0.19.5"]
+webrtc = ["aiortc>=1.8", "av>=11.0", "Pillow>=10.0", "soundcard>=0.4.2", "numpy>=1.24"]
+windows = ["aiortc>=1.8", "av>=11.0", "Pillow>=10.0", "pystray>=0.19.5", "soundcard>=0.4.2", "numpy>=1.24", "comtypes>=1.2.0"]
 browser = ["playwright>=1.40"]
 
 [project.scripts]

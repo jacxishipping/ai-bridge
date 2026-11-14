@@ -89,7 +89,8 @@ def test_capability_matrix_includes_host_status():
     assert "stream_available" in matrix["host_live_status"]
     assert matrix["host_live_status"].get("scope") == "control_plane_host"
     assert "desktop_audio" in matrix
-    assert matrix["desktop_audio"]["capture_implemented"] is False
+    assert isinstance(matrix["desktop_audio"]["capture_implemented"], bool)
+    assert "reason" in matrix["desktop_audio"]
 
 
 def test_stream_gate_for_os_windows_only():

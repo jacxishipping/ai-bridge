@@ -117,6 +117,29 @@ def build_capability_matrix(*, include_host: bool = True) -> dict[str, Any]:
     host_status = tools.get_desktop_status() if include_host else {}
     matrix = {os_name: {**row} for os_name, row in _STATIC_MATRIX.items()}
     audio_opt_in = bool(webrtc_stream.desktop_audio_opt_in())
+    capture_ok = bool(webrtc_stream.desktop_audio_capture_implemented())
+    try:
+        from ai_bridge import desktop_audio as desktop_audio_mod
+
+        probe = desktop_audio_mod.probe_wasapi_loopback()
+    except Exception:
+        probe = {"available": False, "reason": "probe_unavailable"}
+    residuals = [
+        "macos_on_target_verification",
+        "linux_webrtc_desktop_stream",
+        "native_cpp_agent_e2e_with_dashboard",
+    ]
+    if not capture_ok:
+        residuals.append("wasapi_live_desktop_audio_capture")
+    if audio_opt_in and capture_ok:
+        audio_reason = "AI_BRIDGE_DESKTOP_AUDIO opted in; WASAPI loopback capture available"
+    elif audio_opt_in:
+        audio_reason = (
+            "AI_BRIDGE_DESKTOP_AUDIO opted in; live loopback unavailable "
+            f"({probe.get('reason')}) — emitting silent PCM"
+        )
+    else:
+        audio_reason = "desktop audio off by default (set AI_BRIDGE_DESKTOP_AUDIO=1 to attach track)"
     return {
         "schema": "ai-bridge-desktop-capabilities/v1",
         "host_os": host_os,
@@ -128,18 +151,10 @@ def build_capability_matrix(*, include_host: bool = True) -> dict[str, Any]:
         "platforms": matrix,
         "desktop_audio": {
             "opt_in": audio_opt_in,
-            "capture_implemented": False,
+            "capture_implemented": capture_ok,
+            "probe": probe,
             "scope": "control_plane_host",
-            "reason": (
-                "AI_BRIDGE_DESKTOP_AUDIO opted in; track is silent PCM placeholder until WASAPI capture ships"
-                if audio_opt_in
-                else "desktop audio off by default (set AI_BRIDGE_DESKTOP_AUDIO=1 for silent placeholder track)"
-            ),
+            "reason": audio_reason,
         },
-        "residual_gaps": [
-            "macos_on_target_verification",
-            "linux_webrtc_desktop_stream",
-            "native_cpp_agent_e2e_with_dashboard",
-            "wasapi_live_desktop_audio_capture",
-        ],
+        "residual_gaps": residuals,
     }

@@ -2283,13 +2283,46 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                     step_entry["result"] = res
 
                     if verify_cfg and isinstance(verify_cfg, dict):
-                        v_text = verify_cfg.get("text")
-                        v_timeout = float(verify_cfg.get("timeout_seconds", 8.0))
-                        if v_text:
-                            v_res = _execute_workflow_step_sync("wait_for_text", {"text": v_text, "timeout_seconds": v_timeout}, target_dev, tenant, actor)
-                            step_entry["verification"] = v_res
-                            if not v_res.get("found"):
-                                raise RuntimeError(f"Step verification failed: text '{v_text}' not found after {v_timeout}s.")
+                        v_text = str(verify_cfg.get("text") or verify_cfg.get("expected_text") or "")
+                        v_window = str(verify_cfg.get("window") or verify_cfg.get("expected_window") or "")
+                        v_timeout = float(verify_cfg.get("timeout_seconds", verify_cfg.get("wait_seconds", 8.0)))
+                        v_mode = str(verify_cfg.get("mode") or "verify").strip().lower()
+                        if v_text or v_window:
+                            if v_mode in {"wait", "poll", "wait_for_text"}:
+                                if not v_text:
+                                    raise RuntimeError("Step verification mode=wait requires text.")
+                                v_res = _execute_workflow_step_sync(
+                                    "wait_for_text",
+                                    {"text": v_text, "timeout_seconds": v_timeout},
+                                    target_dev,
+                                    tenant,
+                                    actor,
+                                )
+                                step_entry["verification"] = v_res
+                                if not v_res.get("found"):
+                                    raise RuntimeError(
+                                        f"Step verification failed: text '{v_text}' not found after {v_timeout}s."
+                                    )
+                            else:
+                                # Closed-loop default: desktop_verify_action (+ post screenshot evidence).
+                                v_res = _execute_workflow_step_sync(
+                                    "desktop_verify_action",
+                                    {
+                                        "expected_text": v_text,
+                                        "expected_window": v_window,
+                                        "wait_seconds": min(v_timeout, 5.0),
+                                        "capture_after": bool(verify_cfg.get("capture_after", True)),
+                                    },
+                                    target_dev,
+                                    tenant,
+                                    actor,
+                                )
+                                step_entry["verification"] = v_res
+                                if not v_res.get("verified", v_res.get("ok")):
+                                    detail = v_text or v_window or "expected UI state"
+                                    raise RuntimeError(
+                                        f"Step verification failed via desktop_verify_action for '{detail}'."
+                                    )
 
                     step_entry["status"] = "completed"
                     success = True
