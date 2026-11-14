@@ -30,12 +30,12 @@
 
 ## Caveats for testing
 - Free web services sleep after inactivity and take a few seconds to wake.
-- SQLite state on the service disk is ephemeral: devices, tasks, users,
-  and audit history reset on redeploy. This is fine for a smoke test;
-  for anything durable, use Render Postgres + the migrations in
-  `migrations/` (Postgres runtime wiring is still a v0.3 follow-up —
-  see docs/implementation-status.md).
-- Do NOT set `AI_BRIDGE_ADMIN_TOKEN` in `render.yaml` or in git.
+- Set `DATABASE_URL` on `ai-bridge-control` to a Postgres/Timescale URL
+  (`postgres://…` or `postgresql://…`, include `?sslmode=require` when
+  required). Migrations in `migrations/` run on startup. Without
+  `DATABASE_URL`, SQLite on the service disk is used and resets on redeploy.
+- Do NOT set `AI_BRIDGE_ADMIN_TOKEN` or `DATABASE_URL` in `render.yaml` or in git.
+  Both are `sync: false` secrets filled in the Render dashboard.
 - The control plane on Render is public by URL: anyone who guesses the
   URL still needs the admin token or a user login, and device tokens
   expire in 7 days by default — but treat the admin token as the key to
