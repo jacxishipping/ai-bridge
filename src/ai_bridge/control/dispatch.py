@@ -132,6 +132,42 @@ def _dispatch_browser(tool: str, a: dict, *, approval_granted: bool, policy: Pol
             filename=a.get("filename"),
             **common,
         )
+    if tool == "browser_set_viewport":
+        return browser_tools.browser_set_viewport(
+            str(a.get("device", "desktop")),
+            width=a.get("width"),
+            height=a.get("height"),
+            is_mobile=a.get("is_mobile"),
+            has_touch=a.get("has_touch"),
+            recreate_context=bool(a.get("recreate_context", True)),
+            **common,
+        )
+    if tool == "browser_expect":
+        return browser_tools.browser_expect(
+            text=a.get("text"),
+            url_contains=a.get("url_contains"),
+            title_contains=a.get("title_contains"),
+            selector=a.get("selector"),
+            visible=bool(a.get("visible", True)),
+            screenshot_on_fail=bool(a.get("screenshot_on_fail", False)),
+            **common,
+        )
+    if tool == "browser_wait_for_url":
+        return browser_tools.browser_wait_for_url(
+            str(a.get("url_contains") or a.get("url") or ""),
+            timeout=int(a.get("timeout", 15)),
+            **common,
+        )
+    if tool == "browser_diagnostics":
+        return browser_tools.browser_diagnostics(**common)
+    if tool == "browser_compare_screenshot":
+        return browser_tools.browser_compare_screenshot(
+            str(a.get("baseline") or a.get("name") or ""),
+            threshold=float(a.get("threshold", 0.08)),
+            full_page=bool(a.get("full_page", False)),
+            update_baseline=bool(a.get("update_baseline", False)),
+            **common,
+        )
     raise ValueError(f"Browser tool not implemented: {tool}")
 
 
@@ -476,6 +512,11 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         "browser_wait_for_selector",
         "browser_select_option",
         "browser_download_file",
+        "browser_set_viewport",
+        "browser_expect",
+        "browser_wait_for_url",
+        "browser_diagnostics",
+        "browser_compare_screenshot",
     }
     for btool in _browser_names:
         handlers[btool] = (

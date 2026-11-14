@@ -2287,7 +2287,29 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                         v_window = str(verify_cfg.get("window") or verify_cfg.get("expected_window") or "")
                         v_timeout = float(verify_cfg.get("timeout_seconds", verify_cfg.get("wait_seconds", 8.0)))
                         v_mode = str(verify_cfg.get("mode") or "verify").strip().lower()
-                        if v_text or v_window:
+                        if v_mode in {"visual", "screenshot", "browser_compare"}:
+                            baseline = str(verify_cfg.get("baseline") or verify_cfg.get("name") or "").strip()
+                            if not baseline:
+                                raise RuntimeError("Visual verification requires verify.baseline filename.")
+                            v_res = _execute_workflow_step_sync(
+                                "browser_compare_screenshot",
+                                {
+                                    "baseline": baseline,
+                                    "threshold": float(verify_cfg.get("threshold", 0.08)),
+                                    "full_page": bool(verify_cfg.get("full_page", False)),
+                                    "update_baseline": bool(verify_cfg.get("update_baseline", False)),
+                                },
+                                target_dev,
+                                tenant,
+                                actor,
+                            )
+                            step_entry["verification"] = v_res
+                            if not v_res.get("matched", v_res.get("ok")):
+                                raise RuntimeError(
+                                    f"Step visual verification failed for baseline '{baseline}' "
+                                    f"(rmse={v_res.get('rmse')})."
+                                )
+                        elif v_text or v_window:
                             if v_mode in {"wait", "poll", "wait_for_text"}:
                                 if not v_text:
                                     raise RuntimeError("Step verification mode=wait requires text.")

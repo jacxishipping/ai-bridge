@@ -57,6 +57,13 @@ Not implemented / documented only:
 - Canonical session API is `POST /api/v1/sessions`; legacy device WebRTC session routes return
   `Deprecation` headers. Native C++ libwebrtc E2E remains an out-of-repo residual.
 
+## Browser Intelligence (Phase 4 deepen)
+- Playwright device presets via `browser_set_viewport` (`desktop`, `desktop_1080`, `iphone`, `pixel`, `tablet`) with viewport metadata on screenshots/session info.
+- Website test helpers: `browser_expect`, `browser_wait_for_url`, `browser_diagnostics`, `browser_compare_screenshot` (workspace baselines under `.ai-bridge/visual-baselines/`).
+- Workflow verify supports `mode: visual` → `browser_compare_screenshot` (in addition to text/`desktop_verify_action`).
+- Browserbase durable CDP: `browserbase_connect` / navigate without closing; `browserbase_screenshot`; optional attach into local `browser_*` tools; `end_session` on Browser Operator allowlist.
+- Research: `firecrawl_crawl` plus Firecrawl/You tools exposed on MCP `server.py`. Tests: `tests/unit/test_browser_intelligence.py`.
+
 ## ServerAI MCP + orchestration (latency / reliability)
 - MCP → control plane uses a **process-wide keep-alive `httpx.Client`** in `device_routing.py`
   (no per-call client); `run_device_tool` relies on `?wait=` long-poll (no extra sleep) and can
