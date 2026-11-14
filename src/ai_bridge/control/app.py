@@ -31,7 +31,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 import httpx
 
-from fastapi import Body, FastAPI, Header, HTTPException, Request
+from fastapi import Body, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -85,8 +85,11 @@ def _valid_oauth_redirect_uri(uri: str) -> bool:
     return False
 
 
-def _rate_limit(key: str, limit: int = 120, window: int = 60) -> None:
-    rate_limit(key, limit, window)()
+def _rate_limit(key: str, limit: int = 120, window: int = 60, conn: Any | None = None) -> None:
+    from .durable_ratelimit import allow
+
+    if not allow(key, limit, float(window), conn=conn):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded.")
 
 
 def make_quick_sig(admin_token: str | None, approval_id: str, decision: str) -> str:
@@ -638,10 +641,11 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     app.state.admin_token = token
     app.state.emergency_stop = False
     from . import plane_state, role_catalog
-    from .v1_routes import hydrate_human_takeover_from_db
+    from .v1_routes import bind_control_connection, hydrate_human_takeover_from_db
 
     plane_state.sync_emergency_stop_to_app(conn, app.state)
     hydrate_human_takeover_from_db(conn)
+    bind_control_connection(conn)
     role_catalog.seed_role_catalog(conn)
     task_cond = threading.Condition()
     app.state.task_cond = task_cond
@@ -2591,6 +2595,24 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         audit(actor, "", "fleet_health_view", {"tenant": tenant}, "allowed", tenant=tenant)
         return summary
 
+    from . import desktop_capabilities as desktop_capabilitiesmod
+
+    @app.get("/api/fleet/desktop-capabilities")
+    def fleet_desktop_capabilities(
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        payload = desktop_capabilitiesmod.build_capability_matrix()
+        from . import durable_ratelimit as drl
+
+        payload["rate_limit_backend"] = drl.backend_name(conn)
+        payload["native_encode"] = __import__(
+            "ai_bridge.native_encode", fromlist=["describe_native_encode"]
+        ).describe_native_encode()
+        audit(actor, "", "fleet_desktop_capabilities_view", {}, "allowed")
+        return payload
+
     from . import supervisor as supervisormod
 
     @app.post("/api/supervisor/handoff")
@@ -3224,10 +3246,17 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     @app.post("/api/devices/{device_id}/desktop/webrtc/session")
     def create_webrtc_session(
         device_id: str,
+        response: Response,
         body: dict = Body(default={}),
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
     ):
+        response.headers["Deprecation"] = "true"
+        response.headers["Link"] = '</api/v1/sessions>; rel="successor-version"'
+        response.headers["Sunset"] = "legacy-webrtc-session-route"
+        plane_state.refresh_emergency_stop(conn, app.state)
+        if plane_state.is_emergency_stop(conn, app.state):
+            raise HTTPException(status_code=503, detail="Emergency stop active.")
         actor = require_role("viewer", x_admin_token, x_session_token)
         scale = max(0.2, min(1.0, float(body.get("scale", 0.75))))
         fps = max(1, min(60, int(body.get("fps", 30))))
@@ -4290,7 +4319,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             key = f"tok:{dbmod.hash_token(token_val)[:16]}" if token_val else f"ip:{client_ip}"
             limit = 1200 if token_val else 300
         try:
-            _rate_limit(key, limit=limit)
+            _rate_limit(key, limit=limit, conn=getattr(request.app.state, "conn", None))
         except HTTPException as exc:
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
         return await call_next(request)

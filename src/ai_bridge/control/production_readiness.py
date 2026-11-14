@@ -65,11 +65,16 @@ def assess_production_readiness(conn: Any) -> dict[str, Any]:
             }
         )
 
+    from . import durable_ratelimit as drl
+
+    rate_backend = drl.backend_name(conn)
+
     critical = [i for i in issues if i["severity"] == "critical"]
     return {
         "ok": len(critical) == 0,
         "production_profile": prod,
         "turn_configured": turn_credentials_configured(),
         "emergency_stop_durable": emergency_stop_durable,
+        "rate_limit_backend": rate_backend,
         "issues": issues,
     }

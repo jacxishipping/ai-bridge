@@ -46,19 +46,66 @@ def _allow_browser_no_sandbox() -> bool:
     )
 
 
+def _hard_browser_isolation() -> bool:
+    return os.environ.get("AI_BRIDGE_BROWSER_HARD_ISOLATION", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def _browser_network_lockdown() -> bool:
+    return os.environ.get("AI_BRIDGE_BROWSER_NETWORK_LOCKDOWN", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def browser_isolation_report() -> dict[str, Any]:
+    """Operator-facing honesty for Playwright isolation (not a kernel netns)."""
+    return {
+        "hard_isolation": _hard_browser_isolation(),
+        "network_lockdown": _browser_network_lockdown(),
+        "chromium_subprocess": True,
+        "secondary_os_process": False,
+        "limitations": [
+            "Playwright runs Chromium in a child process; this is not a separate agent worker.",
+            "Network lockdown uses Chromium host-resolver rules only — not full egress firewalling.",
+            "No Linux network-namespace isolation is applied from Python.",
+        ],
+    }
+
+
 def playwright_launch_options(*, headless: bool = True) -> dict[str, Any]:
     """Pure launch config for tests — Chromium sandbox on unless explicitly opted out."""
     launch_args: list[str] = []
     if _allow_browser_no_sandbox():
         launch_args.extend(["--no-sandbox", "--disable-setuid-sandbox"])
+    if _hard_browser_isolation():
+        launch_args.extend(
+            [
+                "--incognito",
+                "--disable-extensions",
+                "--disable-sync",
+                "--no-first-run",
+                "--disable-default-apps",
+                "--disable-features=Translate,MediaRouter",
+            ]
+        )
+    if _browser_network_lockdown():
+        launch_args.append("--host-resolver-rules=MAP * 127.0.0.1")
     profile_parent = ensure_workspace() / ".ai-bridge" / "browser-profiles"
     profile_parent.mkdir(parents=True, exist_ok=True)
     user_data_dir = profile_parent / uuid.uuid4().hex[:12]
+    isolation = browser_isolation_report()
     return {
         "headless": headless,
         "args": launch_args or None,
         "user_data_dir": str(user_data_dir),
         "chromium_sandbox": not _allow_browser_no_sandbox(),
+        "isolation_level": "hard" if _hard_browser_isolation() else "standard",
+        "isolation": isolation,
     }
 
 
@@ -72,6 +119,8 @@ def browser_session_info() -> dict:
         "default_timeout_sec": _default_timeout_sec(),
         "chromium_sandbox": opts["chromium_sandbox"],
         "user_data_dir": opts["user_data_dir"],
+        "isolation_level": opts.get("isolation_level", "standard"),
+        "isolation": opts.get("isolation") or browser_isolation_report(),
     }
 
 

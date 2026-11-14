@@ -1,12 +1,12 @@
-# AI Bridge — Phase 1 Technical Audit & Advanced Roadmap (Phases 2–8)
+# AI Bridge — Phase 1 Technical Audit & Advanced Roadmap (Phases 2–9)
 
 **Audit date:** 2025-11-14 (source-verified against `C:\Users\Administrator\ai-bridge`)  
-**Phase 2–8 shipped:** 2026-11-14 — verified by `tests/unit/test_orchestration_phases.py` (**11/11 passed**).  
-**Scope:** Phase 1 audit preserved below as historical baseline; Phases 2–8 reflect **current shipped code**.
+**Phase 2–9 shipped:** 2026-11-14 — Phases 2–8 via `tests/unit/test_orchestration_phases.py` + `test_phase8_deep.py`; **Phase 9** via `tests/unit/test_phase9_deep.py`.  
+**Scope:** Phase 1 audit preserved below as historical baseline; Phases 2–9 reflect **current shipped code**.
 
 ---
 
-## Implementation status (post Phase 2–8)
+## Implementation status (post Phase 2–9)
 
 | Phase | Status | Primary evidence | Regression test(s) |
 |-------|--------|------------------|----------------------|
@@ -17,8 +17,9 @@
 | **6** — Role catalog & supervisor | **SHIPPED** (deep) | `control/supervisor.py` handoff enqueue/recovery; `agent_delegate` by `role`; template `role-handoff-supervisor-planner-developer` | `test_phases_456_deep.py`, `test_role_catalog_seed_idempotent` |
 | **7** — Durable memory & live activity | **SHIPPED** (deep) | `fleet_health.py`, `live_activity.py`, tagged `agent_memory` query API, `/api/fleet/health`, enriched `/api/activity/live` + SSE, `metrics.py` stale-heartbeat + phase depth gauges, dashboard Live pulse | `test_phase7_deep.py`, `test_emergency_stop_durable_across_app_state`, `test_agent_memory_chunks` |
 | **8** — Security & load gates | **SHIPPED** (deep) | `production_readiness.py` + `/health/ready` prod gate; `dispatch_audit.py`; Playwright sandbox isolation; fleet health operator auth; secrets redaction in logs/connectors | `test_phase8_deep.py`, `test_turn_secret_required_in_prod_profile`, `test_orchestration_load_smoke` |
+| **9** — Platform hardening & parity | **SHIPPED** (deep; residual noted) | `durable_ratelimit.py` (Redis → DB → memory); `plane_state.refresh_emergency_stop`; `plane_control_flags` + poller mirror; `native_encode.py` + `get_native_encode_status`; browser hard isolation envs; `GET /api/fleet/desktop-capabilities`; legacy WebRTC session `Deprecation` headers | `test_phase9_deep.py` |
 
-**Still open / partial (not blockers for Phase 2–8 closure):** legacy `/api` vs `/api/v1` session route deprecation in dashboard docs only; native `windows-agent/` E2E with plane; browser process/network isolation beyond policy gates; centralized multi-worker WebRTC input rate limits; macOS agent on-target verification.
+**Residual (post Phase 9, honest):** native C++ **libwebrtc** E2E with dashboard; Linux netns / OS-level browser egress firewall; macOS on-target agent CI; full dashboard migration off legacy `/api/.../webrtc/session` (headers only today); Redis required for perfect cross-host WebRTC input counting (DB/memory suffice for control plane).
 
 **Phase 1 findings F1–F9:** addressed in code per table above — see §4 for original severity; §6 for per-phase acceptance mapping.
 
@@ -279,6 +280,25 @@ flowchart TB
 | Authz hardening | `app.py` fleet/supervisor routes | Operator+ on sensitive fleet views | **Done** |
 | Audit completeness | `dispatch_audit.py`, supervisor API | Connector + handoff in audit | **Done** |
 
+### Phase 9 — Platform hardening & parity
+
+**Status: SHIPPED** (deep; residual above) — 2026-11-14 on branch `d9671a6` + Phase 9 delta.
+
+**Goals:** Close multi-worker parity gaps without a native libwebrtc rewrite; honest cross-OS matrix; stricter optional browser isolation.
+
+| Work item | Modules | Acceptance |
+|-----------|---------|------------|
+| Durable rate limits (HTTP + WebRTC input) | `durable_ratelimit.py`, `app.py` middleware, `webrtc_stream.py` | Redis → DB settings → memory; shared WebRTC key per session |
+| Emergency stop parity | `plane_state.refresh_emergency_stop`, `plane_control_flags.py`, `poller.py`, `webrtc_stream.py` | Agents mirror stop; WebRTC input blocked; workers re-read DB ≤1s |
+| Native encode honesty | `native_encode.py`, `webrtc_stream.py`, `dispatch.py` | `AI_BRIDGE_NATIVE_ENCODE`; `get_native_encode_status`; telemetry `native_encode_timing` |
+| Browser hard isolation | `browser_tools.py`, `docs/security.md` | `AI_BRIDGE_BROWSER_HARD_ISOLATION`, optional network lockdown flags + limitation docs |
+| Cross-OS capability endpoint | `desktop_capabilities.py`, `GET /api/fleet/desktop-capabilities` | Static Win/Linux/macOS matrix + live host status |
+| Legacy API hygiene | `app.py` legacy WebRTC session route | `Deprecation` + `Link` to `/api/v1/sessions` |
+| Human takeover DB fallback | `v1_routes.bind_control_connection`, `plane_state.is_human_takeover_active` | MCP desktop path sees DB takeover without in-process cache |
+| Metrics | `metrics.py` | `aibridge_advanced_phase_depth{phase="9"}=2` |
+
+**Residual:** Full dashboard v1 session migration; macOS/Linux on-target verification; optional Redis in prod for global WebRTC throttle; native DLL does not replace aiortc encode path.
+
 ---
 
 ## 7. Priority order (P0 / P1 / P2)
@@ -291,12 +311,12 @@ flowchart TB
 | P0 | F2 stale running | **Done** — `orchestration.sweep_stale_running_tasks` |
 | P0 | F3 WebRTC args | **Done** — `dispatch._start_webrtc_from_task` |
 | P1 | F4 browser dispatch | **Done** — `dispatch._dispatch_browser_tool` |
-| P1 | F5/F6 stop/takeover | **F5 done** (DB); **F6 partial** (DB + in-process cache) |
+| P1 | F5/F6 stop/takeover | **Done** (Phase 9 deepens) — DB + `refresh_emergency_stop`; takeover DB fallback via `bind_control_connection` |
 | P1 | F8 veto | **Done** — `tools.py` desktop path |
-| P1 | F7 rate limits | **Open** — per-streamer limits unchanged |
+| P1 | F7 rate limits | **Done** (Phase 9) — `durable_ratelimit` + WebRTC session keys |
 | P2 | F9 TURN | **Done** — prod fail-fast |
 | P2 | F10 SoM | **Done** — opt-in synthetic |
-| P2 | F11–F13 | **Open** — audio default, API drift, C++ doc alignment |
+| P2 | F11–F13 | **Partial** — F13 clarified via `native_encode` honesty; F12 legacy route `Deprecation` headers (Phase 9); F11 audio default unchanged |
 
 ---
 
@@ -345,5 +365,8 @@ Run: `pytest tests/unit/test_orchestration_phases.py tests/unit/test_phases_456_
 | `test_role_catalog_seed_idempotent` | 6 |
 | `test_phase7_deep.py`, `test_emergency_stop_durable_across_app_state`, `test_agent_memory_chunks` | 7 |
 | `test_turn_secret_required_in_prod_profile`, `test_orchestration_load_smoke` | 8 |
+| `test_phase9_deep.py` (rate limit, emergency stop, native encode, browser isolation, capabilities) | 9 |
 
-*Phase 1 deliverable preserved for audit traceability. Phases 2–8 implementation complete per §Implementation status and regression suite above.*
+Run Phase 9 focused: `pytest tests/unit/test_phase9_deep.py -q`
+
+*Phase 1 deliverable preserved for audit traceability. Phases 2–9 implementation complete per §Implementation status and regression suite above.*

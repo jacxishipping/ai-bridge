@@ -44,6 +44,13 @@ VALID_VIDEO_CODECS = {"H264", "VP8", "VP9", "AV1"}
 # Global in-process registry of human takeover state by device_id so MCP tools and
 # REST/WebSocket handlers share immediate human-takeover enforcement.
 _HUMAN_TAKEOVER_BY_DEVICE: dict[str, dict[str, Any]] = {}
+_BOUND_CONN: Any | None = None
+
+
+def bind_control_connection(conn: Any) -> None:
+    """Register DB connection for durable human-takeover checks on MCP/desktop tools."""
+    global _BOUND_CONN
+    _BOUND_CONN = conn
 
 
 def set_device_human_takeover(
@@ -89,7 +96,13 @@ def is_device_human_takeover_active(device_id: str | None = None) -> bool:
     """Return True if a human operator has taken over control and suppressed AI actions."""
     key = (device_id or "local").strip() or "local"
     entry = _HUMAN_TAKEOVER_BY_DEVICE.get(key) or _HUMAN_TAKEOVER_BY_DEVICE.get("local")
-    return bool(entry and entry.get("human_takeover_active"))
+    if entry and entry.get("human_takeover_active"):
+        return True
+    if _BOUND_CONN is not None:
+        from . import plane_state
+
+        return plane_state.is_human_takeover_active(_BOUND_CONN, key)
+    return False
 
 
 def derive_session_permissions(mode: str, effective_policy: dict[str, Any]) -> dict[str, bool]:

@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from typing import Any
+
+_EMERGENCY_REFRESH_AT = 0.0
+_EMERGENCY_REFRESH_LOCK = threading.Lock()
 
 
 def _get_setting(conn: Any, key: str) -> str | None:
@@ -38,10 +42,33 @@ def sync_emergency_stop_to_app(conn: Any, app_state: Any) -> bool:
     return active
 
 
+def refresh_emergency_stop(conn: Any, app_state: Any, *, ttl_sec: float = 1.0) -> bool:
+    """Re-read durable emergency stop so all uvicorn workers converge quickly."""
+    global _EMERGENCY_REFRESH_AT
+    now = time.monotonic()
+    with _EMERGENCY_REFRESH_LOCK:
+        if now - _EMERGENCY_REFRESH_AT >= ttl_sec:
+            sync_emergency_stop_to_app(conn, app_state)
+            _EMERGENCY_REFRESH_AT = now
+    return bool(app_state.emergency_stop)
+
+
 def is_emergency_stop(conn: Any, app_state: Any | None = None) -> bool:
+    if conn is not None and app_state is not None:
+        refresh_emergency_stop(conn, app_state, ttl_sec=0.75)
+        return bool(app_state.emergency_stop)
     if app_state is not None and getattr(app_state, "emergency_stop", False):
         return True
     return load_emergency_stop(conn)
+
+
+def is_human_takeover_active(conn: Any, device_id: str | None) -> bool:
+    dev = (device_id or "local").strip() or "local"
+    for key in (dev, "local"):
+        loaded = load_human_takeover(conn, key)
+        if loaded and loaded.get("human_takeover_active"):
+            return True
+    return False
 
 
 def save_human_takeover(conn: Any, device_id: str, state: dict[str, Any]) -> None:
