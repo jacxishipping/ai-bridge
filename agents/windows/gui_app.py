@@ -282,7 +282,7 @@ def _detect_scheduled_task_defaults() -> tuple[str, str]:
 def load_agent_config() -> dict:
     """Load configuration from ~/.ai-bridge/agent_gui.json, token file, or defaults."""
     cfg = {
-        "control_url": os.environ.get("AI_BRIDGE_CONTROL_URL", "https://jxiptvplayer.app"),
+        "control_url": os.environ.get("AI_BRIDGE_CONTROL_URL", "https://ai-bridge-control.onrender.com"),
         "device_token": os.environ.get("AI_BRIDGE_DEVICE_TOKEN", ""),
         "auto_start": True,
         "theme": "dark",
@@ -344,6 +344,14 @@ def load_agent_config() -> dict:
             "explorer",
             "mspaint",
         ]
+    try:
+        from common.poller import normalize_control_url
+
+        cfg["control_url"] = normalize_control_url(str(cfg.get("control_url") or ""))
+    except Exception:
+        url = str(cfg.get("control_url") or "").strip().rstrip("/")
+        if "ai-bridge-dashboard.onrender.com" in url.lower():
+            cfg["control_url"] = "https://ai-bridge-control.onrender.com"
     return cfg
 
 
@@ -617,7 +625,7 @@ class AgentGuiApp:
         self.tasks_var = tk.StringVar(value="0")
 
         # Configuration vars
-        self.url_var = tk.StringVar(value=self.cfg.get("control_url", "https://jxiptvplayer.app"))
+        self.url_var = tk.StringVar(value=self.cfg.get("control_url", "https://ai-bridge-control.onrender.com"))
         self.token_var = tk.StringVar(value=self.cfg.get("device_token", ""))
         self.auto_start_var = tk.BooleanVar(value=bool(self.cfg.get("auto_start", True)))
         self.poll_wait_var = tk.IntVar(value=int(self.cfg.get("poll_wait_s", 10)))
@@ -1420,7 +1428,10 @@ class AgentGuiApp:
         self.log(f"Copied Device ID ({did}) to clipboard.", "info")
 
     def open_dashboard(self) -> None:
-        url = self.url_var.get().strip() or "https://jxiptvplayer.app"
+        url = self.url_var.get().strip() or "https://ai-bridge-control.onrender.com"
+        # Prefer the public dashboard host when the field holds the control API URL.
+        if "ai-bridge-control.onrender.com" in url.lower():
+            url = "https://ai-bridge-dashboard.onrender.com"
         webbrowser.open(url)
 
     def ping_server(self) -> None:
@@ -1442,7 +1453,19 @@ class AgentGuiApp:
         threading.Thread(target=_do_ping, daemon=True).start()
 
     def save_current_config(self) -> None:
-        self.cfg["control_url"] = self.url_var.get().strip()
+        raw_url = self.url_var.get().strip()
+        try:
+            from common.poller import normalize_control_url
+
+            self.cfg["control_url"] = normalize_control_url(raw_url)
+        except Exception:
+            self.cfg["control_url"] = raw_url
+        if self.cfg["control_url"] != raw_url:
+            self.url_var.set(self.cfg["control_url"])
+            self.log(
+                f"Remapped dashboard URL to control plane: {self.cfg['control_url']}",
+                "warn",
+            )
         self.cfg["device_token"] = self.token_var.get().strip()
         self.cfg["auto_start"] = bool(self.auto_start_var.get())
         self.cfg["poll_wait_s"] = int(self.poll_wait_var.get())

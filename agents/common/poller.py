@@ -28,6 +28,24 @@ from .spool import TaskSpooler
 MAX_RESULT_CHARS = 512_000
 ROTATE_THRESHOLD_SECONDS = 2 * 86400  # Rotate when < 48h remaining
 
+# Operators sometimes paste the static dashboard URL; agents must hit the control plane API.
+_DASHBOARD_TO_CONTROL = {
+    "https://ai-bridge-dashboard.onrender.com": "https://ai-bridge-control.onrender.com",
+    "http://ai-bridge-dashboard.onrender.com": "https://ai-bridge-control.onrender.com",
+}
+
+
+def normalize_control_url(url: str) -> str:
+    """Strip trailing slash and remap known dashboard hosts to the control plane."""
+    cleaned = (url or "").strip().rstrip("/")
+    mapped = _DASHBOARD_TO_CONTROL.get(cleaned.lower()) or _DASHBOARD_TO_CONTROL.get(cleaned)
+    if mapped:
+        return mapped
+    lower = cleaned.lower()
+    if "ai-bridge-dashboard.onrender.com" in lower:
+        return "https://ai-bridge-control.onrender.com"
+    return cleaned
+
 
 def _collect_metrics() -> dict:
     metrics: dict = {}
@@ -91,7 +109,7 @@ class Poller:
         token_saver: Callable[[str], None] | None = None,
         token_loader: Callable[[], str | None] | None = None,
     ):
-        self.control_url = control_url.rstrip("/")
+        self.control_url = normalize_control_url(control_url)
         self.device_token = device_token
         # WebRTC streaming tasks need these to signal back to the plane.
         try:
@@ -124,9 +142,30 @@ class Poller:
         )
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return json.loads(resp.read() or b"{}")
+                raw = resp.read() or b"{}"
+                ctype = (resp.headers.get("Content-Type") or "").lower()
+                try:
+                    return json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    snippet = raw[:120].decode("utf-8", errors="replace").replace("\n", " ")
+                    hint = ""
+                    if "text/html" in ctype or snippet.lstrip().startswith("<!"):
+                        hint = (
+                            " Got HTML instead of JSON — control_url is probably the dashboard. "
+                            "Use https://ai-bridge-control.onrender.com (not *-dashboard.*)."
+                        )
+                    raise RuntimeError(
+                        f"Control plane at {self.control_url} returned non-JSON for {path}.{hint} "
+                        f"Parse error: {exc}. Body starts: {snippet!r}"
+                    ) from exc
         except urllib.error.HTTPError as exc:
-            raise RuntimeError(f"Control plane returned HTTP {exc.code}")
+            body = ""
+            try:
+                body = (exc.read() or b"")[:200].decode("utf-8", errors="replace")
+            except Exception:
+                pass
+            detail = f" body={body!r}" if body else ""
+            raise RuntimeError(f"Control plane returned HTTP {exc.code} for {path}.{detail}") from exc
 
     def _save_token(self, token: str) -> None:
         if self._token_saver is not None:
