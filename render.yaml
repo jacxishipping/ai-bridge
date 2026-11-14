@@ -20,11 +20,15 @@ services:
         value: "7"
       - key: PYTHONUNBUFFERED
         value: "1"
-  - type: static
+  - type: web
     name: ai-bridge-dashboard
+    runtime: static
     buildCommand: cd apps/dashboard && npm install && npm run build
     staticPublishPath: ./apps/dashboard/dist
-    plan: free
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
     envVars:
       # Set this AFTER the control service exists, to its onrender.com URL,
       # then redeploy the static site. Until then, run the dashboard locally
