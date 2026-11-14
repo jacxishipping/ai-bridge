@@ -1,6 +1,9 @@
 import React, { useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { GlassModal, JXButton, JXCard, JXCardContent } from "../ui";
+import { token, sessionToken } from "../api";
+import { PageEmpty } from "../components/PageEmpty";
+import { Freshness } from "../components/Freshness";
 import { useDashboardStore } from "../state/dashboardStore";
 import type { TaskInvocation } from "../types/dashboard";
 
@@ -10,6 +13,7 @@ export const OverviewView: React.FC = () => {
   const approvals = useDashboardStore((s) => s.approvals);
   const navigate = useDashboardStore((s) => s.setCurrentView);
   const [selectedTask, setSelectedTask] = useState<TaskInvocation | null>(null);
+  const isLive = Boolean(token() || sessionToken());
   const online = devices.filter((device) => device.status === "online").length;
   const active = tasks.filter((task) => task.status === "running" || task.status === "pending").length;
   const pending = approvals.filter((approval) => approval.status === "pending").length;
@@ -21,10 +25,32 @@ export const OverviewView: React.FC = () => {
 
   return <div className="space-y-4">
     <header className="flex flex-wrap items-center justify-between gap-4">
-      <h1 className="text-xl font-semibold text-[var(--product-text)]">Fleet overview</h1>
+      <div className="space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-semibold text-[var(--product-text)]">Fleet overview</h1>
+          {!isLive && (
+            <span className="rounded-full border border-amber-500/40 bg-amber-950/40 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-amber-200">
+              Sample data
+            </span>
+          )}
+        </div>
+        <Freshness checkedAt={Date.now()} label={isLive ? "Live snapshot" : "Demo snapshot"} />
+      </div>
       <JXButton variant="outlined" color="neutral" onClick={() => navigate("devices")}
         endIcon={<ArrowRight className="h-4 w-4" />}>View devices</JXButton>
     </header>
+
+    {!isLive && (
+      <PageEmpty
+        demo
+        title="Exploring the demo overview"
+        description="Numbers and devices on this page are simulated. Connect a control plane to see your real fleet."
+        actionLabel="Connect server"
+        onAction={() => navigate("login")}
+        secondaryLabel="Open live home"
+        onSecondary={() => navigate("live")}
+      />
+    )}
 
     <dl className="grid grid-cols-1 rounded-xl border border-[var(--product-line)] bg-[var(--product-surface)]/40 sm:grid-cols-3">
       {summary.map((item, idx) => <div key={item.label} className={`p-3.5 ${idx > 0 ? "border-t border-[var(--product-line)]/60 sm:border-t-0 sm:border-l sm:border-[var(--product-line)]" : ""}`}>

@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { ArrowUpRight, RefreshCw, ShieldCheck } from "lucide-react";
-import { api, ApiError, clearCredentials, token, sessionToken } from "../api";
+import { api, apiOrigin, ApiError, clearCredentials, token, sessionToken } from "../api";
 import { GlassModal, JXAlert, JXBadge, JXButton } from "../ui";
 import { Brand } from "../Brand";
 import { DensityControl } from "../DensityControl";
 import { LanguageControl } from "../LanguageControl";
+import { PageEmpty } from "../components/PageEmpty";
+import { Freshness } from "../components/Freshness";
 import { useLanguage } from "../i18n";
 import { useDashboardStore } from "../state/dashboardStore";
 import { LiveWorkspace } from "./live/LiveWorkspace";
@@ -14,7 +16,7 @@ interface Snapshot { identity: { actor?: string; username?: string; role?: strin
 
 /** Live data is deliberately separate from the local demonstration store. */
 export function LiveControlView() {
-  const { t, date } = useLanguage();
+  const { t } = useLanguage();
   const navigate = useDashboardStore((s) => s.setCurrentView);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState("");
@@ -89,7 +91,11 @@ export function LiveControlView() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <h1>{t("Control plane")}</h1>
-          {snapshot && <p lang="en" dir="ltr" className="text-xs text-[color:var(--product-text-tertiary)]">Updated <bdi>{date(snapshot.checkedAt, { timeStyle: "medium" })}</bdi></p>}
+          {snapshot ? (
+            <Freshness checkedAt={snapshot.checkedAt} loading={loading} label="Updated" />
+          ) : (
+            <p lang="en" dir="ltr" className="text-xs text-[color:var(--product-text-tertiary)]">API {apiOrigin.replace(/^https?:\/\//, "")}</p>
+          )}
         </div>
         {snapshot && <div className="flex min-w-0 flex-wrap items-center gap-4">
           <p lang="en" dir="ltr" className="max-w-full break-words text-xs [overflow-wrap:anywhere] text-[color:var(--product-text-secondary)]">Signed in as <bdi>{snapshot.identity.actor || snapshot.identity.username || "operator"}</bdi> · {snapshot.identity.role}</p>
@@ -100,9 +106,17 @@ export function LiveControlView() {
         {isLive ? (
           <JXAlert severity="error" title="Control plane unavailable" description={`${error} Previously loaded data, if shown, may be stale.`} />
         ) : (
-          <JXAlert severity="info" title="Demo workspace" description="You are viewing sample data. Connect a control plane to see live devices and fleet status." />
+          <PageEmpty
+            demo
+            title="Connect a control plane to use Live home"
+            description="This page stays empty until you sign in. Sample fleet metrics live under Fleet overview — clearly labeled as demo."
+            actionLabel="Connect server"
+            onAction={() => navigate("login")}
+            secondaryLabel="Explore demo overview"
+            onSecondary={() => navigate("overview")}
+          />
         )}
-        <JXButton color="neutral" variant="outlined" onClick={signOut}>{isLive ? "Return to sign in" : "Connect server"}</JXButton>
+        {isLive && <JXButton color="neutral" variant="outlined" onClick={signOut}>Return to sign in</JXButton>}
       </div>}
       {loading && !snapshot && <p role="status" lang="en" dir="ltr" className="py-8 text-sm text-[color:var(--product-text-tertiary)]">Loading your control plane…</p>}
       {snapshot && <>
@@ -118,10 +132,21 @@ export function LiveControlView() {
             </div>
             {snapshot.identity.role !== "admin" && <p className="mt-2 text-xs text-[color:var(--product-text-tertiary)]">An administrator is required to change the emergency stop.</p>}
         </section>
-        <LiveWorkspace key={`${snapshot.identity.actor || snapshot.identity.username}:${snapshot.identity.role}`}
-          identity={`${snapshot.identity.actor || snapshot.identity.username || "operator"}:${snapshot.identity.role}`}
-          role={snapshot.identity.role || "viewer"} devices={snapshot.devices} stale={Boolean(error) || loading}
-          stopped={snapshot.health.emergency_stop} refresh={() => { void refresh(); }} />
+        {!snapshot.devices.length ? (
+          <PageEmpty
+            title="No devices enrolled yet"
+            description="Create an enrollment token, install an agent, then refresh this page."
+            actionLabel="Open devices"
+            onAction={() => navigate("devices")}
+            secondaryLabel="Open connections"
+            onSecondary={() => navigate("mcp-and-oauth")}
+          />
+        ) : (
+          <LiveWorkspace key={`${snapshot.identity.actor || snapshot.identity.username}:${snapshot.identity.role}`}
+            identity={`${snapshot.identity.actor || snapshot.identity.username || "operator"}:${snapshot.identity.role}`}
+            role={snapshot.identity.role || "viewer"} devices={snapshot.devices} stale={Boolean(error) || loading}
+            stopped={snapshot.health.emergency_stop} refresh={() => { void refresh(); }} />
+        )}
       </>}
       <footer lang="en" dir="ltr" className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--product-line)] pt-5">
         <p className="text-xs leading-relaxed text-[color:var(--product-text-tertiary)]">Operations Dashboard: view complete fleet telemetry, charts, and device execution.</p>

@@ -331,7 +331,7 @@ export const AuditTrailView: React.FC = () => {
 
         <JXCardContent>
           <div ref={tableScrollRef} tabIndex={0} role="region" aria-label="Audit trail records" className="overflow-x-auto scroll-shadow rounded-xl border border-[var(--product-line)]" data-scroll-left={scrollShadow.left} data-scroll-right={scrollShadow.right}>
-            <table className="w-full text-left text-xs border-collapse">
+            <table className="product-table-sticky-first w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-[var(--product-canvas)] border-b border-[var(--product-line)] text-[var(--product-text-tertiary)] font-mono uppercase">
                   <th className="p-3">Block #</th>
