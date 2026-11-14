@@ -276,6 +276,110 @@ def get_desktop_session_state() -> dict[str, Any]:
     return state
 
 
+def get_virtual_desktop_bounds(monitors: list[dict[str, Any]] | None = None) -> dict[str, int]:
+    """Return the axis-aligned union of all monitor rectangles (multi-monitor virtual desktop)."""
+    mons = monitors or get_monitors()
+    if not mons:
+        return {"left": 0, "top": 0, "right": 1920, "bottom": 1080, "width": 1920, "height": 1080}
+    left = min(int(m.get("left", 0)) for m in mons)
+    top = min(int(m.get("top", 0)) for m in mons)
+
+    def _right(m: dict[str, Any]) -> int:
+        if "right" in m:
+            return int(m["right"])
+        return int(m.get("left", 0)) + int(m.get("width", 0))
+
+    def _bottom(m: dict[str, Any]) -> int:
+        if "bottom" in m:
+            return int(m["bottom"])
+        return int(m.get("top", 0)) + int(m.get("height", 0))
+
+    right = max(_right(m) for m in mons)
+    bottom = max(_bottom(m) for m in mons)
+    return {
+        "left": left,
+        "top": top,
+        "right": right,
+        "bottom": bottom,
+        "width": max(1, right - left),
+        "height": max(1, bottom - top),
+    }
+
+
+def find_monitor_for_point(x: int, y: int, monitors: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
+    """Return the monitor whose bounds contain the point, else the nearest by center distance."""
+    mons = monitors or get_monitors()
+    if not mons:
+        return None
+    for m in mons:
+        left = int(m.get("left", 0))
+        top = int(m.get("top", 0))
+        right = int(m.get("right", left + int(m.get("width", 0))))
+        bottom = int(m.get("bottom", top + int(m.get("height", 0))))
+        if left <= x < right and top <= y < bottom:
+            return m
+    best = mons[0]
+    best_d = float("inf")
+    for m in mons:
+        left = int(m.get("left", 0))
+        top = int(m.get("top", 0))
+        w = int(m.get("width", max(1, int(m.get("right", left)) - left)))
+        h = int(m.get("height", max(1, int(m.get("bottom", top)) - top)))
+        cx, cy = left + w // 2, top + h // 2
+        d = (cx - x) ** 2 + (cy - y) ** 2
+        if d < best_d:
+            best_d = d
+            best = m
+    return best
+
+
+def normalize_bounds_for_monitor(
+    left: int,
+    top: int,
+    width: int,
+    height: int,
+    monitors: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Compute normalized coords for an element against the monitor that contains its center."""
+    mons = monitors or get_monitors()
+    cx = left + max(1, width) // 2
+    cy = top + max(1, height) // 2
+    mon = find_monitor_for_point(cx, cy, mons) or (mons[0] if mons else None)
+    if mon is None:
+        return {
+            "monitor_index": 0,
+            "norm_x": 0.0,
+            "norm_y": 0.0,
+            "norm_width": 0.0,
+            "norm_height": 0.0,
+            "center_x": 0.0,
+            "center_y": 0.0,
+        }
+    m_left = int(mon.get("left", 0))
+    m_top = int(mon.get("top", 0))
+    m_w = max(1, int(mon.get("width", 0)) or int(mon.get("right", m_left)) - m_left)
+    m_h = max(1, int(mon.get("height", 0)) or int(mon.get("bottom", m_top)) - m_top)
+    rel_left = left - m_left
+    rel_top = top - m_top
+    norm_x = max(0.0, min(1.0, rel_left / m_w))
+    norm_y = max(0.0, min(1.0, rel_top / m_h))
+    norm_w = max(0.01, min(1.0, width / m_w))
+    norm_h = max(0.01, min(1.0, height / m_h))
+    return {
+        "monitor_index": int(mon.get("index", 0)),
+        "monitor_width": m_w,
+        "monitor_height": m_h,
+        "norm_x": round(norm_x, 4),
+        "norm_y": round(norm_y, 4),
+        "norm_width": round(norm_w, 4),
+        "norm_height": round(norm_h, 4),
+        "center_x": round(norm_x + norm_w / 2.0, 4),
+        "center_y": round(norm_y + norm_h / 2.0, 4),
+        "absolute_x": cx,
+        "absolute_y": cy,
+    }
+
+
 def get_monitors() -> list[dict[str, Any]]:
     """Enumerate all connected displays and their bounding rectangles."""
     monitors: list[dict[str, Any]] = []

@@ -26,8 +26,12 @@ from .security import truncate_output
 def _validate_test_command(command: str, allowed_commands: frozenset[str] | set[str] | None = None) -> list[str]:
     # Only exact, well-known test invocations; no flags that run code
     # outside the workspace (e.g. no -k injection beyond a safe token).
-    allowed = {"pytest": ["pytest", "-q"], "npm test": ["npm", "test", "--silent"],
-               "go test": ["go", "test", "./..."]}
+    allowed = {
+        "pytest": ["pytest", "-q"],
+        "pytest -q": ["pytest", "-q"],
+        "npm test": ["npm", "test", "--silent"],
+        "go test": ["go", "test", "./..."],
+    }
     if command not in allowed or (allowed_commands is not None and command not in allowed_commands):
         raise ValueError(f"Test command not allowlisted: {command!r}")
     return allowed[command]

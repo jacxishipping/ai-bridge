@@ -11,10 +11,10 @@
 | Phase | Status | Primary evidence | Regression test(s) |
 |-------|--------|------------------|----------------------|
 | **2** — Orchestration reliability | **SHIPPED** | `task_runtime.py`, `orchestration.sweep_stale_running_tasks`, `poller.py` execution-state poll, `dispatch._start_webrtc_from_task` (monitor/bitrate/fps), per-device lease in `app.py` `next_task` | `test_webrtc_task_dispatch_passes_monitor_and_bitrate`, `test_stale_running_task_sweeper_requeues`, `test_per_device_concurrency_lease_blocks_second_task`, `test_execution_state_reflects_cancel`, `test_task_runtime_cancel_interrupts_dispatch` |
-| **3** — Trustworthy desktop autonomy | **SHIPPED** (core) | `tools.desktop_*` checks `desktop_is_action_vetoed`; SoM synthetic only when `AI_BRIDGE_SOM_SYNTHETIC_FALLBACK=1`; `dispatch` passes `intent_id` / `monitor_index` on desktop + WebRTC paths | Code paths in `tools.py` ~606+, `dispatch.py`; optional env for SoM |
-| **4** — Fleet browser & research | **SHIPPED** (core) | `dispatch._dispatch_browser_tool` + `browser_*` registry; `connectors/browserbase.py`, `connectors/you_search.py` | `test_dispatch_registers_browser_navigate` |
-| **5** — Repo-aware builder agents | **SHIPPED** (checkpoint) | `git_ops.git_checkpoint`; delegate hooks in `custom_agents.py` | Covered indirectly via dispatch/git tools |
-| **6** — Role catalog | **SHIPPED** | `role_catalog.py` + `seed_role_catalog` on app startup | `test_role_catalog_seed_idempotent` |
+| **3** — Trustworthy desktop autonomy | **SHIPPED** (deep) | Veto + `intent_id` on click/verify; SoM coords per-monitor (`screen_capture.normalize_bounds_for_monitor`); `click_element` uses cached SoM marks; `desktop_verify_action` post-screenshot; `AgentStreamer` applies fps/bitrate to `ScreenTrack`; Linux/macOS honest `get_desktop_status`; native encode hook when `ai_bridge_native.dll` present | `tests/unit/test_phase3_desktop_autonomy.py` |
+| **4** — Fleet browser & research | **SHIPPED** (deep) | Playwright session reuse/timeouts/`screenshot_after_nav`; `connectors/firecrawl.py`; `browserbase_navigate` (CDP); fleet dispatch for Firecrawl/You/Browserbase | `test_phases_456_deep.py`, `test_dispatch_registers_browser_navigate` |
+| **5** — Repo-aware builder agents | **SHIPPED** (deep) | `dev_tools.dev_workspace_plan`, `workspace.project_structure`, `git_apply_patch`, `run_project_tests_structured`; Developer role prompt + MCP `dev_workspace_plan` | `test_phases_456_deep.py` |
+| **6** — Role catalog & supervisor | **SHIPPED** (deep) | `control/supervisor.py` handoff enqueue/recovery; `agent_delegate` by `role`; template `role-handoff-supervisor-planner-developer` | `test_phases_456_deep.py`, `test_role_catalog_seed_idempotent` |
 | **7** — Durable memory & live activity | **SHIPPED** (core) | `plane_state.py` (emergency stop + human takeover in `settings`), `agent_memory.py`, `app.py` `live_activity` / SSE | `test_emergency_stop_durable_across_app_state`, `test_agent_memory_chunks` |
 | **8** — Security & load gates | **SHIPPED** (core) | `webrtc_stream.generate_ephemeral_turn_credentials` fail-fast when `AI_BRIDGE_PROFILE=production` and secret unset | `test_turn_secret_required_in_prod_profile`, `test_orchestration_load_smoke` |
 
@@ -112,13 +112,13 @@ flowchart TB
 | Task cancellation | **Shipped** (Phase 2) | DB cancel + `GET .../execution-state`; `task_runtime` + `poller.py` cooperative abort |
 | Desktop tools (Python) | **Shipped** | `dispatch.py` `desktop_*` handlers; `tools.py` |
 | WebRTC streaming | **Shipped** (Phase 2 dispatch) | `dispatch._start_webrtc_from_task` forwards `monitor_index`, `bitrate_kbps`, `fps` (default 30) |
-| Vision / SoM | **Partial** | Real UI enum; synthetic only if `AI_BRIDGE_SOM_SYNTHETIC_FALLBACK` enabled (`tools.py`) |
+| Vision / SoM | **Shipped** (core) | Per-monitor normalization; mark-id click grounding; synthetic only if `AI_BRIDGE_SOM_SYNTHETIC_FALLBACK` enabled |
 | Playwright browser | **Shipped** (Phase 4) | MCP `server.py` + fleet `dispatch._dispatch_browser_tool` |
 | Workflows / schedules | **Shipped** | `app.py` workflow routes |
 | Custom multi-agent | **Shipped** (Phase 6) | `AgentRunner` + `role_catalog.seed_role_catalog` presets |
 | Native C++ agent | **Partial** | `windows-agent/src/*` capture/encode/WebRTC transport; **E2E with plane unverified here** |
 | macOS / Linux agents | **Partial** | `agents/macos/`, `agents/linux/` entrypoints; macOS **not run in CI per docs** |
-| Browserbase / You.com first-party | **Missing** | No code refs; Firecrawl via MCP template only |
+| Browserbase / You.com / Firecrawl first-party | **Shipped** (deep) | `connectors/browserbase.py`, `you_search.py`, `firecrawl.py`; fleet `dispatch.py` registration |
 | Postgres runtime | **Partial** | `render.yaml` + `db.py` dialect; default dev SQLite |
 | Prometheus metrics | **Shipped** | `GET /metrics` in `app.py`, `control/metrics.py` |
 | OIDC | **Partial** | `control/oidc.py`; activation needs provider env |
@@ -185,23 +185,27 @@ flowchart TB
 
 ### Phase 3 — Trustworthy desktop autonomy
 
-**Status: SHIPPED** (core) — veto enforced in `tools.py` before desktop actions (`desktop_is_action_vetoed`); `dispatch.py` registers `desktop_veto_action` and passes `intent_id` on desktop tools; SoM synthetic gated by `AI_BRIDGE_SOM_SYNTHETIC_FALLBACK`; WebRTC/monitor args via Phase 2.
+**Status: SHIPPED** (deep) — veto + `intent_id` on `perform_approved_ui_action`, `desktop_click`, `click_element`, `desktop_verify_action`; per-monitor SoM normalization; cached mark-id grounding; closed-loop verify with post-action screenshot; runtime fps/bitrate applied to `ScreenTrack`; `switch_monitor` syncs track + telemetry; Linux/macOS `available`/`reason` honesty; optional native H.264 encode timing via `ai_bridge_native.dll` (PyAV path unchanged).
 
 **Goals:** Grounding and veto that actually block automation; honest multi-monitor SoM; platform honesty.
 
 | Work item | Modules | Acceptance |
 |-----------|---------|------------|
-| Wire veto into desktop tool path | `tools.py`, `dispatch.py`, `webrtc_stream.py` DataChannel | `desktop_is_action_vetoed` checked before click/type |
-| Remove or flag synthetic SoM | `tools.py` | Empty `elements` + explicit error when headless |
-| Pass monitor index end-to-end | `dispatch.py`, `screen_capture.py` | Test: secondary monitor stream |
-| Linux/macOS capability matrix | `agents/linux`, `agents/macos`, docs | Honest `get_desktop_status` per OS |
-| Native encode bridge optional | `windows-agent/`, `webrtc_stream.py` ndll hooks | Documented build + smoke on Windows |
+| Wire veto into desktop tool path | `tools.py`, `dispatch.py`, `webrtc_stream.py` DataChannel | **Done** — veto on UI actions + verify |
+| Remove or flag synthetic SoM | `tools.py` | **Done** — explicit error unless `AI_BRIDGE_SOM_SYNTHETIC_FALLBACK=1` |
+| Multi-monitor SoM normalization | `tools.py`, `screen_capture.py` | **Done** — `normalize_bounds_for_monitor`, `monitor_index` filter |
+| Pass monitor index end-to-end | `dispatch.py`, `webrtc_stream.py`, `screen_capture.py` | **Done** (Phase 2 stream + Phase 3 SoM/input) |
+| Trustworthy mark click | `tools.py` | **Done** — `click_element` → cached SoM before OCR |
+| Closed-loop verify | `tools.py`, `dispatch.py` | **Done** — `wait_seconds`, `capture_after`, `intent_id` |
+| ABR fps on frame timing | `webrtc_stream.py` | **Done** — `apply_stream_params` on quality update |
+| Linux/macOS capability matrix | `tools.get_desktop_status` | **Done** — `stream_available`/`ocr_available`/`reason` |
+| Native encode bridge optional | `webrtc_stream.py`, `screen_capture.py` | **Partial** — bitrate hook + encode smoke; full native WebRTC path still unverified E2E |
 
 ---
 
 ### Phase 4 — Fleet browser & external research
 
-**Status: SHIPPED** (fleet browser + connector stubs) — `dispatch._dispatch_browser_tool` covers full `browser_*` surface; `src/ai_bridge/connectors/browserbase.py`, `connectors/you_search.py`. Test: `test_dispatch_registers_browser_navigate`.
+**Status: SHIPPED** (deep) — Full `browser_*` fleet dispatch with `browser_session_info`, env `AI_BRIDGE_BROWSER_NAV_TIMEOUT_SEC`, optional `screenshot_after_nav`, clearer `BrowserToolError` messages; first-party `connectors/firecrawl.py` (`firecrawl_scrape|search|map_site`); `browserbase_navigate` via Playwright CDP; policy tiers on all connector tools. Tests: `tests/unit/test_phases_456_deep.py`.
 
 **Goals:** Playwright on dispatched tasks; optional cloud browser; first-class research connectors.
 
@@ -218,7 +222,7 @@ flowchart TB
 
 ### Phase 5 — Repo-aware builder agents
 
-**Status: SHIPPED** (checkpoint) — `git_ops.git_checkpoint`; workspace/git tools in `dispatch.py`; `custom_agents.py` memory + delegate loops.
+**Status: SHIPPED** (deep) — `dev_workspace_plan`, `workspace_project_structure`, `git_apply_patch`, `run_project_tests_structured` on dispatch + MCP (`dev_workspace_plan`, `browser_session_info`); Developer custom-agent system prompt cites git/test workflow. Tests: `test_dev_workspace_plan_and_structure`, `test_run_project_tests_structured_parses_summary`.
 
 **Goals:** Safer git/test/edit loops for “developer” style custom agents.
 
@@ -231,7 +235,7 @@ flowchart TB
 
 ### Phase 6 — Role catalog on shared task system
 
-**Status: SHIPPED** — `src/ai_bridge/control/role_catalog.py`; seeded on startup in `app.py`; test `test_role_catalog_seed_idempotent`.
+**Status: SHIPPED** (deep) — `control/supervisor.py` (`enqueue_role_task`, `run_supervisor_handoff_enqueue`, `recover_failed_role_tasks`, `supervisor_delegate_role` dispatch tool); `agent_delegate` accepts `role`; seeded workflow `role-handoff-supervisor-planner-developer`. Tests: `test_supervisor_handoff_enqueue_role_tags`, `test_recover_failed_role_tasks`, `test_role_catalog_handoff_template_seed`.
 
 **Goals:** Named roles (Supervisor, Planner, Researcher, Developer, Computer, Browser, Tester, Security, Recovery) as **custom agent presets** + workflow templates, not new orchestration kernel.
 
@@ -326,7 +330,7 @@ flowchart TB
 
 ### Post Phase 2–8 regression suite
 
-Run: `pytest tests/unit/test_orchestration_phases.py -q`
+Run: `pytest tests/unit/test_orchestration_phases.py tests/unit/test_phases_456_deep.py -q`
 
 | Test | Phase |
 |------|-------|
@@ -335,6 +339,7 @@ Run: `pytest tests/unit/test_orchestration_phases.py -q`
 | `test_per_device_concurrency_lease_blocks_second_task` | 2 |
 | `test_execution_state_reflects_cancel`, `test_task_runtime_cancel_interrupts_dispatch` | 2 |
 | `test_dispatch_registers_browser_navigate` | 4 |
+| `test_phases_456_deep.py` (connectors, dev plan, supervisor handoff) | 4–6 |
 | `test_role_catalog_seed_idempotent` | 6 |
 | `test_emergency_stop_durable_across_app_state`, `test_agent_memory_chunks` | 7 |
 | `test_turn_secret_required_in_prod_profile`, `test_orchestration_load_smoke` | 8 |

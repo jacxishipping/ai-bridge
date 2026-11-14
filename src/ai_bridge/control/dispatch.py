@@ -7,8 +7,9 @@ here — this is the server-side enforcement point, not the prompt.
 """
 from __future__ import annotations
 
-from .. import browser_tools, diagnostics, git_ops, tools, workspace, webrtc_stream
+from .. import browser_tools, dev_tools, diagnostics, git_ops, tools, workspace, webrtc_stream
 from ..policy import TOOL_TIERS, Policy, RiskTier, decide
+from . import supervisor
 from .task_runtime import TaskCancelled, raise_if_cancelled
 
 
@@ -49,10 +50,13 @@ def _dispatch_browser(tool: str, a: dict, *, approval_granted: bool, policy: Pol
     a = a or {}
     common = {"approval_granted": approval_granted, "policy": policy}
     if tool == "browser_navigate":
+        timeout_raw = a.get("timeout")
+        timeout = int(timeout_raw) if timeout_raw is not None else None
         return browser_tools.browser_navigate(
             a["url"],
             wait_until=str(a.get("wait_until", "networkidle")),
-            timeout=int(a.get("timeout", 30)),
+            timeout=timeout,
+            screenshot_after_nav=bool(a.get("screenshot_after_nav", False)),
             **common,
         )
     if tool == "browser_screenshot":
@@ -160,7 +164,27 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
             a.get("relative_directory", "."),
             str(a.get("message", "ai-bridge checkpoint")),
         ),
+        "git_apply_patch": lambda a: git_ops.git_apply_patch(
+            a.get("relative_directory", "."),
+            a["patch_text"],
+            check_only=bool(a.get("check_only", False)),
+        ),
+        "workspace_project_structure": lambda a: workspace.project_structure(
+            a.get("relative_directory", "."),
+            max_depth=int(a.get("max_depth", 3)),
+        ),
+        "dev_workspace_plan": lambda a: dev_tools.dev_workspace_plan(
+            a.get("relative_directory", "."),
+            max_depth=int(a.get("max_depth", 3)),
+        ),
         "run_project_tests": lambda a: tools.run_project_tests(a.get("test_command", "pytest"), a.get("timeout", 120), policy=policy),
+        "run_project_tests_structured": lambda a: dev_tools.run_project_tests_structured(
+            a.get("test_command", "pytest -q"),
+            int(a.get("timeout", 120)),
+            policy=policy,
+        ),
+        "browser_session_info": lambda a: browser_tools.browser_session_info(),
+        "supervisor_delegate_role": lambda a: supervisor.delegate_role_target(str(a.get("role") or a["role"])),
         "run_linter": lambda a: tools.run_linter(a.get("timeout", 60)),
         "create_backup": lambda a: tools.create_backup(a.get("relative_directory", "."), approval_granted=approval_granted, policy=policy),
         "deploy_application": lambda a: tools.deploy_application(a.get("project_directory", "."), a.get("target_directory", "deploy-staging"), approval_granted=approval_granted, policy=policy),
@@ -259,6 +283,7 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
             clicks=int(a.get("clicks", 1)),
             approval_granted=approval_granted,
             policy=policy,
+            intent_id=a.get("intent_id"),
         ),
         "list_ui_elements": lambda a: tools.list_ui_elements(
             approval_granted=approval_granted,
@@ -361,6 +386,7 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
             clicks=int(a.get("clicks", 1)),
             approval_granted=approval_granted,
             policy=policy,
+            intent_id=a.get("intent_id"),
         ),
         "desktop_keyboard": lambda a: tools.desktop_keyboard(
             text=str(a.get("text", "")),
@@ -406,6 +432,9 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         "desktop_verify_action": lambda a: tools.desktop_verify_action(
             expected_text=str(a.get("expected_text", "")),
             expected_window=str(a.get("expected_window", "")),
+            wait_seconds=float(a.get("wait_seconds", 0.35)),
+            capture_after=bool(a.get("capture_after", True)),
+            intent_id=a.get("intent_id"),
             approval_granted=approval_granted,
             policy=policy,
         ),
@@ -414,7 +443,7 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
             str(a.get("reason", "Operator override")),
         ),
     }
-    from ..connectors import browserbase, microsoft365, you_search
+    from ..connectors import browserbase, firecrawl, microsoft365, you_search
 
     _browser_names = {
         "browser_navigate",
@@ -444,6 +473,7 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
     handlers.update({name: (lambda a, _fn=fn: _fn(a)) for name, fn in microsoft365.TOOLS.items()})
     handlers.update({name: (lambda a, _fn=fn: _fn(a)) for name, fn in browserbase.TOOLS.items()})
     handlers.update({name: (lambda a, _fn=fn: _fn(a)) for name, fn in you_search.TOOLS.items()})
+    handlers.update({name: (lambda a, _fn=fn: _fn(a)) for name, fn in firecrawl.TOOLS.items()})
     handler = handlers.get(tool)
     if handler is None:
         raise ValueError(f"Tool not executable via the control plane: {tool}")

@@ -18,6 +18,8 @@ ROLES: dict[str, dict[str, Any]] = {
             "agent_delegate",
             "agent_run_workflow",
             "agent_notify",
+            "supervisor_delegate_role",
+            "dev_workspace_plan",
             "get_system_info",
             "list_processes",
         ],
@@ -25,24 +27,44 @@ ROLES: dict[str, dict[str, Any]] = {
     "planner": {
         "name": "Planner",
         "instruction": "Break goals into ordered steps and queue workflow templates.",
-        "allowed_tools": ["agent_run_workflow", "search_workspace", "list_workspace", "agent_remember"],
+        "allowed_tools": [
+            "agent_run_workflow",
+            "dev_workspace_plan",
+            "workspace_project_structure",
+            "search_workspace",
+            "list_workspace",
+            "agent_remember",
+        ],
     },
     "researcher": {
         "name": "Researcher",
         "instruction": "Gather evidence from the web and workspace; cite sources in memory.",
-        "allowed_tools": ["you_web_search", "you_fetch_contents", "search_workspace", "browser_navigate", "browser_get_text"],
+        "allowed_tools": [
+            "you_web_search",
+            "you_fetch_contents",
+            "firecrawl_scrape",
+            "firecrawl_search",
+            "search_workspace",
+            "browser_navigate",
+            "browser_get_text",
+        ],
     },
     "developer": {
         "name": "Developer",
         "instruction": "Implement and test code changes inside the workspace with git discipline.",
         "allowed_tools": [
             "list_workspace",
+            "workspace_project_structure",
+            "dev_workspace_plan",
             "read_workspace_file",
             "edit_workspace_file",
             "git_status",
             "git_diff",
+            "git_apply_patch",
             "git_create_branch",
+            "git_checkpoint",
             "run_project_tests",
+            "run_project_tests_structured",
             "run_linter",
         ],
     },
@@ -54,12 +76,27 @@ ROLES: dict[str, dict[str, Any]] = {
     "browser_operator": {
         "name": "Browser Operator",
         "instruction": "Automate browser workflows on dispatched Playwright tools.",
-        "allowed_tools": ["browser_navigate", "browser_click", "browser_type", "browser_screenshot", "browser_get_url"],
+        "allowed_tools": [
+            "browser_navigate",
+            "browser_click",
+            "browser_type",
+            "browser_screenshot",
+            "browser_get_url",
+            "browser_session_info",
+            "browserbase_create_session",
+            "browserbase_navigate",
+        ],
     },
     "tester": {
         "name": "Tester",
         "instruction": "Run tests and report failures with repro steps.",
-        "allowed_tools": ["run_project_tests", "run_linter", "git_diff", "agent_notify"],
+        "allowed_tools": [
+            "run_project_tests",
+            "run_project_tests_structured",
+            "run_linter",
+            "git_diff",
+            "agent_notify",
+        ],
     },
     "security_auditor": {
         "name": "Security Auditor",
@@ -69,7 +106,13 @@ ROLES: dict[str, dict[str, Any]] = {
     "recovery": {
         "name": "Recovery",
         "instruction": "Diagnose stuck tasks, service health, and recommend rollback steps.",
-        "allowed_tools": ["get_service_status", "get_recent_logs", "list_processes", "create_backup"],
+        "allowed_tools": [
+            "get_service_status",
+            "get_recent_logs",
+            "list_processes",
+            "create_backup",
+            "supervisor_delegate_role",
+        ],
     },
 }
 
@@ -128,6 +171,32 @@ def seed_role_catalog(conn: Any, *, tenant: str = "default") -> int:
                 ),
             )
             created += 1
+    handoff_id = "role-handoff-supervisor-planner-developer"
+    if conn.execute("SELECT id FROM workflow_templates WHERE id=?", (handoff_id,)).fetchone() is None:
+        from . import supervisor as sup
+
+        steps = [
+            {
+                "tool": step["tool"],
+                "args": step.get("args") or {},
+                "name": step.get("name"),
+            }
+            for step in sup.supervisor_handoff_plan("{{goal}}")
+        ]
+        conn.execute(
+            "INSERT INTO workflow_templates (id, name, description, steps_json, tenant, created_by, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (
+                handoff_id,
+                "Handoff: Supervisor → Planner → Developer",
+                "Queues role-tagged planning, git status, and structured test tasks.",
+                json.dumps(steps),
+                tenant,
+                "system",
+                now,
+            ),
+        )
+        created += 1
     if created:
         conn.commit()
     return created

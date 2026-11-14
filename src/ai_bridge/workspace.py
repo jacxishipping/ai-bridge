@@ -129,3 +129,51 @@ def delete_workspace_file(relative_path: str) -> dict:
 def read_workspace_text(relative_path: str, max_bytes: int | None = None) -> str:
     """Read a workspace text file (delegates to security.read_workspace_text)."""
     return _security_read(relative_path, max_bytes)
+
+
+def project_structure(relative_directory: str = ".", *, max_depth: int = 3, max_entries: int = 200) -> dict:
+    """Summarize workspace tree for repo-aware agents (depth-limited)."""
+    max_depth = max(1, min(int(max_depth), 8))
+    root = confined_path(relative_directory)
+    if not root.is_dir():
+        raise ValueError("Directory does not exist inside the workspace.")
+    ws = workspace_root().resolve()
+    entries: list[dict] = []
+
+    def _walk(path: Path, depth: int) -> None:
+        if len(entries) >= max_entries or depth > max_depth:
+            return
+        try:
+            children = sorted(path.iterdir(), key=lambda p: p.name.lower())
+        except OSError:
+            return
+        for child in children:
+            if child.name.startswith(".ai-bridge"):
+                continue
+            if len(entries) >= max_entries:
+                return
+            try:
+                child.resolve().relative_to(ws)
+            except Exception:
+                continue
+            rel = str(child.relative_to(ws))
+            if child.is_dir():
+                entries.append({"path": rel, "type": "directory", "depth": depth})
+                _walk(child, depth + 1)
+            elif child.is_file():
+                entries.append(
+                    {
+                        "path": rel,
+                        "type": "file",
+                        "depth": depth,
+                        "size_bytes": child.stat().st_size,
+                    }
+                )
+
+    _walk(root, 1)
+    return {
+        "root": str(root.relative_to(ws)) if root != ws else ".",
+        "max_depth": max_depth,
+        "entry_count": len(entries),
+        "entries": entries,
+    }

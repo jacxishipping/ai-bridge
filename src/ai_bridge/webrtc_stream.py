@@ -244,6 +244,19 @@ class ScreenTrack:
                 self._window_start = time.perf_counter()
                 self._window_frames = 0
 
+            def apply_stream_params(
+                self,
+                *,
+                fps: int | None = None,
+                bitrate_kbps: int | None = None,
+            ) -> dict[str, int]:
+                if fps is not None:
+                    self._fps = max(1, min(60, int(fps)))
+                    self._step = int((1.0 / self._fps) * 90000)
+                if bitrate_kbps is not None:
+                    self._bitrate_kbps = max(500, min(20000, int(bitrate_kbps)))
+                return {"fps": self._fps, "bitrate_kbps": self._bitrate_kbps}
+
             async def next_timestamp(self) -> tuple[int, fractions.Fraction]:
                 if self.readyState != "live":
                     from aiortc.mediastreams import MediaStreamError
@@ -274,6 +287,31 @@ class ScreenTrack:
                 capture_ms = (t_cap_end - t_cap_start) * 1000.0
 
                 t_enc_start = time.perf_counter()
+                try:
+                    from ai_bridge.screen_capture import _AIBridgeCaptureMetrics, get_native_dll
+
+                    ndll = get_native_dll()
+                    if ndll is not None and hasattr(ndll, "aibridge_encode_h264_frame"):
+                        import ctypes
+
+                        w, h = img.width, img.height
+                        rgb = img.tobytes()
+                        out_cap = 256 * 1024
+                        out_buf = (ctypes.c_uint8 * out_cap)()
+                        mstruct = _AIBridgeCaptureMetrics()
+                        ndll.aibridge_encode_h264_frame(
+                            (ctypes.c_uint8 * len(rgb)).from_buffer_copy(rgb),
+                            len(rgb),
+                            w,
+                            h,
+                            3,
+                            out_buf,
+                            out_cap,
+                            ctypes.byref(mstruct),
+                        )
+                except Exception:
+                    pass
+
                 frame = av.VideoFrame.from_image(img)
                 frame.pts = pts
                 frame.time_base = time_base
@@ -748,6 +786,9 @@ class AgentStreamer:
                     new_fps = adapted["fps"]
                 self.bitrate_kbps = new_kbps
                 self.fps = new_fps
+                track = getattr(self, "video_track", None)
+                if track is not None and hasattr(track, "apply_stream_params"):
+                    track.apply_stream_params(fps=new_fps, bitrate_kbps=new_kbps)
                 try:
                     from ai_bridge.screen_capture import get_native_dll
 
@@ -768,6 +809,8 @@ class AgentStreamer:
                 self.monitor_index = new_mon
                 if hasattr(self, "video_track") and self.video_track is not None:
                     self.video_track._monitor_index = new_mon
+                if self.session_id in _STREAM_TELEMETRY:
+                    _STREAM_TELEMETRY[self.session_id]["monitor_index"] = new_mon
                 return {"ok": True, "action": "switch_monitor", "monitor_index": new_mon}
 
             if action == "clipboard_sync":
@@ -941,6 +984,7 @@ class AgentStreamer:
             session_id=self.session_id,
             bitrate_kbps=self.bitrate_kbps,
         )
+        self.video_track = track
         sender = pc.addTrack(track)
 
         # Prefer H.264 codec on the video transceiver per Section 5

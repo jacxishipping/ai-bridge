@@ -482,6 +482,22 @@ def git_diff(relative_directory: str = ".", device: str | None = None) -> str:
 
 @mcp.tool()
 @device_aware()
+def dev_workspace_plan(relative_directory: str = ".", max_depth: int = 3, device: str | None = None) -> dict:
+    """Repo-aware plan: project tree plus git status and diff stat."""
+    from . import dev_tools
+
+    return dev_tools.dev_workspace_plan(relative_directory, max_depth=max_depth)
+
+@mcp.tool()
+@device_aware()
+def browser_session_info(device: str | None = None) -> dict:
+    """Report whether a reusable local Playwright browser session is active."""
+    from . import browser_tools
+
+    return browser_tools.browser_session_info()
+
+@mcp.tool()
+@device_aware()
 def run_project_tests(test_command: str = "pytest", timeout: int = 120, device: str | None = None) -> dict:
     """Run an allowlisted test command (pytest / npm test / go test) with a timeout.
     device (optional): Target device name, hostname, ID, or 'local'."""
