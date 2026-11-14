@@ -193,21 +193,28 @@ def test_click_text_with_mocked_ocr(monkeypatch):
 
 
 def test_click_element_with_som(monkeypatch):
-    mock_coord = {
-        "found": True,
-        "x": 125,
-        "y": 20,
-        "match": {"text": "[2] Save Button", "bounds": [90, 10, 160, 30]},
-    }
-    monkeypatch.setattr(tools, "capture_desktop_screenshot", lambda **kw: {"available": False, "path": ""})
-    monkeypatch.setattr(vision, "find_text_coordinates", lambda *a, **kw: mock_coord)
+    # Trustworthy SoM path: click_element uses cached marks from set_of_marks_screenshot.
+    with tools._LAST_SOM_LOCK:
+        tools._LAST_SOM_MARKS.clear()
+        tools._LAST_SOM_MARKS["2"] = {
+            "x": 125,
+            "y": 20,
+            "center": [125, 20],
+            "bounds": [90, 10, 160, 30],
+            "text": "[2] Save Button",
+        }
 
     performed = []
-    monkeypatch.setattr(tools, "perform_approved_ui_action", lambda action, *, x=None, y=None, **kw: performed.append({"action": action, "x": x, "y": y}))
+    monkeypatch.setattr(
+        tools,
+        "perform_approved_ui_action",
+        lambda action, *, x=None, y=None, **kw: performed.append({"action": action, "x": x, "y": y}),
+    )
 
     p = Policy(allow_tier3=True, max_tier_unattended=3, desktop_enabled=True)
     res = tools.click_element(mark_id="2", button="left", policy=p)
     assert res["ok"] is True
+    assert res["grounding"] == "som_mark"
     assert res["x"] == 125
     assert res["y"] == 20
     assert performed[-1]["x"] == 125

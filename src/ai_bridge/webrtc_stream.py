@@ -99,6 +99,20 @@ def get_configured_ice_servers() -> list[dict[str, Any]]:
         return list(DEFAULT_ICE_SERVERS)
 
 
+def desktop_audio_opt_in() -> bool:
+    """Return True when desktop audio loopback is explicitly enabled.
+
+    Default is off until WASAPI capture is production-ready. Opt in with
+    ``AI_BRIDGE_DESKTOP_AUDIO=1`` (also accepts ``true`` / ``yes``).
+    """
+    return os.environ.get("AI_BRIDGE_DESKTOP_AUDIO", "").strip().lower() in ("1", "true", "yes")
+
+
+def desktop_audio_silent_pcm_bytes(samples_per_frame: int = 960, channels: int = 2) -> bytes:
+    """Zero-filled s16le PCM used when live capture is unavailable (honest silent track)."""
+    return bytes(int(samples_per_frame) * int(channels) * 2)
+
+
 def set_agent_context(control_url: str, device_token: str) -> None:
     """Let dispatch() start a stream: the poller owns the control URL
     and device token, dispatch() does not receive them as arguments."""
@@ -416,7 +430,9 @@ class DesktopAudioTrack:
                 self._step = self._samples_per_frame
                 self._timestamp = 0
                 self._start = time.time()
-                self._silent_bytes = bytes(self._samples_per_frame * self.channels * 2)
+                self._silent_bytes = desktop_audio_silent_pcm_bytes(
+                    self._samples_per_frame, self.channels
+                )
 
             async def recv(self):
                 import av
@@ -1001,6 +1017,39 @@ class AgentStreamer:
             return {"ok": False, "error": str(exc)}
         return {"ok": False, "error": "unsupported_action"}
 
+    def _attach_desktop_audio_if_enabled(self, pc, *, RTCRtpSender=None) -> bool:
+        """Attach DesktopAudioTrack when ``AI_BRIDGE_DESKTOP_AUDIO`` is opted in.
+
+        Returns True when a track was added. Default is off (no live capture).
+        When enabled, the track emits silent PCM until WASAPI loopback is ready.
+        """
+        if not desktop_audio_opt_in():
+            if isinstance(getattr(self.signaling, "session", None), dict):
+                self.signaling.session["audio_enabled"] = False
+            return False
+        try:
+            audio_track = DesktopAudioTrack()
+            pc.addTrack(audio_track)
+            if RTCRtpSender is not None:
+                try:
+                    audio_caps = RTCRtpSender.getCapabilities("audio")
+                    if audio_caps and audio_caps.codecs:
+                        opus_codecs = [c for c in audio_caps.codecs if "OPUS" in c.mimeType.upper()]
+                        if opus_codecs:
+                            for transceiver in pc.getTransceivers():
+                                if transceiver.kind == "audio" and hasattr(transceiver, "setCodecPreferences"):
+                                    transceiver.setCodecPreferences(opus_codecs)
+                except Exception:
+                    pass
+            if isinstance(getattr(self.signaling, "session", None), dict):
+                self.signaling.session["audio_enabled"] = True
+            return True
+        except Exception as exc:
+            if isinstance(getattr(self.signaling, "session", None), dict):
+                self.signaling.session["audio_enabled"] = False
+                self.signaling.session["audio_error"] = str(exc)[:200]
+            return False
+
     async def _run(self) -> None:
         try:
             from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCRtpSender, RTCSessionDescription
@@ -1048,25 +1097,8 @@ class AgentStreamer:
         except Exception:
             pass
 
-        # 1b. Audio loopback (opt-in). Default off until WASAPI capture is production-ready;
-        # enable with AI_BRIDGE_DESKTOP_AUDIO=1. Silent Opus frames keep negotiation honest.
-        if os.environ.get("AI_BRIDGE_DESKTOP_AUDIO", "").strip() in ("1", "true", "yes"):
-            try:
-                audio_track = DesktopAudioTrack()
-                pc.addTrack(audio_track)
-                audio_caps = RTCRtpSender.getCapabilities("audio")
-                if audio_caps and audio_caps.codecs:
-                    opus_codecs = [c for c in audio_caps.codecs if "OPUS" in c.mimeType.upper()]
-                    if opus_codecs:
-                        for transceiver in pc.getTransceivers():
-                            if transceiver.kind == "audio" and hasattr(transceiver, "setCodecPreferences"):
-                                transceiver.setCodecPreferences(opus_codecs)
-                if isinstance(getattr(self.signaling, "session", None), dict):
-                    self.signaling.session["audio_enabled"] = True
-            except Exception as exc:
-                if isinstance(getattr(self.signaling, "session", None), dict):
-                    self.signaling.session["audio_enabled"] = False
-                    self.signaling.session["audio_error"] = str(exc)[:200]
+        # 1b. Audio loopback (opt-in). Default off; silent Opus frames keep negotiation honest.
+        self._attach_desktop_audio_if_enabled(pc, RTCRtpSender=RTCRtpSender)
 
         # 2. DataChannel for Ultra-Low Latency Input Injection & Telemetry
         try:

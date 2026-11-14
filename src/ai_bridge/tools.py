@@ -1022,7 +1022,9 @@ def click_element(
     target_text = mark_key if mark_key else str(name or "").strip()
     if not target_text:
         raise ValueError("Either 'mark_id' or 'name' must be provided to click_element.")
-    if marks:
+    # When a SoM cache is active, unknown mark ids must not silently OCR-click —
+    # that would break trustworthy grounding. Empty cache → OCR/name fallback.
+    if marks and mark_key:
         raise ValueError(
             f"mark_id {mark_key!r} not in cached SoM marks; refresh set_of_marks_screenshot "
             f"(available ids: {', '.join(sorted(marks.keys())[:12])})."

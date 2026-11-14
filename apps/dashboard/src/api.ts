@@ -295,7 +295,8 @@ export const api = {
     call(`/api/fleet/desktop/frames${os ? `?os=${encodeURIComponent(os)}` : ""}`),
   deviceMonitors: (deviceId: string) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/monitors`),
-  createWebrtcSession: (deviceId: string, scale = 0.75, fps = 10, monitor_index?: number) =>
+  /** @deprecated Prefer createSessionV1 — Live Desktop uses /api/v1/sessions. */
+  createWebrtcSession: (deviceId: string, scale = 0.75, fps = 30, monitor_index?: number) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/session`, "POST", { scale, fps, monitor_index }),
   createTerminalSession: (deviceId: string, cols = 120, rows = 35) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/terminal/sessions`, "POST", { cols, rows }),
@@ -317,13 +318,17 @@ export const api = {
     const authQuery = st ? `&session_token=${encodeURIComponent(st)}` : at ? `&token=${encodeURIComponent(at)}` : "";
     return `${BASE}/api/devices/${encodeURIComponent(deviceId)}/terminal/${encodeURIComponent(sessionId)}/stream?since_seq=${sinceSeq}${authQuery}`;
   },
-  
+
+  /** @deprecated Prefer getSessionV1. */
   getWebrtcSession: (deviceId: string, sessionId: string) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}`),
+  /** @deprecated Prefer postAnswerV1. */
   postWebrtcAnswer: (deviceId: string, sessionId: string, answer: any) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}/answer`, "POST", answer),
+  /** @deprecated Prefer postIceV1. */
   postWebrtcCandidate: (deviceId: string, sessionId: string, candidate: any) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}/candidates`, "POST", { candidate }),
+  /** @deprecated Prefer terminateSessionV1. */
   endWebrtcSession: (deviceId: string, sessionId: string) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}`, "DELETE"),
   createSessionV1: (body: {
@@ -332,7 +337,9 @@ export const api = {
     fps?: number;
     scale?: number;
     monitor_index?: number;
+    bitrate_kbps?: number;
   }) => call("/api/v1/sessions", "POST", body),
+  desktopCapabilities: () => call("/api/fleet/desktop-capabilities"),
   getSessionV1: (sessionId: string) =>
     call(`/api/v1/sessions/${encodeURIComponent(sessionId)}`),
   setSessionModeV1: (
