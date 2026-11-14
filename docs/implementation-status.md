@@ -41,9 +41,18 @@ Not implemented / documented only:
 - OIDC login (local accounts in v0.3 are the interim step), Postgres runtime wiring beyond the
   migration SQL (SQLite is the running store; see migrations/002_security_batch.sql), Redis/worker (unnecessary
   at this volume — the plane is a modular monolith by design).
-- macOS agent (same tool contract; no macOS code yet).
-- Windows: code written and import-tested on Linux, but NOT executed on
-  Windows in this environment. Treat Windows service/desktop behaviour
-  as documented-but-unverified until run on a Windows host.
+- macOS agent entrypoints exist under `agents/macos/` but are **not run in on-target CI** here.
+- Windows: Python agent + installer exist (`deployment/windows/`, `agents/windows/`); treat full
+  service/desktop installer E2E as documented-but-unverified until exercised on a dedicated host.
 - Production deployment from a clean environment is documented, not
   executed here (no second host was available).
+
+## WebRTC / desktop streaming (Phases 2–9, current)
+- Dispatch defaults **fps=30** and forwards `monitor_index` / `bitrate_kbps` (`dispatch._start_webrtc_from_task`).
+- ICE servers from `webrtc_stream.get_configured_ice_servers`: `AI_BRIDGE_ICE_SERVERS`,
+  `AI_BRIDGE_TURN_URL` (+ username/credential), or ephemeral TURN via `AI_BRIDGE_TURN_HOST` +
+  `AI_BRIDGE_TURN_SECRET` (required when `AI_BRIDGE_PROFILE=production`). See `docs/streaming.md` §2.
+- Desktop audio (**F11**) is **off by default**; opt in with `AI_BRIDGE_DESKTOP_AUDIO=1` (silent PCM
+  frames until WASAPI loopback is production-ready). Covered by `tests/unit/test_phase9_deep.py`.
+- Canonical session API is `POST /api/v1/sessions`; legacy device WebRTC session routes return
+  `Deprecation` headers. Native C++ libwebrtc E2E remains an out-of-repo residual.

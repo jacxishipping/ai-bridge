@@ -1,4 +1,14 @@
-"""Phase 2–8 orchestration, browser dispatch, plane state, and reliability tests."""
+"""Roadmap Phase 2–8 core regression (orchestration / browser / plane state).
+
+Phase → primary test files (avoid renaming older milestone suites):
+  Phase 2 orchestration → this file + cancel/sweeper/lease cases
+  Phase 3 desktop → test_phase3_desktop_autonomy.py
+  Phase 4–6 browser/dev/supervisor → test_phases_456_deep.py (+ v1 WebRTC in test_phase4_streaming_and_updater.py)
+  Phase 7 memory/health → test_phase7_deep.py
+  Phase 8 security → test_phase8_deep.py
+  Phase 9 hardening → test_phase9_deep.py
+  Windows P0–P2 gaps → test_windows_p0_p2_gaps.py
+"""
 from __future__ import annotations
 
 import json

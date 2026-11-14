@@ -189,6 +189,7 @@ def test_webrtc_session_endpoints(tmp_path):
     assert "session_id" in data
     sess_id = data["session_id"]
     assert data["status"] == "waiting"
+    assert create_res.headers.get("Deprecation", "").lower() in ("true", "1")
 
     # Verify task was queued for the agent
     task_res = client.get("/api/agent/tasks/next", headers={"X-Device-Token": dev_token})
@@ -228,6 +229,77 @@ def test_webrtc_session_endpoints(tmp_path):
     del_res = client.delete(f"/api/devices/{dev_id}/desktop/webrtc/{sess_id}", headers={"X-Admin-Token": admin_token})
     assert del_res.status_code == 200
     assert del_res.json()["status"] == "ended"
+
+
+def test_v1_webrtc_session_endpoints(tmp_path):
+    """Canonical Live Desktop path: POST /api/v1/sessions (not legacy device webrtc routes)."""
+    admin_token = "adm-tok-v1-webrtc"
+    app = create_app(admin_token=admin_token, db_path=tmp_path / "control-v1.db")
+    client = TestClient(app)
+
+    dev = client.post(
+        "/api/devices/enroll",
+        json={"name": "v1-stream-node", "os": "Windows"},
+        headers={"X-Admin-Token": admin_token},
+    ).json()
+    dev_id = dev["device_id"]
+    dev_token = dev["device_token"]
+
+    create_res = client.post(
+        "/api/v1/sessions",
+        json={
+            "device_id": dev_id,
+            "mode": "human_control",
+            "fps": 30,
+            "scale": 0.5,
+            "monitor_index": 0,
+            "bitrate_kbps": 4500,
+        },
+        headers={"X-Admin-Token": admin_token},
+    )
+    assert create_res.status_code == 200, create_res.text
+    data = create_res.json()
+    sess_id = data["session_id"]
+    assert data["status"] == "waiting"
+    assert data["video"]["fps"] == 30
+    assert "control_mouse" in (data.get("permissions") or {})
+
+    task_res = client.get("/api/agent/tasks/next", headers={"X-Device-Token": dev_token})
+    assert task_res.status_code == 200
+    task = task_res.json()["task"]
+    assert task["tool"] == "start_webrtc_stream"
+    args = json.loads(task["args_json"])
+    assert args["session_id"] == sess_id
+    assert args["fps"] == 30
+    assert args.get("monitor_index") == 0
+    assert args.get("bitrate_kbps") == 4500
+
+    offer_res = client.post(
+        f"/api/v1/sessions/{sess_id}/offer",
+        json={"sdp": "v=0\r\no=agent", "type": "offer"},
+        headers={"X-Device-Token": dev_token},
+    )
+    assert offer_res.status_code == 200
+
+    viewer = client.get(f"/api/v1/sessions/{sess_id}", headers={"X-Admin-Token": admin_token})
+    assert viewer.status_code == 200
+    assert viewer.json()["status"] == "offered"
+    assert viewer.json()["offer"]["type"] == "offer"
+
+    ans = client.post(
+        f"/api/v1/sessions/{sess_id}/answer",
+        json={"sdp": "v=0\r\no=viewer", "type": "answer"},
+        headers={"X-Admin-Token": admin_token},
+    )
+    assert ans.status_code == 200
+    assert ans.json()["status"] == "answered"
+
+    term = client.post(
+        f"/api/v1/sessions/{sess_id}/terminate",
+        headers={"X-Admin-Token": admin_token},
+    )
+    assert term.status_code == 200
+    assert term.json()["status"] in ("ended", "terminated")
 
 
 def test_fleet_desktop_frames_endpoint(tmp_path):

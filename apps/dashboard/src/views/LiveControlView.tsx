@@ -13,7 +13,17 @@ import { LiveWorkspace } from "./live/LiveWorkspace";
 import type { LiveDevice } from "./live/shared";
 
 interface Snapshot { identity: { actor?: string; username?: string; role?: string }; health: { version: string; emergency_stop: boolean }; devices: LiveDevice[]; checkedAt: Date }
-interface OpsPulse { online_devices?: number; stale_device_count?: number; avg_cpu_percent?: number | null; avg_memory_percent?: number | null; items?: { id: string; tool: string; status: string; role?: string }[]; recent_failures?: { id: string; tool: string; status: string }[]; running_agents?: { id: string; name: string }[] }
+interface OpsPulse {
+  online_devices?: number;
+  stale_device_count?: number;
+  avg_cpu_percent?: number | null;
+  avg_memory_percent?: number | null;
+  items?: { id: string; tool: string; status: string; role?: string }[];
+  recent_failures?: { id: string; tool: string; status: string }[];
+  running_agents?: { id: string; name: string }[];
+  desktop_platforms?: { platform: string; stream_available?: boolean; ocr_available?: boolean; reason?: string }[];
+  native_encode?: { available?: boolean; enabled?: boolean; reason?: string };
+}
 
 /** Live data is deliberately separate from the local demonstration store. */
 export function LiveControlView() {
@@ -35,15 +45,28 @@ export function LiveControlView() {
     setError("");
     const wasAuthenticated = Boolean(token() || sessionToken());
     try {
-      const [identity, health, devices, fleetHealth, activity] = await Promise.all([
+      const [identity, health, devices, fleetHealth, activity, caps] = await Promise.all([
         api.me(),
         api.health(),
         api.devices(),
         api.fleetHealth().catch(() => null),
         api.liveActivity().catch(() => null),
+        api.desktopCapabilities().catch(() => null),
       ]);
       setSnapshot({ identity, health, devices: Array.isArray(devices) ? devices : devices.devices || [], checkedAt: new Date() });
-      if (fleetHealth || activity) {
+      if (fleetHealth || activity || caps) {
+        const platformMap = caps?.platforms && typeof caps.platforms === "object" ? caps.platforms : {};
+        const desktop_platforms = Object.entries(platformMap).map(([platform, row]) => {
+          const info = (row || {}) as Record<string, unknown>;
+          return {
+            platform,
+            stream_available: Boolean(info.webrtc_desktop_stream),
+            ocr_available: Boolean(info.ocr_som),
+            reason: typeof info.notes === "string" ? info.notes : undefined,
+          };
+        });
+        const host = (caps?.host_live_status || {}) as Record<string, unknown>;
+        const native = (caps?.native_encode || {}) as Record<string, unknown>;
         setOpsPulse({
           online_devices: fleetHealth?.online_devices,
           stale_device_count: fleetHealth?.stale_device_count,
@@ -52,6 +75,19 @@ export function LiveControlView() {
           items: activity?.items,
           recent_failures: activity?.recent_failures,
           running_agents: activity?.running_agents,
+          desktop_platforms,
+          native_encode: {
+            available: Boolean(native.available ?? host.stream_available ?? host.available),
+            enabled: Boolean(native.enabled ?? host.stream_available),
+            reason:
+              typeof native.reason === "string"
+                ? native.reason
+                : typeof host.reason === "string"
+                  ? host.reason
+                  : typeof caps?.host_os === "string"
+                    ? `host=${caps.host_os}`
+                    : undefined,
+          },
         });
       }
     } catch (err) {
@@ -187,6 +223,19 @@ export function LiveControlView() {
               )}
               {(opsPulse.running_agents?.length ?? 0) > 0 && (
                 <span>{opsPulse.running_agents!.length} agents running</span>
+              )}
+              {(opsPulse.desktop_platforms?.length ?? 0) > 0 && (
+                <span>
+                  Desktop:{" "}
+                  {opsPulse.desktop_platforms!
+                    .map((p) => `${p.platform}${p.stream_available ? "" : " (no stream)"}`)
+                    .join(" · ")}
+                </span>
+              )}
+              {opsPulse.native_encode?.reason && (
+                <span title={opsPulse.native_encode.reason}>
+                  Host desktop {opsPulse.native_encode.enabled ? "ready" : "limited"}
+                </span>
               )}
             </div>
           </ProductGlass>

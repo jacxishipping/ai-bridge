@@ -28,9 +28,17 @@ Windows Desktop
   - `POST /api/v1/sessions/{id}/answer` — Submits the browser's SDP answer.
   - `POST /api/v1/sessions/{id}/ice` — Exchanges trickled ICE candidates.
   - `WS /api/v1/ws/sessions/{id}` — Real-time bidirectional signaling WebSocket for SDP, ICE, mode changes, and telemetry updates.
-- **STUN/TURN Configuration**:
-  - Configured via `AI_BRIDGE_WEBRTC_STUN_URLS`, `AI_BRIDGE_WEBRTC_TURN_URLS`, `AI_BRIDGE_WEBRTC_TURN_USERNAME`, and `AI_BRIDGE_WEBRTC_TURN_CREDENTIAL`.
-  - Direct peer-to-peer media is preferred; TURN relay is used automatically when symmetric NAT or firewall rules block direct UDP connectivity.
+- **STUN/TURN Configuration** (see `webrtc_stream.get_configured_ice_servers`):
+  - `AI_BRIDGE_ICE_SERVERS` — JSON list of `{urls, username?, credential?}` (overrides others when set)
+  - `AI_BRIDGE_TURN_URL` / `AI_BRIDGE_TURN_USERNAME` / `AI_BRIDGE_TURN_CREDENTIAL` — explicit TURN
+  - Or ephemeral TURN via `AI_BRIDGE_TURN_HOST` + `AI_BRIDGE_TURN_SECRET` (required when `AI_BRIDGE_PROFILE=production`)
+  - Default STUN: `stun:stun.l.google.com:19302` when no TURN is configured
+  - Direct peer-to-peer media is preferred; TURN relay is used when NAT/firewalls block UDP
+
+## 2b. Desktop audio (F11)
+- **Default: off.** Video-only streams until operators opt in (`webrtc_stream.desktop_audio_opt_in`).
+- Set `AI_BRIDGE_DESKTOP_AUDIO=1` (or `true`/`yes`) to attach `DesktopAudioTrack` (Opus negotiation; silent s16le PCM frames keep negotiation honest when live WASAPI capture is unavailable — no fake live audio).
+- Task dispatch defaults to **fps=30** with optional `monitor_index` / `bitrate_kbps` (`dispatch._start_webrtc_from_task`). Canonical session create is `POST /api/v1/sessions` (dashboard Live Desktop). Legacy `POST /api/devices/{id}/desktop/webrtc/session` returns `Deprecation` headers.
 
 ## 3. Input Transport (`RTCDataChannel("input")`)
 Mouse and keyboard events travel over a dedicated WebRTC DataChannel (`input`) rather than HTTP polling:

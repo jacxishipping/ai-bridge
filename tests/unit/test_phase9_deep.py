@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,6 +18,7 @@ from ai_bridge.control.v1_routes import (
     set_device_human_takeover,
 )
 from ai_bridge.plane_control_flags import is_emergency_stop, set_emergency_stop
+from ai_bridge.webrtc_stream import AgentStreamer, DictSignaling
 
 
 def test_durable_ratelimit_db_multi_worker(tmp_path):
@@ -127,3 +128,61 @@ def test_webrtc_input_rate_limit_shared_key():
     streamer = webrtc_stream.AgentStreamer("rate-sess", object())
     with patch.object(durable_ratelimit, "allow", return_value=False):
         assert streamer._check_input_rate_limit() is False
+
+
+def test_desktop_audio_opt_in_default_off(monkeypatch):
+    """F11: desktop audio stays off unless AI_BRIDGE_DESKTOP_AUDIO is explicitly set."""
+    monkeypatch.delenv("AI_BRIDGE_DESKTOP_AUDIO", raising=False)
+    assert webrtc_stream.desktop_audio_opt_in() is False
+    monkeypatch.setenv("AI_BRIDGE_DESKTOP_AUDIO", "0")
+    assert webrtc_stream.desktop_audio_opt_in() is False
+    monkeypatch.setenv("AI_BRIDGE_DESKTOP_AUDIO", "no")
+    assert webrtc_stream.desktop_audio_opt_in() is False
+
+
+def test_desktop_audio_opt_in_enabled(monkeypatch):
+    for value in ("1", "true", "yes", "TRUE", "Yes"):
+        monkeypatch.setenv("AI_BRIDGE_DESKTOP_AUDIO", value)
+        assert webrtc_stream.desktop_audio_opt_in() is True, value
+
+
+def test_desktop_audio_silent_pcm_is_zeros():
+    """Honest silent track: PCM buffer is all zeros (no fake live capture)."""
+    pcm = webrtc_stream.desktop_audio_silent_pcm_bytes(960, 2)
+    assert len(pcm) == 960 * 2 * 2
+    assert pcm == b"\x00" * len(pcm)
+
+
+def test_streamer_skips_desktop_audio_when_env_unset(monkeypatch):
+    monkeypatch.delenv("AI_BRIDGE_DESKTOP_AUDIO", raising=False)
+    signaling = DictSignaling({"mode": "human_control"})
+    streamer = AgentStreamer("audio-off", signaling)
+    pc = MagicMock()
+    created = []
+
+    def _boom(*_a, **_k):
+        created.append(1)
+        raise AssertionError("DesktopAudioTrack must not be constructed when audio is off")
+
+    monkeypatch.setattr(webrtc_stream, "DesktopAudioTrack", _boom)
+    assert streamer._attach_desktop_audio_if_enabled(pc) is False
+    pc.addTrack.assert_not_called()
+    assert created == []
+    assert signaling.session.get("audio_enabled") is False
+
+
+def test_streamer_attaches_silent_audio_when_opted_in(monkeypatch):
+    monkeypatch.setenv("AI_BRIDGE_DESKTOP_AUDIO", "1")
+    signaling = DictSignaling({"mode": "human_control"})
+    streamer = AgentStreamer("audio-on", signaling)
+    pc = MagicMock()
+    fake_track = MagicMock()
+    fake_track.kind = "audio"
+    # Expose silent-PCM contract without requiring aiortc/WASAPI.
+    fake_track._silent_bytes = webrtc_stream.desktop_audio_silent_pcm_bytes()
+    monkeypatch.setattr(webrtc_stream, "DesktopAudioTrack", lambda: fake_track)
+
+    assert streamer._attach_desktop_audio_if_enabled(pc, RTCRtpSender=None) is True
+    pc.addTrack.assert_called_once_with(fake_track)
+    assert signaling.session.get("audio_enabled") is True
+    assert fake_track._silent_bytes == b"\x00" * len(fake_track._silent_bytes)
