@@ -15,6 +15,8 @@ import time
 import traceback
 from typing import Any
 
+from .security import refuse_device_token_log
+
 
 class JSONFormatter(logging.Formatter):
     """Emit log records as newline-delimited JSON objects."""
@@ -24,7 +26,7 @@ class JSONFormatter(logging.Formatter):
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)),
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": refuse_device_token_log(record.getMessage()),
             "module": record.module,
             "function": record.funcName,
             "line": record.lineno,
@@ -32,12 +34,14 @@ class JSONFormatter(logging.Formatter):
         if record.exc_info and record.exc_info[0]:
             log_entry["exception"] = {
                 "type": record.exc_info[0].__name__,
-                "value": str(record.exc_info[1]),
-                "traceback": "".join(traceback.format_exception(*record.exc_info)) if record.exc_info else None,
+                "value": refuse_device_token_log(str(record.exc_info[1])),
+                "traceback": refuse_device_token_log(
+                    "".join(traceback.format_exception(*record.exc_info)) if record.exc_info else ""
+                ),
             }
         # Include extra fields set on the record
         for key, value in getattr(record, "extra", {}).items():
-            log_entry[key] = value
+            log_entry[key] = refuse_device_token_log(str(value)) if isinstance(value, str) else value
         return json.dumps(log_entry, default=str)
 
 

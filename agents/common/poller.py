@@ -330,7 +330,7 @@ class Poller:
                 time.sleep(0.5)
 
         poll_thread = threading.Thread(target=_cancel_poller, daemon=True)
-        set_execution_context(task_id, _cancelled)
+        set_execution_context(task_id, _cancelled, device_id=str(task.get("device_id") or ""))
         poll_thread.start()
         try:
             args = json.loads(task.get("args_json") or "{}")

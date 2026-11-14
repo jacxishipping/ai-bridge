@@ -33,7 +33,25 @@ Session permissions are derived **exclusively on the backend** (`src/ai_bridge/c
 - **AI Input Revocation**: All mutating `desktop_*` MCP tools (`desktop_mouse_move`, `desktop_click`, `desktop_keyboard`, `desktop_scroll`, `desktop_open_application`) check `_require_no_human_takeover()` before executing and immediately return `{ "ok": false, "error": "human_takeover_active" }` when a human operator has taken control.
 - **Disconnect Key-Release Safety**: Whenever a WebRTC session or input DataChannel disconnects, `release_all_held_keys()` immediately synthesizes `KEYEVENTF_KEYUP` / mouse-button-up events for all pressed keys so the remote machine is never left with stuck modifier keys.
 
-## 4. Risk Tiers, Approvals, and Audit Logging
+## 4. Secret environment variables (control plane & agents)
+
+Set these via the host environment or Render env groups — never commit them to the workspace.
+
+| Variable | Purpose |
+| :--- | :--- |
+| `AI_BRIDGE_ADMIN_TOKEN` | Legacy admin bearer (required in production for operator API access) |
+| `AI_BRIDGE_DEVICE_TOKEN` | Agent enrollment secret (per device; rotate via `/api/agent/rotate`) |
+| `AI_BRIDGE_TURN_SECRET` | HMAC secret for ephemeral TURN credentials (`webrtc_stream.py`) |
+| `AI_BRIDGE_TURN_URL` / `AI_BRIDGE_TURN_USERNAME` / `AI_BRIDGE_TURN_CREDENTIAL` | Static TURN ICE entry (alternative to ephemeral secret) |
+| `AI_BRIDGE_ICE_SERVERS` | JSON array override for WebRTC ICE servers |
+| `AI_BRIDGE_FIRECRAWL_API_KEY` | Firecrawl connector |
+| `AI_BRIDGE_BROWSERBASE_API_KEY` | Browserbase connector |
+| `AI_BRIDGE_YOU_API_KEY` / `YOU_API_KEY` | You.com search connector |
+| `AI_BRIDGE_PROFILE` | Set to `production` to enable fail-closed deploy gates (`/health/ready`) |
+
+Logs and audit entries pass through `security.redact()`; device tokens are stripped from structured JSON logs. Playwright uses an isolated profile under `{workspace}/.ai-bridge/browser-profiles/` unless `AI_BRIDGE_ALLOW_BROWSER_NO_SANDBOX=1` (Docker/CI only).
+
+## 5. Risk Tiers, Approvals, and Audit Logging
 - **Risk Tiers**:
   - Tier 1: Read-only (`desktop_get_screenshot`, `desktop_get_status`, `desktop_get_windows`, `desktop_wait`, `desktop_verify_action`).
   - Tier 2: Low-risk confined workspace writes.

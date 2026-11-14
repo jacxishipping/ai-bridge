@@ -135,6 +135,7 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "git_checkpoint": RiskTier.SENSITIVE,
     "git_apply_patch": RiskTier.SENSITIVE,
     "supervisor_delegate_role": RiskTier.READ_ONLY,
+    "supervisor_enqueue_handoff": RiskTier.SENSITIVE,
 }
 
 @dataclass(frozen=True)

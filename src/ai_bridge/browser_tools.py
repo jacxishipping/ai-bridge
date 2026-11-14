@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import base64
 import os
+import uuid
+from pathlib import Path
 from typing import Any
 
 from .config import get_settings
 from .policy import Policy
+from .security import ensure_workspace
 from .tools import _check, default_policy
 
 # Singleton Playwright browser state
@@ -35,21 +38,47 @@ def _default_timeout_sec(fallback: int = 30) -> int:
         return fallback
 
 
+def _allow_browser_no_sandbox() -> bool:
+    return os.environ.get("AI_BRIDGE_ALLOW_BROWSER_NO_SANDBOX", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def playwright_launch_options(*, headless: bool = True) -> dict[str, Any]:
+    """Pure launch config for tests — Chromium sandbox on unless explicitly opted out."""
+    launch_args: list[str] = []
+    if _allow_browser_no_sandbox():
+        launch_args.extend(["--no-sandbox", "--disable-setuid-sandbox"])
+    profile_parent = ensure_workspace() / ".ai-bridge" / "browser-profiles"
+    profile_parent.mkdir(parents=True, exist_ok=True)
+    user_data_dir = profile_parent / uuid.uuid4().hex[:12]
+    return {
+        "headless": headless,
+        "args": launch_args or None,
+        "user_data_dir": str(user_data_dir),
+        "chromium_sandbox": not _allow_browser_no_sandbox(),
+    }
+
+
 def browser_session_info() -> dict:
     """Return whether a reusable Playwright session is active (fleet diagnostics)."""
     alive = _page is not None and not _page.is_closed()
+    opts = playwright_launch_options()
     return {
         "active": alive,
         "has_browser": _browser is not None,
         "default_timeout_sec": _default_timeout_sec(),
-        "sandbox": os.environ.get("AI_BRIDGE_BROWSER_SANDBOX", "1"),
+        "chromium_sandbox": opts["chromium_sandbox"],
+        "user_data_dir": opts["user_data_dir"],
     }
 
 
 def _playwright_err(action: str, exc: Exception) -> BrowserToolError:
     hint = (
-        "Ensure Chromium is installed (playwright install chromium) and "
-        "AI_BRIDGE_BROWSER_SANDBOX=1 on restricted hosts."
+        "Ensure Chromium is installed (playwright install chromium). "
+        "Only set AI_BRIDGE_ALLOW_BROWSER_NO_SANDBOX=1 on hosts that cannot run the Chromium sandbox."
     )
     return BrowserToolError(f"{action} failed: {exc}. {hint}")
 
@@ -80,18 +109,27 @@ def _ensure_browser(headless: bool = True) -> Any:
         except Exception:
             pass
 
-    launch_args: list[str] = []
-    if os.environ.get("AI_BRIDGE_BROWSER_SANDBOX", "1").strip().lower() in ("1", "true", "yes"):
-        launch_args.extend(["--no-sandbox", "--disable-setuid-sandbox"])
+    opts = playwright_launch_options(headless=headless)
+    launch_args = opts.get("args")
+    profile_dir = Path(str(opts["user_data_dir"]))
+    profile_dir.mkdir(parents=True, exist_ok=True)
     try:
         _pw = sync_playwright().start()
-        _browser = _pw.chromium.launch(headless=headless, args=launch_args or None)
+        launch_kwargs: dict[str, Any] = {"headless": headless, "args": launch_args}
+        try:
+            _browser = _pw.chromium.launch(
+                **launch_kwargs,
+                chromium_sandbox=bool(opts["chromium_sandbox"]),
+            )
+        except TypeError:
+            _browser = _pw.chromium.launch(**launch_kwargs)
         _context = _browser.new_context(
             viewport={"width": 1280, "height": 720},
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
             ),
+            storage_state=None,
         )
         _page = _context.new_page()
         nav_timeout = _default_timeout_sec() * 1000

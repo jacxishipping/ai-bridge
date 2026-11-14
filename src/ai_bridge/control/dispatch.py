@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from .. import browser_tools, dev_tools, diagnostics, git_ops, tools, workspace, webrtc_stream
 from ..policy import TOOL_TIERS, Policy, RiskTier, decide
-from . import supervisor
-from .task_runtime import TaskCancelled, raise_if_cancelled
+from . import dispatch_audit, supervisor
+from .task_runtime import TaskCancelled, current_device_id, raise_if_cancelled
 
 
 def _start_webrtc_from_task(a: dict) -> dict:
@@ -41,6 +41,13 @@ def _start_webrtc_from_task(a: dict) -> dict:
         fps=int(a.get("fps", 30)),
         monitor_index=monitor_index,
         bitrate_kbps=int(bitrate_kbps) if bitrate_kbps is not None else 4500,
+    )
+
+
+def _supervisor_enqueue_handoff(a: dict) -> dict:
+    raise RuntimeError(
+        "supervisor_enqueue_handoff must be queued via the control plane API (/api/supervisor/handoff); "
+        "it requires a database connection."
     )
 
 
@@ -185,6 +192,7 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         ),
         "browser_session_info": lambda a: browser_tools.browser_session_info(),
         "supervisor_delegate_role": lambda a: supervisor.delegate_role_target(str(a.get("role") or a["role"])),
+        "supervisor_enqueue_handoff": lambda a: _supervisor_enqueue_handoff(a),
         "run_linter": lambda a: tools.run_linter(a.get("timeout", 60)),
         "create_backup": lambda a: tools.create_backup(a.get("relative_directory", "."), approval_granted=approval_granted, policy=policy),
         "deploy_application": lambda a: tools.deploy_application(a.get("project_directory", "."), a.get("target_directory", "deploy-staging"), approval_granted=approval_granted, policy=policy),
@@ -477,4 +485,11 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
     handler = handlers.get(tool)
     if handler is None:
         raise ValueError(f"Tool not executable via the control plane: {tool}")
-    return handler(args or {})
+    result = handler(args or {})
+    dispatch_audit.record_dispatch_tool(
+        tool,
+        args or {},
+        result,
+        device_id=current_device_id() or "",
+    )
+    return result
