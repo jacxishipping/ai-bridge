@@ -6,6 +6,8 @@ from typing import Any
 
 import httpx
 
+from ..security import redact
+
 API_BASE = "https://api.firecrawl.dev/v1"
 
 
@@ -43,7 +45,7 @@ def firecrawl_scrape(args: dict | None = None) -> dict:
     with httpx.Client(timeout=60.0) as client:
         res = client.post(f"{API_BASE}/scrape", json=payload, headers=_headers())
         if res.status_code >= 400:
-            raise FirecrawlError(f"Firecrawl API {res.status_code}: {res.text[:500]}")
+            raise FirecrawlError(f"Firecrawl API {res.status_code}: {redact(res.text[:500])}")
         data = res.json()
     inner = data.get("data") or data
     return {
@@ -66,7 +68,7 @@ def firecrawl_search(args: dict | None = None) -> dict:
     with httpx.Client(timeout=45.0) as client:
         res = client.post(f"{API_BASE}/search", json=payload, headers=_headers())
         if res.status_code >= 400:
-            raise FirecrawlError(f"Firecrawl API {res.status_code}: {res.text[:500]}")
+            raise FirecrawlError(f"Firecrawl API {res.status_code}: {redact(res.text[:500])}")
         data = res.json()
     hits = data.get("data") or data.get("results") or []
     return {"ok": True, "provider": "firecrawl", "query": query, "count": len(hits), "results": hits}
@@ -84,7 +86,7 @@ def firecrawl_map_site(args: dict | None = None) -> dict:
     with httpx.Client(timeout=90.0) as client:
         res = client.post(f"{API_BASE}/map", json=payload, headers=_headers())
         if res.status_code >= 400:
-            raise FirecrawlError(f"Firecrawl API {res.status_code}: {res.text[:500]}")
+            raise FirecrawlError(f"Firecrawl API {res.status_code}: {redact(res.text[:500])}")
         data = res.json()
     links = data.get("links") or data.get("data") or []
     return {"ok": True, "provider": "firecrawl", "url": url, "count": len(links), "links": links[:500]}

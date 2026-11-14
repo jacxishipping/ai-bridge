@@ -273,6 +273,8 @@ export const api = {
   backupDownloadUrl: (filename: string) => `${BASE}/api/admin/backups/${encodeURIComponent(filename)}`,
   tenants: () => call("/api/tenants"),
   fleetTelemetry: () => call("/api/fleet/telemetry"),
+  fleetHealth: () => call("/api/fleet/health"),
+  liveActivity: (limit = 40) => call(`/api/activity/live?limit=${limit}`),
   deviceTelemetry: (id: string, limit = 50) => call(`/api/devices/${encodeURIComponent(id)}/telemetry?limit=${limit}`),
   fleetBroadcast: (body: { tool: string; args?: any; target_os?: string; target_device_ids?: string[] }) =>
     call("/api/fleet/broadcast", "POST", body),

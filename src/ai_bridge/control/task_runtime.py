@@ -7,6 +7,7 @@ from typing import Callable
 _cancel_check: Callable[[], bool] | None = None
 _lock = threading.Lock()
 _current_task_id: str | None = None
+_current_device_id: str | None = None
 
 
 class TaskCancelled(RuntimeError):
@@ -16,16 +17,24 @@ class TaskCancelled(RuntimeError):
 def set_execution_context(
     task_id: str | None,
     cancel_check: Callable[[], bool] | None,
+    *,
+    device_id: str | None = None,
 ) -> None:
     """Bind the active fleet task and optional cancel predicate (called from the poller)."""
-    global _current_task_id, _cancel_check
+    global _current_task_id, _cancel_check, _current_device_id
     with _lock:
         _current_task_id = task_id
         _cancel_check = cancel_check
+        _current_device_id = device_id
 
 
 def clear_execution_context() -> None:
-    set_execution_context(None, None)
+    set_execution_context(None, None, device_id=None)
+
+
+def current_device_id() -> str | None:
+    with _lock:
+        return _current_device_id
 
 
 def current_task_id() -> str | None:

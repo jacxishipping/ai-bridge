@@ -403,6 +403,12 @@ class FleetBroadcastIn(BaseModel):
     tenant: str = "default"
 
 
+class SupervisorHandoffIn(BaseModel):
+    device_id: str
+    goal: str = ""
+    tenant: str = "default"
+
+
 class DesktopInputIn(BaseModel):
     action: str = "click"
     x: float | None = None
@@ -841,6 +847,13 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     def audit(actor: str, device_id: str, tool: str, args: dict, decision: str, result: str = "", tenant: str = "default"):
         dbmod.audit(conn, tenant=tenant, actor=actor, device_id=device_id, tool=tool, args=args, decision=decision, result=result)
 
+    from . import dispatch_audit as dispatch_auditmod
+
+    def _record_dispatch_audit(tool: str, args: dict, _result: object, device_id: str) -> None:
+        audit("dispatch", device_id or "", tool, args, "executed")
+
+    dispatch_auditmod.set_dispatch_audit_callback(_record_dispatch_audit)
+
     from .workspace import install_workspace_routes
     install_workspace_routes(app, conn, require_role, audit)
 
@@ -889,17 +902,51 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     @app.get("/health/ready", summary="Readiness probe", description="Verifies database connectivity and state.")
     def health_ready():
         """Readiness probe: verifies database connectivity and state."""
+        from . import production_readiness as prodready
+
         try:
             row = conn.execute("SELECT 1 AS alive").fetchone()
             if not row:
                 raise HTTPException(status_code=503, detail="Database unhealthy")
-            return {"status": "ready", "database": "connected", "emergency_stop": app.state.emergency_stop}
+            plane_state.sync_emergency_stop_to_app(conn, app.state)
+            checklist = prodready.assess_production_readiness(conn)
+            body = {
+                "status": "ready",
+                "database": "connected",
+                "emergency_stop": app.state.emergency_stop,
+                "emergency_stop_durable": checklist.get("emergency_stop_durable"),
+                "production_checklist": checklist,
+            }
+            if prodready.is_production_profile() and not checklist.get("ok"):
+                raise HTTPException(status_code=503, detail=body)
+            return body
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(status_code=503, detail=f"Database probe failed: {exc}")
 
+    @app.get("/health/production-checklist", summary="Production readiness checklist")
+    def health_production_checklist(
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("operator", x_admin_token, x_session_token)
+        from . import production_readiness as prodready
+
+        plane_state.sync_emergency_stop_to_app(conn, app.state)
+        checklist = prodready.assess_production_readiness(conn)
+        return {**checklist, "emergency_stop_active": bool(app.state.emergency_stop)}
+
     @app.get("/metrics", summary="Prometheus metrics", description="Exposes Prometheus-compatible metrics for monitoring and alerting.")
-    def metrics_endpoint():
+    def metrics_endpoint(
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
         """Prometheus metrics exposition endpoint."""
+        from . import production_readiness as prodready
+
+        if prodready.is_production_profile():
+            require_role("viewer", x_admin_token, x_session_token)
         payload, content_type = metricsmod.get_metrics_payload(conn)
         return Response(content=payload, media_type=content_type)
 
@@ -2530,6 +2577,52 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             "devices": device_summaries,
         }
 
+    from . import fleet_health as fleet_healthmod
+    from . import live_activity as live_activitymod
+
+    @app.get("/api/fleet/health")
+    def fleet_health_summary(
+        tenant: str = "default",
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        summary = fleet_healthmod.summarize_fleet_health(conn, tenant=tenant)
+        audit(actor, "", "fleet_health_view", {"tenant": tenant}, "allowed", tenant=tenant)
+        return summary
+
+    from . import supervisor as supervisormod
+
+    @app.post("/api/supervisor/handoff")
+    def supervisor_handoff_api(
+        body: SupervisorHandoffIn,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        dev = conn.execute(
+            "SELECT * FROM devices WHERE id=? AND revoked=0",
+            (body.device_id,),
+        ).fetchone()
+        if dev is None:
+            raise HTTPException(status_code=404, detail="Device not found.")
+        res = supervisormod.run_supervisor_handoff_enqueue(
+            conn,
+            device_id=body.device_id,
+            tenant=body.tenant,
+            goal=body.goal,
+        )
+        notify_tasks()
+        audit(
+            actor,
+            body.device_id,
+            "supervisor_handoff_enqueue",
+            {"goal": (body.goal or "")[:200], "queued_count": len(res.get("queued") or [])},
+            "allowed",
+            tenant=body.tenant,
+        )
+        return res
+
     @app.get("/api/activity/live")
     def live_activity(
         limit: int = 50,
@@ -2537,18 +2630,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         x_session_token: str | None = Header(default=None),
     ):
         require_role("viewer", x_admin_token, x_session_token)
-        limit = max(1, min(200, int(limit)))
-        rows = conn.execute(
-            "SELECT id, device_id, tool, status, updated_at FROM tasks "
-            "WHERE status IN ('running', 'queued') ORDER BY updated_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        sweep = getattr(app.state, "last_stale_sweep", {}) or {}
-        return {
-            "items": [dict(r) for r in rows],
-            "emergency_stop": plane_state.is_emergency_stop(conn, app.state),
-            "last_stale_sweep": sweep,
-        }
+        return live_activitymod.build_live_activity(conn, app.state, limit=limit)
 
     @app.get("/api/activity/stream")
     async def live_activity_stream(
@@ -2559,15 +2641,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
         async def gen():
             while True:
-                rows = conn.execute(
-                    "SELECT id, device_id, tool, status, updated_at FROM tasks "
-                    "WHERE status IN ('running', 'queued') ORDER BY updated_at DESC LIMIT 40"
-                ).fetchall()
-                payload = {
-                    "items": [dict(r) for r in rows],
-                    "emergency_stop": plane_state.is_emergency_stop(conn, app.state),
-                    "ts": dbmod.now(),
-                }
+                payload = live_activitymod.build_live_activity(conn, app.state, limit=40)
                 yield f"data: {json.dumps(payload)}\n\n"
                 await asyncio.sleep(2.0)
 
@@ -2985,7 +3059,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
     ):
-        require_role("viewer", x_admin_token, x_session_token)
+        require_role("operator", x_admin_token, x_session_token)
         query = "SELECT id, name, hostname, os, status, last_seen FROM devices WHERE revoked=0"
         params = []
         if os:

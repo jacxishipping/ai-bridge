@@ -35,6 +35,12 @@ _REDACT_RE = re.compile(
 _SECRET_KEY_RE = re.compile(
     r"(?i)^(api[_-]?key|password|passwd|.*token|.*secret|authorization|credential.*)$"
 )
+_DEVICE_TOKEN_INLINE_RE = re.compile(
+    r"(?i)(device[_-]?token)([\"']?\s*[:=]\s*[\"']?)([A-Za-z0-9_\-]{16,})"
+)
+_TURN_INLINE_RE = re.compile(
+    r"(?i)(turn[_-]?secret|ai_bridge_turn_secret)([\"']?\s*[:=]\s*[\"']?)([^\s\"',;}{]{4,})"
+)
 _PRESERVE_KEYS = frozenset({"image_base64", "mime_type"})
 
 
@@ -88,7 +94,15 @@ def redact(text: str) -> str:
     if not isinstance(text, str):
         text = str(text)
     out = _BEARER_RE.sub(lambda m: f"{m.group(1)}***REDACTED***", text)
-    return _REDACT_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}***REDACTED***", out)
+    out = _REDACT_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}***REDACTED***", out)
+    out = _DEVICE_TOKEN_INLINE_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}***REDACTED***", out)
+    out = _TURN_INLINE_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}***REDACTED***", out)
+    return out
+
+
+def refuse_device_token_log(text: str) -> str:
+    """Strip device tokens from log lines; always redact other secrets too."""
+    return redact(text)
 
 
 def redact_obj(value: Any) -> Any:
