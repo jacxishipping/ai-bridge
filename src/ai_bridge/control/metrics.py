@@ -56,6 +56,17 @@ if _PROMETHEUS_AVAILABLE:
         "Tasks in running state older than the configured lease window",
     )
 
+    STALE_HEARTBEAT_DEVICES = Gauge(
+        "aibridge_stale_heartbeat_devices",
+        "Fleet devices marked online but past the heartbeat SLO window",
+    )
+
+    ADVANCED_PHASE_DEPTH = Gauge(
+        "aibridge_advanced_phase_depth",
+        "Roadmap phase depth (2=deep, 1=core) for phases 2-8",
+        ["phase"],
+    )
+
     # 3. HTTP Request Metrics
     HTTP_REQUESTS_TOTAL = Counter(
         "aibridge_http_requests_total",
@@ -75,6 +86,18 @@ else:
     HTTP_REQUESTS_TOTAL = None
     UPTIME_SECONDS = None
     STALE_RUNNING_TASKS = None
+    STALE_HEARTBEAT_DEVICES = None
+    ADVANCED_PHASE_DEPTH = None
+
+_PHASE_DEPTH = {
+    "2": 2,
+    "3": 2,
+    "4": 2,
+    "5": 2,
+    "6": 2,
+    "7": 2,
+    "8": 1,
+}
 
 
 def record_task_execution(tool: str, status: str, duration: float | None = None) -> None:
@@ -130,6 +153,22 @@ def update_fleet_gauges(conn: Any) -> None:
             os_name = (r["os"] if hasattr(r, "keys") else r[1]) or "unknown"
             cnt = r["cnt"] if hasattr(r, "keys") else r[2]
             ACTIVE_DEVICES.labels(status=st, os=os_name).set(cnt)
+
+        from . import fleet_health as fleet_healthmod
+
+        now_ts = dbmod.now()
+        stale_hb = 0
+        rows_hb = conn.execute(
+            "SELECT status, last_seen FROM devices WHERE revoked=0",
+        ).fetchall()
+        for d in rows_hb:
+            last_seen = d["last_seen"] or 0
+            if d["status"] == "online" and last_seen and (now_ts - last_seen) >= fleet_healthmod.STALE_HEARTBEAT_SEC:
+                stale_hb += 1
+        STALE_HEARTBEAT_DEVICES.set(stale_hb)
+
+        for phase, depth in _PHASE_DEPTH.items():
+            ADVANCED_PHASE_DEPTH.labels(phase=phase).set(depth)
     except Exception:
         pass
 

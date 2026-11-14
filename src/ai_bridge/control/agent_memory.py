@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS agent_memory_chunks (
   tenant TEXT NOT NULL DEFAULT 'default',
   chunk_index INTEGER NOT NULL,
   content TEXT NOT NULL,
+  project_tag TEXT,
+  task_tag TEXT,
   created_at REAL NOT NULL,
   updated_at REAL NOT NULL
 );
@@ -25,10 +27,33 @@ def ensure_memory_table(conn: Any) -> None:
         s = stmt.strip()
         if s:
             conn.execute(s)
+    try:
+        conn.execute("ALTER TABLE agent_memory_chunks ADD COLUMN project_tag TEXT")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE agent_memory_chunks ADD COLUMN task_tag TEXT")
+    except Exception:
+        pass
+    try:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_memory_tags "
+            "ON agent_memory_chunks(agent_id, project_tag, task_tag)"
+        )
+    except Exception:
+        pass
     conn.commit()
 
 
-def append_memory_chunk(conn: Any, agent_id: str, content: str, *, tenant: str = "default") -> dict:
+def append_memory_chunk(
+    conn: Any,
+    agent_id: str,
+    content: str,
+    *,
+    tenant: str = "default",
+    project_tag: str | None = None,
+    task_tag: str | None = None,
+) -> dict:
     ensure_memory_table(conn)
     row = conn.execute(
         "SELECT MAX(chunk_index) AS m FROM agent_memory_chunks WHERE agent_id=?",
@@ -38,18 +63,62 @@ def append_memory_chunk(conn: Any, agent_id: str, content: str, *, tenant: str =
     chunk_id = f"{agent_id}-{next_idx:04d}"
     now = dbmod.now()
     conn.execute(
-        "INSERT INTO agent_memory_chunks (id, agent_id, tenant, chunk_index, content, created_at, updated_at) "
-        "VALUES (?,?,?,?,?,?,?)",
-        (chunk_id, agent_id, tenant, next_idx, content[:500_000], now, now),
+        "INSERT INTO agent_memory_chunks "
+        "(id, agent_id, tenant, chunk_index, content, project_tag, task_tag, created_at, updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (
+            chunk_id,
+            agent_id,
+            tenant,
+            next_idx,
+            content[:500_000],
+            (project_tag or "").strip() or None,
+            (task_tag or "").strip() or None,
+            now,
+            now,
+        ),
     )
     conn.commit()
-    return {"chunk_id": chunk_id, "chunk_index": next_idx, "bytes": len(content)}
+    return {
+        "chunk_id": chunk_id,
+        "chunk_index": next_idx,
+        "bytes": len(content),
+        "project_tag": project_tag,
+        "task_tag": task_tag,
+    }
+
+
+def query_agent_memory(
+    conn: Any,
+    agent_id: str,
+    *,
+    project_tag: str | None = None,
+    task_tag: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    ensure_memory_table(conn)
+    limit = max(1, min(200, int(limit)))
+    q = (
+        "SELECT chunk_index, content, project_tag, task_tag, updated_at FROM agent_memory_chunks "
+        "WHERE agent_id=?"
+    )
+    params: list[Any] = [agent_id]
+    if project_tag:
+        q += " AND project_tag=?"
+        params.append(project_tag.strip())
+    if task_tag:
+        q += " AND task_tag=?"
+        params.append(task_tag.strip())
+    q += " ORDER BY chunk_index DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(q, tuple(params)).fetchall()
+    return [dict(r) for r in reversed(rows)]
 
 
 def load_agent_memory(conn: Any, agent_id: str, *, limit: int = 50) -> list[dict]:
     ensure_memory_table(conn)
     rows = conn.execute(
-        "SELECT chunk_index, content, updated_at FROM agent_memory_chunks "
+        "SELECT chunk_index, content, project_tag, task_tag, updated_at FROM agent_memory_chunks "
         "WHERE agent_id=? ORDER BY chunk_index DESC LIMIT ?",
         (agent_id, max(1, min(limit, 200))),
     ).fetchall()

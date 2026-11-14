@@ -2530,6 +2530,18 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             "devices": device_summaries,
         }
 
+    from . import fleet_health as fleet_healthmod
+    from . import live_activity as live_activitymod
+
+    @app.get("/api/fleet/health")
+    def fleet_health_summary(
+        tenant: str = "default",
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        return fleet_healthmod.summarize_fleet_health(conn, tenant=tenant)
+
     @app.get("/api/activity/live")
     def live_activity(
         limit: int = 50,
@@ -2537,18 +2549,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         x_session_token: str | None = Header(default=None),
     ):
         require_role("viewer", x_admin_token, x_session_token)
-        limit = max(1, min(200, int(limit)))
-        rows = conn.execute(
-            "SELECT id, device_id, tool, status, updated_at FROM tasks "
-            "WHERE status IN ('running', 'queued') ORDER BY updated_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        sweep = getattr(app.state, "last_stale_sweep", {}) or {}
-        return {
-            "items": [dict(r) for r in rows],
-            "emergency_stop": plane_state.is_emergency_stop(conn, app.state),
-            "last_stale_sweep": sweep,
-        }
+        return live_activitymod.build_live_activity(conn, app.state, limit=limit)
 
     @app.get("/api/activity/stream")
     async def live_activity_stream(
@@ -2559,15 +2560,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
         async def gen():
             while True:
-                rows = conn.execute(
-                    "SELECT id, device_id, tool, status, updated_at FROM tasks "
-                    "WHERE status IN ('running', 'queued') ORDER BY updated_at DESC LIMIT 40"
-                ).fetchall()
-                payload = {
-                    "items": [dict(r) for r in rows],
-                    "emergency_stop": plane_state.is_emergency_stop(conn, app.state),
-                    "ts": dbmod.now(),
-                }
+                payload = live_activitymod.build_live_activity(conn, app.state, limit=40)
                 yield f"data: {json.dumps(payload)}\n\n"
                 await asyncio.sleep(2.0)
 

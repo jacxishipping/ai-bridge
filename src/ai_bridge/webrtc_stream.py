@@ -162,6 +162,33 @@ def get_session_telemetry(session_id: str) -> dict[str, Any]:
     return dict(_STREAM_TELEMETRY.get(session_id) or {})
 
 
+def list_active_stream_health() -> list[dict[str, Any]]:
+    """Summarize in-process WebRTC streamers for fleet health APIs."""
+    out: list[dict[str, Any]] = []
+    for session_id, streamer in list(_STREAMERS.items()):
+        telem = dict(_STREAM_TELEMETRY.get(session_id) or {})
+        pc_state = None
+        try:
+            pc = getattr(streamer, "pc", None)
+            if pc is not None:
+                pc_state = pc.connectionState
+        except Exception:
+            pc_state = None
+        healthy = pc_state in (None, "connected", "completed", "connecting", "new")
+        if telem.get("packet_loss_pct") is not None and float(telem["packet_loss_pct"]) >= 8.0:
+            healthy = False
+        out.append(
+            {
+                "session_id": session_id,
+                "device_id": _AGENT_CONTEXT.get(session_id),
+                "pc_state": pc_state,
+                "healthy": healthy,
+                "telemetry": telem,
+            }
+        )
+    return out
+
+
 def compute_adaptive_stream_params(
     current_bitrate_kbps: int,
     current_fps: int,

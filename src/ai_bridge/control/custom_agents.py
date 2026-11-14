@@ -506,7 +506,14 @@ def execute_agent(
                             try:
                                 from . import agent_memory
 
-                                agent_memory.append_memory_chunk(conn, agent["id"], fact, tenant=agent.get("tenant", "default"))
+                                agent_memory.append_memory_chunk(
+                                    conn,
+                                    agent["id"],
+                                    fact,
+                                    tenant=agent.get("tenant", "default"),
+                                    project_tag=str(tool_args.get("project") or tool_args.get("_project") or "").strip() or None,
+                                    task_tag=str(tool_args.get("task") or tool_args.get("_task") or "").strip() or None,
+                                )
                             except Exception:
                                 pass
                             conn.commit()
@@ -1143,6 +1150,26 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
                 item["steps"] = []
             out.append(item)
         return {"ok": True, "agent_id": agent_id, "runs": out}
+
+    @app.get("/api/agents/{agent_id}/memory/chunks")
+    def agent_memory_chunks(
+        agent_id: str,
+        project: str | None = None,
+        task: str | None = None,
+        limit: int = 50,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        row = conn.execute("SELECT id FROM custom_agents WHERE id=?", (agent_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Agent not found.")
+        from . import agent_memory
+
+        chunks = agent_memory.query_agent_memory(
+            conn, agent_id, project_tag=project, task_tag=task, limit=limit
+        )
+        return {"ok": True, "agent_id": agent_id, "chunks": chunks, "project": project, "task": task}
 
     @app.post("/api/agents/{agent_id}/ask")
     def ask_agent(

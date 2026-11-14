@@ -13,6 +13,7 @@ import { LiveWorkspace } from "./live/LiveWorkspace";
 import type { LiveDevice } from "./live/shared";
 
 interface Snapshot { identity: { actor?: string; username?: string; role?: string }; health: { version: string; emergency_stop: boolean }; devices: LiveDevice[]; checkedAt: Date }
+interface OpsPulse { online_devices?: number; stale_device_count?: number; avg_cpu_percent?: number | null; avg_memory_percent?: number | null; items?: { id: string; tool: string; status: string; role?: string }[]; recent_failures?: { id: string; tool: string; status: string }[]; running_agents?: { id: string; name: string }[] }
 
 /** Live data is deliberately separate from the local demonstration store. */
 export function LiveControlView() {
@@ -24,6 +25,7 @@ export function LiveControlView() {
   const [confirm, setConfirm] = useState(false);
   const [acting, setActing] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [opsPulse, setOpsPulse] = useState<OpsPulse | null>(null);
   // A 401 clears the stored credential, which would otherwise make the view look
   // like guest demo mode and quietly show sample data after a session ends.
   const [expired, setExpired] = useState(false);
@@ -33,8 +35,25 @@ export function LiveControlView() {
     setError("");
     const wasAuthenticated = Boolean(token() || sessionToken());
     try {
-      const [identity, health, devices] = await Promise.all([api.me(), api.health(), api.devices()]);
+      const [identity, health, devices, fleetHealth, activity] = await Promise.all([
+        api.me(),
+        api.health(),
+        api.devices(),
+        api.fleetHealth().catch(() => null),
+        api.liveActivity().catch(() => null),
+      ]);
       setSnapshot({ identity, health, devices: Array.isArray(devices) ? devices : devices.devices || [], checkedAt: new Date() });
+      if (fleetHealth || activity) {
+        setOpsPulse({
+          online_devices: fleetHealth?.online_devices,
+          stale_device_count: fleetHealth?.stale_device_count,
+          avg_cpu_percent: fleetHealth?.avg_cpu_percent,
+          avg_memory_percent: fleetHealth?.avg_memory_percent,
+          items: activity?.items,
+          recent_failures: activity?.recent_failures,
+          running_agents: activity?.running_agents,
+        });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to load the control plane.";
       if (wasAuthenticated && err instanceof ApiError && err.status === 401) setExpired(true);
@@ -152,6 +171,26 @@ export function LiveControlView() {
             {snapshot.identity.role !== "admin" && <p className="mt-2 text-xs text-[color:var(--product-text-tertiary)]">An administrator is required to change the emergency stop.</p>}
           </section>
         </ProductGlass>
+        {opsPulse && isLive && (
+          <ProductGlass className="px-3 py-3" aria-label="Fleet activity and health">
+            <p className="text-xs font-medium text-[color:var(--product-text-secondary)]">Live fleet pulse</p>
+            <div className="mt-2 flex flex-wrap gap-3 text-xs text-[color:var(--product-text-tertiary)]">
+              <span>{opsPulse.online_devices ?? "—"} online</span>
+              {(opsPulse.stale_device_count ?? 0) > 0 && (
+                <JXBadge color="warning" statusText={`${opsPulse.stale_device_count} stale heartbeat`} />
+              )}
+              {opsPulse.avg_cpu_percent != null && <span>CPU {opsPulse.avg_cpu_percent}%</span>}
+              {opsPulse.avg_memory_percent != null && <span>RAM {opsPulse.avg_memory_percent}%</span>}
+              <span>{(opsPulse.items?.length ?? 0)} active tasks</span>
+              {(opsPulse.recent_failures?.length ?? 0) > 0 && (
+                <span className="text-[color:var(--product-danger,#c0392b)]">{opsPulse.recent_failures!.length} recent failures</span>
+              )}
+              {(opsPulse.running_agents?.length ?? 0) > 0 && (
+                <span>{opsPulse.running_agents!.length} agents running</span>
+              )}
+            </div>
+          </ProductGlass>
+        )}
         {(() => {
           const enrolled = snapshot.devices;
           const online = enrolled.filter((d) => String(d.status || "").toLowerCase() === "online");
