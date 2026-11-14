@@ -275,6 +275,20 @@ export const api = {
   fleetTelemetry: () => call("/api/fleet/telemetry"),
   fleetHealth: () => call("/api/fleet/health"),
   liveActivity: (limit = 40) => call(`/api/activity/live?limit=${limit}`),
+  roles: () => call("/api/roles"),
+  enableRole: (roleId: string, enabled = true) =>
+    call(`/api/roles/${encodeURIComponent(roleId)}/enable?enabled=${enabled ? "true" : "false"}`, "POST", {}),
+  supervisorHandoff: (body: {
+    device_id: string;
+    goal?: string;
+    tenant?: string;
+    profile?: string;
+    mode?: "gated" | "fanout";
+  }) => call("/api/supervisor/handoff", "POST", body),
+  supervisorHandoffStatus: (handoffId: string) =>
+    call(`/api/supervisor/handoffs/${encodeURIComponent(handoffId)}`),
+  supervisorRecover: (body: { role: string; device_id?: string }) =>
+    call("/api/supervisor/recover", "POST", body),
   deviceTelemetry: (id: string, limit = 50) => call(`/api/devices/${encodeURIComponent(id)}/telemetry?limit=${limit}`),
   fleetBroadcast: (body: { tool: string; args?: any; target_os?: string; target_device_ids?: string[] }) =>
     call("/api/fleet/broadcast", "POST", body),

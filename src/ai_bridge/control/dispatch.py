@@ -45,9 +45,18 @@ def _start_webrtc_from_task(a: dict) -> dict:
 
 
 def _supervisor_enqueue_handoff(a: dict) -> dict:
+    return supervisor.dispatch_supervisor_enqueue_handoff(a or {})
+
+
+def _supervisor_recover_role_tasks(a: dict) -> dict:
+    return supervisor.dispatch_supervisor_recover(a or {})
+
+
+def _agent_run_role(a: dict) -> dict:
+    """Device pollers cannot run role agents; AgentRunner claims these tasks on the plane."""
     raise RuntimeError(
-        "supervisor_enqueue_handoff must be queued via the control plane API (/api/supervisor/handoff); "
-        "it requires a database connection."
+        "agent_run_role is claimed by the control-plane AgentRunner; "
+        "do not execute it on a device poller."
     )
 
 
@@ -232,6 +241,8 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         "browser_session_info": lambda a: browser_tools.browser_session_info(),
         "supervisor_delegate_role": lambda a: supervisor.delegate_role_target(str(a.get("role") or a["role"])),
         "supervisor_enqueue_handoff": lambda a: _supervisor_enqueue_handoff(a),
+        "supervisor_recover_role_tasks": lambda a: _supervisor_recover_role_tasks(a),
+        "agent_run_role": lambda a: _agent_run_role(a),
         "run_linter": lambda a: tools.run_linter(a.get("timeout", 60)),
         "create_backup": lambda a: tools.create_backup(a.get("relative_directory", "."), approval_granted=approval_granted, policy=policy),
         "deploy_application": lambda a: tools.deploy_application(a.get("project_directory", "."), a.get("target_directory", "deploy-staging"), approval_granted=approval_granted, policy=policy),

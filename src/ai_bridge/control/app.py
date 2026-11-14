@@ -31,7 +31,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 import httpx
 
-from fastapi import Body, FastAPI, Header, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, Header, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -411,6 +411,13 @@ class SupervisorHandoffIn(BaseModel):
     device_id: str
     goal: str = ""
     tenant: str = "default"
+    profile: str = "code"
+    mode: str = "gated"
+
+
+class SupervisorRecoverIn(BaseModel):
+    role: str
+    device_id: str | None = None
 
 
 class DesktopInputIn(BaseModel):
@@ -2148,7 +2155,51 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         ).start()
         return {"workflow_id": workflow_id, "status": "running", "start_step": start_index + 1, "total_steps": len(steps)}
 
+    _PLANE_SUPERVISOR_TOOLS = frozenset(
+        {
+            "supervisor_enqueue_handoff",
+            "supervisor_recover_role_tasks",
+            "supervisor_delegate_role",
+            "agent_run_role",
+        }
+    )
+
     def _execute_workflow_step_sync(action: str, args: dict, target_device_id: str | None, tenant: str, actor: str) -> dict:
+        # Supervisor / role-orchestration tools must run on the control plane DB.
+        if action in _PLANE_SUPERVISOR_TOOLS:
+            from . import supervisor as _sup
+
+            plane_args = dict(args or {})
+            if target_device_id and not plane_args.get("device_id") and not plane_args.get("device"):
+                plane_args["device_id"] = target_device_id
+            if tenant and not plane_args.get("tenant"):
+                plane_args["tenant"] = tenant
+            tok = _sup.set_plane_conn(conn)
+            try:
+                if action == "agent_run_role":
+                    return _sup.enqueue_agent_run_role(
+                        conn,
+                        device_id=str(plane_args.get("device_id") or target_device_id or "local"),
+                        tenant=str(plane_args.get("tenant") or tenant or "default"),
+                        role=str(plane_args.get("role") or ""),
+                        prompt=str(plane_args.get("prompt") or ""),
+                        parent_task_id=plane_args.get("parent_task_id") or plane_args.get("_parent_task_id"),
+                        handoff_id=plane_args.get("handoff_id") or plane_args.get("_handoff_id"),
+                        goal=plane_args.get("goal") or plane_args.get("_goal"),
+                    )
+                raw_p = get_current_policy()
+                eff_p = Policy(
+                    allow_writes=True,
+                    allow_tier3=True,
+                    desktop_enabled=True,
+                    max_tier_unattended=4,
+                    allowed_services=frozenset(raw_p.get("allowed_services") or []),
+                    allowed_apps=frozenset(raw_p.get("allowed_apps") or []),
+                    unrestricted=bool(raw_p.get("unrestricted", False)),
+                )
+                return dispatch(action, plane_args, policy=eff_p, approval_granted=True, is_admin=True)
+            finally:
+                _sup.reset_plane_conn(tok)
         if target_device_id and target_device_id != "local":
             dev_row = conn.execute("SELECT * FROM devices WHERE id=? AND revoked=0", (target_device_id,)).fetchone()
             if dev_row:
@@ -2184,7 +2235,17 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             allowed_apps=frozenset(raw_p.get("allowed_apps") or []),
             unrestricted=bool(raw_p.get("unrestricted", False)),
         )
-        return dispatch(action, args, policy=eff_p, approval_granted=True, is_admin=True)
+        tok = None
+        try:
+            from . import supervisor as _sup
+
+            tok = _sup.set_plane_conn(conn)
+            return dispatch(action, args, policy=eff_p, approval_granted=True, is_admin=True)
+        finally:
+            if tok is not None:
+                from . import supervisor as _sup
+
+                _sup.reset_plane_conn(tok)
 
     def _run_workflow_worker(
         wf_id: str,
@@ -2698,22 +2759,100 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         ).fetchone()
         if dev is None:
             raise HTTPException(status_code=404, detail="Device not found.")
-        res = supervisormod.run_supervisor_handoff_enqueue(
-            conn,
-            device_id=body.device_id,
-            tenant=body.tenant,
-            goal=body.goal,
-        )
+        try:
+            res = supervisormod.run_supervisor_handoff_enqueue(
+                conn,
+                device_id=body.device_id,
+                tenant=body.tenant,
+                goal=body.goal,
+                profile=body.profile,
+                mode=body.mode,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         notify_tasks()
         audit(
             actor,
             body.device_id,
             "supervisor_handoff_enqueue",
-            {"goal": (body.goal or "")[:200], "queued_count": len(res.get("queued") or [])},
+            {
+                "goal": (body.goal or "")[:200],
+                "profile": body.profile,
+                "mode": body.mode,
+                "handoff_id": res.get("handoff_id"),
+                "queued_count": len(res.get("queued") or []),
+            },
             "allowed",
             tenant=body.tenant,
         )
         return res
+
+    @app.get("/api/supervisor/handoffs/{handoff_id}")
+    def supervisor_handoff_status_api(
+        handoff_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        try:
+            return supervisormod.handoff_status(conn, handoff_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/supervisor/recover")
+    def supervisor_recover_api(
+        body: SupervisorRecoverIn,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        try:
+            res = supervisormod.recover_failed_role_tasks(
+                conn, role=body.role, device_id=body.device_id
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if res.get("count"):
+            notify_tasks()
+        audit(
+            actor,
+            body.device_id or "",
+            "supervisor_recover_role_tasks",
+            {"role": body.role, "count": res.get("count"), "requeued": res.get("requeued")},
+            "allowed",
+        )
+        return res
+
+    @app.get("/api/roles")
+    def list_roles_api(
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        return {"roles": role_catalog.list_roles(conn), "profiles": sorted(supervisormod.HANDOFF_PROFILES.keys())}
+
+    @app.post("/api/roles/{role_id}/enable")
+    def enable_role_agent_api(
+        role_id: str,
+        enabled: bool = Query(True),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        role_id = (role_id or "").strip().lower()
+        if role_id not in role_catalog.ROLES:
+            raise HTTPException(status_code=404, detail="Unknown role.")
+        agent_id = f"agent-role-{role_id}"
+        row = conn.execute("SELECT id FROM custom_agents WHERE id=?", (agent_id,)).fetchone()
+        if row is None:
+            role_catalog.seed_role_catalog(conn)
+        conn.execute(
+            "UPDATE custom_agents SET enabled=?, updated_at=? WHERE id=?",
+            (1 if enabled else 0, dbmod.now(), agent_id),
+        )
+        conn.commit()
+        audit(actor, "", "role_agent_enable", {"role": role_id, "enabled": enabled}, "allowed")
+        return {"ok": True, "role": role_id, "agent_id": agent_id, "enabled": bool(enabled)}
 
     @app.get("/api/activity/live")
     def live_activity(
@@ -4430,6 +4569,15 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         conn.execute("UPDATE tasks SET status=?, result=?, updated_at=? WHERE id=?",
                      (body.status, body.result[:result_cap], dbmod.now(), task_id))
         conn.commit()
+        handoff_advance = None
+        try:
+            fresh = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if fresh is not None:
+                handoff_advance = supervisormod.advance_handoff(conn, fresh, status=body.status)
+                if handoff_advance and handoff_advance.get("advanced"):
+                    notify_tasks()
+        except Exception:
+            handoff_advance = None
         notify_tasks()
         if task["tool"] in ("capture_desktop_frame", "take_screenshot"):
             try:
@@ -4441,7 +4589,10 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             except Exception:
                 pass
         audit("device", row["id"], task["tool"], json.loads(task["args_json"] or "{}"), body.status, body.result[:500], tenant=task["tenant"])
-        return {"task_id": task_id, "status": body.status}
+        out = {"task_id": task_id, "status": body.status}
+        if handoff_advance:
+            out["handoff_advance"] = handoff_advance
+        return out
 
     @app.middleware("http")
     async def bearer_auth_normalization(request: Request, call_next):

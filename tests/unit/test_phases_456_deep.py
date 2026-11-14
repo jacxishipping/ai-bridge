@@ -97,8 +97,20 @@ def test_supervisor_handoff_enqueue_role_tags(tmp_path):
     conn.commit()
     res = supervisor.run_supervisor_handoff_enqueue(conn, device_id="dev-sup", tenant="default", goal="ship phase 6")
     assert res["ok"] is True
-    assert len(res["queued"]) == 3
-    for item in res["queued"]:
+    assert res["mode"] == "gated"
+    assert len(res["queued"]) == 1
+    assert res["handoff_id"]
+    row = conn.execute("SELECT args_json FROM tasks WHERE id=?", (res["queued"][0]["task_id"],)).fetchone()
+    args = json.loads(row["args_json"])
+    assert args.get("_role") == "planner"
+    assert args.get("_handoff_id") == res["handoff_id"]
+    assert args.get("_mode") == "gated"
+
+    fan = supervisor.run_supervisor_handoff_enqueue(
+        conn, device_id="dev-sup", tenant="default", goal="ship phase 6", mode="fanout"
+    )
+    assert len(fan["queued"]) == 3
+    for item in fan["queued"]:
         row = conn.execute("SELECT args_json FROM tasks WHERE id=?", (item["task_id"],)).fetchone()
         args = json.loads(row["args_json"])
         assert args.get("_role") in {"planner", "developer", "tester"}

@@ -18,9 +18,19 @@ interface OpsPulse {
   stale_device_count?: number;
   avg_cpu_percent?: number | null;
   avg_memory_percent?: number | null;
-  items?: { id: string; tool: string; status: string; role?: string }[];
-  recent_failures?: { id: string; tool: string; status: string }[];
+  items?: { id: string; tool: string; status: string; role?: string; handoff_id?: string }[];
+  recent_failures?: { id: string; tool: string; status: string; role?: string }[];
   running_agents?: { id: string; name: string }[];
+  role_agents?: { id: string; name: string; role: string; enabled: boolean; status?: string }[];
+  handoffs?: {
+    handoff_id: string;
+    profile?: string;
+    mode?: string;
+    goal?: string;
+    roles?: string[];
+    status?: string;
+    blocked_reason?: string | null;
+  }[];
   desktop_platforms?: { platform: string; stream_available?: boolean; ocr_available?: boolean; reason?: string }[];
   /** Control-plane process host only — not the selected fleet device. */
   host_os?: string;
@@ -39,6 +49,12 @@ export function LiveControlView() {
   const [acting, setActing] = useState(false);
   const [actionError, setActionError] = useState("");
   const [opsPulse, setOpsPulse] = useState<OpsPulse | null>(null);
+  const [handoffGoal, setHandoffGoal] = useState("ship next milestone");
+  const [handoffProfile, setHandoffProfile] = useState("code");
+  const [handoffMode, setHandoffMode] = useState<"gated" | "fanout">("gated");
+  const [handoffDevice, setHandoffDevice] = useState("");
+  const [handoffMsg, setHandoffMsg] = useState("");
+  const [rolesCatalog, setRolesCatalog] = useState<{ id: string; name: string; enabled: boolean }[]>([]);
   // A 401 clears the stored credential, which would otherwise make the view look
   // like guest demo mode and quietly show sample data after a session ends.
   const [expired, setExpired] = useState(false);
@@ -48,15 +64,31 @@ export function LiveControlView() {
     setError("");
     const wasAuthenticated = Boolean(token() || sessionToken());
     try {
-      const [identity, health, devices, fleetHealth, activity, caps] = await Promise.all([
+      const [identity, health, devices, fleetHealth, activity, caps, rolesResp] = await Promise.all([
         api.me(),
         api.health(),
         api.devices(),
         api.fleetHealth().catch(() => null),
         api.liveActivity().catch(() => null),
         api.desktopCapabilities().catch(() => null),
+        api.roles().catch(() => null),
       ]);
-      setSnapshot({ identity, health, devices: Array.isArray(devices) ? devices : devices.devices || [], checkedAt: new Date() });
+      const deviceList: LiveDevice[] = Array.isArray(devices) ? devices : devices.devices || [];
+      setSnapshot({ identity, health, devices: deviceList, checkedAt: new Date() });
+      if (deviceList.length) {
+        const online = deviceList.find((d) => String(d.status || "").toLowerCase() === "online");
+        const preferred = (online || deviceList[0]).id;
+        setHandoffDevice((prev) => prev || preferred);
+      }
+      if (rolesResp?.roles) {
+        setRolesCatalog(
+          (rolesResp.roles as { id: string; name: string; enabled: boolean }[]).map((r) => ({
+            id: r.id,
+            name: r.name,
+            enabled: Boolean(r.enabled),
+          }))
+        );
+      }
       if (fleetHealth || activity || caps) {
         const platformMap = caps?.platforms && typeof caps.platforms === "object" ? caps.platforms : {};
         const desktop_platforms = Object.entries(platformMap).map(([platform, row]) => {
@@ -78,6 +110,8 @@ export function LiveControlView() {
           items: activity?.items,
           recent_failures: activity?.recent_failures,
           running_agents: activity?.running_agents,
+          role_agents: activity?.role_agents,
+          handoffs: activity?.handoffs,
           desktop_platforms,
           host_os: typeof caps?.host_os === "string" ? caps.host_os : undefined,
           host_live_status: {
@@ -232,6 +266,9 @@ export function LiveControlView() {
               {(opsPulse.running_agents?.length ?? 0) > 0 && (
                 <span>{opsPulse.running_agents!.length} agents running</span>
               )}
+              {(opsPulse.handoffs?.length ?? 0) > 0 && (
+                <span>{opsPulse.handoffs!.length} handoffs</span>
+              )}
               {(opsPulse.desktop_platforms?.length ?? 0) > 0 && (
                 <span title="Static fleet matrix — not the selected device">
                   Fleet matrix:{" "}
@@ -256,6 +293,153 @@ export function LiveControlView() {
                 </span>
               )}
             </div>
+            {(opsPulse.handoffs?.length ?? 0) > 0 && (
+              <div className="mt-3 space-y-2" aria-label="Active handoffs">
+                <p className="text-xs font-medium text-[color:var(--product-text-secondary)]">Supervised handoffs</p>
+                {opsPulse.handoffs!.slice(0, 5).map((h) => (
+                  <div key={h.handoff_id} className="flex flex-wrap items-center gap-2 text-xs text-[color:var(--product-text-tertiary)]">
+                    <JXBadge color={h.status === "blocked" ? "warning" : "neutral"} statusText={h.profile || "handoff"} />
+                    <span className="font-mono">{h.handoff_id.slice(0, 8)}</span>
+                    <span>{(h.roles || []).join(" → ") || "—"}</span>
+                    {h.blocked_reason && <span className="text-[color:var(--product-danger,#c0392b)]">{h.blocked_reason}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {(opsPulse.items?.some((i) => i.role) || (opsPulse.recent_failures?.length ?? 0) > 0) && (
+              <div className="mt-3 flex flex-wrap gap-2" aria-label="Role-tagged tasks">
+                {(opsPulse.items || [])
+                  .filter((i) => i.role)
+                  .slice(0, 8)
+                  .map((i) => (
+                    <JXBadge key={i.id} color="neutral" statusText={`${i.role}: ${i.tool} (${i.status})`} />
+                  ))}
+              </div>
+            )}
+          </ProductGlass>
+        )}
+        {isLive && snapshot && (
+          <ProductGlass className="px-3 py-3" aria-label="Multi-agent supervisor">
+            <p className="text-xs font-medium text-[color:var(--product-text-secondary)]">Multi-agent supervisor</p>
+            <div className="mt-2 flex flex-wrap items-end gap-2">
+              <label className="flex min-w-[10rem] flex-col gap-1 text-xs text-[color:var(--product-text-tertiary)]">
+                Device
+                <select
+                  className="rounded border border-[color:var(--product-line)] bg-transparent px-2 py-1 text-sm text-[color:var(--product-text-primary)]"
+                  value={handoffDevice}
+                  onChange={(e) => setHandoffDevice(e.target.value)}
+                >
+                  {(snapshot.devices || []).map((d) => (
+                    <option key={d.id} value={d.id}>{d.name || d.id}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex min-w-[8rem] flex-col gap-1 text-xs text-[color:var(--product-text-tertiary)]">
+                Profile
+                <select
+                  className="rounded border border-[color:var(--product-line)] bg-transparent px-2 py-1 text-sm text-[color:var(--product-text-primary)]"
+                  value={handoffProfile}
+                  onChange={(e) => setHandoffProfile(e.target.value)}
+                >
+                  {["code", "research", "desktop", "browser", "full"].map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex min-w-[7rem] flex-col gap-1 text-xs text-[color:var(--product-text-tertiary)]">
+                Mode
+                <select
+                  className="rounded border border-[color:var(--product-line)] bg-transparent px-2 py-1 text-sm text-[color:var(--product-text-primary)]"
+                  value={handoffMode}
+                  onChange={(e) => setHandoffMode(e.target.value as "gated" | "fanout")}
+                >
+                  <option value="gated">gated</option>
+                  <option value="fanout">fanout</option>
+                </select>
+              </label>
+              <label className="flex min-w-[14rem] flex-1 flex-col gap-1 text-xs text-[color:var(--product-text-tertiary)]">
+                Goal
+                <input
+                  className="rounded border border-[color:var(--product-line)] bg-transparent px-2 py-1 text-sm text-[color:var(--product-text-primary)]"
+                  value={handoffGoal}
+                  onChange={(e) => setHandoffGoal(e.target.value)}
+                />
+              </label>
+              <JXButton
+                color="primary"
+                disabled={!handoffDevice || acting}
+                loading={acting}
+                onClick={async () => {
+                  setActing(true);
+                  setHandoffMsg("");
+                  setActionError("");
+                  try {
+                    const res = await api.supervisorHandoff({
+                      device_id: handoffDevice,
+                      goal: handoffGoal,
+                      profile: handoffProfile,
+                      mode: handoffMode,
+                    });
+                    setHandoffMsg(`Queued ${res?.queued?.length ?? 0} step(s) · handoff ${res?.handoff_id || ""}`);
+                    await refresh();
+                  } catch (err) {
+                    setActionError(err instanceof Error ? err.message : "Handoff failed.");
+                  } finally {
+                    setActing(false);
+                  }
+                }}
+              >
+                Start handoff
+              </JXButton>
+              <JXButton
+                color="neutral"
+                variant="outlined"
+                disabled={acting}
+                onClick={async () => {
+                  setActing(true);
+                  setHandoffMsg("");
+                  try {
+                    const failRole = opsPulse?.recent_failures?.find((f) => f.role)?.role || "developer";
+                    const res = await api.supervisorRecover({ role: failRole, device_id: handoffDevice || undefined });
+                    setHandoffMsg(`Recovered ${res?.count ?? 0} ${failRole} task(s)`);
+                    await refresh();
+                  } catch (err) {
+                    setActionError(err instanceof Error ? err.message : "Recover failed.");
+                  } finally {
+                    setActing(false);
+                  }
+                }}
+              >
+                Recover failed role
+              </JXButton>
+            </div>
+            {handoffMsg && <p className="mt-2 text-xs text-[color:var(--product-text-tertiary)]">{handoffMsg}</p>}
+            {actionError && <p className="mt-2 text-xs text-[color:var(--product-danger,#c0392b)]">{actionError}</p>}
+            {(rolesCatalog.length > 0 || (opsPulse?.role_agents?.length ?? 0) > 0) && (
+              <div className="mt-3 flex flex-wrap gap-2" aria-label="Role agents">
+                {(rolesCatalog.length ? rolesCatalog : (opsPulse?.role_agents || []).map((r) => ({
+                  id: r.role,
+                  name: r.name,
+                  enabled: r.enabled,
+                }))).map((r) => (
+                  <JXButton
+                    key={r.id}
+                    color="neutral"
+                    variant={r.enabled ? "solid" : "outlined"}
+                    onClick={async () => {
+                      try {
+                        await api.enableRole(r.id, !r.enabled);
+                        await refresh();
+                      } catch (err) {
+                        setActionError(err instanceof Error ? err.message : "Role toggle failed.");
+                      }
+                    }}
+                  >
+                    {r.name}{r.enabled ? " · on" : " · off"}
+                  </JXButton>
+                ))}
+              </div>
+            )}
           </ProductGlass>
         )}
         {(() => {

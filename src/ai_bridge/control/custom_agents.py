@@ -227,7 +227,10 @@ _AGENT_NATIVE_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "agent_delegate",
-            "description": "Delegate a subtask to another specialized custom agent (by id or name) and receive its response.",
+            "description": (
+                "Delegate a subtask to another specialized custom agent (by id, name, or role). "
+                "Use queue=true (default for Supervisor) to enqueue on the shared task system."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -237,6 +240,11 @@ _AGENT_NATIVE_TOOLS: list[dict[str, Any]] = [
                         "description": "Role catalog id (supervisor, planner, developer, ...) maps to agent-role-*.",
                     },
                     "prompt": {"type": "string", "description": "Task or question for the target agent."},
+                    "queue": {
+                        "type": "boolean",
+                        "description": "When true, enqueue agent_run_role on the shared task queue instead of nested in-process execution.",
+                    },
+                    "device": {"type": "string", "description": "Device id for queued role runs (optional)."},
                 },
                 "required": ["prompt"],
             },
@@ -531,16 +539,32 @@ def execute_agent(
                             result = {"ok": False, "error": "Maximum agent delegation depth (2) reached."}
                         else:
                             from .role_catalog import ROLES
+                            from . import supervisor as supervisormod
 
-                            target_key = str(tool_args.get("target_agent") or tool_args.get("role") or "").strip()
-                            sub_prompt = str(tool_args.get("prompt") or "").strip()
+                            role_arg = str(tool_args.get("role") or "").strip().lower()
+                            target_key = str(tool_args.get("target_agent") or role_arg or "").strip()
+                            sub_prompt = str(tool_args.get("prompt") or tool_args.get("message") or "").strip()
+                            is_supervisor = str(agent.get("id") or "").startswith("agent-role-supervisor") or str(
+                                agent.get("name") or ""
+                            ).lower() == "supervisor"
+                            queue_raw = tool_args.get("queue")
+                            if queue_raw is None:
+                                use_queue = bool(is_supervisor)
+                            else:
+                                use_queue = bool(queue_raw)
                             if not target_key:
                                 result = {"ok": False, "error": "target_agent or role is required."}
                             elif not sub_prompt:
                                 result = {"ok": False, "error": "prompt is required."}
                             else:
+                                role_for_queue = role_arg if role_arg in ROLES else None
                                 if target_key in ROLES:
+                                    role_for_queue = target_key
                                     target_key = f"agent-role-{target_key}"
+                                elif target_key.startswith("agent-role-"):
+                                    maybe = target_key.removeprefix("agent-role-")
+                                    if maybe in ROLES:
+                                        role_for_queue = maybe
                                 t_row = conn.execute(
                                     "SELECT * FROM custom_agents WHERE id=? OR LOWER(name)=LOWER(?) LIMIT 1",
                                     (target_key, target_key),
@@ -549,12 +573,41 @@ def execute_agent(
                                     result = {"ok": False, "error": f"Target agent '{target_key}' not found."}
                                 elif t_row["id"] == agent.get("id"):
                                     result = {"ok": False, "error": "Cannot delegate to self."}
+                                elif use_queue:
+                                    if not role_for_queue:
+                                        result = {
+                                            "ok": False,
+                                            "error": "queue=true requires a role catalog id (role=planner|developer|...).",
+                                        }
+                                    else:
+                                        q_dev = _resolve_device(devices, tool_args.get("device")) or (
+                                            devices[0]["id"] if devices else "local"
+                                        )
+                                        queued = supervisormod.enqueue_agent_run_role(
+                                            conn,
+                                            device_id=q_dev,
+                                            tenant=tenant,
+                                            role=role_for_queue,
+                                            prompt=sub_prompt,
+                                            parent_task_id=None,
+                                            goal=sub_prompt[:200],
+                                        )
+                                        result = {
+                                            "ok": True,
+                                            "queued": True,
+                                            "task_id": queued.get("task_id"),
+                                            "handoff_id": queued.get("handoff_id"),
+                                            "agent_id": t_row["id"],
+                                            "agent_name": t_row["name"],
+                                            "role": role_for_queue,
+                                        }
                                 else:
                                     sub_res = execute_agent(
                                         conn, dict(t_row), tool_executor, user_prompt=sub_prompt, _depth=_depth + 1
                                     )
                                     result = {
                                         "ok": True,
+                                        "queued": False,
                                         "agent_id": t_row["id"],
                                         "agent_name": t_row["name"],
                                         "response": sub_res.get("response"),
@@ -749,6 +802,7 @@ class AgentRunner:
             try:
                 if self._is_paused and self._is_paused():
                     continue
+                self._claim_agent_run_role_tasks()
                 now = _now()
                 due = self._conn.execute(
                     "SELECT * FROM custom_agents WHERE enabled=1 AND next_run_at<=? "
@@ -772,6 +826,101 @@ class AgentRunner:
                     ).start()
             except Exception:  # noqa: BLE001 - the runner must survive transient DB errors
                 time.sleep(1)
+
+    def _claim_agent_run_role_tasks(self) -> None:
+        """Claim shared-queue agent_run_role tasks and execute the target role agent."""
+        rows = self._conn.execute(
+            "SELECT * FROM tasks WHERE tool='agent_run_role' AND status='queued' "
+            "ORDER BY created_at ASC LIMIT 3"
+        ).fetchall()
+        for row in rows:
+            task = dict(row)
+            task_id = task["id"]
+            now = _now()
+            # Optimistic claim
+            cur = self._conn.execute(
+                "UPDATE tasks SET status='running', updated_at=? WHERE id=? AND status='queued'",
+                (now, task_id),
+            )
+            self._conn.commit()
+            if cur.rowcount == 0:
+                continue
+            threading.Thread(
+                target=self._run_queued_role_task,
+                args=(task,),
+                name=f"agent-run-role-{task_id}",
+                daemon=True,
+            ).start()
+
+    def _run_queued_role_task(self, task: dict[str, Any]) -> None:
+        task_id = str(task.get("id") or "")
+        try:
+            try:
+                args = json.loads(task.get("args_json") or "{}")
+            except Exception:
+                args = {}
+            if not isinstance(args, dict):
+                args = {}
+            role = str(args.get("role") or args.get("_role") or "").strip().lower()
+            prompt = str(args.get("prompt") or "").strip()
+            target = str(args.get("target_agent") or (f"agent-role-{role}" if role else "")).strip()
+            if not prompt or not target:
+                self._conn.execute(
+                    "UPDATE tasks SET status='failed', result=?, updated_at=? WHERE id=?",
+                    (json.dumps({"ok": False, "error": "role/prompt required"}), _now(), task_id),
+                )
+                self._conn.commit()
+                return
+            t_row = self._conn.execute(
+                "SELECT * FROM custom_agents WHERE id=? OR LOWER(name)=LOWER(?) LIMIT 1",
+                (target, target),
+            ).fetchone()
+            if t_row is None:
+                self._conn.execute(
+                    "UPDATE tasks SET status='failed', result=?, updated_at=? WHERE id=?",
+                    (json.dumps({"ok": False, "error": f"agent '{target}' not found"}), _now(), task_id),
+                )
+                self._conn.commit()
+                return
+            # Temporarily ensure the role agent can run even if disabled for scheduled ticks.
+            agent_dict = dict(t_row)
+            agent_dict["enabled"] = 1
+            result = execute_agent(self._conn, agent_dict, self._tool_executor, user_prompt=prompt, _depth=1)
+            payload = {
+                "ok": True,
+                "agent_id": agent_dict.get("id"),
+                "agent_name": agent_dict.get("name"),
+                "role": role,
+                "response": result.get("response"),
+                "steps_count": len(result.get("steps") or []),
+            }
+            self._conn.execute(
+                "UPDATE tasks SET status='completed', result=?, updated_at=? WHERE id=?",
+                (json.dumps(payload, default=str)[:50000], _now(), task_id),
+            )
+            self._conn.commit()
+            try:
+                from . import supervisor as supervisormod
+
+                fresh = self._conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+                if fresh is not None:
+                    supervisormod.advance_handoff(self._conn, fresh, status="completed")
+            except Exception:
+                pass
+        except Exception as exc:  # noqa: BLE001
+            try:
+                self._conn.execute(
+                    "UPDATE tasks SET status='failed', result=?, updated_at=? WHERE id=?",
+                    (json.dumps({"ok": False, "error": str(exc)})[:5000], _now(), task_id),
+                )
+                self._conn.commit()
+                from . import supervisor as supervisormod
+
+                fresh = self._conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+                if fresh is not None:
+                    supervisormod.advance_handoff(self._conn, fresh, status="failed")
+            except Exception:
+                pass
 
     def _run_one(self, agent: dict[str, Any]) -> None:
         agent_id = str(agent["id"])
