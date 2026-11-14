@@ -51,6 +51,17 @@ Set these via the host environment or Render env groups — never commit them to
 
 Logs and audit entries pass through `security.redact()`; device tokens are stripped from structured JSON logs. Playwright uses an isolated profile under `{workspace}/.ai-bridge/browser-profiles/` unless `AI_BRIDGE_ALLOW_BROWSER_NO_SANDBOX=1` (Docker/CI only).
 
+### Browser hard isolation (Phase 9)
+
+| Variable | Purpose |
+| :--- | :--- |
+| `AI_BRIDGE_BROWSER_HARD_ISOLATION` | Extra Chromium flags (incognito, no extensions/sync). Still a Playwright child process — not a separate agent worker. |
+| `AI_BRIDGE_BROWSER_NETWORK_LOCKDOWN` | Chromium `--host-resolver-rules` only; not a host firewall or Linux netns. |
+
+Control-plane HTTP rate limits use `durable_ratelimit` (Redis → settings table → in-memory). WebRTC input rate limits share the same Redis/memory path via `AI_BRIDGE_WEBRTC_INPUT_RPS` (default 250/s per session key).
+
+Native encode: `AI_BRIDGE_NATIVE_ENCODE` (`off` | `auto` | `prefer` | `required`) gates optional `ai_bridge_native.dll` H.264 timing smoke only — the shipping WebRTC track remains PyAV/aiortc unless a future native libwebrtc path is wired.
+
 ## 5. Risk Tiers, Approvals, and Audit Logging
 - **Risk Tiers**:
   - Tier 1: Read-only (`desktop_get_screenshot`, `desktop_get_status`, `desktop_get_windows`, `desktop_wait`, `desktop_verify_action`).

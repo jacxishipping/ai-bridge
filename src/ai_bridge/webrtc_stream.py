@@ -314,30 +314,34 @@ class ScreenTrack:
                 capture_ms = (t_cap_end - t_cap_start) * 1000.0
 
                 t_enc_start = time.perf_counter()
+                native_timing_ran = False
                 try:
+                    from ai_bridge.native_encode import encoder_backend_label, should_use_native_encode_timing
                     from ai_bridge.screen_capture import _AIBridgeCaptureMetrics, get_native_dll
 
-                    ndll = get_native_dll()
-                    if ndll is not None and hasattr(ndll, "aibridge_encode_h264_frame"):
-                        import ctypes
+                    if should_use_native_encode_timing():
+                        ndll = get_native_dll()
+                        if ndll is not None and hasattr(ndll, "aibridge_encode_h264_frame"):
+                            import ctypes
 
-                        w, h = img.width, img.height
-                        rgb = img.tobytes()
-                        out_cap = 256 * 1024
-                        out_buf = (ctypes.c_uint8 * out_cap)()
-                        mstruct = _AIBridgeCaptureMetrics()
-                        ndll.aibridge_encode_h264_frame(
-                            (ctypes.c_uint8 * len(rgb)).from_buffer_copy(rgb),
-                            len(rgb),
-                            w,
-                            h,
-                            3,
-                            out_buf,
-                            out_cap,
-                            ctypes.byref(mstruct),
-                        )
+                            w, h = img.width, img.height
+                            rgb = img.tobytes()
+                            out_cap = 256 * 1024
+                            out_buf = (ctypes.c_uint8 * out_cap)()
+                            mstruct = _AIBridgeCaptureMetrics()
+                            ndll.aibridge_encode_h264_frame(
+                                (ctypes.c_uint8 * len(rgb)).from_buffer_copy(rgb),
+                                len(rgb),
+                                w,
+                                h,
+                                3,
+                                out_buf,
+                                out_cap,
+                                ctypes.byref(mstruct),
+                            )
+                            native_timing_ran = True
                 except Exception:
-                    pass
+                    native_timing_ran = False
 
                 frame = av.VideoFrame.from_image(img)
                 frame.pts = pts
@@ -354,6 +358,7 @@ class ScreenTrack:
                     self._window_frames = 0
 
                 if self._session_id:
+                    from ai_bridge.native_encode import encoder_backend_label
                     from ai_bridge.screen_capture import get_last_capture_metrics
 
                     cap_meta = get_last_capture_metrics()
@@ -379,7 +384,9 @@ class ScreenTrack:
                         "frames_sent": self._frames_sent,
                         "capture_backend": cap_meta.get("backend", "dxgi"),
                         "from_dxgi": bool(cap_meta.get("from_dxgi", False)),
-                        "encoder_backend": cap_meta.get("encoder_name") or "H.264 (Media Foundation / PyAV)",
+                        "encoder_backend": cap_meta.get("encoder_name")
+                        or encoder_backend_label(native_timing_ran=native_timing_ran),
+                        "native_encode_timing": native_timing_ran,
                         "secure_desktop": bool(session_state.get("secure_desktop") or cap_meta.get("secure_desktop")),
                         "capture_blocked": bool(session_state.get("capture_blocked")),
                         "desktop_reason": session_state.get("reason") or "",
@@ -552,12 +559,21 @@ class AgentStreamer:
             _STREAMERS.pop(self.session_id, None)
 
     def _check_input_rate_limit(self) -> bool:
+        import os
+
+        from ai_bridge.control.durable_ratelimit import allow
+
+        limit = int(os.environ.get("AI_BRIDGE_WEBRTC_INPUT_RPS", "250"))
+        key = f"webrtc_input:{self.session_id}"
+        if not allow(key, limit, 1.0):
+            return False
+        # Per-streamer guard when Redis/DB backends are unavailable.
         now = time.monotonic()
         if now - self._rate_window_start >= 1.0:
             self._rate_window_start = now
             self._rate_count = 0
         self._rate_count += 1
-        return self._rate_count <= 250
+        return self._rate_count <= limit
 
     def _session_allows_input(
         self,
@@ -592,6 +608,11 @@ class AgentStreamer:
                 raw_message = raw_message.decode("utf-8")
             data = json.loads(raw_message)
             action = (data.get("action") or data.get("type") or "").lower()
+
+            from ai_bridge.plane_control_flags import is_emergency_stop
+
+            if is_emergency_stop() and action not in ("ping", "pong", "release_all_keys"):
+                return {"ok": False, "error": "emergency_stop_active"}
 
             if action == "ping":
                 pong = {

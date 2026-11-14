@@ -63,7 +63,7 @@ if _PROMETHEUS_AVAILABLE:
 
     ADVANCED_PHASE_DEPTH = Gauge(
         "aibridge_advanced_phase_depth",
-        "Roadmap phase depth (2=deep, 1=core) for phases 2-8",
+        "Roadmap phase depth (2=deep, 1=core) for phases 2-9",
         ["phase"],
     )
 
@@ -97,6 +97,7 @@ _PHASE_DEPTH = {
     "6": 2,
     "7": 2,
     "8": 2,
+    "9": 2,
 }
 
 

@@ -197,6 +197,9 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         "create_backup": lambda a: tools.create_backup(a.get("relative_directory", "."), approval_granted=approval_granted, policy=policy),
         "deploy_application": lambda a: tools.deploy_application(a.get("project_directory", "."), a.get("target_directory", "deploy-staging"), approval_granted=approval_granted, policy=policy),
         "get_desktop_status": lambda a: tools.get_desktop_status(),
+        "get_native_encode_status": lambda a: __import__(
+            "ai_bridge.native_encode", fromlist=["describe_native_encode"]
+        ).describe_native_encode(),
         "capture_desktop_screenshot": lambda a: tools.capture_desktop_screenshot(approval_granted=approval_granted, policy=policy),
         "take_screenshot": lambda a: tools.capture_desktop_screenshot(approval_granted=approval_granted, policy=policy),
         "capture_desktop_frame": lambda a: tools.capture_desktop_frame(

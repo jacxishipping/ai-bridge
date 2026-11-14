@@ -222,6 +222,9 @@ class Poller:
         }
         try:
             hb = self._req("POST", "/api/agent/heartbeat", hb_body)
+            from ai_bridge.plane_control_flags import set_emergency_stop
+
+            set_emergency_stop(bool(hb.get("emergency_stop")))
         except RuntimeError as exc:
             if "HTTP 401" in str(exc):
                 saved = self._load_saved_token()
@@ -305,6 +308,9 @@ class Poller:
         path = f"/api/agent/tasks/next?wait={wait}" if wait > 0 else "/api/agent/tasks/next"
         nxt = self._req("GET", path, timeout=max(15, wait + 5))
         task = nxt.get("task")
+        from ai_bridge.plane_control_flags import set_emergency_stop
+
+        set_emergency_stop(bool(nxt.get("emergency_stop")))
         if not task:
             self.backoff = 2.0
             return {"task": None, "emergency_stop": nxt.get("emergency_stop", False)}
@@ -317,7 +323,9 @@ class Poller:
             try:
                 st = self._req("GET", f"/api/agent/tasks/{task_id}/execution-state", timeout=8)
                 if st.get("emergency_stop"):
+                    set_emergency_stop(True)
                     return True
+                set_emergency_stop(bool(st.get("emergency_stop")))
                 return str(st.get("status") or "") in {"cancelled", "timed_out"}
             except Exception:
                 return False

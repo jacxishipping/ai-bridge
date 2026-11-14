@@ -37,6 +37,7 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "list_docker_containers": RiskTier.READ_ONLY, "git_status": RiskTier.READ_ONLY,
     "git_diff": RiskTier.READ_ONLY, "get_task_status": RiskTier.READ_ONLY,
     "get_task_result": RiskTier.READ_ONLY, "get_desktop_status": RiskTier.READ_ONLY,
+    "get_native_encode_status": RiskTier.READ_ONLY,
     "create_workspace_file": RiskTier.LOW_RISK, "run_project_tests": RiskTier.LOW_RISK,
     "run_linter": RiskTier.LOW_RISK,
     "edit_workspace_file": RiskTier.SENSITIVE, "move_workspace_file": RiskTier.SENSITIVE,
