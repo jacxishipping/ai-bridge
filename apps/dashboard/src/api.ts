@@ -8,6 +8,41 @@ const BASE =
   envBase || (isProdOrigin ? window.location.origin : "http://127.0.0.1:8000");
 export const apiOrigin = BASE;
 
+/** True when the dashboard host is not the control API (cross-origin deploy). */
+export const isCrossOriginApi =
+  typeof window !== "undefined" && BASE.replace(/\/$/, "") !== window.location.origin;
+
+function reachabilityHint(): string {
+  if (!envBase && isProdOrigin) {
+    return ` This static site is calling ${BASE}. Set VITE_API_URL to your control plane URL (e.g. https://ai-bridge-control.onrender.com) and redeploy the dashboard.`;
+  }
+  if (isCrossOriginApi) {
+    return ` Control plane: ${BASE}. If the API is up, ensure AI_BRIDGE_CORS_ORIGINS includes ${typeof window !== "undefined" ? window.location.origin : "this origin"}.`;
+  }
+  return ` Control plane: ${BASE}.`;
+}
+
+export async function probeControlHealth(timeoutMs = 8000): Promise<{ ok: boolean; detail: string; version?: string }> {
+  try {
+    const response = await fetch(BASE + "/health", { signal: AbortSignal.timeout(timeoutMs) });
+    if (!response.ok) {
+      return { ok: false, detail: `Control plane returned HTTP ${response.status} at ${BASE}/health.` };
+    }
+    const body = await response.json().catch(() => ({} as { version?: string; status?: string }));
+    return {
+      ok: body?.status === "ok" || response.ok,
+      detail: `Reachable at ${BASE}`,
+      version: typeof body?.version === "string" ? body.version : undefined,
+    };
+  } catch (error) {
+    const timedOut = error instanceof DOMException && error.name === "TimeoutError";
+    return {
+      ok: false,
+      detail: (timedOut ? "Timed out reaching the control plane." : "Cannot reach the control plane.") + reachabilityHint(),
+    };
+  }
+}
+
 export function token() {
   if (typeof window === "undefined") return "";
   return sessionStorage.getItem("ai_bridge_admin_token") || localStorage.getItem("ai_bridge_admin_token") || "";
@@ -61,7 +96,7 @@ export async function authenticate(credentials: { token: string } | { username: 
   } catch (error) {
     clearCredentials();
     if (error instanceof TypeError || (error instanceof DOMException && error.name === "TimeoutError")) {
-      throw new Error("Cannot reach the control plane. Check that the API is running and try again.");
+      throw new Error("Cannot reach the control plane." + reachabilityHint());
     }
     throw error;
   }

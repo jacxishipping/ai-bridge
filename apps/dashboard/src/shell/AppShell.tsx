@@ -11,7 +11,7 @@ import { Keyboard } from "lucide-react";
 import { SidebarNav } from "./SidebarNav";
 import { TopHeader } from "./TopHeader";
 import { CommandPaletteModal } from "./CommandPaletteModal";
-import { token, sessionToken, clearCredentials } from "../api";
+import { token, sessionToken, clearCredentials, apiOrigin } from "../api";
 import type { ViewId } from "../types/dashboard";
 
 export interface ViewMetadata {
@@ -92,19 +92,21 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
         {/* Sticky Control Plane Top Header */}
         <TopHeader onMenu={() => setMenuOpen(true)} />
         {Boolean(token() || sessionToken()) ? (
-          <div role="note" className="shrink-0 border-b border-emerald-800/40 bg-emerald-950/20 px-4 py-2 text-xs text-emerald-400 sm:px-6 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              <strong className="font-medium text-emerald-300">Live Control Plane</strong> · Connected to {typeof window !== "undefined" ? window.location.host : ""}
+          <div role="note" className="shrink-0 border-b border-emerald-800/40 bg-emerald-950/20 px-4 py-2 text-xs text-emerald-400 sm:px-6 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-emerald-400 animate-pulse" />
+              <strong className="font-medium text-emerald-300">Live control plane</strong>
+              <span className="truncate text-emerald-400/80">API {apiOrigin.replace(/^https?:\/\//, "")}</span>
             </div>
             <button type="button" onClick={() => { clearCredentials(); window.location.hash = "#/login"; window.location.reload(); }} className="text-xs text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)] underline">Sign out</button>
           </div>
         ) : (
-          <div role="note" className="shrink-0 border-b border-[var(--product-line)] bg-[var(--product-surface)]/40 px-4 py-2 text-xs text-[var(--product-text-tertiary)] sm:px-6 flex items-center justify-between">
-            <div>
-              <strong className="font-medium text-[var(--product-text-secondary)]">Demo workspace</strong> · Sample data. Actions stay in this browser.
+          <div role="note" className="shrink-0 border-b border-amber-700/50 bg-amber-950/30 px-4 py-2 text-xs text-amber-100/90 sm:px-6 flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              <strong className="font-medium text-amber-200">SAMPLE DATA · DEMO</strong>
+              <span className="ms-2 text-amber-100/70">Not connected to a control plane. Metrics and devices below are simulated.</span>
             </div>
-            <button type="button" onClick={() => { window.location.hash = "#/login"; }} className="text-xs text-indigo-400 hover:text-indigo-200 underline">Connect server</button>
+            <button type="button" onClick={() => { window.location.hash = "#/login"; }} className="shrink-0 text-xs text-indigo-300 hover:text-indigo-200 underline">Connect server</button>
           </div>
         )}
 

@@ -2,6 +2,18 @@
 @source "../node_modules/@jacxishippingorg/jx-ui-react";
 @custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
 
+/* Sticky primary actions on small viewports (dense Execute screens). */
+@layer components {
+  .product-mobile-actions {
+    @apply fixed inset-x-0 bottom-0 z-30 flex gap-2 border-t border-[color:var(--product-line)] bg-[var(--product-topbar-bg)]/95 p-3 backdrop-blur md:hidden;
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+  .product-table-sticky-first th:first-child,
+  .product-table-sticky-first td:first-child {
+    @apply sticky left-0 z-10 bg-[var(--product-surface)];
+  }
+}
+
 /* ────────────────────────────────────────────────────────────────
    THEME TOKENS — Dark (default) + Light
    Every surface, text, and border color is a CSS custom property.

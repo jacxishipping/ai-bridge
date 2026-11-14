@@ -466,7 +466,7 @@ export const DevicesView: React.FC = () => {
         <JXCardContent>
           <div className="space-y-2">
             <div ref={tableScrollRef} tabIndex={0} role="region" aria-label="Device inventory" className="overflow-x-auto scroll-shadow" data-scroll-left={scrollShadow.left} data-scroll-right={scrollShadow.right}>
-              <table className="w-full text-left border-collapse text-sm min-w-[640px]">
+              <table className="product-table-sticky-first w-full text-left border-collapse text-sm min-w-[640px]">
                 <thead>
                   <tr className="border-b border-[var(--product-line)] text-xs text-[var(--product-text-tertiary)]">
                     <th className="py-3 px-3">Status</th>

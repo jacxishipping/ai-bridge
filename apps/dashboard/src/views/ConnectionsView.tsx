@@ -43,7 +43,8 @@ import {
   Clock,
   Sparkles,
 } from "lucide-react";
-import { api, token, sessionToken } from "../api";
+import { api, apiOrigin, token, sessionToken } from "../api";
+import { PageEmpty } from "../components/PageEmpty";
 import { useDashboardStore } from "../state/dashboardStore";
 import type { MCPConnection, OAuthClient } from "../types/dashboard";
 
@@ -95,14 +96,66 @@ export const ConnectionsView: React.FC = () => {
   const mcpConnections = useDashboardStore((s) => s.mcpConnections);
   const oauthClients = useDashboardStore((s) => s.oauthClients);
   const refreshLive = useDashboardStore((s) => s.refreshLive);
+  const navigate = useDashboardStore((s) => s.setCurrentView);
 
   const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
-  const browserOrigin =
+  /** Control-plane origin for MCP/OAuth — not the static dashboard host. */
+  const controlOrigin = apiOrigin.replace(/\/$/, "") || (
     typeof window !== "undefined" && window.location?.origin
       ? window.location.origin
-      : "http://127.0.0.1:8000";
+      : "http://127.0.0.1:8000"
+  );
+  const browserOrigin = controlOrigin;
+  const mcpUrl = `${controlOrigin}/mcp`;
+  const oauthMetaUrl = `${controlOrigin}/.well-known/oauth-authorization-server`;
+  const [copiedMcp, setCopiedMcp] = useState(false);
+  const [mcpProbe, setMcpProbe] = useState<"idle" | "checking" | "ok" | "fail">("idle");
+  const [mcpProbeDetail, setMcpProbeDetail] = useState("");
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const scrollShadow = useScrollShadow(tableScrollRef);
+
+  const copyMcpUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(mcpUrl);
+      setCopiedMcp(true);
+      window.setTimeout(() => setCopiedMcp(false), 2000);
+    } catch {
+      setCopiedMcp(false);
+    }
+  };
+
+  const testMcpToolsList = async () => {
+    setMcpProbe("checking");
+    setMcpProbeDetail("");
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      };
+      const at = token();
+      const st = sessionToken();
+      if (at) headers.Authorization = `Bearer ${at}`;
+      else if (st) headers.Authorization = `Bearer ${st}`;
+      const res = await fetch(mcpUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) {
+        setMcpProbe("fail");
+        setMcpProbeDetail(`HTTP ${res.status} from ${mcpUrl}`);
+        return;
+      }
+      const body = await res.json();
+      const count = Array.isArray(body?.result?.tools) ? body.result.tools.length : 0;
+      setMcpProbe("ok");
+      setMcpProbeDetail(count ? `tools/list ok · ${count} tools` : "tools/list ok");
+    } catch (err) {
+      setMcpProbe("fail");
+      setMcpProbeDetail(err instanceof Error ? err.message : "MCP probe failed");
+    }
+  };
 
   // Live backend connection state
   const [liveConn, setLiveConn] = useState<LiveConnectionsResponse | null>(null);
@@ -443,13 +496,81 @@ export const ConnectionsView: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      <JXCard className="border-[var(--product-line)] bg-[var(--product-surface)]/60">
+        <JXCardContent>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h1 className="text-lg font-semibold text-[var(--product-text)]">Connect ChatGPT, Claude, Gemini & more</h1>
+                <p className="mt-1 max-w-2xl text-sm text-[var(--product-text-tertiary)]">
+                  Point MCP clients at this control plane. Use an admin bearer token for a quick test, or register OAuth clients for ChatGPT and other remote connectors.
+                </p>
+              </div>
+              {!isLive && (
+                <span className="rounded-full border border-amber-500/40 bg-amber-950/40 px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-amber-200">
+                  Demo — connect server for live MCP
+                </span>
+              )}
+            </div>
+            <div className="grid gap-3 rounded-xl border border-[var(--product-line)] bg-[var(--product-canvas)]/50 p-4 text-sm sm:grid-cols-2">
+              <div className="min-w-0 space-y-1">
+                <p className="text-xs uppercase tracking-wide text-[var(--product-text-tertiary)]">MCP URL</p>
+                <code className="block break-all text-indigo-300">{mcpUrl}</code>
+              </div>
+              <div className="min-w-0 space-y-1">
+                <p className="text-xs uppercase tracking-wide text-[var(--product-text-tertiary)]">OAuth discovery</p>
+                <code className="block break-all text-indigo-300">{oauthMetaUrl}</code>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <JXButton variant="outlined" color="neutral" size="md" onClick={() => void copyMcpUrl()}
+                startIcon={copiedMcp ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}>
+                {copiedMcp ? "Copied" : "Copy MCP URL"}
+              </JXButton>
+              <JXButton variant="contained" color="primary" size="md" loading={mcpProbe === "checking"}
+                disabled={!isLive} onClick={() => void testMcpToolsList()}
+                startIcon={<Play className="w-4 h-4" />}>
+                Test tools/list
+              </JXButton>
+              {!isLive && (
+                <JXButton variant="outlined" color="neutral" size="md"
+                  onClick={() => navigate("login")}>
+                  Connect server
+                </JXButton>
+              )}
+            </div>
+            {mcpProbe !== "idle" && (
+              <p role="status" className={`text-xs font-mono ${mcpProbe === "ok" ? "text-emerald-300" : mcpProbe === "fail" ? "text-rose-300" : "text-[var(--product-text-tertiary)]"}`}>
+                {mcpProbe === "checking" ? "Probing MCP…" : mcpProbeDetail}
+              </p>
+            )}
+            <ol className="list-decimal space-y-1 ps-5 text-xs text-[var(--product-text-tertiary)]">
+              <li>Claude / Cursor: remote MCP URL above + Authorization Bearer token</li>
+              <li>ChatGPT: remote MCP connector using OAuth discovery on this host</li>
+              <li>Gemini CLI / Codex: same Streamable HTTP endpoint or local stdio</li>
+              <li>Register per-chatbot OAuth clients via scripts/setup_mcp_chatbots.py when ready</li>
+            </ol>
+          </div>
+        </JXCardContent>
+      </JXCard>
+
+      {!isLive && (
+        <PageEmpty
+          demo
+          title="Live MCP status needs a connected control plane"
+          description="Demo cards below are sample sessions. Connect to probe /mcp and manage real OAuth clients."
+          actionLabel="Connect server"
+          onAction={() => navigate("login")}
+        />
+      )}
+
       {/* Protocol Header & Action Ribbon */}
       <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
         <div className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="space-y-1 text-xs font-mono text-[var(--product-text-secondary)]">
             <div>
-              MCP Endpoint: <code className="text-indigo-400">{browserOrigin}/mcp</code> • OAuth Metadata:{" "}
-              <code className="text-indigo-400">{browserOrigin}/.well-known/oauth-authorization-server</code>
+              MCP Endpoint: <code className="text-indigo-400">{mcpUrl}</code> • OAuth Metadata:{" "}
+              <code className="text-indigo-400">{oauthMetaUrl}</code>
             </div>
             {isLive && liveConn && (
               <div className="text-[var(--product-text-tertiary)] flex flex-wrap items-center gap-3">

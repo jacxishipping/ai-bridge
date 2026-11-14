@@ -21,7 +21,7 @@ export function LanguageControl() {
     {open && <GlassModal title={t("Language")} closeLabel={t("Close")} onClose={() => setOpen(false)}>
       <div className="space-y-3">
         <p lang="en" dir="ltr" className="text-xs text-[var(--product-text-tertiary)]">
-          Navigation and sign-in translations (preview). Operational content, safety instructions and the demo remain in English. Native-speaker review is pending.
+          Chrome translations (preview). Safety copy, operational data, and demo content stay in English until native-speaker review.
         </p>
         <label className="grid gap-1 text-sm">
           {t("Search languages")}

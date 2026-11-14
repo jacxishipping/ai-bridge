@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ArrowRight, KeyRound, UserRound } from "lucide-react";
 import { JXAlert, JXButton, JXCard, JXCardContent, JXTextField, JXLinearProgress } from "../ui";
 import { Brand, BrandArt } from "../Brand";
-import { api, authenticate } from "../api";
+import { api, apiOrigin, authenticate, probeControlHealth } from "../api";
 import { dashboardStore, useDashboardStore } from "../state/dashboardStore";
 import { LanguageControl } from "../LanguageControl";
 import { ThemeControl } from "../ThemeControl";
@@ -32,9 +32,19 @@ export const LoginView: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [ssoConfigured, setSsoConfigured] = useState(false);
+  const [health, setHealth] = useState<{ ok: boolean; detail: string; version?: string } | null>(null);
+  const [probing, setProbing] = useState(true);
   useEffect(() => {
     let active = true;
     api.oidcConfigured().then((data) => { if (active) setSsoConfigured(Boolean(data.enabled)); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    setProbing(true);
+    probeControlHealth().then((result) => {
+      if (active) { setHealth(result); setProbing(false); }
+    });
     return () => { active = false; };
   }, []);
 
@@ -43,6 +53,11 @@ export const LoginView: React.FC = () => {
     setBusy(true);
     setError("");
     try {
+      const preflight = await probeControlHealth();
+      setHealth(preflight);
+      if (!preflight.ok) {
+        throw new Error(preflight.detail);
+      }
       await authenticate(method === "token" ? { token: token.trim() } : { username: username.trim(), password });
       // A successful sign-in lands on the live control plane, not the demo overview.
       await dashboardStore.refreshLive();
@@ -68,7 +83,18 @@ export const LoginView: React.FC = () => {
               <JXButton color={method === "password" ? "primary" : "neutral"} variant={method === "password" ? "contained" : "outlined"}
                 aria-pressed={method === "password"} onClick={() => { setMethod("password"); setError(""); }} startIcon={<UserRound className="h-4 w-4" />}>{t("Account")}</JXButton>
             </div>
+            <div lang="en" dir="ltr" className="rounded-lg border border-[color:var(--product-line)] bg-[var(--product-raised)]/40 px-3 py-2 text-xs text-[color:var(--product-text-tertiary)]">
+              <p>Control plane: <code className="text-[color:var(--product-text-secondary)]">{apiOrigin}</code></p>
+              <p className="mt-1" role="status">
+                {probing ? "Checking API…" : health?.ok
+                  ? `API reachable${health.version ? ` · v${health.version}` : ""}`
+                  : (health?.detail || "API unreachable")}
+              </p>
+            </div>
             {error && <div lang="en" dir="ltr"><JXAlert severity="error" title="Unable to sign in" description={error} /></div>}
+            {!probing && health && !health.ok && !error && (
+              <div lang="en" dir="ltr"><JXAlert severity="warning" title="Control plane unreachable" description={health.detail} /></div>
+            )}
             <form className="space-y-4" onSubmit={submit}>
               {method === "token" ? <><JXTextField label={t("Admin token")} type="password" value={token} onChange={setToken}
                 required autoComplete="off" clearable={false} />
@@ -87,9 +113,16 @@ export const LoginView: React.FC = () => {
                     )}
                   </div>
                 </>}
-              <JXButton type="submit" fullWidth loading={busy} loadingLabel={t("Signing in…")} disabled={busy}
+              <JXButton type="submit" fullWidth loading={busy} loadingLabel={t("Signing in…")}
+                disabled={busy || probing || Boolean(health && !health.ok)}
                 endIcon={<ArrowRight className="h-4 w-4 rtl:rotate-180" />}>{t("Sign in")}</JXButton>
             </form>
+            {health && !health.ok && (
+              <JXButton fullWidth variant="outlined" color="neutral" onClick={() => {
+                setProbing(true);
+                probeControlHealth().then((result) => { setHealth(result); setProbing(false); });
+              }}>Retry connection check</JXButton>
+            )}
             {ssoConfigured && <JXButton fullWidth color="neutral" variant="outlined" onClick={() => api.oidcLogin()}>{t("Sign in with your identity provider")}</JXButton>}
             <div className="space-y-3 border-t border-[color:var(--product-line)] pt-5">
               <JXButton fullWidth variant="outlined" color="neutral" onClick={() => navigate("overview")}>{t("Explore demo workspace")}</JXButton>

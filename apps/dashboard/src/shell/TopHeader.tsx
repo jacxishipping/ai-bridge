@@ -45,20 +45,25 @@ export const TopHeader: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
         <span className="hidden sm:inline">{stopped ? (isLive ? "Resume fleet" : "Resume demo") : "Emergency stop"}</span>
         <span className="sm:hidden">{stopped ? "Resume" : "Stop"}</span>
       </JXButton>
-      <GlassModal open={confirmOpen} onClose={() => setConfirmOpen(false)} title={stopped ? (isLive ? "Resume live fleet?" : "Resume demo fleet?") : (isLive ? "Activate Emergency All-Stop?" : "Stop demo fleet?")}>
+      <GlassModal open={confirmOpen} onClose={() => setConfirmOpen(false)} title={stopped ? (isLive ? "Resume live fleet?" : "Resume sample demo?") : (isLive ? "Activate Emergency All-Stop?" : "Stop sample demo tasks?")}>
         <div className="space-y-5">
+          {!isLive && (
+            <p className="rounded-lg border border-amber-700/40 bg-amber-950/40 px-3 py-2 text-xs text-amber-100">
+              Demo only — this does not control real enrolled devices.
+            </p>
+          )}
           <p className="flex items-start gap-3 text-sm leading-relaxed text-[color:var(--product-text-secondary)]">
-            <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500" />
+            <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500" aria-hidden="true" />
             {isLive
               ? (stopped ? "Clear the global Emergency All-Stop on the control plane and allow enrolled devices to resume picking up queued tasks." : "Immediately halt all autonomous agent execution across every enrolled device connected to the control plane.")
-              : (stopped ? "Resume the simulated fleet. Cancelled tasks will not restart." : "Cancel pending and running sample tasks. This affects only this browser, not real computers.")}
+              : (stopped ? "Resume the simulated fleet. Cancelled sample tasks will not restart." : "Cancel pending and running sample tasks in this browser only. Real computers are not affected.")}
           </p>
           <div className="flex flex-wrap justify-end gap-3">
             <JXButton variant="outlined" color="neutral" onClick={() => setConfirmOpen(false)}>Cancel</JXButton>
             <JXButton color={stopped ? "success" : "error"} onClick={async () => {
               if (stopped) await resume(); else await stop();
               setConfirmOpen(false);
-            }}>{stopped ? (isLive ? "Resume fleet" : "Resume demo fleet") : (isLive ? "Emergency All-Stop" : "Stop demo fleet")}</JXButton>
+            }}>{stopped ? (isLive ? "Resume fleet" : "Resume demo") : (isLive ? "Emergency All-Stop" : "Stop demo tasks")}</JXButton>
           </div>
         </div>
       </GlassModal>
