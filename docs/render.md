@@ -1,9 +1,11 @@
 # Deploying AI Bridge on Render (test deployment)
 
 ## What this deploys
-- `ai-bridge-control`: the FastAPI control plane as a Docker web service
-  (`deployment/docker/Dockerfile`, `python -m ai_bridge.control`). It
+- `ai-bridge-control`: the FastAPI control plane as a native Python web
+  service (`pip install -e .`, then `python -m ai_bridge.control`). It
   binds `0.0.0.0:$PORT` when Render sets `$PORT`, and serves `/health`.
+  Python is pinned to 3.12 via `PYTHON_VERSION` / `.python-version`
+  (avoid Render's default 3.14 for this stack).
 - `ai-bridge-dashboard`: the React dashboard as a static site
   (`type: web` + `runtime: static` in the Blueprint). Its API URL is
   baked in at build time via `VITE_API_URL`, so set that to the control

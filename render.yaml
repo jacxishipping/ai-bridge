@@ -8,10 +8,11 @@
 services:
   - type: web
     name: ai-bridge-control
-    runtime: docker
-    dockerfilePath: ./deployment/docker/Dockerfile
+    runtime: python
     plan: free
     region: frankfurt
+    buildCommand: pip install -e .
+    startCommand: python -m ai_bridge.control
     healthCheckPath: /health
     envVars:
       - key: AI_BRIDGE_ADMIN_TOKEN
@@ -20,6 +21,8 @@ services:
         value: "7"
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: PYTHON_VERSION
+        value: "3.12.10"
   - type: web
     name: ai-bridge-dashboard
     runtime: static
