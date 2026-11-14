@@ -6,6 +6,7 @@
 
 import React, { useEffect } from "react";
 import { AppShell } from "./shell/AppShell";
+import { BreadcrumbTrail } from "./ui";
 import { useDashboardStore } from "./state/dashboardStore";
 import type { ViewId } from "./types/dashboard";
 
@@ -183,9 +184,10 @@ export const App: React.FC = () => {
     <AppShell currentView={currentView} viewMeta={currentMeta}>
       <div className="w-full">
         {!VIEWS_WITH_OWN_HEADER.includes(currentView) && (
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-[var(--product-line)] mb-6">
-            <div>
-              <h1 className="text-xl font-bold tracking-tight text-[var(--product-text)] mt-1">
+          <div className="mb-6 flex flex-col justify-between gap-3 border-b border-[var(--product-line)] pb-3 md:flex-row md:items-end">
+            <div className="space-y-2">
+              <BreadcrumbTrail crumbs={currentMeta.breadcrumbs} />
+              <h1 className="text-xl font-bold tracking-tight text-[var(--product-text)]">
                 {currentMeta.title}
               </h1>
             </div>
