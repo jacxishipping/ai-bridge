@@ -12,6 +12,7 @@ import json
 import os
 import platform
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -20,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from ai_bridge.control.dispatch import dispatch
+from ai_bridge.control.task_runtime import TaskCancelled, clear_execution_context, set_execution_context
 from ai_bridge.policy import Policy
 from ai_bridge.tools import default_policy
 
@@ -307,6 +309,29 @@ class Poller:
             self.backoff = 2.0
             return {"task": None, "emergency_stop": nxt.get("emergency_stop", False)}
         task_id = task["id"]
+        cancel_stop = threading.Event()
+
+        def _cancelled() -> bool:
+            if cancel_stop.is_set():
+                return True
+            try:
+                st = self._req("GET", f"/api/agent/tasks/{task_id}/execution-state", timeout=8)
+                if st.get("emergency_stop"):
+                    return True
+                return str(st.get("status") or "") in {"cancelled", "timed_out"}
+            except Exception:
+                return False
+
+        def _cancel_poller() -> None:
+            while not cancel_stop.is_set():
+                if _cancelled():
+                    cancel_stop.set()
+                    return
+                time.sleep(0.5)
+
+        poll_thread = threading.Thread(target=_cancel_poller, daemon=True)
+        set_execution_context(task_id, _cancelled)
+        poll_thread.start()
         try:
             args = json.loads(task.get("args_json") or "{}")
             eff_policy = self._effective_policy(task.get("policy"))
@@ -317,10 +342,16 @@ class Poller:
                 approval_granted=bool(task.get("approval_granted")),
             )
             status, text = "completed", json.dumps(result, default=str)[:MAX_RESULT_CHARS]
+        except TaskCancelled:
+            status, text = "cancelled", json.dumps({"error": "Task cancelled or timed out."})
         except PermissionError as exc:
             status, text = "failed", f"denied: {exc}"
         except Exception as exc:
             status, text = "failed", f"{type(exc).__name__}: {exc}"
+        finally:
+            cancel_stop.set()
+            poll_thread.join(timeout=2.0)
+            clear_execution_context()
         # Persist locally in spool before transmission
         self.spooler.spool(task_id, status, text)
         if self._try_post_result(task_id, status, text):

@@ -1,4 +1,6 @@
 # Roadmap (updated for v0.2.0)
+
+For the source-verified technical audit and Phases 2–8 implementation roadmap, see [ai-bridge_ADVANCED_ROADMAP.md](./ai-bridge_ADVANCED_ROADMAP.md).
 - [x] Milestone 1 — local MCP starter (starter ZIP) + hardening in v0.2
 - [x] Milestone 2 — remote control plane: enrollment, revocation, polling, hashed tokens
 - [x] Milestone 3 — autonomy: risk tiers, approvals, audit, backups, timeouts, cancellation

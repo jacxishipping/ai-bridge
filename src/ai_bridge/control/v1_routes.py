@@ -46,7 +46,14 @@ VALID_VIDEO_CODECS = {"H264", "VP8", "VP9", "AV1"}
 _HUMAN_TAKEOVER_BY_DEVICE: dict[str, dict[str, Any]] = {}
 
 
-def set_device_human_takeover(device_id: str, active: bool, actor: str = "operator", session_id: str = "") -> dict[str, Any]:
+def set_device_human_takeover(
+    device_id: str,
+    active: bool,
+    actor: str = "operator",
+    session_id: str = "",
+    *,
+    conn: Any | None = None,
+) -> dict[str, Any]:
     """Set or clear human takeover on a device. When active=True, AI input is immediately revoked."""
     state = {
         "device_id": device_id,
@@ -58,9 +65,24 @@ def set_device_human_takeover(device_id: str, active: bool, actor: str = "operat
     _HUMAN_TAKEOVER_BY_DEVICE[device_id] = state
     if device_id in ("local", ""):
         _HUMAN_TAKEOVER_BY_DEVICE["local"] = state
+    if conn is not None:
+        from . import plane_state
+
+        if active:
+            plane_state.save_human_takeover(conn, device_id, state)
+        else:
+            plane_state.clear_human_takeover(conn, device_id)
     if active:
         webrtc_stream.release_all_held_keys()
     return state
+
+
+def hydrate_human_takeover_from_db(conn: Any) -> None:
+    from . import plane_state
+
+    for dev_id, state in plane_state.load_all_human_takeovers(conn).items():
+        if state.get("human_takeover_active"):
+            _HUMAN_TAKEOVER_BY_DEVICE[dev_id] = state
 
 
 def is_device_human_takeover_active(device_id: str | None = None) -> bool:
@@ -531,7 +553,7 @@ def attach_v1_routes(
         permissions = derive_session_permissions(mode, eff_policy)
 
         takeover = (mode == "human_control")
-        set_device_human_takeover(body.device_id, takeover, actor=actor)
+        set_device_human_takeover(body.device_id, takeover, actor=actor, conn=conn)
 
         session_id = f"session_{uuid.uuid4().hex[:10]}"
         sess = {
@@ -649,7 +671,7 @@ def attach_v1_routes(
             raw_takeover = body.get("human_takeover")
         takeover = raw_takeover if raw_takeover is not None else (req_mode == "human_control")
         sess["human_takeover_active"] = bool(takeover)
-        set_device_human_takeover(device_id, bool(takeover), actor=actor, session_id=session_id)
+        set_device_human_takeover(device_id, bool(takeover), actor=actor, session_id=session_id, conn=conn)
         save_webrtc_session_db(conn, app.state, sess)
 
         if req_mode == "view_only":
@@ -731,7 +753,7 @@ def attach_v1_routes(
         sess["status"] = "ended"
         save_webrtc_session_db(conn, app.state, sess)
         device_id = str(sess.get("device_id") or "local")
-        set_device_human_takeover(device_id, False, actor=actor, session_id=session_id)
+        set_device_human_takeover(device_id, False, actor=actor, session_id=session_id, conn=conn)
         webrtc_stream.stop_stream(session_id)
         audit(actor, device_id, "v1_terminate_session", {"session_id": session_id}, "allowed")
         await _broadcast_ws(session_id, {"type": "session_terminated", "session_id": session_id})

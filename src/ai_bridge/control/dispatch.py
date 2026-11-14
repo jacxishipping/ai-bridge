@@ -7,8 +7,9 @@ here — this is the server-side enforcement point, not the prompt.
 """
 from __future__ import annotations
 
-from .. import diagnostics, git_ops, tools, workspace, webrtc_stream
+from .. import browser_tools, diagnostics, git_ops, tools, workspace, webrtc_stream
 from ..policy import TOOL_TIERS, Policy, RiskTier, decide
+from .task_runtime import TaskCancelled, raise_if_cancelled
 
 
 def _start_webrtc_from_task(a: dict) -> dict:
@@ -20,10 +21,104 @@ def _start_webrtc_from_task(a: dict) -> dict:
         raise RuntimeError("Agent context (control URL / device token) is not set; cannot start WebRTC stream.")
     session_id = a["session_id"]
     signaling = webrtc_stream.HttpSignaling(ctx["control_url"], ctx["device_token"], session_id)
+    monitor_index = a.get("monitor_index")
+    if monitor_index is not None:
+        try:
+            monitor_index = int(monitor_index)
+        except (TypeError, ValueError):
+            monitor_index = None
+    bitrate_kbps = a.get("bitrate_kbps")
+    if bitrate_kbps is not None:
+        try:
+            bitrate_kbps = int(bitrate_kbps)
+        except (TypeError, ValueError):
+            bitrate_kbps = None
     return webrtc_stream.start_stream(
-        session_id, signaling,
-        scale=float(a.get("scale", 0.75)), fps=int(a.get("fps", 10)),
+        session_id,
+        signaling,
+        scale=float(a.get("scale", 0.75)),
+        fps=int(a.get("fps", 30)),
+        monitor_index=monitor_index,
+        bitrate_kbps=int(bitrate_kbps) if bitrate_kbps is not None else 4500,
     )
+
+
+def _dispatch_browser(tool: str, a: dict, *, approval_granted: bool, policy: Policy | None) -> dict:
+    """Map fleet task args to Playwright browser_tools entrypoints."""
+    raise_if_cancelled()
+    a = a or {}
+    common = {"approval_granted": approval_granted, "policy": policy}
+    if tool == "browser_navigate":
+        return browser_tools.browser_navigate(
+            a["url"],
+            wait_until=str(a.get("wait_until", "networkidle")),
+            timeout=int(a.get("timeout", 30)),
+            **common,
+        )
+    if tool == "browser_screenshot":
+        return browser_tools.browser_screenshot(full_page=bool(a.get("full_page", False)), **common)
+    if tool == "browser_click":
+        return browser_tools.browser_click(
+            a["selector"],
+            button=str(a.get("button", "left")),
+            clicks=int(a.get("clicks", 1)),
+            **common,
+        )
+    if tool == "browser_type":
+        return browser_tools.browser_type(
+            a["selector"],
+            a["text"],
+            clear_first=bool(a.get("clear_first", True)),
+            submit=bool(a.get("submit", False)),
+            **common,
+        )
+    if tool == "browser_get_text":
+        return browser_tools.browser_get_text(str(a.get("selector", "body")), **common)
+    if tool == "browser_evaluate":
+        return browser_tools.browser_evaluate(a["script"], **common)
+    if tool == "browser_get_url":
+        return browser_tools.browser_get_url(**common)
+    if tool == "browser_go_back":
+        return browser_tools.browser_go_back(**common)
+    if tool == "browser_go_forward":
+        return browser_tools.browser_go_forward(**common)
+    if tool == "browser_scroll":
+        return browser_tools.browser_scroll(
+            delta_y=int(a.get("delta_y", a.get("delta", 0))),
+            delta_x=int(a.get("delta_x", 0)),
+            **common,
+        )
+    if tool == "browser_close":
+        return browser_tools.browser_close(**common)
+    if tool == "browser_new_page":
+        return browser_tools.browser_new_page(a.get("url"), **common)
+    if tool == "browser_get_elements":
+        return browser_tools.browser_get_elements(
+            a["selector"],
+            include_text=bool(a.get("include_text", True)),
+            **common,
+        )
+    if tool == "browser_wait_for_selector":
+        return browser_tools.browser_wait_for_selector(
+            a["selector"],
+            timeout=int(a.get("timeout", 10)),
+            state=str(a.get("state", "visible")),
+            **common,
+        )
+    if tool == "browser_select_option":
+        return browser_tools.browser_select_option(
+            a["selector"],
+            value=a.get("value"),
+            label=a.get("label"),
+            **common,
+        )
+    if tool == "browser_download_file":
+        return browser_tools.browser_download_file(
+            a["url"],
+            filename=a.get("filename"),
+            **common,
+        )
+    raise ValueError(f"Browser tool not implemented: {tool}")
 
 
 def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
@@ -35,6 +130,7 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
     d = decide(policy, tool, approval_granted=approval_granted, is_admin=is_admin or approval_granted)
     if not d.allowed:
         raise PermissionError(d.reason)
+    raise_if_cancelled()
     tier = TOOL_TIERS.get(tool)
     if tier == RiskTier.HIGH_RISK and not approval_granted and getattr(policy, "max_tier_unattended", 2) < 4:
         raise PermissionError("High-risk tool requires an approved approval record.")
@@ -56,6 +152,14 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         "list_docker_containers": lambda a: diagnostics.list_docker_containers(),
         "git_status": lambda a: git_ops.git_status(a.get("relative_directory", ".")),
         "git_diff": lambda a: git_ops.git_diff(a.get("relative_directory", ".")),
+        "git_create_branch": lambda a: git_ops.git_create_branch(
+            a.get("relative_directory", "."),
+            a["branch_name"],
+        ),
+        "git_checkpoint": lambda a: git_ops.git_checkpoint(
+            a.get("relative_directory", "."),
+            str(a.get("message", "ai-bridge checkpoint")),
+        ),
         "run_project_tests": lambda a: tools.run_project_tests(a.get("test_command", "pytest"), a.get("timeout", 120), policy=policy),
         "run_linter": lambda a: tools.run_linter(a.get("timeout", 60)),
         "create_backup": lambda a: tools.create_backup(a.get("relative_directory", "."), approval_granted=approval_granted, policy=policy),
@@ -83,6 +187,7 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
             start_y=a.get("start_y"),
             approval_granted=approval_granted,
             policy=policy,
+            intent_id=a.get("intent_id"),
         ),
         "mouse_click": lambda a: tools.mouse_click(
             int(a.get("x", 0)),
@@ -228,7 +333,7 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
             is_admin=is_admin,
             policy=policy,
         ),
-        "start_webrtc_stream": lambda a: _start_webrtc_from_task(a),
+        "start_webrtc_stream": lambda a: _start_webrtc_from_task(a),
         "get_system_monitors": lambda a: {"monitors": tools.get_system_monitors()},
         "stop_webrtc_stream": lambda a: webrtc_stream.stop_stream(a["session_id"]),
         "read_file": lambda a: tools.read_file(a["path"], int(a.get("max_chars", 100000)), is_admin=is_admin, policy=policy),
@@ -304,10 +409,41 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
             approval_granted=approval_granted,
             policy=policy,
         ),
+        "desktop_veto_action": lambda a: tools.desktop_veto_action(
+            str(a.get("intent_id", "")),
+            str(a.get("reason", "Operator override")),
+        ),
     }
-    from ..connectors import microsoft365
+    from ..connectors import browserbase, microsoft365, you_search
+
+    _browser_names = {
+        "browser_navigate",
+        "browser_screenshot",
+        "browser_click",
+        "browser_type",
+        "browser_get_text",
+        "browser_evaluate",
+        "browser_get_url",
+        "browser_go_back",
+        "browser_go_forward",
+        "browser_scroll",
+        "browser_close",
+        "browser_new_page",
+        "browser_get_elements",
+        "browser_wait_for_selector",
+        "browser_select_option",
+        "browser_download_file",
+    }
+    for btool in _browser_names:
+        handlers[btool] = (
+            lambda a, _t=btool, _ag=approval_granted, _pol=policy: _dispatch_browser(
+                _t, a or {}, approval_granted=_ag, policy=_pol
+            )
+        )
 
     handlers.update({name: (lambda a, _fn=fn: _fn(a)) for name, fn in microsoft365.TOOLS.items()})
+    handlers.update({name: (lambda a, _fn=fn: _fn(a)) for name, fn in browserbase.TOOLS.items()})
+    handlers.update({name: (lambda a, _fn=fn: _fn(a)) for name, fn in you_search.TOOLS.items()})
     handler = handlers.get(tool)
     if handler is None:
         raise ValueError(f"Tool not executable via the control plane: {tool}")

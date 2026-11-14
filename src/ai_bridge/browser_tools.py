@@ -9,6 +9,7 @@ All tools enforce the same policy/approval model as desktop automation.
 from __future__ import annotations
 
 import base64
+import os
 from typing import Any
 
 from .config import get_settings
@@ -48,8 +49,11 @@ def _ensure_browser(headless: bool = True) -> Any:
         except Exception:
             pass
 
+    launch_args: list[str] = []
+    if os.environ.get("AI_BRIDGE_BROWSER_SANDBOX", "1").strip().lower() in ("1", "true", "yes"):
+        launch_args.extend(["--no-sandbox", "--disable-setuid-sandbox"])
     _pw = sync_playwright().start()
-    _browser = _pw.chromium.launch(headless=headless)
+    _browser = _pw.chromium.launch(headless=headless, args=launch_args or None)
     _context = _browser.new_context(
         viewport={"width": 1280, "height": 720},
         user_agent=(

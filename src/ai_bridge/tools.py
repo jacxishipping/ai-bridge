@@ -587,6 +587,7 @@ def perform_approved_ui_action(
     start_y: int | None = None,
     approval_granted: bool = False,
     policy: Policy | None = None,
+    intent_id: str | None = None,
 ) -> dict:
     """Perform a bounded desktop UI action when desktop automation is enabled.
 
@@ -602,6 +603,9 @@ def perform_approved_ui_action(
     """
     eff_policy = policy or default_policy()
     _check("perform_approved_ui_action", approval_granted=approval_granted, policy=eff_policy)
+    if intent_id and desktop_is_action_vetoed(intent_id):
+        raise PermissionError(f"Operator vetoed action (intent_id={intent_id}).")
+    _require_no_human_takeover("local")
     allowed_actions = {
         "list_windows", "focus_window", "move_mouse", "click",
         "double_click", "triple_click", "right_click", "middle_click",
@@ -1173,22 +1177,45 @@ def _run_cwd(working_directory: str, *, is_admin: bool, policy: Policy | None) -
 
 
 def _run_argv(argv: list[str], cwd: str | None, timeout_arg: int) -> dict:
+    from .control.task_runtime import TaskCancelled, cooperative_sleep, raise_if_cancelled
+
     child_env = {k: v for k, v in os.environ.items() if k not in _SCRUB_ENV_KEYS}
     try:
-        proc = subprocess.run(argv, shell=False, cwd=cwd, env=child_env,
-                              capture_output=True, text=True, timeout=timeout_arg)
+        raise_if_cancelled()
+        proc = subprocess.Popen(
+            argv,
+            shell=False,
+            cwd=cwd,
+            env=child_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=(os.name != "nt"),
+        )
+        deadline = time.time() + timeout_arg
+        while proc.poll() is None:
+            raise_if_cancelled()
+            if time.time() >= deadline:
+                proc.kill()
+                try:
+                    proc.communicate(timeout=5)
+                except Exception:
+                    pass
+                return {
+                    "returncode": None,
+                    "timeout": True,
+                    "stdout": "",
+                    "stderr": f"command timed out after {timeout_arg}s",
+                }
+            cooperative_sleep(0.25, interval=0.25)
+        out, err = proc.communicate(timeout=5)
         return {
             "returncode": proc.returncode,
-            "stdout": redact((proc.stdout or "")[-20000:]),
-            "stderr": redact((proc.stderr or "")[-20000:]),
+            "stdout": redact((out or "")[-20000:]),
+            "stderr": redact((err or "")[-20000:]),
         }
-    except subprocess.TimeoutExpired:
-        return {
-            "returncode": None,
-            "timeout": True,
-            "stdout": "",
-            "stderr": f"command timed out after {timeout_arg}s",
-        }
+    except TaskCancelled:
+        raise
     except FileNotFoundError:
         return {"returncode": None, "error": f"executable not found: {argv[0]}", "stdout": "", "stderr": ""}
     except Exception as exc:  # noqa: BLE001
@@ -2092,46 +2119,37 @@ def desktop_get_ui_elements(
         except Exception:
             pass
 
-    # Fallback or synthetic default marks if headless or no visible windows
     if not elements:
-        elements = [
-            {
-                "id": 1,
-                "label": "Active Workspace",
-                "type": "editor",
-                "bounds": [60, 80, 1500, 850],
-                "norm_x": 0.04,
-                "norm_y": 0.12,
-                "norm_width": 0.62,
-                "norm_height": 0.58,
-                "center_x": 0.35,
-                "center_y": 0.41,
-            },
-            {
-                "id": 2,
-                "label": "Terminal Shell",
-                "type": "terminal",
-                "bounds": [1300, 80, 560, 950],
-                "norm_x": 0.68,
-                "norm_y": 0.12,
-                "norm_width": 0.29,
-                "norm_height": 0.82,
-                "center_x": 0.825,
-                "center_y": 0.53,
-            },
-            {
-                "id": 3,
-                "label": "System Telemetry Vitals",
-                "type": "telemetry",
-                "bounds": [60, 780, 1200, 240],
-                "norm_x": 0.04,
-                "norm_y": 0.74,
-                "norm_width": 0.62,
-                "norm_height": 0.22,
-                "center_x": 0.35,
-                "center_y": 0.85,
-            },
-        ]
+        synthetic_ok = os.environ.get("AI_BRIDGE_SOM_SYNTHETIC_FALLBACK", "0").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if synthetic_ok:
+            elements = [
+                {
+                    "id": 1,
+                    "label": "Active Workspace",
+                    "type": "editor",
+                    "synthetic": True,
+                    "bounds": [60, 80, 1500, 850],
+                    "norm_x": 0.04,
+                    "norm_y": 0.12,
+                    "norm_width": 0.62,
+                    "norm_height": 0.58,
+                    "center_x": 0.35,
+                    "center_y": 0.41,
+                },
+            ]
+        else:
+            return {
+                "ok": False,
+                "error": "No UI elements enumerated (headless, capture blocked, or empty desktop).",
+                "count": 0,
+                "screen_width": screen_w,
+                "screen_height": screen_h,
+                "elements": [],
+            }
 
     return {
         "ok": True,

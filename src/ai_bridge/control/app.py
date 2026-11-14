@@ -631,6 +631,12 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     app.state.conn = conn
     app.state.admin_token = token
     app.state.emergency_stop = False
+    from . import plane_state, role_catalog
+    from .v1_routes import hydrate_human_takeover_from_db
+
+    plane_state.sync_emergency_stop_to_app(conn, app.state)
+    hydrate_human_takeover_from_db(conn)
+    role_catalog.seed_role_catalog(conn)
     task_cond = threading.Condition()
     app.state.task_cond = task_cond
 
@@ -1879,6 +1885,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     def emergency_stop(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         actor = require_admin(x_admin_token, x_session_token)
         app.state.emergency_stop = True
+        plane_state.set_emergency_stop(conn, True)
         notify_tasks()
         audit(actor, "", "emergency_stop", {}, "allowed")
         alertsmod.dispatch_alert("emergency_stop", "critical", "EMERGENCY STOP ACTIVATED", {"actor": actor})
@@ -1888,6 +1895,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     def emergency_clear(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         require_admin(x_admin_token, x_session_token)
         app.state.emergency_stop = False
+        plane_state.set_emergency_stop(conn, False)
         notify_tasks()
         audit("admin", "", "emergency_stop_clear", {}, "allowed")
         return {"emergency_stop": False}
@@ -2389,11 +2397,20 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             pass
 
     def _scheduler_loop():
+        from . import orchestration as orchmod
+
+        sweep_tick = 0
         while getattr(app.state, "_running", True):
             try:
                 time.sleep(10)
                 if not getattr(app.state, "_running", True):
                     break
+                plane_state.sync_emergency_stop_to_app(conn, app.state)
+                sweep_tick += 1
+                if sweep_tick >= max(1, int(os.environ.get("AI_BRIDGE_TASK_SWEEP_EVERY", "3"))):
+                    sweep_tick = 0
+                    stats = orchmod.sweep_stale_running_tasks(conn)
+                    app.state.last_stale_sweep = stats
                 now_ts = dbmod.now()
                 due_jobs = conn.execute(
                     "SELECT * FROM schedules WHERE enabled=1 AND next_run_at <= ?", (now_ts,)
@@ -2512,6 +2529,49 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             "active_schedules": sched_row["c"] if sched_row else 0,
             "devices": device_summaries,
         }
+
+    @app.get("/api/activity/live")
+    def live_activity(
+        limit: int = 50,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        limit = max(1, min(200, int(limit)))
+        rows = conn.execute(
+            "SELECT id, device_id, tool, status, updated_at FROM tasks "
+            "WHERE status IN ('running', 'queued') ORDER BY updated_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        sweep = getattr(app.state, "last_stale_sweep", {}) or {}
+        return {
+            "items": [dict(r) for r in rows],
+            "emergency_stop": plane_state.is_emergency_stop(conn, app.state),
+            "last_stale_sweep": sweep,
+        }
+
+    @app.get("/api/activity/stream")
+    async def live_activity_stream(
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+
+        async def gen():
+            while True:
+                rows = conn.execute(
+                    "SELECT id, device_id, tool, status, updated_at FROM tasks "
+                    "WHERE status IN ('running', 'queued') ORDER BY updated_at DESC LIMIT 40"
+                ).fetchall()
+                payload = {
+                    "items": [dict(r) for r in rows],
+                    "emergency_stop": plane_state.is_emergency_stop(conn, app.state),
+                    "ts": dbmod.now(),
+                }
+                yield f"data: {json.dumps(payload)}\n\n"
+                await asyncio.sleep(2.0)
+
+        return StreamingResponse(gen(), media_type="text/event-stream")
 
     @app.post("/api/fleet/broadcast")
     def broadcast_fleet_command(
@@ -3038,7 +3098,15 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             raise HTTPException(status_code=410, detail="WebRTC session expired.")
         return sess
 
-    def _queue_webrtc_task(device_id: str, session_id: str, scale: float, fps: int, monitor_index: int | None = None, tool: str = "start_webrtc_stream") -> None:
+    def _queue_webrtc_task(
+        device_id: str,
+        session_id: str,
+        scale: float,
+        fps: int,
+        monitor_index: int | None = None,
+        bitrate_kbps: int | None = None,
+        tool: str = "start_webrtc_stream",
+    ) -> None:
         dev_row = conn.execute("SELECT * FROM devices WHERE id=? AND revoked=0", (device_id,)).fetchone()
         if dev_row is None:
             raise HTTPException(status_code=404, detail="Device not found.")
@@ -3049,6 +3117,8 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         args = {"session_id": session_id, "scale": scale, "fps": fps}
         if monitor_index is not None:
             args["monitor_index"] = monitor_index
+        if bitrate_kbps is not None:
+            args["bitrate_kbps"] = int(bitrate_kbps)
         conn.execute(
             "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, created_at, updated_at) VALUES (?,?,?,?,?,?,'queued',?,?)",
             (task_id, device_id, "default", tool,
@@ -3087,6 +3157,12 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         actor = require_role("viewer", x_admin_token, x_session_token)
         scale = max(0.2, min(1.0, float(body.get("scale", 0.75))))
         fps = max(1, min(60, int(body.get("fps", 30))))
+        bitrate_kbps = body.get("bitrate_kbps")
+        if bitrate_kbps is not None:
+            try:
+                bitrate_kbps = max(250, min(50000, int(bitrate_kbps)))
+            except (TypeError, ValueError):
+                bitrate_kbps = None
         mode = str(body.get("mode", "ai_assisted"))
         monitor_index = body.get("monitor_index")
         if monitor_index is not None:
@@ -3115,8 +3191,25 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 sess["error"] = str(exc)
             _save_sess(sess)
         else:
-            _queue_webrtc_task(device_id, session_id, scale, fps, monitor_index=monitor_index)
-        return {"session_id": session_id, "status": sess["status"], "scale": scale, "fps": fps, "monitor_index": monitor_index, "mode": mode, "video": sess["video"], "permissions": sess["permissions"]}
+            _queue_webrtc_task(
+                device_id,
+                session_id,
+                scale,
+                fps,
+                monitor_index=monitor_index,
+                bitrate_kbps=bitrate_kbps,
+            )
+        return {
+            "session_id": session_id,
+            "status": sess["status"],
+            "scale": scale,
+            "fps": fps,
+            "bitrate_kbps": bitrate_kbps,
+            "monitor_index": monitor_index,
+            "mode": mode,
+            "video": sess["video"],
+            "permissions": sess["permissions"],
+        }
 
     @app.get("/api/devices/{device_id}/desktop/webrtc/{session_id}")
     def get_webrtc_session(
@@ -3933,9 +4026,10 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             _evaluate_device_triggers(row, metrics, now_ts)
         app.state.device_live_meta[row["id"]] = meta_entry
 
+        plane_state.sync_emergency_stop_to_app(conn, app.state)
         return {
             "device_id": row["id"],
-            "emergency_stop": app.state.emergency_stop,
+            "emergency_stop": plane_state.is_emergency_stop(conn, app.state),
             "token_expires_at": row["token_expires_at"],
         }
 
@@ -3998,9 +4092,18 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         wait_sec = max(0.0, min(float(wait or 0.0), 25.0))
         deadline = time.time() + wait_sec
         task = None
+        from . import orchestration as orchmod
+
         while True:
-            if app.state.emergency_stop:
+            plane_state.sync_emergency_stop_to_app(conn, app.state)
+            if plane_state.is_emergency_stop(conn, app.state):
                 return {"task": None, "emergency_stop": True}
+            if orchmod.device_has_active_lease(conn, row["id"]):
+                rem = deadline - time.time()
+                if wait_sec <= 0 or rem <= 0:
+                    return {"task": None}
+                await asyncio.sleep(min(0.15, rem))
+                continue
             with conn.transaction():
                 candidate = conn.execute(
                     "SELECT * FROM tasks WHERE device_id=? AND status='queued' ORDER BY created_at ASC LIMIT 1",
@@ -4037,6 +4140,19 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             out["approval_granted"] = False
         out["policy"] = get_effective_device_policy(row)
         return {"task": out}
+
+    @app.get("/api/agent/tasks/{task_id}/execution-state")
+    def agent_task_execution_state(task_id: str, x_device_token: str | None = Header(default=None)):
+        row = device_row(x_device_token)
+        task = conn.execute("SELECT id, status, device_id FROM tasks WHERE id=?", (task_id,)).fetchone()
+        if task is None or task["device_id"] != row["id"]:
+            raise HTTPException(status_code=404, detail="Task not found for this device.")
+        plane_state.sync_emergency_stop_to_app(conn, app.state)
+        return {
+            "task_id": task_id,
+            "status": task["status"],
+            "emergency_stop": plane_state.is_emergency_stop(conn, app.state),
+        }
 
     @app.post("/api/agent/tasks/{task_id}/result")
     def task_result(task_id: str, body: TaskResultIn, x_device_token: str | None = Header(default=None)):
