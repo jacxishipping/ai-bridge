@@ -515,7 +515,7 @@ export function LiveControlView() {
                   <JXButton
                     key={r.id}
                     color="neutral"
-                    variant={r.enabled ? "solid" : "outlined"}
+                    variant={r.enabled ? "contained" : "outlined"}
                     onClick={async () => {
                       try {
                         await api.enableRole(r.id, !r.enabled);
