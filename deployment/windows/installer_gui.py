@@ -49,7 +49,7 @@ TOKEN_FILE = HOME_DIR / "device.token"
 REG_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 REG_CLIENT_NAME = "AIBridgeWindowsClient"
 REG_AGENT_NAME = "AIBridgeWindowsAgent"
-DEFAULT_CONTROL_URL = "https://jxiptvplayer.app"
+DEFAULT_CONTROL_URL = "https://ai-bridge-control.onrender.com"
 TASK_NAME = "AI Bridge Agent"
 SUPPORTED_PYTHONS = ("3.12", "3.13", "3.14")
 USER_AGENT = f"AIBridge-WindowsInstaller/{APP_VERSION}"
@@ -377,10 +377,19 @@ def verify_installation(venv_python: Path, log) -> dict[str, bool]:
     return results
 
 
+def normalize_control_url(control_url: str) -> str:
+    """Prefer the control plane API host over the static dashboard SPA."""
+    cleaned = (control_url or "").strip().rstrip("/")
+    lower = cleaned.lower()
+    if "ai-bridge-dashboard.onrender.com" in lower:
+        return "https://ai-bridge-control.onrender.com"
+    return cleaned or DEFAULT_CONTROL_URL
+
+
 def client_config(control_url: str, options: dict) -> dict:
     """Config JSON for the desktop client, deliberately without any credential."""
     return {
-        "control_url": (control_url or "").strip().rstrip("/"),
+        "control_url": normalize_control_url(control_url),
         "auto_start": True,
         "theme": "dark",
         "poll_wait_s": 10,
@@ -521,7 +530,7 @@ def _write_agent_launcher(
     body = (
         "@echo off\r\n"
         "setlocal\r\n"
-        f'set "AI_BRIDGE_CONTROL_URL={(control_url or "").strip().rstrip("/")}"\r\n'
+        f'set "AI_BRIDGE_CONTROL_URL={normalize_control_url(control_url)}"\r\n'
         f'set "AI_BRIDGE_DEVICE_TOKEN={token.strip()}"\r\n'
         f'"{venv_python}" "{AGENT_SCRIPT}"\r\n'
     )

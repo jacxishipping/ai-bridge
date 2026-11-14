@@ -1,4 +1,4 @@
-"""Windows agent entrypoint.
+r"""Windows agent entrypoint.
 
   python agents\windows\agent_main.py --control-url https://your-domain ^
       --device-token <token-from-enrollment> [--once]
