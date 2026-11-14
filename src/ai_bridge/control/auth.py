@@ -13,8 +13,9 @@ AI_BRIDGE_DISABLE_LEGACY_ADMIN_TOKEN=1 is set.
 OIDC login is implemented on the control plane (`/api/auth/oidc/*` via
 `control/oidc.py` + `app.py`) and activates when `AI_BRIDGE_OIDC_*` provider
 env is configured. This module owns local passwords/sessions only — not the
-OIDC HTTP routes. Device mTLS remains a reverse-proxy residual (see
-docs/threat-model.md).
+OIDC HTTP routes. Device mTLS is plane-side fingerprint gated
+(`control/device_mtls.py`, `AI_BRIDGE_DEVICE_MTLS`) in addition to optional
+reverse-proxy client certs (see docs/threat-model.md).
 """
 from __future__ import annotations
 
