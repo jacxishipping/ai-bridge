@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { AlertTriangle, Menu, Search, Square, Play } from "lucide-react";
-import { GlassModal, HoldToConfirmButton, JXButton } from "../ui";
+import { GlassModal, GlassToolbar, HoldToConfirmButton, JXButton, ProductModePill, ProductStatusDot } from "../ui";
 import { Brand } from "../Brand";
 import { DensityControl } from "../DensityControl";
 import { LanguageControl } from "../LanguageControl";
@@ -35,15 +35,23 @@ export const TopHeader: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
         </span>
       </JXButton>
       <div className="hidden flex-1 lg:block" />
-      <LanguageControl />
-      <div className="hidden md:block"><DensityControl /></div>
-      <ThemeControl />
+      <div className="hidden xl:block">
+        <ProductModePill live={isLive} />
+      </div>
+      <GlassToolbar>
+        <LanguageControl />
+        <div className="hidden md:block"><DensityControl /></div>
+        <ThemeControl />
+      </GlassToolbar>
       <JXButton variant="outlined" color={stopped ? "success" : "error"} size="sm"
         onClick={() => setConfirmOpen(true)}
         aria-label={stopped ? (isLive ? "Resume Fleet" : "Resume demo fleet") : "Emergency All-Stop"}
         startIcon={stopped ? <Play className="h-4 w-4" /> : <Square className="h-4 w-4" />}>
-        <span className="hidden sm:inline">{stopped ? (isLive ? "Resume fleet" : "Resume demo") : "Emergency stop"}</span>
-        <span className="sm:hidden">{stopped ? "Resume" : "Stop"}</span>
+        <span className="inline-flex items-center gap-1.5">
+          <ProductStatusDot status={stopped ? "warn" : "online"} pulse={!stopped} />
+          <span className="hidden sm:inline">{stopped ? (isLive ? "Resume fleet" : "Resume demo") : "Emergency stop"}</span>
+          <span className="sm:hidden">{stopped ? "Resume" : "Stop"}</span>
+        </span>
       </JXButton>
       <GlassModal open={confirmOpen} onClose={() => setConfirmOpen(false)} title={stopped ? (isLive ? "Resume live fleet?" : "Resume sample demo?") : (isLive ? "Activate Emergency All-Stop?" : "Stop sample demo tasks?")}>
         <div className="space-y-5">

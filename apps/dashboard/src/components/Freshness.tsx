@@ -1,4 +1,5 @@
 import React from "react";
+import { ProductStatusDot } from "../ui";
 
 /** Compact data freshness line for tables and telemetry headers. */
 export const Freshness: React.FC<{
@@ -8,10 +9,20 @@ export const Freshness: React.FC<{
   label?: string;
 }> = ({ checkedAt, loading, staleAfterMs = 60_000, label = "Updated" }) => {
   if (loading) {
-    return <span role="status" className="text-xs text-[var(--product-text-tertiary)]">Refreshing…</span>;
+    return (
+      <span role="status" className="inline-flex items-center gap-2 text-xs text-[var(--product-text-tertiary)]">
+        <ProductStatusDot status="idle" pulse={false} />
+        Refreshing…
+      </span>
+    );
   }
   if (!checkedAt) {
-    return <span role="status" className="text-xs text-[var(--product-text-tertiary)]">Not loaded</span>;
+    return (
+      <span role="status" className="inline-flex items-center gap-2 text-xs text-[var(--product-text-tertiary)]">
+        <ProductStatusDot status="offline" pulse={false} />
+        Not loaded
+      </span>
+    );
   }
   const ts = typeof checkedAt === "number" ? checkedAt * (checkedAt < 1e12 ? 1000 : 1) : checkedAt.getTime();
   const age = Date.now() - ts;
@@ -26,8 +37,9 @@ export const Freshness: React.FC<{
     <span
       role="status"
       title={absolute}
-      className={`text-xs tabular-nums ${stale ? "text-amber-300" : "text-[var(--product-text-tertiary)]"}`}
+      className={`inline-flex items-center gap-2 text-xs tabular-nums ${stale ? "text-amber-300" : "text-[var(--product-text-tertiary)]"}`}
     >
+      <ProductStatusDot status={stale ? "warn" : "online"} pulse={!stale} />
       {stale ? "Stale · " : ""}{label} {relative}
     </span>
   );

@@ -20,6 +20,9 @@ import {
   JXGridItem,
   MagneticButton,
   ProductGlass,
+  ProductModePill,
+  ProductStepProgress,
+  ProductStatusDot,
 } from "../ui";
 import {
   Network,
@@ -507,12 +510,12 @@ export const ConnectionsView: React.FC = () => {
                   Point MCP clients at this control plane. Use an admin bearer token for a quick test, or register OAuth clients for ChatGPT and other remote connectors.
                 </p>
               </div>
-              {!isLive && (
-                <span className="rounded-full border border-amber-500/40 bg-amber-950/40 px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-amber-200">
-                  Demo — connect server for live MCP
-                </span>
-              )}
+              <ProductModePill live={isLive} detail={isLive ? "MCP ready" : "Connect for live MCP"} />
             </div>
+            <ProductStepProgress
+              steps={["Copy URL", "Auth", "Test tools"]}
+              current={mcpProbe === "ok" ? 2 : mcpProbe === "checking" || mcpProbe === "fail" ? 1 : 0}
+            />
             <div className="grid gap-3 rounded-xl border border-[var(--product-line)] bg-[var(--product-canvas)]/50 p-4 text-sm sm:grid-cols-2">
               <div className="min-w-0 space-y-1">
                 <p className="text-xs uppercase tracking-wide text-[var(--product-text-tertiary)]">MCP URL</p>
@@ -546,9 +549,13 @@ export const ConnectionsView: React.FC = () => {
               )}
             </div>
             {mcpProbe !== "idle" && (
-              <p role="status" className={`text-xs font-mono ${mcpProbe === "ok" ? "text-emerald-300" : mcpProbe === "fail" ? "text-rose-300" : "text-[var(--product-text-tertiary)]"}`}>
-                {mcpProbe === "checking" ? "Probing MCP…" : mcpProbeDetail}
-              </p>
+              <div role="status" className="flex flex-wrap items-center gap-2 text-xs font-mono">
+                <ProductStatusDot
+                  status={mcpProbe === "ok" ? "online" : mcpProbe === "fail" ? "offline" : "idle"}
+                  pulse={mcpProbe === "ok" || mcpProbe === "checking"}
+                  label={mcpProbe === "checking" ? "Probing MCP…" : mcpProbeDetail}
+                />
+              </div>
             )}
             <ol className="list-decimal space-y-1 ps-5 text-xs text-[var(--product-text-tertiary)]">
               <li>Claude / Cursor: remote MCP URL above + Authorization Bearer token</li>

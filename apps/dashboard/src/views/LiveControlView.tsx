@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { ArrowUpRight, RefreshCw, ShieldCheck } from "lucide-react";
 import { api, apiOrigin, ApiError, clearCredentials, token, sessionToken } from "../api";
-import { GlassModal, JXAlert, JXBadge, JXButton } from "../ui";
+import { GlassModal, HoldToConfirmButton, JXAlert, JXBadge, JXButton, ProductGlass, ProductModePill, ProductStatusDot } from "../ui";
 import { Brand } from "../Brand";
 import { DensityControl } from "../DensityControl";
 import { LanguageControl } from "../LanguageControl";
@@ -90,7 +90,10 @@ export function LiveControlView() {
     <div className="product-container space-y-4 py-4 sm:py-5">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
-          <h1>{t("Control plane")}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1>{t("Control plane")}</h1>
+            <ProductModePill live={isLive} detail={apiOrigin.replace(/^https?:\/\//, "")} />
+          </div>
           {snapshot ? (
             <Freshness checkedAt={snapshot.checkedAt} loading={loading} label="Updated" />
           ) : (
@@ -99,7 +102,10 @@ export function LiveControlView() {
         </div>
         {snapshot && <div className="flex min-w-0 flex-wrap items-center gap-4">
           <p lang="en" dir="ltr" className="max-w-full break-words text-xs [overflow-wrap:anywhere] text-[color:var(--product-text-secondary)]">Signed in as <bdi>{snapshot.identity.actor || snapshot.identity.username || "operator"}</bdi> · {snapshot.identity.role}</p>
-          <JXBadge color={error ? "warning" : "success"} statusText={t(error ? "Stale data" : "Connected")} />
+          <span className="inline-flex items-center gap-2">
+            <ProductStatusDot status={error ? "warn" : "online"} pulse={!error} label={t(error ? "Stale data" : "Connected")} />
+            <JXBadge color={error ? "warning" : "success"} statusText={t(error ? "Stale data" : "Connected")} />
+          </span>
         </div>}
       </div>
       {error && <div lang="en" dir="ltr" className="space-y-3">
@@ -120,18 +126,24 @@ export function LiveControlView() {
       </div>}
       {loading && !snapshot && <p role="status" lang="en" dir="ltr" className="py-8 text-sm text-[color:var(--product-text-tertiary)]">Loading your control plane…</p>}
       {snapshot && <>
-        <section lang="en" dir="ltr" aria-label="Fleet safety" className="product-safety relative px-3 py-2" data-stopped={snapshot.health.emergency_stop}>
+        <ProductGlass className="product-safety relative px-3 py-2">
+          <section lang="en" dir="ltr" aria-label="Fleet safety" data-stopped={snapshot.health.emergency_stop}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <ShieldCheck className="h-4 w-4 shrink-0 text-[color:var(--product-text-tertiary)]" aria-hidden="true" />
-                <p role="status" className="text-sm text-[color:var(--product-text-secondary)]">{snapshot.health.emergency_stop ? "Emergency stop is active." : "Emergency stop is not active."}</p>
+                <ProductStatusDot
+                  status={snapshot.health.emergency_stop ? "warn" : "online"}
+                  pulse={!snapshot.health.emergency_stop}
+                  label={snapshot.health.emergency_stop ? "Emergency stop is active." : "Emergency stop is not active."}
+                />
               </div>
               <JXButton variant="outlined" color={snapshot.health.emergency_stop ? "success" : "error"}
                 disabled={Boolean(error) || snapshot.identity.role !== "admin"}
                 onClick={() => { setActionError(""); setConfirm(true); }}>{snapshot.health.emergency_stop ? "Clear emergency stop" : "Stop fleet"}</JXButton>
             </div>
             {snapshot.identity.role !== "admin" && <p className="mt-2 text-xs text-[color:var(--product-text-tertiary)]">An administrator is required to change the emergency stop.</p>}
-        </section>
+          </section>
+        </ProductGlass>
         {!snapshot.devices.length ? (
           <PageEmpty
             title="No devices enrolled yet"
@@ -159,7 +171,13 @@ export function LiveControlView() {
         {actionError && <JXAlert severity="error" title="Change not confirmed" description={actionError} />}
         <div className="flex flex-wrap justify-end gap-3">
           <JXButton color="neutral" variant="outlined" disabled={acting} onClick={() => setConfirm(false)}>Cancel</JXButton>
-          <JXButton color="error" loading={acting} disabled={acting} onClick={changeStop}>Confirm change</JXButton>
+          <HoldToConfirmButton
+            label={snapshot?.health.emergency_stop ? "Hold to clear stop" : "Hold to stop fleet"}
+            tone={snapshot?.health.emergency_stop ? "success" : "danger"}
+            variant="solid"
+            holdDurationMs={1200}
+            onConfirm={() => { if (!acting) void changeStop(); }}
+          />
         </div>
       </div>
     </GlassModal></div>

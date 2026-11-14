@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { useScrollShadow } from "../hooks/useScrollShadow";
 import {
   GlassModal,
+  HoldToConfirmButton,
   JXCard,
   JXCardHeader,
   JXCardContent,
@@ -19,6 +20,12 @@ import {
   JXGrid,
   JXGridItem,
   JXLinearProgress,
+  ProductGlass,
+  ProductModePill,
+  ProductNotice,
+  ProductSegmented,
+  ProductStatusDot,
+  SlideToAction,
 } from "../ui";
 import {
   ShieldAlert,
@@ -298,6 +305,22 @@ export const HumanApprovalsView: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-semibold text-[var(--product-text)]">Human approvals</h1>
+          <ProductModePill live={isLive} detail={`${pendingCount} pending`} />
+        </div>
+        <ProductSegmented
+          ariaLabel="Approval queue filter"
+          value={queueFilter}
+          onChange={setQueueFilter}
+          options={[
+            { id: "all", label: `All (${approvals.length})` },
+            { id: "pending", label: `Pending (${pendingCount})` },
+          ]}
+        />
+      </header>
+
       {/* Main Split: Left Urgent Queue, Right Approval Inspector */}
       <JXGrid columns={12} gap="lg">
         {/* Left: Urgent Approval Queue */}
@@ -307,18 +330,11 @@ export const HumanApprovalsView: React.FC = () => {
               <span className="text-xs font-mono font-semibold text-[var(--product-text-tertiary)] uppercase tracking-wider">
                 Urgent Approvals Queue
               </span>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setQueueFilter((f) => (f === "all" ? "pending" : "all"))}
-                  className="font-mono text-[11px] px-2 py-0.5 rounded bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] hover:text-[var(--product-text)]"
-                >
-                  {queueFilter === "pending" ? "Pending only" : "All"}
-                </button>
-                <span className="font-mono text-xs px-2 py-0.5 rounded bg-[var(--product-raised)] text-[var(--product-text-secondary)]">
-                  {pendingCount} Pending
-                </span>
-              </div>
+              <ProductStatusDot
+                status={pendingCount > 0 ? "warn" : "online"}
+                pulse={pendingCount > 0}
+                label={`${pendingCount} pending`}
+              />
             </div>
 
             <div className="space-y-3">
@@ -563,15 +579,11 @@ export const HumanApprovalsView: React.FC = () => {
                       </div>
 
                       {actionError && (
-                        <div role="alert" className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-mono">
-                          {actionError}
-                        </div>
+                        <ProductNotice tone="error">{actionError}</ProductNotice>
                       )}
 
                       {rePlanMessage && (
-                        <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-mono">
-                          {rePlanMessage}
-                        </div>
+                        <ProductNotice tone="info">{rePlanMessage}</ProductNotice>
                       )}
 
                       {/* Action CTAs */}
@@ -598,17 +610,26 @@ export const HumanApprovalsView: React.FC = () => {
                           </JXButton>
                         </div>
 
-                        <JXButton
-                          variant="contained"
-                          color="success"
-                          size="md"
-                          disabled={!allChecklistSatisfied}
-                          onClick={handleAuthorize}
-                          startIcon={<CheckCircle2 className="w-4 h-4" />}
-                          className="bg-emerald-600 text-white font-semibold"
-                        >
-                          Authorize & Execute
-                        </JXButton>
+                        {allChecklistSatisfied ? (
+                          <ProductGlass className="p-2">
+                            <SlideToAction
+                              label="Slide to authorize"
+                              completedText="Authorized"
+                              onComplete={() => { void handleAuthorize(); }}
+                            />
+                          </ProductGlass>
+                        ) : (
+                          <JXButton
+                            variant="contained"
+                            color="success"
+                            size="md"
+                            disabled
+                            startIcon={<CheckCircle2 className="w-4 h-4" />}
+                            className="bg-emerald-600 text-white font-semibold"
+                          >
+                            Complete checklist
+                          </JXButton>
+                        )}
                       </div>
                     </div>
                   </JXCardContent>
@@ -717,7 +738,7 @@ export const HumanApprovalsView: React.FC = () => {
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
                 <JXButton
                   variant="outlined"
                   color="neutral"
@@ -726,15 +747,19 @@ export const HumanApprovalsView: React.FC = () => {
                 >
                   Cancel
                 </JXButton>
-                <JXButton
-                  variant="contained"
-                  color="error"
-                  size="sm"
-                  disabled={!rejectionReason.trim()}
-                  onClick={handleDeny}
-                >
-                  Confirm Denial
-                </JXButton>
+                {rejectionReason.trim() ? (
+                  <HoldToConfirmButton
+                    label="Hold to deny"
+                    tone="danger"
+                    variant="solid"
+                    holdDurationMs={isLive ? 900 : 600}
+                    onConfirm={() => { void handleDeny(); }}
+                  />
+                ) : (
+                  <JXButton variant="contained" color="error" size="sm" disabled>
+                    Enter a reason
+                  </JXButton>
+                )}
               </div>
             </motion.div>
           </GlassModal>
