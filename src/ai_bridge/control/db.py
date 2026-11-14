@@ -455,3 +455,22 @@ def audit(conn: Any, *, tenant: str, actor: str, device_id: str,
     except Exception:
         pass
     conn.commit()
+    try:
+        from . import worm_siem
+
+        if worm_siem.worm_siem_url():
+            worm_siem.emit_audit_event(
+                {
+                    "id": row_id,
+                    "ts": ts,
+                    "tenant": tenant,
+                    "actor": actor,
+                    "device_id": device_id,
+                    "tool": tool,
+                    "decision": decision,
+                    "prev_hash": prev_hash,
+                    "entry_hash": entry_hash,
+                }
+            )
+    except Exception:
+        pass

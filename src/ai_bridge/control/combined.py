@@ -34,8 +34,10 @@ def _prepare_embed_env() -> str:
     data_dir.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("AI_BRIDGE_OAUTH_DB", str(data_dir / "oauth.db"))
 
+    from . import production_readiness as prodready
+
     public = (
-        os.environ.get("AI_BRIDGE_PUBLIC_URL")
+        prodready.env_public_base_url()
         or os.environ.get("AI_BRIDGE_OAUTH_ISSUER")
         or ""
     ).rstrip("/")

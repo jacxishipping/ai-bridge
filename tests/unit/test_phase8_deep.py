@@ -70,6 +70,16 @@ def _clear_prod_env(monkeypatch) -> None:
     monkeypatch.delenv("AI_BRIDGE_ALLOW_BROWSER_NO_SANDBOX", raising=False)
     monkeypatch.delenv("AI_BRIDGE_ALLOW_UNSAFE_BROWSER", raising=False)
     monkeypatch.delenv("AI_BRIDGE_PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("AI_BRIDGE_PUBLIC_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("AI_BRIDGE_REQUIRE_REDIS", raising=False)
+    monkeypatch.delenv("AI_BRIDGE_MULTI_HOST", raising=False)
+    monkeypatch.delenv("AI_BRIDGE_ALLOW_LEGACY_WEBRTC", raising=False)
+
+
+def _mark_postgres_configured(monkeypatch) -> None:
+    """Satisfy prod readiness without opening a real Postgres connection."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://unit:unit@127.0.0.1:5432/aibridge_unit")
 
 
 def test_production_readiness_turn_missing(monkeypatch, tmp_path):
@@ -80,6 +90,7 @@ def test_production_readiness_turn_missing(monkeypatch, tmp_path):
     monkeypatch.delenv("AI_BRIDGE_ICE_SERVERS", raising=False)
     monkeypatch.delenv("AI_BRIDGE_TURN_URL", raising=False)
     app = create_app(admin_token="adm-p8-turn", db_path=tmp_path / "prod.db")
+    _mark_postgres_configured(monkeypatch)
     checklist = production_readiness.assess_production_readiness(app.state.conn)
     assert checklist["production_profile"] is True
     assert checklist["ok"] is False
@@ -93,6 +104,7 @@ def test_production_readiness_admin_and_anon_critical(monkeypatch, tmp_path):
     monkeypatch.setenv("AI_BRIDGE_TURN_SECRET", "turn-secret-for-tests")
     monkeypatch.delenv("AI_BRIDGE_ADMIN_TOKEN", raising=False)
     app = create_app(admin_token=None, db_path=tmp_path / "admin.db")
+    _mark_postgres_configured(monkeypatch)
     checklist = production_readiness.assess_production_readiness(app.state.conn)
     assert checklist["ok"] is False
     assert any(i["code"] == "admin_token_unset" and i["severity"] == "critical" for i in checklist["issues"])
@@ -112,6 +124,7 @@ def test_production_readiness_browser_sandbox_and_http_url(monkeypatch, tmp_path
     monkeypatch.setenv("AI_BRIDGE_ALLOW_BROWSER_NO_SANDBOX", "1")
     monkeypatch.setenv("AI_BRIDGE_PUBLIC_BASE_URL", "http://insecure.example")
     app = create_app(admin_token="adm-br", db_path=tmp_path / "br.db")
+    _mark_postgres_configured(monkeypatch)
     checklist = production_readiness.assess_production_readiness(app.state.conn)
     assert checklist["ok"] is False
     codes = {i["code"] for i in checklist["issues"]}
@@ -124,6 +137,56 @@ def test_production_readiness_browser_sandbox_and_http_url(monkeypatch, tmp_path
     codes2 = {i["code"] for i in checklist2["issues"] if i["severity"] == "critical"}
     assert "browser_sandbox_disabled" not in codes2
     assert "public_base_url_http" not in codes2
+
+
+def test_public_url_alias_shares_resolution(monkeypatch, tmp_path):
+    """AI_BRIDGE_PUBLIC_URL aliases PUBLIC_BASE_URL for readiness + helpers."""
+    _clear_prod_env(monkeypatch)
+    monkeypatch.setenv("AI_BRIDGE_PROFILE", "production")
+    monkeypatch.setenv("AI_BRIDGE_ADMIN_TOKEN", "adm-alias")
+    monkeypatch.setenv("AI_BRIDGE_TURN_SECRET", "turn-secret")
+    monkeypatch.setenv("AI_BRIDGE_PUBLIC_URL", "http://legacy-alias.example")
+    assert production_readiness.env_public_base_url() == "http://legacy-alias.example"
+    app = create_app(admin_token="adm-alias", db_path=tmp_path / "alias.db")
+    _mark_postgres_configured(monkeypatch)
+    checklist = production_readiness.assess_production_readiness(app.state.conn)
+    assert any(i["code"] == "public_base_url_http" for i in checklist["issues"])
+
+    monkeypatch.setenv("AI_BRIDGE_PUBLIC_BASE_URL", "https://preferred.example")
+    assert production_readiness.env_public_base_url() == "https://preferred.example"
+    checklist2 = production_readiness.assess_production_readiness(app.state.conn)
+    assert not any(i["code"] == "public_base_url_http" for i in checklist2["issues"])
+
+
+def test_production_requires_postgres_and_optional_redis(monkeypatch, tmp_path):
+    _clear_prod_env(monkeypatch)
+    monkeypatch.setenv("AI_BRIDGE_PROFILE", "production")
+    monkeypatch.setenv("AI_BRIDGE_ADMIN_TOKEN", "adm-pg")
+    monkeypatch.setenv("AI_BRIDGE_TURN_SECRET", "turn")
+    monkeypatch.setenv("AI_BRIDGE_PUBLIC_BASE_URL", "https://ok.example")
+    app = create_app(admin_token="adm-pg", db_path=tmp_path / "pg.db")
+    checklist = production_readiness.assess_production_readiness(app.state.conn)
+    assert any(i["code"] == "postgres_required_in_production" for i in checklist["issues"])
+
+    _mark_postgres_configured(monkeypatch)
+    monkeypatch.setenv("AI_BRIDGE_REQUIRE_REDIS", "1")
+    checklist2 = production_readiness.assess_production_readiness(app.state.conn)
+    assert any(i["code"] == "redis_required_for_multi_host" for i in checklist2["issues"])
+
+
+def test_legacy_webrtc_gone_in_production(monkeypatch, tmp_path):
+    _clear_prod_env(monkeypatch)
+    monkeypatch.setenv("AI_BRIDGE_PROFILE", "production")
+    monkeypatch.setenv("AI_BRIDGE_ADMIN_TOKEN", "adm-leg")
+    app = create_app(admin_token="adm-leg", db_path=tmp_path / "leg.db")
+    client = TestClient(app)
+    res = client.post(
+        "/api/devices/local/desktop/webrtc/session",
+        headers={"X-Admin-Token": "adm-leg"},
+        json={"fps": 15},
+    )
+    assert res.status_code == 410
+    assert res.json()["detail"]["error"] == "legacy_webrtc_gone"
 
 
 def test_quick_sig_refuses_hardcoded_secret_in_prod(monkeypatch):
@@ -145,6 +208,7 @@ def test_health_ready_503_without_turn_in_prod(monkeypatch, tmp_path):
     monkeypatch.delenv("AI_BRIDGE_ICE_SERVERS", raising=False)
     monkeypatch.delenv("AI_BRIDGE_TURN_URL", raising=False)
     app = create_app(admin_token="adm-p8r", db_path=tmp_path / "ready.db")
+    _mark_postgres_configured(monkeypatch)
     client = TestClient(app)
     res = client.get("/health/ready")
     assert res.status_code == 503

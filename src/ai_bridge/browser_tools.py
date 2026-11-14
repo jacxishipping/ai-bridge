@@ -157,16 +157,23 @@ def _browser_network_lockdown() -> bool:
 
 
 def browser_isolation_report() -> dict[str, Any]:
-    """Operator-facing honesty for Playwright isolation (not a kernel netns)."""
+    """Operator-facing honesty for Playwright isolation (+ optional OS netns/gVisor)."""
+    try:
+        from ai_bridge import browser_isolation_os
+
+        os_iso = browser_isolation_os.describe_os_browser_isolation()
+    except Exception as exc:
+        os_iso = {"error": str(exc), "mode": "none"}
     return {
         "hard_isolation": _hard_browser_isolation(),
         "network_lockdown": _browser_network_lockdown(),
         "chromium_subprocess": True,
         "secondary_os_process": False,
+        "os_isolation": os_iso,
         "limitations": [
             "Playwright runs Chromium in a child process; this is not a separate agent worker.",
             "Network lockdown uses Chromium host-resolver rules only — not full egress firewalling.",
-            "No Linux network-namespace isolation is applied from Python.",
+            "Linux netns/gVisor wrappers activate only with AI_BRIDGE_BROWSER_NETNS / AI_BRIDGE_BROWSER_GVISOR and host tools.",
         ],
     }
 

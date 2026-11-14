@@ -271,7 +271,7 @@ flowchart TB
 
 ### Phase 8 — Security, sandbox, audit completeness, load gates
 
-**Status: SHIPPED** (deep) — `production_readiness.py` gates `/health/ready` when `AI_BRIDGE_PROFILE=production` (TURN/ICE + durable emergency stop); `GET /health/production-checklist` (operator); Playwright **Chromium sandbox on by default** with isolated profile under workspace `.ai-bridge/browser-profiles/` (`AI_BRIDGE_ALLOW_BROWSER_NO_SANDBOX=1` for CI/Docker only); `dispatch_audit.py` + `/api/supervisor/handoff` audit; operator auth on `/api/fleet/health`, `/api/fleet/desktop/frames`, production `/metrics`; `security.redact` / `refuse_device_token_log` on JSON logs; `docs/security.md` secret env table.
+**Status: SHIPPED** (deep) — `production_readiness.py` fail-closed `/health/ready` when `AI_BRIDGE_PROFILE=production`: TURN/ICE, **admin token**, **anon MCP blocked**, **https public URL** (`AI_BRIDGE_PUBLIC_BASE_URL` or alias `AI_BRIDGE_PUBLIC_URL`), **browser sandbox** (or explicit `AI_BRIDGE_ALLOW_UNSAFE_BROWSER`), durable emergency stop; unauthenticated 503 returns `{ok,status,codes}` only — full checklist on operator `GET /health/production-checklist`; Playwright Chromium sandbox + isolated profile; durable audit `prev_hash`/`entry_hash`; broadened `dispatch_audit.py` (sensitive tiers + supervisor/shell/desktop mutators); operator auth on fleet health/frames and production `/metrics`; `security.redact` / `refuse_device_token_log`; concurrent claim+cancel load smoke in `test_phase8_deep.py`.
 
 **Goals:** Production-grade authz, secrets, browser isolation, stress coverage.
 

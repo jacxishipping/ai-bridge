@@ -37,15 +37,15 @@ Implemented and tested on Linux (this environment, pytest run — see CHANGELOG)
   audit, emergency stop, policies. Built output IS included in the release ZIP
   (`apps/dashboard/dist/`); rebuild with `npm install && npm run build`.
 Not implemented / documented only:
-- Signed agent updates: verification implemented in v0.3; silent auto-install is deliberately NOT implemented — verify, then install as an operator step.
-- OIDC login (local accounts in v0.3 are the interim step), Postgres runtime wiring beyond the
-  migration SQL (SQLite is the running store; see migrations/002_security_batch.sql), Redis/worker (unnecessary
-  at this volume — the plane is a modular monolith by design).
+- Signed agent updates: verification implemented in v0.3; silent auto-install is deliberately NOT implemented — verify, then install as an operator step (`AI_BRIDGE_ALLOW_AUTO_UPDATE=1` is the gated apply path when enabled).
+- OIDC login is **in-tree and env-activated** (`control/oidc.py` + `/api/auth/oidc/*` when `AI_BRIDGE_OIDC_*` is set). Local password accounts remain the default interim path when OIDC provider env is unset — do not treat OIDC as absent from the codebase.
+- Postgres runtime wiring beyond the migration SQL (SQLite is the running store unless `DATABASE_URL` is set; see migrations/002_security_batch.sql). Redis/worker optional — the plane is a modular monolith by design; multi-host WebRTC throttle prefers Redis when available.
 - macOS agent entrypoints exist under `agents/macos/` but are **not run in on-target CI** here.
 - Windows: Python agent + installer exist (`deployment/windows/`, `agents/windows/`); treat full
   service/desktop installer E2E as documented-but-unverified until exercised on a dedicated host.
 - Production deployment from a clean environment is documented, not
   executed here (no second host was available).
+- Plane-side device mTLS, Vault/AWS SM secrets, Linux netns/gVisor wrappers, and WORM SIEM sinks are in-tree (env-gated). C++ PeerConnection path uses libdatachannel/libwebrtc when linked (`windows-native-webrtc` CI); until that job verifies an offer, Python aiortc remains the shipping Live Desktop path.
 
 ## WebRTC / desktop streaming (Phases 2–9, current)
 - Dispatch defaults **fps=30** and forwards `monitor_index` / `bitrate_kbps` (`dispatch._start_webrtc_from_task`).

@@ -40,7 +40,7 @@ Set these via the host environment or Render env groups — never commit them to
 | Variable | Purpose |
 | :--- | :--- |
 | `AI_BRIDGE_ADMIN_TOKEN` | Legacy admin bearer (**critical** in production readiness; also signs quick-approval HMAC) |
-| `AI_BRIDGE_PUBLIC_BASE_URL` | Public https:// origin (http:// fails production readiness) |
+| `AI_BRIDGE_PUBLIC_BASE_URL` | Preferred public https:// origin (http:// fails production readiness). Alias: `AI_BRIDGE_PUBLIC_URL` (same resolution order in readiness, webhooks, CORS, MCP OAuth callbacks). |
 | `AI_BRIDGE_DEVICE_TOKEN` | Agent enrollment secret (per device; rotate via `/api/agent/rotate`) |
 | `AI_BRIDGE_TURN_SECRET` | HMAC secret for ephemeral TURN credentials (`webrtc_stream.py`) |
 | `AI_BRIDGE_TURN_URL` / `AI_BRIDGE_TURN_USERNAME` / `AI_BRIDGE_TURN_CREDENTIAL` | Static TURN ICE entry (alternative to ephemeral secret) |
@@ -52,6 +52,12 @@ Set these via the host environment or Render env groups — never commit them to
 | `AI_BRIDGE_HTTP_ALLOW_ANON` | Must not be `1` in production (blocks readiness) |
 | `AI_BRIDGE_ALLOW_UNSAFE_BROWSER` | Explicit ack when Chromium sandbox is disabled in production |
 | `AI_BRIDGE_OIDC_*` | Enables in-tree OIDC login (`/api/auth/oidc/*`) when provider env is set |
+| `AI_BRIDGE_SECRETS_BACKEND` | `env` (default), `vault`, or `aws_sm` via `control/secrets_backend.py` |
+| `AI_BRIDGE_DEVICE_MTLS` | Plane-side device cert fingerprint gate on agent claim |
+| `AI_BRIDGE_WORM_SIEM_URL` | External append-only audit sink (optional `AI_BRIDGE_WORM_SIEM_REQUIRED=1`) |
+| `AI_BRIDGE_BROWSER_NETNS` / `AI_BRIDGE_BROWSER_GVISOR` | Linux bwrap/unshare or runsc Chromium wrappers |
+| `AI_BRIDGE_REQUIRE_REDIS` / `AI_BRIDGE_MULTI_HOST` | Fail readiness unless rate-limit backend is Redis |
+| `AI_BRIDGE_ALLOW_LEGACY_WEBRTC` | Re-enable deprecated device WebRTC create route in production (410 otherwise) |
 
 Logs and audit entries pass through `security.redact()`; device tokens are stripped from structured JSON logs. Playwright uses an isolated profile under `{workspace}/.ai-bridge/browser-profiles/` unless `AI_BRIDGE_ALLOW_BROWSER_NO_SANDBOX=1` (Docker/CI only). TLS for the control plane terminates at the reverse proxy; device mTLS is optional at that proxy layer (not plane-native).
 
