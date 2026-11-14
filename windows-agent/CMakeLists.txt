@@ -45,17 +45,52 @@ set(WIN32_SYSTEM_LIBS
 set(AIBRIDGE_WEBRTC_LIBS "")
 if(AIBRIDGE_WITH_LIBDATACHANNEL)
     include(FetchContent)
+    # CMake 4.x removed compatibility with <3.5; older transitive deps need this.
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
+    # Mbed TLS for libdatachannel (no system OpenSSL). libSRTP keeps built-in crypto
+    # (ENABLE_OPENSSL/ENABLE_MBEDTLS off) so find_package(MbedTLS) is not required there.
+    set(USE_MBEDTLS ON CACHE BOOL "" FORCE)
+    set(ENABLE_MBEDTLS OFF CACHE BOOL "" FORCE)
+    set(ENABLE_OPENSSL OFF CACHE BOOL "" FORCE)
     set(NO_WEBSOCKET ON CACHE BOOL "" FORCE)
     set(NO_MEDIA OFF CACHE BOOL "" FORCE)
     set(NO_EXAMPLES ON CACHE BOOL "" FORCE)
     set(NO_TESTS ON CACHE BOOL "" FORCE)
     FetchContent_Declare(
+        mbedtls
+        GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git
+        GIT_TAG v3.6.2
+    )
+    set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+    set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+    FetchContent_GetProperties(mbedtls)
+    if(NOT mbedtls_POPULATED)
+        FetchContent_Populate(mbedtls)
+        # libdatachannel media needs DTLS-SRTP APIs from Mbed TLS.
+        set(_aibridge_mbedtls_user_cfg "${CMAKE_CURRENT_BINARY_DIR}/aibridge_mbedtls_user_config.h")
+        file(WRITE "${_aibridge_mbedtls_user_cfg}" "#pragma once\n#define MBEDTLS_SSL_DTLS_SRTP\n")
+        set(MBEDTLS_USER_CONFIG_FILE "${_aibridge_mbedtls_user_cfg}" CACHE FILEPATH "" FORCE)
+        add_subdirectory(${mbedtls_SOURCE_DIR} ${mbedtls_BINARY_DIR} EXCLUDE_FROM_ALL)
+    endif()
+    if(NOT TARGET MbedTLS::MbedTLS)
+        add_library(MbedTLS::MbedTLS INTERFACE IMPORTED GLOBAL)
+        target_link_libraries(MbedTLS::MbedTLS INTERFACE mbedtls mbedx509 mbedcrypto)
+        target_include_directories(MbedTLS::MbedTLS INTERFACE ${mbedtls_SOURCE_DIR}/include)
+    endif()
+    # Propagate user config into mbedtls compile definitions.
+    foreach(_mbedtls_tgt mbedtls mbedx509 mbedcrypto)
+        if(TARGET ${_mbedtls_tgt})
+            target_compile_definitions(${_mbedtls_tgt} PUBLIC MBEDTLS_USER_CONFIG_FILE="${_aibridge_mbedtls_user_cfg}")
+        endif()
+    endforeach()
+    FetchContent_Declare(
         libdatachannel
         GIT_REPOSITORY https://github.com/paullouisageneau/libdatachannel.git
-        GIT_TAG v0.21.2
+        GIT_TAG v0.22.6
     )
     FetchContent_MakeAvailable(libdatachannel)
-    list(APPEND AIBRIDGE_WEBRTC_LIBS datachannel)
+    list(APPEND AIBRIDGE_WEBRTC_LIBS datachannel-static)
     add_compile_definitions(AIBRIDGE_WITH_LIBDATACHANNEL=1)
 endif()
 

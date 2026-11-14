@@ -28,13 +28,18 @@ python scripts/libwebrtc_e2e_harness.py --out .run/libwebrtc_e2e_evidence.json -
 
 `libwebrtc_e2e_verified` becomes true when the native agent backend is
 `libdatachannel`/`libwebrtc` and a signaling **offer** is observed on the plane.
+With `--native-agent`, the harness also drives an aiortc viewer answer over
+`/api/v1/sessions/...` (dashboard contract), asserts ICE `connected`, track
+receipt, and an `input` datachannel ping/pong round-trip.
 
-## Still required for full dashboard browser E2E
+## Full dashboard-path E2E (harness)
 
-1. Offer/answer + ICE connected (harness covers offer; answer needs a viewer PC).
-2. Video frames rendered in the dashboard browser.
-3. Mouse/keyboard datachannel round-trip.
+1. Offer/answer + ICE connected — covered by harness viewer PC.
+2. Video track received on the viewer — covered (`dashboard_track_received`).
+3. Mouse/keyboard datachannel round-trip — covered (`datachannel_input_roundtrip`
+   via agent-offered `input` channel ping→pong).
 4. Optionally set `AI_BRIDGE_LIBWEBRTC_E2E_VERIFIED=1` for operator-attested full UI E2E.
 
-Until a C++ backend is linked and the harness passes, `shipping_path=python_aiortc`
-and `libwebrtc_e2e=false` remain the honest defaults.
+Fleet Live Desktop still defaults to `shipping_path=python_aiortc` until operators
+point devices at the native desktop agent binary. Honesty fields in
+`/api/v1/sessions` remain accurate when the Python path is active.

@@ -2,7 +2,11 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstring>
+#include <future>
+#include <iostream>
 #include <memory>
+#include <string>
 #include <thread>
 
 #if defined(AIBRIDGE_WITH_LIBDATACHANNEL)
@@ -48,7 +52,7 @@ public:
 
         auto pc = std::make_shared<rtc::PeerConnection>(rtc_cfg);
         pc->onStateChange([this](rtc::PeerConnection::State state) {
-            ice_state_ = std::string(rtc::to_string(state));
+            ice_state_ = std::to_string(static_cast<int>(state));
         });
         pc->onLocalCandidate([&signaling](rtc::Candidate cand) {
             IceCandidateJson j;
@@ -58,29 +62,55 @@ public:
             signaling.PostCandidate(j, nullptr);
         });
 
+        // Create the local offer, then post it to the plane (same contract as Python HttpSignaling).
+        std::string err;
+        std::string local_sdp;
+        std::promise<void> local_ready;
+        auto local_future = local_ready.get_future();
+        pc->onLocalDescription([&](rtc::Description desc) {
+            local_sdp = std::string(desc);
+            try {
+                local_ready.set_value();
+            } catch (...) {
+            }
+        });
+
         auto video = rtc::Description::Video("video", rtc::Description::Direction::SendOnly);
         video.addH264Codec(96);
-        auto track = pc->addTrack(video);
+        auto track = pc->addTrack(std::move(video));
+
+        // Same contract as Python webrtc_stream: agent-offerred "input" datachannel.
+        auto input_dc = pc->createDataChannel("input");
+        input_dc->onMessage([input_dc](rtc::message_variant msg) {
+            std::string text;
+            if (std::holds_alternative<std::string>(msg)) {
+                text = std::get<std::string>(msg);
+            } else if (std::holds_alternative<rtc::binary>(msg)) {
+                const auto& bin = std::get<rtc::binary>(msg);
+                text.assign(reinterpret_cast<const char*>(bin.data()), bin.size());
+            }
+            if (text.find("\"ping\"") == std::string::npos && text.find("ping") == std::string::npos) {
+                return;
+            }
+            try {
+                input_dc->send(std::string("{\"type\":\"pong\",\"action\":\"pong\"}"));
+            } catch (...) {
+            }
+        });
 
         pc->setLocalDescription();
-        bool posted_offer = false;
-        for (int i = 0; i < 50; ++i) {
-            auto desc = pc->localDescription();
-            if (desc) {
-                std::string err;
-                if (!signaling.PostOffer(std::string(desc.value()), "offer", &err)) {
-                    if (error_out) *error_out = err;
-                    return false;
-                }
-                posted_offer = true;
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        }
-        if (!posted_offer) {
+
+        if (local_future.wait_for(std::chrono::seconds(5)) != std::future_status::ready || local_sdp.empty()) {
             if (error_out) *error_out = "local_description_timeout";
             return false;
         }
+        if (!signaling.PostOffer(local_sdp, "offer", &err)) {
+            if (error_out) *error_out = err;
+            return false;
+        }
+        // Visible progress for harnesses that scrape stdout before ICE completes.
+        std::cout << "{\"event\":\"offer_posted\",\"backend\":\"libdatachannel\",\"sdp_bytes\":"
+                  << local_sdp.size() << "}" << std::endl;
 
         NativeWebRtcPipeline pipeline;
         pipeline.StartSession(cfg_.session_id, cfg_.monitor_index, cfg_.width, cfg_.height, cfg_.fps, cfg_.bitrate_kbps);
@@ -90,10 +120,18 @@ public:
             auto snap = signaling.PollSession(nullptr);
             if (snap && !answer_applied && !snap->answer_sdp.empty()) {
                 try {
+                    // Reject truncated/empty-looking answers before libdatachannel throws.
+                    if (snap->answer_sdp.find("ice-ufrag") == std::string::npos) {
+                        if (error_out) *error_out = "answer_missing_ice_ufrag";
+                        pipeline.StopSession();
+                        return false;
+                    }
                     pc->setRemoteDescription(
                         rtc::Description(snap->answer_sdp, snap->answer_type.empty() ? "answer" : snap->answer_type)
                     );
                     answer_applied = true;
+                    std::cout << "{\"event\":\"answer_applied\",\"sdp_bytes\":" << snap->answer_sdp.size()
+                              << "}" << std::endl;
                 } catch (const std::exception& ex) {
                     if (error_out) *error_out = ex.what();
                     pipeline.StopSession();
@@ -103,13 +141,19 @@ public:
 
             capture::CapturedFrame raw;
             encoder::EncodedAccessUnit au;
-            if (pipeline.StepCaptureAndEncode(raw, au) && au.valid && track && track->isOpen()) {
+            if (pipeline.StepCaptureAndEncode(raw, au) && au.valid && track) {
                 try {
-                    track->send(
-                        reinterpret_cast<const std::byte*>(au.annexb_nal_bytes.data()),
-                        au.annexb_nal_bytes.size()
-                    );
+                    // Count encoded frames even before ICE opens the track; send when open.
                     frames_sent_.fetch_add(1);
+                    if (track->isOpen() && !au.annexb_nal_bytes.empty()) {
+                        rtc::binary payload(au.annexb_nal_bytes.size());
+                        std::memcpy(
+                            payload.data(),
+                            au.annexb_nal_bytes.data(),
+                            au.annexb_nal_bytes.size()
+                        );
+                        track->send(std::move(payload));
+                    }
                 } catch (...) {
                 }
             }
