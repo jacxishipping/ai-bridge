@@ -24,7 +24,10 @@
 5. Set `VITE_API_URL` on the dashboard static site to that control URL
    and redeploy it, or run the dashboard locally:
    `cd apps/dashboard && VITE_API_URL=https://<your-service>.onrender.com npm run dev`.
-6. Enroll a device from the dashboard (admin token), then start a local
+6. Ensure the control service allows the dashboard origin (Blueprint sets
+   `AI_BRIDGE_CORS_ORIGINS` / `AI_BRIDGE_DASHBOARD_URL`). Without that,
+   the browser blocks sign-in with “Cannot reach the control plane.”
+7. Enroll a device from the dashboard (admin token), then start a local
    agent pointed at the Render URL:
    `AI_BRIDGE_CONTROL_URL=https://<your-service>.onrender.com python agents/linux/agent_main.py --device-token <token> --once`.
 
