@@ -29,6 +29,11 @@ services:
           property: connectionString
       - key: AI_BRIDGE_PUBLIC_URL
         value: "https://ai-bridge-control.onrender.com"
+      # Alias also accepted as AI_BRIDGE_PUBLIC_BASE_URL (same resolution order).
+      - key: AI_BRIDGE_PROFILE
+        value: "production"
+      - key: AI_BRIDGE_PUBLIC_BASE_URL
+        value: "https://ai-bridge-control.onrender.com"
       - key: AI_BRIDGE_OAUTH_ISSUER
         value: "https://ai-bridge-control.onrender.com"
       - key: AI_BRIDGE_CONTROL_URL

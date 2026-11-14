@@ -104,7 +104,9 @@ def _serialize_mcp_server(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _callback_url(request: Request) -> str:
-    pub = (os.environ.get("AI_BRIDGE_PUBLIC_URL") or "").strip().rstrip("/")
+    from . import production_readiness as prodready
+
+    pub = prodready.env_public_base_url()
     if pub:
         return f"{pub}/api/mcp/oauth/callback"
     base = str(request.base_url).rstrip("/")

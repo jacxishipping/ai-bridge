@@ -335,9 +335,9 @@ export const api = {
     call(`/api/fleet/desktop/frames${os ? `?os=${encodeURIComponent(os)}` : ""}`),
   deviceMonitors: (deviceId: string) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/monitors`),
-  /** @deprecated Prefer createSessionV1 — Live Desktop uses /api/v1/sessions. */
+  /** @deprecated Thin v1 wrapper — legacy /api/devices/.../webrtc/session is gone in production. */
   createWebrtcSession: (deviceId: string, scale = 0.75, fps = 30, monitor_index?: number) =>
-    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/session`, "POST", { scale, fps, monitor_index }),
+    call("/api/v1/sessions", "POST", { device_id: deviceId, scale, fps, monitor_index, mode: "ai_assisted" }),
   createTerminalSession: (deviceId: string, cols = 120, rows = 35) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/terminal/sessions`, "POST", { cols, rows }),
   listTerminalSessions: (deviceId?: string) =>
@@ -359,18 +359,23 @@ export const api = {
     return `${BASE}/api/devices/${encodeURIComponent(deviceId)}/terminal/${encodeURIComponent(sessionId)}/stream?since_seq=${sinceSeq}${authQuery}`;
   },
 
-  /** @deprecated Prefer getSessionV1. */
-  getWebrtcSession: (deviceId: string, sessionId: string) =>
-    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}`),
-  /** @deprecated Prefer postAnswerV1. */
-  postWebrtcAnswer: (deviceId: string, sessionId: string, answer: any) =>
-    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}/answer`, "POST", answer),
-  /** @deprecated Prefer postIceV1. */
-  postWebrtcCandidate: (deviceId: string, sessionId: string, candidate: any) =>
-    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}/candidates`, "POST", { candidate }),
-  /** @deprecated Prefer terminateSessionV1. */
-  endWebrtcSession: (deviceId: string, sessionId: string) =>
-    call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/webrtc/${encodeURIComponent(sessionId)}`, "DELETE"),
+  /** @deprecated Thin v1 wrapper. */
+  getWebrtcSession: (_deviceId: string, sessionId: string) =>
+    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}`),
+  /** @deprecated Thin v1 wrapper. */
+  postWebrtcAnswer: (_deviceId: string, sessionId: string, answer: any) =>
+    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/answer`, "POST", {
+      sdp: answer?.sdp,
+      type: answer?.type || "answer",
+    }),
+  /** @deprecated Thin v1 wrapper. */
+  postWebrtcCandidate: (_deviceId: string, sessionId: string, candidate: any) =>
+    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/ice`, "POST", {
+      candidate: candidate?.candidate ?? candidate,
+    }),
+  /** @deprecated Thin v1 wrapper. */
+  endWebrtcSession: (_deviceId: string, sessionId: string) =>
+    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/terminate`, "POST", {}),
   createSessionV1: (body: {
     device_id?: string;
     mode?: "view_only" | "human_control" | "ai_assisted";

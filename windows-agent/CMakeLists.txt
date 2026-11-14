@@ -4,6 +4,10 @@ project(ai_bridge_windows_agent VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(AIBRIDGE_WITH_LIBDATACHANNEL "Fetch/link libdatachannel for C++ PeerConnection E2E" OFF)
+option(AIBRIDGE_WITH_LIBWEBRTC "Link Google libwebrtc from AIBRIDGE_LIBWEBRTC_ROOT" OFF)
+set(AIBRIDGE_LIBWEBRTC_ROOT "" CACHE PATH "Path to a prebuilt Google libwebrtc tree")
+
 if(MSVC)
     add_compile_options(/W3 /EHsc /utf-8)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
@@ -16,6 +20,8 @@ set(AGENT_CORE_SOURCES
     src/security/local_security.cpp
     src/monitoring/system_monitor.cpp
     src/webrtc/webrtc_transport.cpp
+    src/webrtc/http_signaling.cpp
+    src/webrtc/peer_connection.cpp
     src/mcp/mcp_executor.cpp
 )
 
@@ -33,14 +39,42 @@ set(WIN32_SYSTEM_LIBS
     crypt32
     wtsapi32
     shcore
+    winhttp
 )
+
+set(AIBRIDGE_WEBRTC_LIBS "")
+if(AIBRIDGE_WITH_LIBDATACHANNEL)
+    include(FetchContent)
+    set(NO_WEBSOCKET ON CACHE BOOL "" FORCE)
+    set(NO_MEDIA OFF CACHE BOOL "" FORCE)
+    set(NO_EXAMPLES ON CACHE BOOL "" FORCE)
+    set(NO_TESTS ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        libdatachannel
+        GIT_REPOSITORY https://github.com/paullouisageneau/libdatachannel.git
+        GIT_TAG v0.21.2
+    )
+    FetchContent_MakeAvailable(libdatachannel)
+    list(APPEND AIBRIDGE_WEBRTC_LIBS datachannel)
+    add_compile_definitions(AIBRIDGE_WITH_LIBDATACHANNEL=1)
+endif()
+
+if(AIBRIDGE_WITH_LIBWEBRTC)
+    if(NOT AIBRIDGE_LIBWEBRTC_ROOT)
+        message(FATAL_ERROR "AIBRIDGE_WITH_LIBWEBRTC requires AIBRIDGE_LIBWEBRTC_ROOT")
+    endif()
+    add_compile_definitions(AIBRIDGE_WITH_LIBWEBRTC=1)
+    include_directories(${AIBRIDGE_LIBWEBRTC_ROOT}/include)
+    link_directories(${AIBRIDGE_LIBWEBRTC_ROOT}/lib)
+    list(APPEND AIBRIDGE_WEBRTC_LIBS webrtc)
+endif()
 
 # 1. Shared Library (ai_bridge_native.dll) for Python ctypes & standalone integration
 add_library(ai_bridge_native SHARED
     ${AGENT_CORE_SOURCES}
     src/c_api.cpp
 )
-target_link_libraries(ai_bridge_native PRIVATE ${WIN32_SYSTEM_LIBS})
+target_link_libraries(ai_bridge_native PRIVATE ${WIN32_SYSTEM_LIBS} ${AIBRIDGE_WEBRTC_LIBS})
 
 # 2. Process A: Session 0 Windows Service / Supervisor (ai_bridge_service.exe)
 add_executable(ai_bridge_service
@@ -55,7 +89,7 @@ add_executable(ai_bridge_desktop
     src/desktop/desktop_agent.cpp
     ${AGENT_CORE_SOURCES}
 )
-target_link_libraries(ai_bridge_desktop PRIVATE ${WIN32_SYSTEM_LIBS})
+target_link_libraries(ai_bridge_desktop PRIVATE ${WIN32_SYSTEM_LIBS} ${AIBRIDGE_WEBRTC_LIBS})
 
 # 4. C++ Unit & Integration Test Suite (ai_bridge_tests.exe)
 enable_testing()
@@ -63,5 +97,5 @@ add_executable(ai_bridge_tests
     tests/test_windows_agent.cpp
     ${AGENT_CORE_SOURCES}
 )
-target_link_libraries(ai_bridge_tests PRIVATE ${WIN32_SYSTEM_LIBS})
+target_link_libraries(ai_bridge_tests PRIVATE ${WIN32_SYSTEM_LIBS} ${AIBRIDGE_WEBRTC_LIBS})
 add_test(NAME NativeWindowsAgentTests COMMAND ai_bridge_tests)

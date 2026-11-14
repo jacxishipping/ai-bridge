@@ -11,6 +11,46 @@ jobs:
       - run: ruff check .
       - run: pytest -v
 
+  macos-agent:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]"
+      - name: macOS agent import + desktop status honesty
+        run: |
+          python -c "from agents.macos import agent_main; print('macos agent_main', agent_main.__file__)"
+          python -c "from ai_bridge import tools; print(tools.get_desktop_status())"
+      - name: Unit smoke (non-browser)
+        run: pytest -q tests/unit/test_residuals_security_platform.py --tb=line
+
+  windows-native-webrtc:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install Python package
+        run: pip install -e ".[dev]"
+      - name: Configure C++ agent with libdatachannel
+        working-directory: windows-agent
+        run: |
+          cmake -B build -DAIBRIDGE_WITH_LIBDATACHANNEL=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build desktop agent
+        working-directory: windows-agent
+        run: cmake --build build --config Release --target ai_bridge_desktop
+      - name: Native PeerConnection ↔ plane E2E harness
+        env:
+          AIBRIDGE_DESKTOP_EXE: ${{ github.workspace }}\windows-agent\build\Release\ai_bridge_desktop.exe
+        run: python scripts/libwebrtc_e2e_harness.py --out .run/libwebrtc_e2e_evidence.json --native-agent
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: libwebrtc-e2e-evidence
+          path: .run/libwebrtc_e2e_evidence.json
+          retention-days: 14
+
   dashboard:
     runs-on: ubuntu-latest
     defaults:

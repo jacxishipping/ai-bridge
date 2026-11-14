@@ -8,4 +8,4 @@ For the source-verified technical audit and Phases 2–8 implementation roadmap,
 - [x] Milestone 5 — dashboard (source): login, devices, tasks, approvals, audit, emergency stop
 - [x] Milestone 6 — integrations: Claude/Codex/Gemini/generic MCP configs + honest ChatGPT notes
 - [~] v0.3 — OIDC, short-lived device tokens, signed updates, approval expiry/context, API append-only audit with export/retention, session revocation, policy simulation
-- [ ] Remaining validation — native plane-side mTLS, Postgres runtime wiring, macOS agent verification, Windows-on-Windows verification, live MCP-over-HTTP round-trip, clean production deployment test
+- [~] Remaining validation — plane-side device mTLS fingerprint gate (`AI_BRIDGE_DEVICE_MTLS`), Postgres required in production readiness, macOS agent CI job (`macos-agent`), live MCP-over-HTTP probe + `deployment/smoke_check.py`, k6/locust soak scripts; still open: Windows-on-Windows full installer E2E, C++ libwebrtc dashboard E2E (checklist in `scripts/libwebrtc_e2e_checklist.md`)

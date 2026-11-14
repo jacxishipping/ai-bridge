@@ -60,6 +60,20 @@ def describe_native_encode() -> dict[str, Any]:
         "search_paths": paths[:5],
         "reason": reason,
         "webrtc_path": "python_aiortc_pyav (native DLL does not replace libwebrtc)",
+        "libwebrtc_e2e": os.environ.get("AI_BRIDGE_LIBWEBRTC_E2E_VERIFIED", "").strip().lower()
+        in ("1", "true", "yes"),
+        "libwebrtc_status": (
+            "verified"
+            if os.environ.get("AI_BRIDGE_LIBWEBRTC_E2E_VERIFIED", "").strip().lower()
+            in ("1", "true", "yes")
+            else "unverified"
+        ),
+        "shipping_path": "python_aiortc",
+        "honesty": (
+            "Fleet WebRTC uses Python aiortc/PyAV. Optional ai_bridge_native.dll only "
+            "provides H.264 encode timing smoke — not a C++ libwebrtc media path. "
+            "See scripts/libwebrtc_e2e_checklist.md."
+        ),
     }
 
 

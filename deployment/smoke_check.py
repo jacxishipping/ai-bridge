@@ -26,7 +26,13 @@ def main():
     base = args.url.rstrip("/")
     opener = urllib.request.build_opener(NoRedirect)
     failed = False
-    for path, expected in [("/health/live", 200), ("/health/ready", 200), ("/api/auth/me", 401), ("/api/auth/oidc/configured", 200), ("/", 200)]:
+    for path, expected in [
+        ("/health/live", 200),
+        ("/health/ready", 200),
+        ("/api/auth/me", 401),
+        ("/api/auth/oidc/configured", 200),
+        ("/", 200),
+    ]:
         try:
             try:
                 response = opener.open(base + path, timeout=20)
@@ -45,6 +51,32 @@ def main():
             # Exceptions may contain URLs. Never log their contents.
             print(f"FAIL {path}: {type(error).__name__}")
             failed = True
+
+    # MCP-over-HTTP probe (route presence). Accept 2xx/401/405/406 as mounted.
+    mcp_ok = False
+    for path in ("/mcp", "/mcp/", "/api/mcp"):
+        try:
+            req = urllib.request.Request(
+                base + path,
+                data=b'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}',
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                method="POST",
+            )
+            try:
+                response = opener.open(req, timeout=20)
+            except urllib.error.HTTPError as error:
+                response = error
+            with response:
+                if response.code in (200, 202, 401, 403, 405, 406):
+                    print(f"PASS {path}: HTTP {response.code} (MCP mounted)")
+                    mcp_ok = True
+                    break
+                print(f"FAIL {path}: HTTP {response.code}")
+        except Exception as error:
+            print(f"FAIL {path}: {type(error).__name__}")
+    if not mcp_ok:
+        print("FAIL mcp-http: no mounted MCP route responded")
+        failed = True
     raise SystemExit(1 if failed else 0)
 
 

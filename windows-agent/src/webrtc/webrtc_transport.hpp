@@ -31,6 +31,10 @@ struct StreamSessionStats {
     uint64_t dropped_frames = 0;
 };
 
+// Honesty: this is a capture+encode pipeline (DXGI + Media Foundation H.264).
+// It is NOT a libwebrtc PeerConnection — no SDP/ICE/DTLS/RTP stack is linked here.
+// Dashboard Live Desktop E2E today uses the Python aiortc path; see
+// scripts/libwebrtc_e2e_checklist.md for the residual PeerConnection work.
 class NativeWebRtcPipeline {
 public:
     NativeWebRtcPipeline();

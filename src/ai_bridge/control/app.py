@@ -132,7 +132,11 @@ def send_webhook_notification(
     task_id = event.get("task_id") or ""
     evt_type = event.get("event", "approval_requested")
 
-    base_url = (public_base_url or os.environ.get("AI_BRIDGE_PUBLIC_URL") or "https://jxiptvplayer.app").rstrip("/")
+    from . import production_readiness as prodready
+
+    base_url = (
+        public_base_url or prodready.env_public_base_url() or "https://jxiptvplayer.app"
+    ).rstrip("/")
 
     approve_url = ""
     deny_url = ""
@@ -639,13 +643,15 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     app = FastAPI(title="AI Bridge Control Plane", version="0.3.0")
     # Browser dashboards call the API cross-origin; allow_credentials=True
     # requires an explicit origin list (not "*"). Extend via AI_BRIDGE_CORS_ORIGINS.
+    from . import production_readiness as _prodready_cors
+
     allowed_origins = [
         "http://127.0.0.1:5173",
         "http://localhost:5173",
         "http://201.79.36.129",
         "https://jxiptvplayer.app",
         "https://ai-bridge-dashboard.onrender.com",
-        os.environ.get("AI_BRIDGE_PUBLIC_URL", "https://your-aws-domain.com"),
+        _prodready_cors.env_public_base_url() or "https://your-aws-domain.com",
         os.environ.get("AI_BRIDGE_DASHBOARD_URL", ""),
     ]
     for origin in os.environ.get("AI_BRIDGE_CORS_ORIGINS", "").split(","):
@@ -683,12 +689,14 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         return os.environ.get("AI_BRIDGE_WEBHOOK_URL", "").strip()
 
     def get_public_base_url(req: Request | None = None) -> str:
+        from . import production_readiness as prodready
+
         row = conn.execute("SELECT value FROM settings WHERE key='public_url'").fetchone()
         if row is not None and row["value"]:
             return str(row["value"]).strip().rstrip("/")
-        env_url = os.environ.get("AI_BRIDGE_PUBLIC_URL")
+        env_url = prodready.env_public_base_url()
         if env_url:
-            return env_url.strip().rstrip("/")
+            return env_url
         if req is not None:
             host = req.headers.get("x-forwarded-host") or req.headers.get("host")
             proto = req.headers.get("x-forwarded-proto") or req.url.scheme
@@ -1018,10 +1026,20 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         conn.execute("INSERT INTO devices (id, name, hostname, os, tenant, token_hash, created_at, token_issued_at, token_expires_at, policy_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
                      (device_id, body.name, body.hostname, body.os, body.tenant, dbmod.hash_token(device_token), issued, issued, expires, initial_policy))
         conn.commit()
+        from . import device_mtls
+
+        mtls_fp = None
+        if isinstance(body.policy, dict):
+            mtls_fp = body.policy.get("mtls_fingerprint") or body.policy.get("client_cert_fingerprint")
+        enrolled_fp = None
+        if mtls_fp:
+            enrolled_fp = device_mtls.normalize_fingerprint(str(mtls_fp))
+            device_mtls.set_device_fingerprint(conn, device_id, enrolled_fp)
         audit(actor, device_id, "enroll_device", body.model_dump(), "allowed", tenant=body.tenant)
         # Token is shown exactly once here; only its hash is stored.
         return {"device_id": device_id, "device_token": device_token, "token_expires_at": expires,
                 "token_ttl_days": device_ttl_days,
+                "mtls_fingerprint": enrolled_fp,
                 "note": "Store the device token securely; it will not be shown again. It expires and must be rotated."}
 
     app.state.device_live_meta = {}
@@ -3507,9 +3525,19 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
     ):
+        from . import production_readiness as prodready
+
         response.headers["Deprecation"] = "true"
         response.headers["Link"] = '</api/v1/sessions>; rel="successor-version"'
         response.headers["Sunset"] = "legacy-webrtc-session-route"
+        if not prodready.legacy_webrtc_routes_allowed():
+            raise HTTPException(
+                status_code=410,
+                detail={
+                    "error": "legacy_webrtc_gone",
+                    "message": "Use POST /api/v1/sessions. Set AI_BRIDGE_ALLOW_LEGACY_WEBRTC=1 only for emergency compatibility.",
+                },
+            )
         plane_state.refresh_emergency_stop(conn, app.state)
         if plane_state.is_emergency_stop(conn, app.state):
             raise HTTPException(status_code=503, detail="Emergency stop active.")
@@ -4530,9 +4558,46 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         return {"device_id": row["id"], "device_token": new_token, "token_expires_at": expires,
                 "note": "Old token is invalid immediately. Store the new token securely."}
 
+    @app.post("/api/devices/{device_id}/mtls-fingerprint")
+    def set_device_mtls_fingerprint(
+        device_id: str,
+        body: dict = Body(default={}),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        from . import device_mtls
+
+        fp = device_mtls.normalize_fingerprint(str(body.get("fingerprint") or body.get("mtls_fingerprint") or ""))
+        if not fp:
+            raise HTTPException(status_code=400, detail="fingerprint required")
+        row = conn.execute("SELECT id FROM devices WHERE id=? AND revoked=0", (device_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Device not found.")
+        device_mtls.set_device_fingerprint(conn, device_id, fp)
+        audit(actor, device_id, "set_mtls_fingerprint", {"fingerprint": fp[:16] + "..."}, "allowed")
+        return {"ok": True, "device_id": device_id, "mtls_fingerprint": fp}
+
     @app.get("/api/agent/tasks/next")
-    async def next_task(wait: float = 0.0, x_device_token: str | None = Header(default=None)):
+    async def next_task(
+        request: Request,
+        wait: float = 0.0,
+        x_device_token: str | None = Header(default=None),
+        x_client_cert_fingerprint: str | None = Header(default=None),
+        x_ssl_client_fingerprint: str | None = Header(default=None),
+    ):
         row = device_row(x_device_token)
+        from . import device_mtls
+
+        device_mtls.require_device_mtls(
+            conn,
+            row["id"],
+            device_mtls.extract_request_fingerprint(
+                request,
+                x_client_cert_fingerprint=x_client_cert_fingerprint,
+                x_ssl_client_fingerprint=x_ssl_client_fingerprint,
+            ),
+        )
         wait_sec = max(0.0, min(float(wait or 0.0), 25.0))
         deadline = time.time() + wait_sec
         task = None
