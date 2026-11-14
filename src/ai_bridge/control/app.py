@@ -612,10 +612,20 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     db_path = db_path or (data_dir / "control.db")
     conn = dbmod.connect(db_path=db_path, database_url=database_url)
     app = FastAPI(title="AI Bridge Control Plane", version="0.3.0")
+    # Browser dashboards call the API cross-origin; allow_credentials=True
+    # requires an explicit origin list (not "*"). Extend via AI_BRIDGE_CORS_ORIGINS.
     allowed_origins = [
-        "http://127.0.0.1:5173", "http://localhost:5173", "http://201.79.36.129",
-        "https://jxiptvplayer.app", os.environ.get("AI_BRIDGE_PUBLIC_URL", "https://your-aws-domain.com")
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://201.79.36.129",
+        "https://jxiptvplayer.app",
+        "https://ai-bridge-dashboard.onrender.com",
+        os.environ.get("AI_BRIDGE_PUBLIC_URL", "https://your-aws-domain.com"),
+        os.environ.get("AI_BRIDGE_DASHBOARD_URL", ""),
     ]
+    for origin in os.environ.get("AI_BRIDGE_CORS_ORIGINS", "").split(","):
+        allowed_origins.append(origin.strip())
+    allowed_origins = [o for o in dict.fromkeys(allowed_origins) if o]
     app.add_middleware(CORSMiddleware, allow_origins=allowed_origins,
                        allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     app.state.conn = conn
