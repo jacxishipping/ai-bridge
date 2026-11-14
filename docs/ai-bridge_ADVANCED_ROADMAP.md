@@ -20,10 +20,9 @@
 | **9** — Platform hardening & parity | **SHIPPED** (deep; residual noted) | `durable_ratelimit.py` (Redis → DB → memory); `plane_state.refresh_emergency_stop`; `plane_control_flags` + poller mirror; `native_encode.py` + `get_native_encode_status`; browser hard isolation envs; `GET /api/fleet/desktop-capabilities`; legacy WebRTC session `Deprecation` headers | `test_phase9_deep.py` |
 
 **Residual (post Phase 9, honest — out-of-repo / on-target only):**
-- Native C++ **libwebrtc** E2E with production dashboard (Python `aiortc` path is what fleet dispatch exercises today)
-- **macOS on-target** agent CI (code present under `agents/macos/`; not run in this environment)
-- **Linux netns** / OS-level browser egress firewall for agent browser tools
-- **Redis-required** multi-host WebRTC input throttle perfection (DB/memory backends suffice for single-host / control-plane)
+- Windows **full installer/service E2E** on a dedicated fleet image
+- Fleet Live Desktop still defaults to Python `aiortc`; native `ai_bridge_desktop` (libdatachannel) is verified by `windows-native-webrtc` harness (ICE + track + input datachannel) when linked
+- Linux netns/gVisor and Redis-required multi-host throttle are **in-tree env-gated** (`browser_isolation_os`, `AI_BRIDGE_REQUIRE_REDIS` / `AI_BRIDGE_MULTI_HOST`) — need host tooling / Redis in the deploy
 
 **Phase 1 findings F1–F9:** addressed in code per table above — see §4 for original severity; §6 for per-phase acceptance mapping.
 
@@ -37,7 +36,7 @@ AI Bridge is a **FastAPI + FastMCP modular monolith** with an **outbound-only ag
 
 **Phase 1 material gaps (historical — pre–Phase 2–8):** F1–F11 in §4 described cancel orphaning, stale `running` tasks, WebRTC arg drop, missing fleet `browser_*`, in-process emergency stop/takeover, veto not on dispatch path, default TURN secret, synthetic SoM, and role catalog absent. **As of 2026-11-14, F1–F3, F4 (browser dispatch), F5 (durable emergency stop), F8 (veto in `tools` desktop path), F9 (prod TURN guard), F10 (opt-in synthetic SoM), and F6 (partial — DB-backed takeover via `plane_state`) are implemented** — see §Implementation status.
 
-**Remaining product gaps (out-of-repo):** native C++ libwebrtc E2E; macOS on-target agent CI; Linux netns browser egress; Redis-required multi-host WebRTC throttle. (In-repo: F11 audio documented+tested; F12 legacy WebRTC deprecated with dashboard on `/api/v1/sessions`; durable rate limits ship with Redis→DB→memory fallback.)
+**Remaining product gaps (out-of-repo):** Windows full installer E2E. (In-repo: C++ PeerConnection harness E2E; macOS `macos-agent` CI; Linux netns/gVisor wrappers; Redis-required multi-host throttle gate; F11 audio; F12 legacy WebRTC **410** in prod + dashboard `/api/v1/sessions`; F13 native-encode honesty.)
 
 Phase 1 verified the original claims by reading/grepping the paths cited below and cross-checking `tests/unit/test_windows_p0_p2_gaps.py` where relevant.
 
@@ -121,8 +120,8 @@ flowchart TB
 | Playwright browser | **Shipped** (Phase 4) | MCP `server.py` + fleet `dispatch._dispatch_browser_tool` |
 | Workflows / schedules | **Shipped** | `app.py` workflow routes |
 | Custom multi-agent | **Shipped** (Phase 6) | `AgentRunner` + `role_catalog.seed_role_catalog` presets |
-| Native C++ agent | **Partial** | `windows-agent/src/*` capture/encode/WebRTC transport; **E2E with plane unverified here** |
-| macOS / Linux agents | **Partial** | `agents/macos/`, `agents/linux/` entrypoints; macOS **not run in CI per docs** |
+| Native C++ agent | **Partial** | `windows-agent` DXGI/MF + libdatachannel PeerConnection; harness E2E verified; fleet default still Python aiortc |
+| macOS / Linux agents | **Partial** | `agents/macos/`, `agents/linux/`; macOS import+honesty on `macos-agent` CI |
 | Browserbase / You.com / Firecrawl first-party | **Shipped** (deep) | `connectors/browserbase.py`, `you_search.py`, `firecrawl.py`; fleet `dispatch.py` registration |
 | Postgres runtime | **Partial** | `render.yaml` + `db.py` dialect; default dev SQLite |
 | Prometheus metrics | **Shipped** | `GET /metrics` in `app.py`, `control/metrics.py` |
@@ -146,10 +145,10 @@ flowchart TB
 | F9 | **P2** | Default TURN secret fallback | `AI_BRIDGE_TURN_SECRET` default `"aibridge_turn_shared_secret_2026"` (`webrtc_stream.py` ~47); `docker-compose.prod.yml` ~144 |
 | F10 | **P2** | Synthetic SoM misleads models when capture fails | `tools.py` ~2095–2128 placeholder elements |
 | F11 | **P2** | Desktop audio off by default | **Documented + tested** — `desktop_audio_opt_in()` / `_attach_desktop_audio_if_enabled`; silent PCM until WASAPI; `docs/streaming.md` §2b; tests in `test_phase9_deep.py` |
-| F12 | **P2** | Dual API stacks drift | **Partial** — legacy `/api/devices/.../webrtc/session` returns `Deprecation` + Link to `/api/v1/sessions`; dashboard Live Desktop prefers v1; legacy helpers in `api.ts` marked `@deprecated` |
-| F13 | **P2** | Architecture doc ahead of verified integration | **Honesty** — `native_encode` / capability matrix clarify Python `aiortc` path vs optional native DLL; C++ libwebrtc E2E remains residual |
+| F12 | **P2** | Dual API stacks drift | **Closed** — legacy create returns **410** in production (`AI_BRIDGE_ALLOW_LEGACY_WEBRTC` opt-in); dashboard Live Desktop uses `/api/v1/sessions` |
+| F13 | **P2** | Architecture doc ahead of verified integration | **Closed (honesty)** — `native_encode` / capability matrix clarify Python `aiortc` vs optional native DLL; C++ PeerConnection dashboard-path harness E2E verified |
 
-**§4 resolution (post Phase 2–9):** F1→`task_runtime`/`poller`; F2→`orchestration.sweep_stale_running_tasks`; F3→`dispatch._start_webrtc_from_task` (fps=30 + monitor/bitrate); F4→`dispatch._dispatch_browser_tool`; F5→`plane_state` DB emergency stop; F6→`plane_state` human takeover persistence; F7→`durable_ratelimit` + WebRTC session keys (Phase 9); F8→`tools.desktop_is_action_vetoed`; F9→prod profile fail-fast in `webrtc_stream.py`; F10→`AI_BRIDGE_SOM_SYNTHETIC_FALLBACK`. **F11** documented + unit-tested (opt-in audio, silent frames); **F12** deprecation headers + dashboard v1 preference; **F13** native_encode honesty (C++ E2E still residual).
+**§4 resolution (post Phase 2–9):** F1→`task_runtime`/`poller`; F2→`orchestration.sweep_stale_running_tasks`; F3→`dispatch._start_webrtc_from_task` (fps=30 + monitor/bitrate); F4→`dispatch._dispatch_browser_tool`; F5→`plane_state` DB emergency stop; F6→`plane_state` human takeover persistence; F7→`durable_ratelimit` + WebRTC session keys (Phase 9); F8→`tools.desktop_is_action_vetoed`; F9→prod profile fail-fast in `webrtc_stream.py`; F10→`AI_BRIDGE_SOM_SYNTHETIC_FALLBACK`. **F11** documented + unit-tested (opt-in audio, silent frames); **F12** prod 410 + dashboard v1; **F13** native_encode honesty + C++ PeerConnection harness E2E.
 
 ---
 
@@ -279,8 +278,8 @@ flowchart TB
 |-----------|---------|------------|
 | Remove default TURN secret in prod | `webrtc_stream.py`, `production_readiness.py` | Fail fast if secret unset in prod profile | **Done** |
 | Durable emergency stop | DB + poll check in `poller.py` | All workers respect stop | **Done** (Phase 7; verified in readiness checklist) |
-| Browser isolation | `browser_tools.py` | Sandbox + isolated user-data dir | **Done** (Playwright; netns pattern still open for agents) |
-| Load/stress CI gate | `tests/unit/test_phase8_deep.py` | Concurrent claim + cancel smoke | **Done** (unit-level; p95 budget in `test_orchestration_load_smoke`) |
+| Browser isolation | `browser_tools.py`, `browser_isolation_os.py` | Sandbox + isolated user-data dir; optional Linux netns/gVisor | **Done** (Playwright + env-gated OS wrappers) |
+| Load/stress CI gate | `tests/unit/test_phase8_deep.py`, `scripts/k6/`, `scripts/locust/` | Concurrent claim + cancel smoke + cluster soak scripts | **Done** (unit smoke + k6/locust harnesses) |
 | Authz hardening | `app.py` fleet/supervisor routes | Operator+ on sensitive fleet views | **Done** |
 | Audit completeness | `dispatch_audit.py`, supervisor API | Connector + handoff in audit | **Done** |
 

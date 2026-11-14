@@ -16,16 +16,16 @@
   OIDC login (provider-gated via AI_BRIDGE_OIDC_*; crypto verified offline,
   full flow needs a registered provider app), network-namespace egress
   control for the bounded task runner (AI_BRIDGE_TASK_NETNS=1, fail-closed),
-  mTLS at the reverse proxy (optional client-cert verification on /api/,
-  untrusted certs rejected), macOS agent code + launchd unit (not yet run
-  on a Mac). Still NOT verified: Windows-on-Windows execution (the agent
-  code imports and degrades honestly off Windows, but needs a Windows host
-  to run), and plane-side mTLS (reverse proxy remains the mTLS layer).
+  reverse-proxy mTLS plus plane-side device fingerprint gate
+  (`AI_BRIDGE_DEVICE_MTLS` / `control/device_mtls.py`), macOS agent code +
+  launchd unit (import + honesty exercised on `macos-agent` CI). Still NOT
+  verified end-to-end: Windows full installer/service E2E on a dedicated
+  fleet image.
 
 Implemented and tested on Linux (this environment, pytest run — see CHANGELOG):
 - MCP stdio server + Streamable HTTP entrypoint; tools list/call verified
-  by an MCP stdio test; HTTP transport uses FastMCP's streamable_http_app
-  (live HTTP round-trip is a v0.2.1 test item, not yet in the suite).
+  by an MCP stdio test; live HTTP round-trip in
+  `tests/integration/test_mcp_http_roundtrip.py` + `deployment/smoke_check.py`.
 - Workspace confinement (traversal, absolute, NUL, symlink escape),
   secret-name blocking, redaction, atomic writes, backups.
 - Risk tiers 1-4 with server-side enforcement, approval queue, emergency stop.
@@ -36,16 +36,26 @@ Implemented and tested on Linux (this environment, pytest run — see CHANGELOG)
 - Dashboard (React/TS/Vite): login, devices, tasks, approvals,
   audit, emergency stop, policies. Built output IS included in the release ZIP
   (`apps/dashboard/dist/`); rebuild with `npm install && npm run build`.
-Not implemented / documented only:
-- Signed agent updates: verification implemented in v0.3; silent auto-install is deliberately NOT implemented — verify, then install as an operator step (`AI_BRIDGE_ALLOW_AUTO_UPDATE=1` is the gated apply path when enabled).
-- OIDC login is **in-tree and env-activated** (`control/oidc.py` + `/api/auth/oidc/*` when `AI_BRIDGE_OIDC_*` is set). Local password accounts remain the default interim path when OIDC provider env is unset — do not treat OIDC as absent from the codebase.
-- Postgres runtime wiring beyond the migration SQL (SQLite is the running store unless `DATABASE_URL` is set; see migrations/002_security_batch.sql). Redis/worker optional — the plane is a modular monolith by design; multi-host WebRTC throttle prefers Redis when available.
-- macOS agent entrypoints exist under `agents/macos/` but are **not run in on-target CI** here.
-- Windows: Python agent + installer exist (`deployment/windows/`, `agents/windows/`); treat full
-  service/desktop installer E2E as documented-but-unverified until exercised on a dedicated host.
-- Production deployment from a clean environment is documented, not
-  executed here (no second host was available).
-- Plane-side device mTLS, Vault/AWS SM secrets, Linux netns/gVisor wrappers, and WORM SIEM sinks are in-tree (env-gated). C++ PeerConnection path uses libdatachannel/libwebrtc when linked (`windows-native-webrtc` CI); until that job verifies an offer, Python aiortc remains the shipping Live Desktop path.
+Honest residuals / gated paths:
+- Signed agent updates: verification in v0.3; silent auto-install is
+  **gated** behind `AI_BRIDGE_ALLOW_AUTO_UPDATE=1` (default off — verify then apply).
+- OIDC login is **in-tree and env-activated** (`control/oidc.py` + `/api/auth/oidc/*`
+  when `AI_BRIDGE_OIDC_*` is set). Local password accounts remain the default
+  interim path when OIDC provider env is unset.
+- Postgres is required by production readiness when `AI_BRIDGE_PROFILE=production`
+  (`DATABASE_URL`); SQLite remains the local/dev default. Redis is required for
+  multi-host WebRTC throttle in production when
+  `AI_BRIDGE_REQUIRE_REDIS` / `AI_BRIDGE_MULTI_HOST` is set (`durable_ratelimit` + readiness).
+- macOS agent entrypoints under `agents/macos/` run on GitHub `macos-agent` CI
+  (import + desktop status honesty + residual unit smoke).
+- Windows: Python agent + installer exist; full installer E2E remains
+  documented-but-unverified on a dedicated host.
+- Plane-side device mTLS, Vault/AWS SM secrets, Linux netns/gVisor wrappers,
+  and WORM SIEM sinks are in-tree (env-gated). C++ PeerConnection path
+  (libdatachannel) is verified by `windows-native-webrtc` +
+  `scripts/libwebrtc_e2e_harness.py` (offer/answer, ICE connected, track,
+  input datachannel). Fleet Live Desktop still defaults to Python aiortc
+  until devices run `ai_bridge_desktop`.
 
 ## WebRTC / desktop streaming (Phases 2–9, current)
 - Dispatch defaults **fps=30** and forwards `monitor_index` / `bitrate_kbps` (`dispatch._start_webrtc_from_task`).
@@ -54,8 +64,9 @@ Not implemented / documented only:
   `AI_BRIDGE_TURN_SECRET` (required when `AI_BRIDGE_PROFILE=production`). See `docs/streaming.md` §2.
 - Desktop audio (**F11**) is **off by default**; opt in with `AI_BRIDGE_DESKTOP_AUDIO=1` (silent PCM
   frames until WASAPI loopback is production-ready). Covered by `tests/unit/test_phase9_deep.py`.
-- Canonical session API is `POST /api/v1/sessions`; legacy device WebRTC session routes return
-  `Deprecation` headers. Native C++ libwebrtc E2E remains an out-of-repo residual.
+- Canonical session API is `POST /api/v1/sessions`; legacy device WebRTC create returns
+  **410** in production (`AI_BRIDGE_ALLOW_LEGACY_WEBRTC` opt-in). Native C++ PeerConnection
+  dashboard-path E2E is covered by the harness checklist.
 
 ## Browser Intelligence (Phase 4 deepen)
 - Playwright device presets via `browser_set_viewport` (`desktop`, `desktop_1080`, `iphone`, `pixel`, `tablet`) with viewport metadata on screenshots/session info.
