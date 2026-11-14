@@ -4,6 +4,10 @@
 - `ai-bridge-control`: the FastAPI control plane as a native Python web
   service (`pip install -e .`, then `python -m ai_bridge.control`). It
   binds `0.0.0.0:$PORT` when Render sets `$PORT`, and serves `/health`.
+  With `AI_BRIDGE_EMBED_MCP=1` (default when `PORT` is set), the same
+  process also serves Streamable HTTP MCP at `/mcp` and the OAuth 2.1
+  gateway (`/oauth/*`, `/.well-known/*`) so ChatGPT, Claude, Gemini,
+  Cursor, and similar clients can connect to one public URL.
   Python is pinned to 3.12 via `PYTHON_VERSION` / `.python-version`
   (avoid Render's default 3.14 for this stack).
 - `ai-bridge-dashboard`: the React dashboard as a static site
@@ -11,6 +15,28 @@
   baked in at build time via `VITE_API_URL`, so set that to the control
   service's URL and redeploy the static site after the control service
   first exists.
+
+## MCP clients (ChatGPT, Claude, Gemini, …)
+Public MCP URL after deploy: `https://ai-bridge-control.onrender.com/mcp`
+
+Quick test (admin bearer):
+```bash
+curl -H "Authorization: Bearer $AI_BRIDGE_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+  https://ai-bridge-control.onrender.com/mcp
+```
+
+Register per-chatbot OAuth clients:
+```bash
+python scripts/setup_mcp_chatbots.py \
+  --url https://ai-bridge-control.onrender.com \
+  --token "$AI_BRIDGE_ADMIN_TOKEN"
+```
+
+See `docs/MCP_CHATBOT_SETUP.md` for Claude / ChatGPT / Gemini / Grok / Cursor configs
+(replace `https://jxiptvplayer.app` with your Render control URL).
 
 ## Steps
 1. Push this repo to GitHub/GitLab and connect the account in Render.

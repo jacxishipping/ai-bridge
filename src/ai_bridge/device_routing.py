@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 
 import httpx
 
@@ -19,11 +20,33 @@ class BindingError(RuntimeError):
     """The session's device binding could not be resolved (fail closed)."""
 
 
+# Optional in-process verifier used when MCP + OAuth share one ASGI process
+# (e.g. Render). Avoids HTTP self-calls that deadlock a single worker.
+_VERIFY_HOOK: Callable[[str], dict] | None = None
+
+
+def set_verify_hook(hook: Callable[[str], dict] | None) -> None:
+    global _VERIFY_HOOK
+    _VERIFY_HOOK = hook
+
+
 def resolve_binding(verify_url: str, bearer_token: str, timeout: int = 10) -> str | None:
     """Return the device_id bound to a bearer token, or None if unbound.
     Raises BindingError when the binding cannot be resolved: callers
     must fail closed rather than silently run droplet tools for a
     session that was meant to be device-scoped."""
+    if _VERIFY_HOOK is not None and (
+        not verify_url or verify_url.startswith("inprocess:") or verify_url == "inprocess"
+    ):
+        try:
+            data = _VERIFY_HOOK(bearer_token)
+        except BindingError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise BindingError(f"gateway verify failed: {exc}") from exc
+        if not isinstance(data, dict) or not data.get("ok"):
+            raise BindingError("gateway verify rejected the token")
+        return data.get("device_id") or None
     try:
         with httpx.Client(timeout=timeout) as client:
             resp = client.get(verify_url, headers={"Authorization": f"Bearer {bearer_token}"})

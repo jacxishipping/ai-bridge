@@ -18,6 +18,16 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+      - key: AI_BRIDGE_PUBLIC_URL
+        value: "https://ai-bridge-control.onrender.com"
+      - key: AI_BRIDGE_OAUTH_ISSUER
+        value: "https://ai-bridge-control.onrender.com"
+      - key: AI_BRIDGE_CONTROL_URL
+        value: "https://ai-bridge-control.onrender.com"
+      - key: AI_BRIDGE_EMBED_MCP
+        value: "1"
+      - key: AI_BRIDGE_MCP_ALLOWED_HOSTS
+        value: "ai-bridge-control.onrender.com,ai-bridge-control.onrender.com:*,localhost:*,127.0.0.1:*"
       - key: AI_BRIDGE_CORS_ORIGINS
         value: "https://ai-bridge-dashboard.onrender.com"
       - key: AI_BRIDGE_DASHBOARD_URL

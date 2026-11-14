@@ -6,12 +6,23 @@ Connect Claude, ChatGPT, Gemini, Grok, Codex, Cursor, Windsurf, and any MCP-comp
 
 ## Quick Start
 
-Your MCP server is live at: **`https://jxiptvplayer.app/mcp`**
+Pick the public base URL for your deployment:
+
+| Deployment | MCP URL |
+|------------|---------|
+| Render (this Blueprint) | `https://ai-bridge-control.onrender.com/mcp` |
+| Production droplet example | `https://jxiptvplayer.app/mcp` |
+
+Below, `BASE` means that origin (no trailing slash), e.g. `https://ai-bridge-control.onrender.com`.
 
 ### Option 1: Admin Token (Fastest, for testing)
 Use your `AI_BRIDGE_ADMIN_TOKEN` directly as a Bearer token:
 ```bash
-curl -H "Authorization: Bearer YOUR_ADMIN_TOKEN" https://jxiptvplayer.app/mcp/
+curl -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+  "$BASE/mcp"
 ```
 
 ### Option 2: OAuth Clients (Recommended for production)
