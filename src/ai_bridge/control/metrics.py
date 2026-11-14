@@ -187,3 +187,43 @@ def get_metrics_payload(conn: Any | None = None) -> tuple[bytes, str]:
         fallback = f"# AI Bridge Metrics (fallback)\naibridge_uptime_seconds {uptime:.2f}\n"
         return fallback.encode("utf-8"), CONTENT_TYPE_LATEST
 
+
+def build_metrics_summary(conn: Any) -> dict[str, Any]:
+    """Operator-facing KPI summary without requiring Grafana."""
+    from . import db as dbmod
+    from . import fleet_health as fleet_healthmod
+
+    now_ts = dbmod.now()
+    window = now_ts - 3600.0
+    queued = conn.execute("SELECT COUNT(*) AS c FROM tasks WHERE status='queued'").fetchone()["c"]
+    running = conn.execute("SELECT COUNT(*) AS c FROM tasks WHERE status='running'").fetchone()["c"]
+    completed_1h = conn.execute(
+        "SELECT COUNT(*) AS c FROM tasks WHERE status='completed' AND updated_at>=?",
+        (window,),
+    ).fetchone()["c"]
+    failed_1h = conn.execute(
+        "SELECT COUNT(*) AS c FROM tasks WHERE status IN ('failed','timed_out') AND updated_at>=?",
+        (window,),
+    ).fetchone()["c"]
+    # Approximate duration from created_at→updated_at for completed tasks in window
+    dur_row = conn.execute(
+        "SELECT AVG(updated_at - created_at) AS avg_d FROM tasks "
+        "WHERE status='completed' AND updated_at>=? AND updated_at>created_at",
+        (window,),
+    ).fetchone()
+    avg_duration = float(dur_row["avg_d"]) if dur_row and dur_row["avg_d"] is not None else None
+    health = fleet_healthmod.summarize_fleet_health(conn)
+    return {
+        "ok": True,
+        "ts": now_ts,
+        "queue_depth": int(queued or 0),
+        "running_tasks": int(running or 0),
+        "completed_1h": int(completed_1h or 0),
+        "failed_1h": int(failed_1h or 0),
+        "avg_task_duration_sec": round(avg_duration, 2) if avg_duration is not None else None,
+        "online_devices": health.get("online_devices"),
+        "stale_device_count": health.get("stale_device_count"),
+        "unhealthy_streams": health.get("unhealthy_streams"),
+        "uptime_seconds": round(time.time() - _START_TIME, 1),
+    }
+

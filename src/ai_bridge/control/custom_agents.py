@@ -182,10 +182,17 @@ _AGENT_NATIVE_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "agent_remember",
-            "description": "Persist an important fact, observation, or learned rule into long-term agent memory so it survives future cycles.",
+            "description": (
+                "Persist an important fact, observation, or learned rule into long-term agent memory "
+                "so it survives future cycles. Optionally tag with project and task for scoped recall."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {"fact": {"type": "string", "description": "Concise fact to remember."}},
+                "properties": {
+                    "fact": {"type": "string", "description": "Concise fact to remember."},
+                    "project": {"type": "string", "description": "Project tag for scoped memory."},
+                    "task": {"type": "string", "description": "Task / handoff tag for scoped memory."},
+                },
                 "required": ["fact"],
             },
         },
@@ -295,13 +302,69 @@ def _peer_agents_block(conn: Any, agent: dict[str, Any]) -> str:
         return ""
 
 
-def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]], mcp_servers: list[dict[str, Any]] | None = None, fleet_context: str = "", peer_agents: str = "") -> str:
+def _infer_memory_tags(conn: Any, agent: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Best-effort project/task tags from recent role-tagged tasks."""
+    try:
+        agent_id = str(agent.get("id") or "")
+        rows = conn.execute(
+            "SELECT args_json FROM tasks ORDER BY updated_at DESC LIMIT 40"
+        ).fetchall()
+        for row in rows:
+            try:
+                args = json.loads(row["args_json"] or "{}")
+            except Exception:
+                continue
+            if not isinstance(args, dict):
+                continue
+            role_agent = str(args.get("_role_agent") or "")
+            if role_agent and agent_id and role_agent != agent_id:
+                continue
+            project = str(args.get("_project") or args.get("project") or "").strip() or None
+            task = (
+                str(args.get("_task") or args.get("task") or args.get("_handoff_id") or "").strip() or None
+            )
+            if project or task:
+                return project, task
+    except Exception:
+        pass
+    return None, None
+
+
+def _system_prompt(
+    agent: dict[str, Any],
+    devices: list[dict[str, Any]],
+    mcp_servers: list[dict[str, Any]] | None = None,
+    fleet_context: str = "",
+    peer_agents: str = "",
+    conn: Any | None = None,
+    project_tag: str | None = None,
+    task_tag: str | None = None,
+) -> str:
     listing = "\n".join(
         f"- {d.get('name')} (id {d['id']}, {d.get('os') or 'unknown OS'}, {d.get('status') or 'unknown'})"
         for d in devices
     ) or "- local (the control-plane host)"
     memory = str(agent.get("memory") or "").strip()
     memory_block = f"\nMemory from previous cycles (most recent last):\n{memory}\n" if memory else ""
+    chunk_block = ""
+    if conn is not None:
+        try:
+            from . import agent_memory
+
+            chunks = agent_memory.query_agent_memory(
+                conn,
+                str(agent.get("id") or ""),
+                project_tag=project_tag,
+                task_tag=task_tag,
+                limit=12,
+            )
+            if not chunks and (project_tag or task_tag):
+                chunks = agent_memory.load_agent_memory(conn, str(agent.get("id") or ""), limit=8)
+            chunk_block = agent_memory.format_chunks_for_prompt(chunks)
+            if chunk_block:
+                chunk_block = "\n" + chunk_block
+        except Exception:
+            chunk_block = ""
 
     mcp_block = ""
     if mcp_servers:
@@ -332,6 +395,7 @@ def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]], mcp_ser
         f"{peer_agents}"
         f"{fleet_context}"
         f"{memory_block}"
+        f"{chunk_block}"
         "Rules:\n"
         "1. Move the objective forward every cycle; do not repeat work already completed.\n"
         "2. Prefer read-only inspection before changes, and verify what you changed.\n"
@@ -404,13 +468,26 @@ def execute_agent(
 
     fleet_ctx = _fleet_context_block(conn, devices)
     peer_ctx = _peer_agents_block(conn, agent) if _depth < 2 else ""
+    project_tag, task_tag = _infer_memory_tags(conn, agent)
     default_prompt = (
         "Run one work cycle now "
         f"({time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC). "
         "Act on the objective, then summarise what you did."
     )
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": _system_prompt(agent, devices, mcp_servers, fleet_ctx, peer_ctx)},
+        {
+            "role": "system",
+            "content": _system_prompt(
+                agent,
+                devices,
+                mcp_servers,
+                fleet_ctx,
+                peer_ctx,
+                conn=conn,
+                project_tag=project_tag,
+                task_tag=task_tag,
+            ),
+        },
         {"role": "user", "content": (user_prompt or "").strip() or default_prompt},
     ]
     steps: list[dict[str, Any]] = []
@@ -511,21 +588,28 @@ def execute_agent(
                                 updated_mem = updated_mem[-8000:]
                             agent["memory"] = updated_mem
                             conn.execute("UPDATE custom_agents SET memory=?, updated_at=? WHERE id=?", (updated_mem, _now(), agent["id"]))
+                            proj = str(tool_args.get("project") or tool_args.get("_project") or "").strip() or None
+                            task_t = str(tool_args.get("task") or tool_args.get("_task") or "").strip() or None
+                            if not proj and not task_t:
+                                inferred_p, inferred_t = _infer_memory_tags(conn, agent)
+                                proj = proj or inferred_p
+                                task_t = task_t or inferred_t
+                            chunk = None
                             try:
                                 from . import agent_memory
 
-                                agent_memory.append_memory_chunk(
+                                chunk = agent_memory.append_memory_chunk(
                                     conn,
                                     agent["id"],
                                     fact,
                                     tenant=agent.get("tenant", "default"),
-                                    project_tag=str(tool_args.get("project") or tool_args.get("_project") or "").strip() or None,
-                                    task_tag=str(tool_args.get("task") or tool_args.get("_task") or "").strip() or None,
+                                    project_tag=proj,
+                                    task_tag=task_t,
                                 )
                             except Exception:
                                 pass
                             conn.commit()
-                            result = {"ok": True, "remembered": fact}
+                            result = {"ok": True, "remembered": fact, "chunk": chunk, "project": proj, "task": task_t}
                     elif tool_name == "agent_notify":
                         title = str(tool_args.get("title") or f"Agent {agent.get('name')}").strip()
                         msg = str(tool_args.get("message") or "").strip()
@@ -1017,6 +1101,20 @@ class AgentRunner:
             new_memory = (existing_memory + "\n" + entry).strip() if existing_memory else entry
             if len(new_memory) > 8000:
                 new_memory = new_memory[-8000:]
+            try:
+                from . import agent_memory
+
+                proj, task_t = _infer_memory_tags(self._conn, fresh)
+                agent_memory.append_memory_chunk(
+                    self._conn,
+                    agent_id,
+                    entry,
+                    tenant=tenant,
+                    project_tag=proj,
+                    task_tag=task_t,
+                )
+            except Exception:
+                pass
             self._conn.execute(
                 "UPDATE custom_agents SET status='idle', last_run_at=?, last_result=?, last_error='', "
                 "last_skip_reason='', memory=?, consecutive_failures=0, run_count=run_count+1, updated_at=? WHERE id=?",
@@ -1237,6 +1335,13 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
                 agent_id,
             ),
         )
+        if body.memory is not None and not str(body.memory or "").strip():
+            try:
+                from . import agent_memory
+
+                agent_memory.clear_agent_memory(conn, agent_id)
+            except Exception:
+                pass
         conn.commit()
         audit(actor, "", "update_custom_agent", {"agent_id": agent_id, "enabled": bool(enabled)}, "allowed")
         updated = conn.execute("SELECT * FROM custom_agents WHERE id=?", (agent_id,)).fetchone()
@@ -1253,6 +1358,12 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
         if not row:
             raise HTTPException(status_code=404, detail="Agent not found.")
         conn.execute("DELETE FROM agent_runs WHERE agent_id=?", (agent_id,))
+        try:
+            from . import agent_memory
+
+            agent_memory.clear_agent_memory(conn, agent_id)
+        except Exception:
+            pass
         conn.execute("DELETE FROM custom_agents WHERE id=?", (agent_id,))
         conn.commit()
         audit(actor, "", "delete_custom_agent", {"agent_id": agent_id}, "allowed")
@@ -1320,6 +1431,82 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
         )
         return {"ok": True, "agent_id": agent_id, "chunks": chunks, "project": project, "task": task}
 
+    @app.post("/api/agents/{agent_id}/memory/chunks")
+    def append_agent_memory_chunk(
+        agent_id: str,
+        body: MemoryChunkIn,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        row = conn.execute("SELECT id, tenant, memory FROM custom_agents WHERE id=?", (agent_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Agent not found.")
+        content = (body.content or "").strip()
+        if not content:
+            raise HTTPException(status_code=400, detail="content is required.")
+        from . import agent_memory
+
+        chunk = agent_memory.append_memory_chunk(
+            conn,
+            agent_id,
+            content,
+            tenant=str(row["tenant"] or "default"),
+            project_tag=body.project,
+            task_tag=body.task,
+        )
+        # Mirror into legacy column for operators who only edit the text field.
+        cur_mem = str(row["memory"] or "").strip()
+        pinned = f"[PINNED {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}] {content}"
+        updated_mem = (cur_mem + "\n" + pinned).strip() if cur_mem else pinned
+        if len(updated_mem) > 8000:
+            updated_mem = updated_mem[-8000:]
+        conn.execute(
+            "UPDATE custom_agents SET memory=?, updated_at=? WHERE id=?",
+            (updated_mem, _now(), agent_id),
+        )
+        conn.commit()
+        audit(
+            actor,
+            "",
+            "agent_memory_append",
+            {"agent_id": agent_id, "project": body.project, "task": body.task},
+            "allowed",
+        )
+        return {"ok": True, "agent_id": agent_id, "chunk": chunk}
+
+    @app.delete("/api/agents/{agent_id}/memory/chunks")
+    def clear_agent_memory_chunks(
+        agent_id: str,
+        project: str | None = None,
+        task: str | None = None,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        row = conn.execute("SELECT id FROM custom_agents WHERE id=?", (agent_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Agent not found.")
+        from . import agent_memory
+
+        cleared = agent_memory.clear_agent_memory(
+            conn, agent_id, project_tag=project, task_tag=task
+        )
+        if not project and not task:
+            conn.execute(
+                "UPDATE custom_agents SET memory='', updated_at=? WHERE id=?",
+                (_now(), agent_id),
+            )
+            conn.commit()
+        audit(
+            actor,
+            "",
+            "agent_memory_clear",
+            {"agent_id": agent_id, "deleted": cleared.get("deleted"), "project": project, "task": task},
+            "allowed",
+        )
+        return cleared
+
     @app.post("/api/agents/{agent_id}/ask")
     def ask_agent(
         agent_id: str,
@@ -1363,6 +1550,12 @@ def install_custom_agent_routes(app: Any, conn: Any, require_role: Any, audit: A
 
 class AgentAskIn(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
+
+
+class MemoryChunkIn(BaseModel):
+    content: str = Field(min_length=1, max_length=500_000)
+    project: str | None = None
+    task: str | None = None
 
 
 class AgentIn(BaseModel):

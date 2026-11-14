@@ -968,6 +968,16 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         payload, content_type = metricsmod.get_metrics_payload(conn)
         return Response(content=payload, media_type=content_type)
 
+    @app.get("/api/metrics/summary")
+    def metrics_summary_api(
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        summary = metricsmod.build_metrics_summary(conn)
+        audit(actor, "", "metrics_summary_view", {}, "allowed")
+        return summary
+
     @app.post("/api/devices/enroll", summary="Enroll a new device", description="Registers a new device in the fleet and returns a one-time device token.")
     def enroll(body: EnrollIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
         actor = require_admin(x_admin_token, x_session_token)
@@ -1552,6 +1562,21 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             if rem <= 0:
                 return dict(row)
             await asyncio.sleep(min(0.15, rem))
+
+    @app.get("/api/tasks/{task_id}/events")
+    def get_task_events(
+        task_id: str,
+        limit: int = 50,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token)
+        row = conn.execute("SELECT id FROM tasks WHERE id=?", (task_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Task not found.")
+        from . import task_events as task_eventsmod
+
+        return {"ok": True, "task_id": task_id, "events": task_eventsmod.list_task_events(conn, task_id, limit=limit)}
 
     @app.post("/api/tasks/{task_id}/cancel")
     def cancel_task(task_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -4513,6 +4538,18 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                     )
                     if cur.rowcount == 1:
                         task = candidate
+                        try:
+                            from . import task_events as task_eventsmod
+
+                            task_eventsmod.append_task_event(
+                                conn,
+                                candidate["id"],
+                                "running",
+                                {"device_id": row["id"], "tool": candidate["tool"]},
+                                commit=False,
+                            )
+                        except Exception:
+                            pass
                         break
             rem = deadline - time.time()
             if wait_sec <= 0 or rem <= 0:
@@ -4566,9 +4603,30 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             if task["tool"] in ("take_screenshot", "capture_desktop_screenshot", "capture_desktop_frame", "set_of_marks_screenshot")
             else MAX_RESULT_CHARS
         )
+        now_ts = dbmod.now()
         conn.execute("UPDATE tasks SET status=?, result=?, updated_at=? WHERE id=?",
-                     (body.status, body.result[:result_cap], dbmod.now(), task_id))
+                     (body.status, body.result[:result_cap], now_ts, task_id))
+        try:
+            from . import task_events as task_eventsmod
+
+            task_eventsmod.append_task_event(
+                conn,
+                task_id,
+                body.status,
+                {"tool": task["tool"], "device_id": row["id"]},
+                commit=False,
+            )
+        except Exception:
+            pass
         conn.commit()
+        try:
+            created = float(task["created_at"] or now_ts)
+            duration = max(0.0, now_ts - created)
+            from . import metrics as metricsmod
+
+            metricsmod.record_task_execution(str(task["tool"] or "unknown"), body.status, duration)
+        except Exception:
+            pass
         handoff_advance = None
         try:
             fresh = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
@@ -4628,7 +4686,20 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             _rate_limit(key, limit=limit, conn=getattr(request.app.state, "conn", None))
         except HTTPException as exc:
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-        return await call_next(request)
+        response = await call_next(request)
+        try:
+            from . import metrics as metricsmod
+
+            # Collapse IDs in path for low-cardinality labels.
+            endpoint = path
+            for prefix in ("/api/tasks/", "/api/devices/", "/api/agents/", "/api/v1/sessions/", "/api/supervisor/handoffs/"):
+                if path.startswith(prefix) and len(path) > len(prefix):
+                    endpoint = prefix + "{id}"
+                    break
+            metricsmod.record_http_request(request.method, endpoint, int(getattr(response, "status_code", 200) or 200))
+        except Exception:
+            pass
+        return response
 
     from . import ai_api, v1_routes, mcp_routes
     from .custom_agents import AgentRunner, install_custom_agent_routes

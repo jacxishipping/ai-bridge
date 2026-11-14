@@ -15,12 +15,16 @@ import type { LiveDevice } from "./live/shared";
 interface Snapshot { identity: { actor?: string; username?: string; role?: string }; health: { version: string; emergency_stop: boolean }; devices: LiveDevice[]; checkedAt: Date }
 interface OpsPulse {
   online_devices?: number;
+  total_devices?: number;
   stale_device_count?: number;
+  stale_devices?: { id: string; name?: string; heartbeat_age_sec?: number | null }[];
+  unhealthy_streams?: number;
   avg_cpu_percent?: number | null;
   avg_memory_percent?: number | null;
   items?: { id: string; tool: string; status: string; role?: string; handoff_id?: string }[];
   recent_failures?: { id: string; tool: string; status: string; role?: string }[];
   running_agents?: { id: string; name: string }[];
+  agents_with_errors?: { id: string; name: string; consecutive_failures?: number; last_error?: string | null }[];
   role_agents?: { id: string; name: string; role: string; enabled: boolean; status?: string }[];
   handoffs?: {
     handoff_id: string;
@@ -31,6 +35,7 @@ interface OpsPulse {
     status?: string;
     blocked_reason?: string | null;
   }[];
+  last_stale_sweep?: { swept?: number; ts?: number } | Record<string, unknown> | null;
   desktop_platforms?: { platform: string; stream_available?: boolean; ocr_available?: boolean; reason?: string }[];
   /** Control-plane process host only — not the selected fleet device. */
   host_os?: string;
@@ -104,14 +109,19 @@ export function LiveControlView() {
         const native = (caps?.native_encode || {}) as Record<string, unknown>;
         setOpsPulse({
           online_devices: fleetHealth?.online_devices,
+          total_devices: fleetHealth?.total_devices,
           stale_device_count: fleetHealth?.stale_device_count,
+          stale_devices: fleetHealth?.stale_devices,
+          unhealthy_streams: fleetHealth?.unhealthy_streams,
           avg_cpu_percent: fleetHealth?.avg_cpu_percent,
           avg_memory_percent: fleetHealth?.avg_memory_percent,
           items: activity?.items,
           recent_failures: activity?.recent_failures,
           running_agents: activity?.running_agents,
+          agents_with_errors: activity?.agents_with_errors,
           role_agents: activity?.role_agents,
           handoffs: activity?.handoffs,
+          last_stale_sweep: activity?.last_stale_sweep,
           desktop_platforms,
           host_os: typeof caps?.host_os === "string" ? caps.host_os : undefined,
           host_live_status: {
@@ -145,6 +155,60 @@ export function LiveControlView() {
     finally { setLoading(false); }
   }, [isLive]);
   useEffect(() => { void refresh(); }, [refresh]);
+  // Live activity SSE (authenticated fetch stream; EventSource cannot send auth headers).
+  useEffect(() => {
+    if (!isLive) return;
+    let stopped = false;
+    const ctrl = new AbortController();
+    (async () => {
+      try {
+        const headers: Record<string, string> = { Accept: "text/event-stream" };
+        const st = sessionToken();
+        const at = token();
+        if (st) headers["X-Session-Token"] = st;
+        else if (at) headers["X-Admin-Token"] = at;
+        const res = await fetch(api.liveActivityStreamUrl().split("?")[0], { headers, signal: ctrl.signal });
+        if (!res.ok || !res.body) return;
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done || stopped) break;
+          buf += dec.decode(value, { stream: true });
+          let idx: number;
+          while ((idx = buf.indexOf("\n\n")) >= 0) {
+            const frame = buf.slice(0, idx);
+            buf = buf.slice(idx + 2);
+            const line = frame.split("\n").find((l) => l.startsWith("data:"));
+            if (!line) continue;
+            try {
+              const payload = JSON.parse(line.slice(5).trim());
+              if (stopped) break;
+              setOpsPulse((prev) => ({
+                ...(prev || {}),
+                items: payload.items,
+                recent_failures: payload.recent_failures,
+                running_agents: payload.running_agents,
+                agents_with_errors: payload.agents_with_errors,
+                role_agents: payload.role_agents,
+                handoffs: payload.handoffs,
+                last_stale_sweep: payload.last_stale_sweep,
+              }));
+            } catch {
+              /* ignore malformed frame */
+            }
+          }
+        }
+      } catch {
+        /* abort / network — manual refresh remains */
+      }
+    })();
+    return () => {
+      stopped = true;
+      ctrl.abort();
+    };
+  }, [isLive]);
   // Poll while enrolled devices exist but none are online (first-heartbeat wait).
   useEffect(() => {
     if (!snapshot?.devices?.length) return;
@@ -253,13 +317,39 @@ export function LiveControlView() {
           <ProductGlass className="px-3 py-3" aria-label="Fleet activity and health">
             <p className="text-xs font-medium text-[color:var(--product-text-secondary)]">Live fleet pulse</p>
             <div className="mt-2 flex flex-wrap gap-3 text-xs text-[color:var(--product-text-tertiary)]">
-              <span>{opsPulse.online_devices ?? "—"} online</span>
+              <span>
+                {opsPulse.online_devices ?? "—"}
+                {opsPulse.total_devices != null ? ` / ${opsPulse.total_devices}` : ""} online
+              </span>
               {(opsPulse.stale_device_count ?? 0) > 0 && (
-                <JXBadge color="warning" statusText={`${opsPulse.stale_device_count} stale heartbeat`} />
+                <JXBadge
+                  color="warning"
+                  statusText={`${opsPulse.stale_device_count} stale${
+                    opsPulse.stale_devices?.length
+                      ? `: ${(opsPulse.stale_devices || []).map((d) => d.name || d.id).slice(0, 3).join(", ")}`
+                      : " heartbeat"
+                  }`}
+                />
+              )}
+              {(opsPulse.unhealthy_streams ?? 0) > 0 && (
+                <JXBadge color="warning" statusText={`${opsPulse.unhealthy_streams} unhealthy streams`} />
               )}
               {opsPulse.avg_cpu_percent != null && <span>CPU {opsPulse.avg_cpu_percent}%</span>}
               {opsPulse.avg_memory_percent != null && <span>RAM {opsPulse.avg_memory_percent}%</span>}
               <span>{(opsPulse.items?.length ?? 0)} active tasks</span>
+              {(opsPulse.agents_with_errors?.length ?? 0) > 0 && (
+                <span className="text-[color:var(--product-danger,#c0392b)]">
+                  {opsPulse.agents_with_errors!.length} agents with errors
+                </span>
+              )}
+              {opsPulse.last_stale_sweep && typeof opsPulse.last_stale_sweep === "object" && (
+                <span title={JSON.stringify(opsPulse.last_stale_sweep)}>
+                  Stale sweep
+                  {"swept" in opsPulse.last_stale_sweep && opsPulse.last_stale_sweep.swept != null
+                    ? ` · ${String(opsPulse.last_stale_sweep.swept)} tasks`
+                    : ""}
+                </span>
+              )}
               {(opsPulse.recent_failures?.length ?? 0) > 0 && (
                 <span className="text-[color:var(--product-danger,#c0392b)]">{opsPulse.recent_failures!.length} recent failures</span>
               )}
