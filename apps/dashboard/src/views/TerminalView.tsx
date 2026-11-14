@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { useDashboardStore } from "../state/dashboardStore";
 import { api, apiOrigin, token, sessionToken } from "../api";
+import { PageEmpty } from "../components/PageEmpty";
+import { ProductModePill } from "../ui";
 
 interface TerminalLine {
   id: string;
@@ -515,8 +517,16 @@ export const TerminalView: React.FC = () => {
   };
   const inputDisabled = live && liveStatus !== "connected";
 
+  const navigate = useDashboardStore((s) => s.setCurrentView);
+
   return (
     <div className="space-y-5">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-semibold text-[var(--product-text)]">Terminal</h1>
+          <ProductModePill live={live} detail={live ? apiOrigin.replace(/^https?:\/\//, "") : "Local simulation"} />
+        </div>
+      </header>
       {!live && (
         <div role="note" className="rounded-xl border border-amber-700/50 bg-amber-950/30 px-4 py-2 text-xs text-amber-300">
           <strong className="font-semibold">Demo mode:</strong> this terminal is a local simulation. Sign in to open a real session.
@@ -533,6 +543,16 @@ export const TerminalView: React.FC = () => {
       )}
       {live && liveError && (
         <div role="alert" className="rounded-xl border border-rose-700/50 bg-rose-950/30 px-4 py-2 text-xs text-rose-300">{liveError}</div>
+      )}
+      {live && devicesForSelect.length === 0 && (
+        <PageEmpty
+          title="No devices to open a shell on"
+          description="Enroll an agent and wait for the first heartbeat before starting a live terminal session."
+          actionLabel="Enroll a device"
+          onAction={() => navigate("devices")}
+          secondaryLabel="Open Live home"
+          onSecondary={() => navigate("live")}
+        />
       )}
 
       {/* Top Header & Breadcrumb Bar */}

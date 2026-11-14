@@ -48,6 +48,14 @@ export function LiveControlView() {
     finally { setLoading(false); }
   }, [isLive]);
   useEffect(() => { void refresh(); }, [refresh]);
+  // Poll while enrolled devices exist but none are online (first-heartbeat wait).
+  useEffect(() => {
+    if (!snapshot?.devices?.length) return;
+    const online = snapshot.devices.some((d) => String(d.status || "").toLowerCase() === "online");
+    if (online) return;
+    const id = window.setInterval(() => { void refresh(); }, 8_000);
+    return () => window.clearInterval(id);
+  }, [snapshot, refresh]);
   const signOut = async () => {
     try { await api.logout(); } catch { /* Local credentials must still be cleared if the API is offline. */ }
     clearCredentials();
@@ -144,21 +152,47 @@ export function LiveControlView() {
             {snapshot.identity.role !== "admin" && <p className="mt-2 text-xs text-[color:var(--product-text-tertiary)]">An administrator is required to change the emergency stop.</p>}
           </section>
         </ProductGlass>
-        {!snapshot.devices.length ? (
-          <PageEmpty
-            title="No devices enrolled yet"
-            description="Create an enrollment token, install an agent, then refresh this page."
-            actionLabel="Open devices"
-            onAction={() => navigate("devices")}
-            secondaryLabel="Open connections"
-            onSecondary={() => navigate("mcp-and-oauth")}
-          />
-        ) : (
-          <LiveWorkspace key={`${snapshot.identity.actor || snapshot.identity.username}:${snapshot.identity.role}`}
-            identity={`${snapshot.identity.actor || snapshot.identity.username || "operator"}:${snapshot.identity.role}`}
-            role={snapshot.identity.role || "viewer"} devices={snapshot.devices} stale={Boolean(error) || loading}
-            stopped={snapshot.health.emergency_stop} refresh={() => { void refresh(); }} />
-        )}
+        {(() => {
+          const enrolled = snapshot.devices;
+          const online = enrolled.filter((d) => String(d.status || "").toLowerCase() === "online");
+          const waiting = enrolled.length > 0 && online.length === 0;
+          if (!enrolled.length) {
+            return (
+              <PageEmpty
+                title="No devices enrolled yet"
+                description="Create an enrollment token on Devices, run the control-plane install command on the host, then return here for the first heartbeat."
+                actionLabel="Enroll a device"
+                onAction={() => navigate("devices")}
+                secondaryLabel="Open connections"
+                onSecondary={() => navigate("mcp-and-oauth")}
+              />
+            );
+          }
+          if (waiting) {
+            return (
+              <div className="space-y-4">
+                <PageEmpty
+                  title="Waiting for first heartbeat"
+                  description={`${enrolled.length} device${enrolled.length === 1 ? "" : "s"} enrolled, but none are online yet. Finish the install script on the host, then refresh — this page polls automatically.`}
+                  actionLabel="Refresh now"
+                  onAction={() => { void refresh(); }}
+                  secondaryLabel="Show install commands"
+                  onSecondary={() => navigate("devices")}
+                />
+                <LiveWorkspace key={`${snapshot.identity.actor || snapshot.identity.username}:${snapshot.identity.role}:waiting`}
+                  identity={`${snapshot.identity.actor || snapshot.identity.username || "operator"}:${snapshot.identity.role}`}
+                  role={snapshot.identity.role || "viewer"} devices={enrolled} stale={Boolean(error) || loading}
+                  stopped={snapshot.health.emergency_stop} refresh={() => { void refresh(); }} />
+              </div>
+            );
+          }
+          return (
+            <LiveWorkspace key={`${snapshot.identity.actor || snapshot.identity.username}:${snapshot.identity.role}`}
+              identity={`${snapshot.identity.actor || snapshot.identity.username || "operator"}:${snapshot.identity.role}`}
+              role={snapshot.identity.role || "viewer"} devices={enrolled} stale={Boolean(error) || loading}
+              stopped={snapshot.health.emergency_stop} refresh={() => { void refresh(); }} />
+          );
+        })()}
       </>}
       <footer lang="en" dir="ltr" className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--product-line)] pt-5">
         <p className="text-xs leading-relaxed text-[color:var(--product-text-tertiary)]">Operations Dashboard: view complete fleet telemetry, charts, and device execution.</p>

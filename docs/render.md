@@ -47,24 +47,31 @@ See `docs/MCP_CHATBOT_SETUP.md` for Claude / ChatGPT / Gemini / Grok / Cursor co
 4. Wait for the control service to become live, then check
    `https://<your-service>.onrender.com/health` — expect
    `{"status":"ok","version":"0.3.0","emergency_stop":false}`.
-5. Set `VITE_API_URL` on the dashboard static site to that control URL
-   and redeploy it, or run the dashboard locally:
+5. The Blueprint sets `VITE_API_URL` to the control service URL so the
+   static dashboard build talks to the API. If you rename the control
+   service, update `VITE_API_URL` (and the other hardcoded URLs) and
+   redeploy the dashboard. Locally:
    `cd apps/dashboard && VITE_API_URL=https://<your-service>.onrender.com npm run dev`.
 6. Ensure the control service allows the dashboard origin (Blueprint sets
    `AI_BRIDGE_CORS_ORIGINS` / `AI_BRIDGE_DASHBOARD_URL`). Without that,
    the browser blocks sign-in with “Cannot reach the control plane.”
-7. Enroll a device from the dashboard (admin token), then start a local
-   agent pointed at the Render URL:
-   `AI_BRIDGE_CONTROL_URL=https://<your-service>.onrender.com python agents/linux/agent_main.py --device-token <token> --once`.
+7. Smoke MCP after deploy:
+   `curl -H "Authorization: Bearer $AI_BRIDGE_ADMIN_TOKEN" -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' https://<control>/mcp`
+   and open `https://<control>/.well-known/oauth-authorization-server`.
+8. Enroll a device from the dashboard (admin token). Installers are
+   served from the control plane (`/install.sh`, `/install.ps1`):
+   `curl -sSL https://<control>/install.sh | bash -s -- -y --device-token <token> --control-url https://<control>`
+   Then open Live home and wait for the first heartbeat.
 
 ## Caveats for testing
 - Free web services sleep after inactivity and take a few seconds to wake.
-- Set `DATABASE_URL` on `ai-bridge-control` to a Postgres/Timescale URL
-  (`postgres://…` or `postgresql://…`, include `?sslmode=require` when
-  required). Migrations in `migrations/` run on startup. Without
+- The Blueprint provisions managed Postgres (`ai-bridge-db`, basic-256mb)
+  and wires `DATABASE_URL` via `fromDatabase`. To use external Timescale
+  instead, replace that env binding in the Render dashboard with your
+  URL (`postgres://…` / `postgresql://…`, include `?sslmode=require`
+  when required). Migrations in `migrations/` run on startup. Without
   `DATABASE_URL`, SQLite on the service disk is used and resets on redeploy.
-- Do NOT set `AI_BRIDGE_ADMIN_TOKEN` or `DATABASE_URL` in `render.yaml` or in git.
-  Both are `sync: false` secrets filled in the Render dashboard.
+- Do NOT put `AI_BRIDGE_ADMIN_TOKEN` in git. It remains `sync: false`.
 - The control plane on Render is public by URL: anyone who guesses the
   URL still needs the admin token or a user login, and device tokens
   expire in 7 days by default — but treat the admin token as the key to

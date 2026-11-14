@@ -116,6 +116,8 @@ export const ConnectionsView: React.FC = () => {
   const [copiedMcp, setCopiedMcp] = useState(false);
   const [mcpProbe, setMcpProbe] = useState<"idle" | "checking" | "ok" | "fail">("idle");
   const [mcpProbeDetail, setMcpProbeDetail] = useState("");
+  const [oauthProbe, setOauthProbe] = useState<"idle" | "checking" | "ok" | "fail">("idle");
+  const [oauthProbeDetail, setOauthProbeDetail] = useState("");
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const scrollShadow = useScrollShadow(tableScrollRef);
 
@@ -149,7 +151,10 @@ export const ConnectionsView: React.FC = () => {
       });
       if (!res.ok) {
         setMcpProbe("fail");
-        setMcpProbeDetail(`HTTP ${res.status} from ${mcpUrl}`);
+        const hint = res.status === 404
+          ? " · Ensure AI_BRIDGE_EMBED_MCP=1 on the control plane and redeploy."
+          : "";
+        setMcpProbeDetail(`HTTP ${res.status} from ${mcpUrl}${hint}`);
         return;
       }
       const body = await res.json();
@@ -158,7 +163,35 @@ export const ConnectionsView: React.FC = () => {
       setMcpProbeDetail(count ? `tools/list ok · ${count} tools` : "tools/list ok");
     } catch (err) {
       setMcpProbe("fail");
-      setMcpProbeDetail(err instanceof Error ? err.message : "MCP probe failed");
+      setMcpProbeDetail(
+        (err instanceof Error ? err.message : "MCP probe failed")
+        + " · Check CORS / VITE_API_URL and that /mcp is embedded on the control host."
+      );
+    }
+  };
+
+  const testOauthDiscovery = async () => {
+    setOauthProbe("checking");
+    setOauthProbeDetail("");
+    try {
+      const res = await fetch(oauthMetaUrl, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!res.ok) {
+        setOauthProbe("fail");
+        setOauthProbeDetail(`HTTP ${res.status} from OAuth discovery`);
+        return;
+      }
+      const body = await res.json();
+      const issuer = typeof body?.issuer === "string" ? body.issuer : "(no issuer)";
+      const reg = typeof body?.registration_endpoint === "string" ? body.registration_endpoint : "";
+      setOauthProbe("ok");
+      setOauthProbeDetail(reg ? `issuer ${issuer} · registration ready` : `issuer ${issuer}`);
+    } catch (err) {
+      setOauthProbe("fail");
+      setOauthProbeDetail(err instanceof Error ? err.message : "OAuth discovery failed");
     }
   };
 
@@ -513,8 +546,12 @@ export const ConnectionsView: React.FC = () => {
               <ProductModePill live={isLive} detail={isLive ? "MCP ready" : "Connect for live MCP"} />
             </div>
             <ProductStepProgress
-              steps={["Copy URL", "Auth", "Test tools"]}
-              current={mcpProbe === "ok" ? 2 : mcpProbe === "checking" || mcpProbe === "fail" ? 1 : 0}
+              steps={["Copy URL", "OAuth discovery", "Test tools"]}
+              current={
+                mcpProbe === "ok" ? 2
+                : oauthProbe === "ok" || mcpProbe === "checking" || mcpProbe === "fail" ? 1
+                : 0
+              }
             />
             <div className="grid gap-3 rounded-xl border border-[var(--product-line)] bg-[var(--product-canvas)]/50 p-4 text-sm sm:grid-cols-2">
               <div className="min-w-0 space-y-1">
@@ -530,6 +567,16 @@ export const ConnectionsView: React.FC = () => {
               <JXButton variant="outlined" color="neutral" size="md" onClick={() => void copyMcpUrl()}
                 startIcon={copiedMcp ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}>
                 {copiedMcp ? "Copied" : "Copy MCP URL"}
+              </JXButton>
+              <JXButton
+                variant="outlined"
+                color="neutral"
+                size="md"
+                disabled={!isLive || oauthProbe === "checking"}
+                onClick={() => void testOauthDiscovery()}
+                startIcon={<ShieldCheck className="w-4 h-4" />}
+              >
+                {oauthProbe === "checking" ? "Checking OAuth…" : "Verify OAuth discovery"}
               </JXButton>
               <MagneticButton
                 variant="solid"
@@ -548,13 +595,26 @@ export const ConnectionsView: React.FC = () => {
                 </JXButton>
               )}
             </div>
-            {mcpProbe !== "idle" && (
-              <div role="status" className="flex flex-wrap items-center gap-2 text-xs font-mono">
-                <ProductStatusDot
-                  status={mcpProbe === "ok" ? "online" : mcpProbe === "fail" ? "offline" : "idle"}
-                  pulse={mcpProbe === "ok" || mcpProbe === "checking"}
-                  label={mcpProbe === "checking" ? "Probing MCP…" : mcpProbeDetail}
-                />
+            {(oauthProbe !== "idle" || mcpProbe !== "idle") && (
+              <div className="space-y-1 text-xs font-mono">
+                {oauthProbe !== "idle" && (
+                  <div role="status">
+                    <ProductStatusDot
+                      status={oauthProbe === "ok" ? "online" : oauthProbe === "fail" ? "offline" : "idle"}
+                      pulse={oauthProbe === "ok" || oauthProbe === "checking"}
+                      label={oauthProbe === "checking" ? "Probing OAuth discovery…" : oauthProbeDetail}
+                    />
+                  </div>
+                )}
+                {mcpProbe !== "idle" && (
+                  <div role="status">
+                    <ProductStatusDot
+                      status={mcpProbe === "ok" ? "online" : mcpProbe === "fail" ? "offline" : "idle"}
+                      pulse={mcpProbe === "ok" || mcpProbe === "checking"}
+                      label={mcpProbe === "checking" ? "Probing MCP…" : mcpProbeDetail}
+                    />
+                  </div>
+                )}
               </div>
             )}
             <ol className="list-decimal space-y-1 ps-5 text-xs text-[var(--product-text-tertiary)]">
@@ -885,6 +945,21 @@ export const ConnectionsView: React.FC = () => {
               icon={<Sparkles className="w-5 h-5 text-cyan-400" />}
             />
             <JXCardContent>
+              {isLive && effectiveOAuthClients.length === 0 ? (
+                <div className="space-y-3 text-xs">
+                  <p className="text-[var(--product-text-tertiary)]">
+                    No OAuth clients registered on this control plane yet. Verify discovery above, then register chatbot clients with the setup script.
+                  </p>
+                  <pre className="overflow-x-auto rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] p-3 text-[11px] text-emerald-300 font-mono">
+{`python scripts/setup_mcp_chatbots.py \\
+  --url ${controlOrigin} \\
+  --token "$AI_BRIDGE_ADMIN_TOKEN"`}
+                  </pre>
+                  <JXButton variant="outlined" color="neutral" size="sm" onClick={() => void testOauthDiscovery()}>
+                    Re-check OAuth discovery
+                  </JXButton>
+                </div>
+              ) : (
               <div className="space-y-4 text-xs font-mono">
                 <div>
                   <label className="block text-[var(--product-text-tertiary)] mb-1">Target Client ID</label>
@@ -895,7 +970,7 @@ export const ConnectionsView: React.FC = () => {
                     className="w-full p-2.5 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)] focus:outline-none"
                   >
                     {effectiveOAuthClients.length === 0 ? (
-                      <option value="ai-agent-orchestrator-01">Default Preview Client (ai-agent-orchestrator-01)</option>
+                      <option value="ai-agent-orchestrator-01">Demo preview client</option>
                     ) : (
                       effectiveOAuthClients.map((c) => (
                         <option key={c.id} value={c.id}>
@@ -967,6 +1042,7 @@ export const ConnectionsView: React.FC = () => {
                   </JXButton>
                 </div>
               </div>
+              )}
             </JXCardContent>
           </JXCard>
         </JXGridItem>

@@ -17,6 +17,8 @@ import {
   JXBadge,
   JXButton,
   JXSelect,
+  ProductModePill,
+  ProductStatusDot,
 } from "../ui";
 import {
   Monitor,
@@ -51,6 +53,7 @@ import {
 } from "lucide-react";
 import { useDashboardStore } from "../state/dashboardStore";
 import { api, token, sessionToken } from "../api";
+import { PageEmpty } from "../components/PageEmpty";
 
 function isLiveMode(): boolean {
   return typeof window !== "undefined" && Boolean(token() || sessionToken());
@@ -140,7 +143,10 @@ export const LiveDesktopView: React.FC = () => {
   const devices = useDashboardStore((s) => s.devices);
   const selectedDeviceId = useDashboardStore((s) => s.selectedDeviceId);
   const setSelectedDeviceId = useDashboardStore((s) => s.setSelectedDeviceId);
-  const selectedDevice = devices.find((d) => d.id === selectedDeviceId) || devices[0];
+  // Never fall back to seed inventory when signed out — desktop actions require live mode.
+  const selectedDevice = isLiveMode()
+    ? (devices.find((d) => d.id === selectedDeviceId) || devices[0])
+    : undefined;
 
   // Control modes (maps to canonical session modes: view_only, human_control, ai_assisted)
   const [controlMode, setControlMode] = useState<"observer" | "takeover">("takeover");
@@ -154,7 +160,7 @@ export const LiveDesktopView: React.FC = () => {
   // Operator cursor coordinates
   const [operatorCoords, setOperatorCoords] = useState<{ x: number; y: number }>({ x: 610, y: 220 });
   const [recentMacroNotice, setRecentMacroNotice] = useState<string | null>(null);
-  const [windowsList, setWindowsList] = useState<WindowItem[]>(INITIAL_WINDOWS);
+  const [windowsList, setWindowsList] = useState<WindowItem[]>(() => (isLiveMode() ? [] : INITIAL_WINDOWS));
   const [activeWindowId, setActiveWindowId] = useState<string>("win-1");
   const [snapshotTaken, setSnapshotTaken] = useState<boolean>(false);
 
@@ -179,9 +185,9 @@ export const LiveDesktopView: React.FC = () => {
     droppedFrames: number;
     state: string;
   }>({
-    fps: 30,
-    bitrateMbps: 4.5,
-    rttMs: 12,
+    fps: 0,
+    bitrateMbps: 0,
+    rttMs: 0,
     droppedFrames: 0,
     state: "idle",
   });
@@ -1362,19 +1368,60 @@ export const LiveDesktopView: React.FC = () => {
   };
 
   const activeWindow = windowsList.find((w) => w.id === activeWindowId) || windowsList[0];
+  const live = isLiveMode();
+  const navigate = useDashboardStore((s) => s.setCurrentView);
+  const liveDevices = live ? devices : [];
+  const desktopDevice = live
+    ? (liveDevices.find((d) => d.id === selectedDeviceId) || liveDevices[0])
+    : undefined;
 
   return (
     <div className="space-y-5">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-semibold text-[var(--product-text)]">Live desktop</h1>
+          <ProductModePill live={live} detail={live ? "WebRTC control" : "Preview only"} />
+        </div>
+        {live && (
+          <ProductStatusDot
+            status={webrtcConnected ? "online" : "idle"}
+            pulse={webrtcConnected}
+            label={webrtcConnected ? "Stream connected" : "No stream"}
+          />
+        )}
+      </header>
+
+      {!live && (
+        <PageEmpty
+          demo
+          title="Desktop streaming requires a connected control plane"
+          description="Sign in to stream a real enrolled device. Demo mode does not open WebRTC or send input to hosts."
+          actionLabel="Connect server"
+          onAction={() => navigate("login")}
+          secondaryLabel="Open Live home"
+          onSecondary={() => navigate("live")}
+        />
+      )}
+
+      {live && liveDevices.length === 0 && (
+        <PageEmpty
+          title="No devices available to stream"
+          description="Enroll an agent and wait for the first heartbeat before starting a desktop session."
+          actionLabel="Enroll a device"
+          onAction={() => navigate("devices")}
+        />
+      )}
+
       {/* Top Header & Breadcrumb Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-[var(--product-line)]">
         <div className="flex items-center gap-3">
           <div className="w-72">
             <JXSelect
-              options={devices.map((d) => ({
+              options={(live ? liveDevices : []).map((d) => ({
                 id: d.id,
                 label: `${d.hostname} (${d.name})`,
               }))}
-              value={selectedDeviceId}
+              value={desktopDevice?.id || selectedDevice?.id || ""}
               onChange={(val) => setSelectedDeviceId(val)}
               searchable
               label="Device"
@@ -1402,7 +1449,7 @@ export const LiveDesktopView: React.FC = () => {
         <div className="flex items-center gap-2 font-mono text-xs">
           <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-[var(--product-text-secondary)]">
             <Activity className="w-3 h-3 text-emerald-400" />
-            <span>H.264 {webrtcStats.fps} FPS</span>
+            <span>{webrtcConnected ? `H.264 ${webrtcStats.fps} FPS` : "Stream idle"}</span>
             <span className="text-[var(--product-text-dim)]">|</span>
             <button
               type="button"
@@ -1904,7 +1951,9 @@ export const LiveDesktopView: React.FC = () => {
                   <Activity className="w-3.5 h-3.5 text-indigo-400" />
                   <span>System Performance Realtime Telemetry</span>
                 </div>
-                <span className="text-[11px] text-[var(--product-text-tertiary)]">NVENC Session active: 60.1 fps</span>
+                <span className="text-[11px] text-[var(--product-text-tertiary)]">
+                  {webrtcConnected ? `Session active · ${webrtcStats.fps} fps` : "No active encode session"}
+                </span>
               </div>
 
               <div className="grid grid-cols-4 gap-2 pt-1 font-mono">
