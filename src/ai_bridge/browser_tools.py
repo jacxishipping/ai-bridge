@@ -23,6 +23,37 @@ _context = None
 _page = None
 
 
+class BrowserToolError(RuntimeError):
+    """Playwright/browser failures with an operator-friendly message."""
+
+
+def _default_timeout_sec(fallback: int = 30) -> int:
+    raw = os.environ.get("AI_BRIDGE_BROWSER_NAV_TIMEOUT_SEC", str(fallback)).strip()
+    try:
+        return max(5, min(int(raw), 180))
+    except ValueError:
+        return fallback
+
+
+def browser_session_info() -> dict:
+    """Return whether a reusable Playwright session is active (fleet diagnostics)."""
+    alive = _page is not None and not _page.is_closed()
+    return {
+        "active": alive,
+        "has_browser": _browser is not None,
+        "default_timeout_sec": _default_timeout_sec(),
+        "sandbox": os.environ.get("AI_BRIDGE_BROWSER_SANDBOX", "1"),
+    }
+
+
+def _playwright_err(action: str, exc: Exception) -> BrowserToolError:
+    hint = (
+        "Ensure Chromium is installed (playwright install chromium) and "
+        "AI_BRIDGE_BROWSER_SANDBOX=1 on restricted hosts."
+    )
+    return BrowserToolError(f"{action} failed: {exc}. {hint}")
+
+
 def _ensure_browser(headless: bool = True) -> Any:
     """Lazy-initialize Playwright browser (Chromium). Returns the active page."""
     global _pw, _browser, _context, _page
@@ -52,16 +83,22 @@ def _ensure_browser(headless: bool = True) -> Any:
     launch_args: list[str] = []
     if os.environ.get("AI_BRIDGE_BROWSER_SANDBOX", "1").strip().lower() in ("1", "true", "yes"):
         launch_args.extend(["--no-sandbox", "--disable-setuid-sandbox"])
-    _pw = sync_playwright().start()
-    _browser = _pw.chromium.launch(headless=headless, args=launch_args or None)
-    _context = _browser.new_context(
-        viewport={"width": 1280, "height": 720},
-        user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-        ),
-    )
-    _page = _context.new_page()
+    try:
+        _pw = sync_playwright().start()
+        _browser = _pw.chromium.launch(headless=headless, args=launch_args or None)
+        _context = _browser.new_context(
+            viewport={"width": 1280, "height": 720},
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+            ),
+        )
+        _page = _context.new_page()
+        nav_timeout = _default_timeout_sec() * 1000
+        _page.set_default_navigation_timeout(nav_timeout)
+        _page.set_default_timeout(nav_timeout)
+    except Exception as exc:
+        raise _playwright_err("Browser launch", exc) from exc
     return _page
 
 
@@ -125,7 +162,8 @@ def browser_navigate(
     url: str,
     *,
     wait_until: str = "networkidle",
-    timeout: int = 30,
+    timeout: int | None = None,
+    screenshot_after_nav: bool = False,
     approval_granted: bool = False,
     policy: Policy | None = None,
 ) -> dict:
@@ -137,9 +175,16 @@ def browser_navigate(
     """
     eff_policy = policy or default_policy()
     _check("browser_navigate", approval_granted=approval_granted, policy=eff_policy)
+    eff_timeout = timeout if timeout is not None else _default_timeout_sec()
     page = _ensure_browser()
-    page.goto(url, wait_until=wait_until, timeout=timeout * 1000)
-    return {"ok": True, "action": "browser_navigate", **_page_info(page)}
+    try:
+        page.goto(url, wait_until=wait_until, timeout=eff_timeout * 1000)
+    except Exception as exc:
+        raise _playwright_err("browser_navigate", exc) from exc
+    out: dict = {"ok": True, "action": "browser_navigate", **_page_info(page), "session": browser_session_info()}
+    if screenshot_after_nav:
+        out["screenshot"] = _screenshot_page(page, full_page=False)
+    return out
 
 
 def browser_screenshot(

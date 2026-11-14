@@ -58,6 +58,20 @@ _ensure_dpi_aware()
 # to physical screen pixels.
 LAST_FRAME_SCALE: float = 1.0
 
+# Cached Set-of-Marks from the most recent set_of_marks_screenshot (mark_id -> entry).
+_LAST_SOM_MARKS: dict[str, dict[str, Any]] = {}
+_LAST_SOM_LOCK = threading.Lock()
+
+
+def get_last_som_marks() -> dict[str, dict[str, Any]]:
+    with _LAST_SOM_LOCK:
+        return dict(_LAST_SOM_MARKS)
+
+
+def clear_som_marks_cache() -> None:
+    with _LAST_SOM_LOCK:
+        _LAST_SOM_MARKS.clear()
+
 
 def default_policy() -> Policy:
     s = get_settings()
@@ -163,9 +177,69 @@ def run_linter(timeout: int = 60) -> dict:
     return {"task_id": result.task_id, "status": result.status, "output": result.output[:8000]}
 
 # --- Desktop (optional, separately permissioned) -------------------------
+def _desktop_platform_capabilities() -> dict[str, Any]:
+    """Honest per-OS desktop automation / stream / OCR capability matrix (Phase 3)."""
+    sys_name = platform.system()
+    settings = get_settings()
+    desktop_enabled = bool(settings.desktop_enabled)
+    if sys_name == "Windows":
+        from . import screen_capture
+
+        session = screen_capture.get_desktop_session_state()
+        capture_ok = not bool(session.get("capture_blocked"))
+        return {
+            "available": desktop_enabled and capture_ok,
+            "stream_available": desktop_enabled,
+            "ocr_available": desktop_enabled,
+            "som_available": desktop_enabled and sys.platform == "win32",
+            "webrtc_desktop": desktop_enabled,
+            "reason": "" if (desktop_enabled and capture_ok) else (session.get("reason") or "desktop_disabled"),
+            "session": "interactive user session required; service-as-SYSTEM is not used for desktop work",
+        }
+    if sys_name == "Linux":
+        has_gui = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+        xdo = shutil.which("xdotool") is not None
+        reason = "linux_headless_no_display" if not has_gui else ("linux_xdotool_missing" if not xdo else "")
+        if not desktop_enabled:
+            reason = reason or "desktop_disabled"
+        return {
+            "available": desktop_enabled and has_gui and xdo,
+            "stream_available": False,
+            "ocr_available": False,
+            "som_available": False,
+            "webrtc_desktop": False,
+            "reason": reason or "limited_linux_xdotool_only",
+            "session": "Linux GUI session with xdotool required for mouse/keyboard; no fleet WebRTC desktop stream.",
+        }
+    if sys_name == "Darwin":
+        reason = "" if desktop_enabled else "desktop_disabled"
+        return {
+            "available": False,
+            "stream_available": False,
+            "ocr_available": False,
+            "som_available": False,
+            "webrtc_desktop": False,
+            "reason": reason or "macos_desktop_automation_unverified",
+            "session": "macOS agent entrypoint exists; desktop stream/OCR not verified on-target.",
+        }
+    return {
+        "available": False,
+        "stream_available": False,
+        "ocr_available": False,
+        "som_available": False,
+        "webrtc_desktop": False,
+        "reason": f"unsupported_platform:{sys_name}",
+        "session": "Desktop automation not supported on this platform.",
+    }
+
+
 def get_desktop_status() -> dict:
-    return {"desktop_enabled": get_settings().desktop_enabled, "system": platform.system(),
-            "session": "interactive user session required; service-as-SYSTEM is not used for desktop work"}
+    caps = _desktop_platform_capabilities()
+    return {
+        "desktop_enabled": get_settings().desktop_enabled,
+        "system": platform.system(),
+        **caps,
+    }
 
 def _grab_windows_desktop_fallback():
     """Fallback screenshot on Windows when PIL.ImageGrab.grab() raises OSError
@@ -708,6 +782,7 @@ def mouse_click(
     *,
     approval_granted: bool = False,
     policy: Policy | None = None,
+    intent_id: str | None = None,
 ) -> dict:
     """Click the mouse at (x, y) coordinates with specified button and click count."""
     eff_policy = policy or default_policy()
@@ -723,7 +798,7 @@ def mouse_click(
     elif btn == "middle":
         act = "middle_click"
     return perform_approved_ui_action(
-        act, x=x, y=y, approval_granted=approval_granted, policy=eff_policy
+        act, x=x, y=y, approval_granted=approval_granted, policy=eff_policy, intent_id=intent_id
     )
 
 
@@ -906,13 +981,52 @@ def click_element(
     clicks: int = 1,
     approval_granted: bool = False,
     policy: Policy | None = None,
+    intent_id: str | None = None,
 ) -> dict:
     """Click a labeled mark (from set_of_marks_screenshot) or element name."""
     eff_policy = policy or default_policy()
     _check("click_element", approval_granted=approval_granted, policy=eff_policy)
-    target_text = str(mark_id) if mark_id is not None else str(name or "")
+    if intent_id and desktop_is_action_vetoed(intent_id):
+        raise PermissionError(f"Operator vetoed action (intent_id={intent_id}).")
+
+    marks = get_last_som_marks()
+    mark_key = str(mark_id).strip() if mark_id is not None else ""
+    if mark_key and mark_key in marks:
+        entry = marks[mark_key]
+        cx = int(entry.get("x") or entry.get("center", [0, 0])[0])
+        cy = int(entry.get("y") or entry.get("center", [0, 0])[1])
+        action_type = (
+            "double_click" if clicks == 2 else "triple_click" if clicks >= 3
+            else "right_click" if button == "right" else "click"
+        )
+        ui_res = perform_approved_ui_action(
+            action_type,
+            x=cx,
+            y=cy,
+            approval_granted=approval_granted,
+            policy=eff_policy,
+            intent_id=intent_id,
+        )
+        return {
+            "ok": True,
+            "action": "click_element",
+            "grounding": "som_mark",
+            "mark_id": mark_key,
+            "x": cx,
+            "y": cy,
+            "bounds": entry.get("bounds"),
+            "label": entry.get("text", ""),
+            "ui_result": ui_res,
+        }
+
+    target_text = mark_key if mark_key else str(name or "").strip()
     if not target_text:
         raise ValueError("Either 'mark_id' or 'name' must be provided to click_element.")
+    if marks:
+        raise ValueError(
+            f"mark_id {mark_key!r} not in cached SoM marks; refresh set_of_marks_screenshot "
+            f"(available ids: {', '.join(sorted(marks.keys())[:12])})."
+        )
     return click_text(target_text, button=button, clicks=clicks, approval_granted=approval_granted, policy=eff_policy)
 
 
@@ -952,6 +1066,10 @@ def set_of_marks_screenshot(
     ann_img.save(out)
     b64, mime = _encode_image_base64(ann_img)
 
+    with _LAST_SOM_LOCK:
+        _LAST_SOM_MARKS.clear()
+        _LAST_SOM_MARKS.update(marks if isinstance(marks, dict) else {})
+
     return {
         "ok": True,
         "available": True,
@@ -960,6 +1078,7 @@ def set_of_marks_screenshot(
         "mime_type": mime,
         "mark_count": len(marks),
         "marks": marks,
+        "grounding": "som_marks_cached",
     }
 
 
@@ -1794,12 +1913,21 @@ def desktop_click(
     approval_granted: bool = False,
     policy: Policy | None = None,
     device_id: str = "local",
+    intent_id: str | None = None,
 ) -> dict:
     """Click at approved coordinates."""
     _require_no_human_takeover(device_id)
     eff_policy = policy or default_policy()
     _check("desktop_click", approval_granted=approval_granted, policy=eff_policy)
-    return mouse_click(x=x, y=y, button=button, clicks=clicks, approval_granted=approval_granted, policy=eff_policy)
+    return mouse_click(
+        x=x,
+        y=y,
+        button=button,
+        clicks=clicks,
+        approval_granted=approval_granted,
+        policy=eff_policy,
+        intent_id=intent_id,
+    )
 
 
 def desktop_keyboard(
@@ -1943,12 +2071,26 @@ def desktop_verify_action(
     expected_text: str = "",
     expected_window: str = "",
     *,
+    wait_seconds: float = 0.35,
+    capture_after: bool = True,
+    intent_id: str | None = None,
     approval_granted: bool = False,
     policy: Policy | None = None,
 ) -> dict:
     """Verify whether an action succeeded by checking visible windows and/or screen OCR text."""
     eff_policy = policy or default_policy()
     _check("desktop_verify_action", approval_granted=approval_granted, policy=eff_policy)
+    if intent_id and desktop_is_action_vetoed(intent_id):
+        return {
+            "ok": False,
+            "verified": False,
+            "vetoed": True,
+            "intent_id": intent_id,
+            "error": "operator_veto",
+        }
+    settle = max(0.0, min(float(wait_seconds), 5.0))
+    if settle > 0:
+        time.sleep(settle)
     verified = True
     evidence: dict = {}
 
@@ -1974,11 +2116,24 @@ def desktop_verify_action(
         evidence["active_window"] = shot.get("active_window", "")
         verified = bool(shot.get("available"))
 
+    if capture_after:
+        post = capture_desktop_screenshot(approval_granted=approval_granted, policy=eff_policy)
+        evidence["post_action_screenshot"] = {
+            "available": bool(post.get("available")),
+            "path": post.get("path", ""),
+            "size": post.get("size"),
+            "active_window": post.get("active_window", ""),
+        }
+        if not post.get("available"):
+            verified = False
+
     return {
         "ok": True,
         "verified": verified,
+        "intent_id": intent_id or "",
         "expected_text": expected_text,
         "expected_window": expected_window,
+        "wait_seconds": settle,
         "evidence": evidence,
     }
 
@@ -1986,10 +2141,48 @@ def desktop_verify_action(
 _VETOED_INTENTS: set[str] = set()
 
 
+def _som_element_from_rect(
+    left: int,
+    top: int,
+    width: int,
+    height: int,
+    *,
+    mons: list[dict[str, Any]],
+    idx: int,
+    label: str,
+    el_type: str,
+    hwnd: int = 0,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from . import screen_capture
+
+    norm = screen_capture.normalize_bounds_for_monitor(left, top, width, height, mons)
+    row: dict[str, Any] = {
+        "id": idx,
+        "label": label,
+        "type": el_type,
+        "hwnd": hwnd,
+        "bounds": [left, top, width, height],
+        "monitor_index": norm.get("monitor_index", 0),
+        "norm_x": norm["norm_x"],
+        "norm_y": norm["norm_y"],
+        "norm_width": norm["norm_width"],
+        "norm_height": norm["norm_height"],
+        "center_x": norm["center_x"],
+        "center_y": norm["center_y"],
+        "absolute_x": norm.get("absolute_x"),
+        "absolute_y": norm.get("absolute_y"),
+    }
+    if extra:
+        row.update(extra)
+    return row
+
+
 def desktop_get_ui_elements(
     *,
     include_controls: bool = True,
     max_elements: int = 25,
+    monitor_index: int | None = None,
     approval_granted: bool = True,
     policy: Policy | None = None,
 ) -> dict:
@@ -1997,17 +2190,18 @@ def desktop_get_ui_elements(
     eff_policy = policy or default_policy()
     _check("desktop_get_windows", approval_granted=approval_granted, policy=eff_policy)
 
-    elements: list[dict[str, Any]] = []
-    screen_w, screen_h = 1920, 1080
+    from . import screen_capture
 
-    try:
-        from . import screen_capture
-        mons = screen_capture.get_monitors()
-        if mons:
-            screen_w = int(mons[0].get("width") or 1920)
-            screen_h = int(mons[0].get("height") or 1080)
-    except Exception:
-        pass
+    mons = screen_capture.get_monitors()
+    vdesk = screen_capture.get_virtual_desktop_bounds(mons)
+    screen_w = vdesk["width"]
+    screen_h = vdesk["height"]
+    if monitor_index is not None and 0 <= int(monitor_index) < len(mons):
+        m = mons[int(monitor_index)]
+        screen_w = int(m.get("width", screen_w))
+        screen_h = int(m.get("height", screen_h))
+
+    elements: list[dict[str, Any]] = []
 
     if sys.platform == "win32":
         try:
@@ -2044,25 +2238,18 @@ def desktop_get_ui_elements(
                 if w < 60 or h < 30:
                     return True
 
-                norm_x = max(0.0, min(1.0, rect.left / screen_w))
-                norm_y = max(0.0, min(1.0, rect.top / screen_h))
-                norm_w = max(0.01, min(1.0, w / screen_w))
-                norm_h = max(0.01, min(1.0, h / screen_h))
-
                 idx = len(elements) + 1
-                elements.append({
-                    "id": idx,
-                    "label": title[:40],
-                    "type": "window",
-                    "hwnd": int(hwnd),
-                    "bounds": [rect.left, rect.top, w, h],
-                    "norm_x": round(norm_x, 4),
-                    "norm_y": round(norm_y, 4),
-                    "norm_width": round(norm_w, 4),
-                    "norm_height": round(norm_h, 4),
-                    "center_x": round(norm_x + norm_w / 2.0, 4),
-                    "center_y": round(norm_y + norm_h / 2.0, 4),
-                })
+                row = _som_element_from_rect(
+                    rect.left, rect.top, w, h,
+                    mons=mons,
+                    idx=idx,
+                    label=title[:40],
+                    el_type="window",
+                    hwnd=int(hwnd),
+                )
+                if monitor_index is not None and int(row.get("monitor_index", -1)) != int(monitor_index):
+                    return True
+                elements.append(row)
                 if len(elements) >= max_elements:
                     return False
 
@@ -2089,25 +2276,18 @@ def desktop_get_ui_elements(
                         cls_name = cls_buf.value.strip()
 
                         label = c_title or cls_name or "Control"
-                        cnx = max(0.0, min(1.0, crect.left / screen_w))
-                        cny = max(0.0, min(1.0, crect.top / screen_h))
-                        cnw = max(0.01, min(1.0, cw / screen_w))
-                        cnh = max(0.01, min(1.0, ch / screen_h))
-
                         cidx = len(elements) + 1
-                        elements.append({
-                            "id": cidx,
-                            "label": label[:30],
-                            "type": cls_name.lower() or "control",
-                            "hwnd": int(chwnd),
-                            "bounds": [crect.left, crect.top, cw, ch],
-                            "norm_x": round(cnx, 4),
-                            "norm_y": round(cny, 4),
-                            "norm_width": round(cnw, 4),
-                            "norm_height": round(cnh, 4),
-                            "center_x": round(cnx + cnw / 2.0, 4),
-                            "center_y": round(cny + cnh / 2.0, 4),
-                        })
+                        crow = _som_element_from_rect(
+                            crect.left, crect.top, cw, ch,
+                            mons=mons,
+                            idx=cidx,
+                            label=label[:30],
+                            el_type=cls_name.lower() or "control",
+                            hwnd=int(chwnd),
+                        )
+                        if monitor_index is not None and int(crow.get("monitor_index", -1)) != int(monitor_index):
+                            return True
+                        elements.append(crow)
                         return len(elements) < max_elements
 
                     u.EnumChildWindows(hwnd, WNDENUMPROC(_child_cb), 0)
@@ -2148,6 +2328,8 @@ def desktop_get_ui_elements(
                 "count": 0,
                 "screen_width": screen_w,
                 "screen_height": screen_h,
+                "virtual_desktop": vdesk,
+                "monitor_index": monitor_index,
                 "elements": [],
             }
 
@@ -2156,6 +2338,9 @@ def desktop_get_ui_elements(
         "count": len(elements),
         "screen_width": screen_w,
         "screen_height": screen_h,
+        "virtual_desktop": vdesk,
+        "monitor_index": monitor_index,
+        "monitors": mons,
         "elements": elements,
     }
 

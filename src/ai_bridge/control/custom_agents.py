@@ -232,9 +232,13 @@ _AGENT_NATIVE_TOOLS: list[dict[str, Any]] = [
                 "type": "object",
                 "properties": {
                     "target_agent": {"type": "string", "description": "Target agent id or exact name."},
+                    "role": {
+                        "type": "string",
+                        "description": "Role catalog id (supervisor, planner, developer, ...) maps to agent-role-*.",
+                    },
                     "prompt": {"type": "string", "description": "Task or question for the target agent."},
                 },
-                "required": ["target_agent", "prompt"],
+                "required": ["prompt"],
             },
         },
     },
@@ -304,9 +308,17 @@ def _system_prompt(agent: dict[str, Any], devices: list[dict[str, Any]], mcp_ser
             srv_lines.append(f"- {s.get('name')} {t_summary}")
         mcp_block = f"\nConnected MCP Services (use their mcp__* tools when relevant):\n" + "\n".join(srv_lines) + "\n"
 
+    role_dev_hint = ""
+    if str(agent.get("id") or "") == "agent-role-developer":
+        role_dev_hint = (
+            "\nDeveloper workflow: call dev_workspace_plan first, edit via workspace/git tools, "
+            "git_checkpoint before risky changes, then run_project_tests_structured.\n"
+        )
+
     return (
         f"You are '{agent.get('name')}', an autonomous operator agent managed by AI Bridge.\n"
-        f"Objective:\n{agent.get('instruction')}\n\n"
+        f"Objective:\n{agent.get('instruction')}\n"
+        f"{role_dev_hint}\n"
         f"Bound devices (pass one of these ids in the `device` argument):\n{listing}\n\n"
         f"{mcp_block}"
         f"{peer_agents}"
@@ -511,25 +523,36 @@ def execute_agent(
                         if _depth >= 2:
                             result = {"ok": False, "error": "Maximum agent delegation depth (2) reached."}
                         else:
-                            target_key = str(tool_args.get("target_agent") or "").strip()
+                            from .role_catalog import ROLES
+
+                            target_key = str(tool_args.get("target_agent") or tool_args.get("role") or "").strip()
                             sub_prompt = str(tool_args.get("prompt") or "").strip()
-                            t_row = conn.execute(
-                                "SELECT * FROM custom_agents WHERE id=? OR LOWER(name)=LOWER(?) LIMIT 1",
-                                (target_key, target_key),
-                            ).fetchone()
-                            if t_row is None:
-                                result = {"ok": False, "error": f"Target agent '{target_key}' not found."}
-                            elif t_row["id"] == agent.get("id"):
-                                result = {"ok": False, "error": "Cannot delegate to self."}
+                            if not target_key:
+                                result = {"ok": False, "error": "target_agent or role is required."}
+                            elif not sub_prompt:
+                                result = {"ok": False, "error": "prompt is required."}
                             else:
-                                sub_res = execute_agent(conn, dict(t_row), tool_executor, user_prompt=sub_prompt, _depth=_depth + 1)
-                                result = {
-                                    "ok": True,
-                                    "agent_id": t_row["id"],
-                                    "agent_name": t_row["name"],
-                                    "response": sub_res.get("response"),
-                                    "steps_count": len(sub_res.get("steps") or []),
-                                }
+                                if target_key in ROLES:
+                                    target_key = f"agent-role-{target_key}"
+                                t_row = conn.execute(
+                                    "SELECT * FROM custom_agents WHERE id=? OR LOWER(name)=LOWER(?) LIMIT 1",
+                                    (target_key, target_key),
+                                ).fetchone()
+                                if t_row is None:
+                                    result = {"ok": False, "error": f"Target agent '{target_key}' not found."}
+                                elif t_row["id"] == agent.get("id"):
+                                    result = {"ok": False, "error": "Cannot delegate to self."}
+                                else:
+                                    sub_res = execute_agent(
+                                        conn, dict(t_row), tool_executor, user_prompt=sub_prompt, _depth=_depth + 1
+                                    )
+                                    result = {
+                                        "ok": True,
+                                        "agent_id": t_row["id"],
+                                        "agent_name": t_row["name"],
+                                        "response": sub_res.get("response"),
+                                        "steps_count": len(sub_res.get("steps") or []),
+                                    }
                     elif tool_name == "agent_run_workflow":
                         wf_name = str(tool_args.get("name") or f"Agent Workflow ({agent.get('name')})").strip()
                         wf_steps = tool_args.get("steps") if isinstance(tool_args.get("steps"), list) else []

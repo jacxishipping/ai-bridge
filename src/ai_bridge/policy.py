@@ -120,11 +120,21 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "browser_select_option": RiskTier.SENSITIVE,
     "browser_download_file": RiskTier.SENSITIVE,
     "browserbase_create_session": RiskTier.SENSITIVE,
+    "browserbase_navigate": RiskTier.SENSITIVE,
     "browserbase_end_session": RiskTier.READ_ONLY,
+    "browser_session_info": RiskTier.READ_ONLY,
     "you_web_search": RiskTier.READ_ONLY,
     "you_fetch_contents": RiskTier.READ_ONLY,
+    "firecrawl_scrape": RiskTier.READ_ONLY,
+    "firecrawl_search": RiskTier.READ_ONLY,
+    "firecrawl_map_site": RiskTier.READ_ONLY,
+    "workspace_project_structure": RiskTier.READ_ONLY,
+    "dev_workspace_plan": RiskTier.READ_ONLY,
+    "run_project_tests_structured": RiskTier.LOW_RISK,
     "git_create_branch": RiskTier.SENSITIVE,
     "git_checkpoint": RiskTier.SENSITIVE,
+    "git_apply_patch": RiskTier.SENSITIVE,
+    "supervisor_delegate_role": RiskTier.READ_ONLY,
 }
 
 @dataclass(frozen=True)
@@ -134,7 +144,7 @@ class Policy:
     allow_tier3: bool = False
     allowed_services: frozenset[str] = frozenset()
     allowed_apps: frozenset[str] = frozenset()
-    allowed_test_commands: frozenset[str] = frozenset({"pytest", "npm test", "go test"})
+    allowed_test_commands: frozenset[str] = frozenset({"pytest", "pytest -q", "npm test", "go test"})
     desktop_enabled: bool = False
     max_tier_unattended: int = 2  # unattended execution ceiling
     allowed_tools: frozenset[str] | None = None  # None means all valid tools permitted unless denied

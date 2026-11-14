@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
 
-from .security import confined_path, truncate_output
+from pathlib import Path
+
+from .security import confined_path, truncate_output, workspace_root
 
 
 def _git(relative_directory: str, *args: str) -> str:
@@ -41,6 +44,37 @@ def git_commit(relative_directory: str, message: str) -> str:
     if staged.startswith("unavailable"):
         return staged
     return _git(relative_directory, "commit", "-m", message[:500])
+
+
+def git_apply_patch(relative_directory: str, patch_text: str, *, check_only: bool = False) -> dict:
+    """Apply a unified diff inside the workspace via git apply (no shell interpolation)."""
+    patch_text = (patch_text or "").strip()
+    if not patch_text:
+        raise ValueError("patch_text is required.")
+    directory = confined_path(relative_directory)
+    if not directory.is_dir():
+        raise ValueError("Directory does not exist inside the workspace.")
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        suffix=".patch",
+        delete=False,
+        dir=str(workspace_root()),
+    ) as tmp:
+        tmp.write(patch_text)
+        patch_path = tmp.name
+    try:
+        args = ["apply", "--whitespace=nowarn", patch_path]
+        if check_only:
+            args.insert(1, "--check")
+        out = _git(relative_directory, *args)
+    finally:
+        try:
+            Path(patch_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+    ok = not out.startswith("unavailable") and "error" not in out.lower()
+    return {"ok": ok, "check_only": check_only, "output": out}
 
 
 def git_checkpoint(relative_directory: str = ".", message: str = "ai-bridge checkpoint") -> dict:
