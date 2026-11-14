@@ -47,16 +47,51 @@ bool ParseUrl(const std::string& url, bool* https, std::wstring* host, INTERNET_
 }
 
 std::string JsonGetString(const std::string& json, const std::string& key) {
+    // Locate `"key": "..."` and unescape JSON string escapes so SDP newlines
+    // (a=ice-ufrag / a=ice-pwd) survive into libdatachannel.
     const std::string needle = "\"" + key + "\"";
-    auto pos = json.find(needle);
-    if (pos == std::string::npos) return "";
-    pos = json.find(':', pos);
-    if (pos == std::string::npos) return "";
-    pos = json.find('"', pos);
-    if (pos == std::string::npos) return "";
-    auto end = json.find('"', pos + 1);
-    if (end == std::string::npos) return "";
-    return json.substr(pos + 1, end - pos - 1);
+    size_t search = 0;
+    while (search < json.size()) {
+        auto pos = json.find(needle, search);
+        if (pos == std::string::npos) return "";
+        size_t after = pos + needle.size();
+        while (after < json.size() && (json[after] == ' ' || json[after] == '\t')) ++after;
+        if (after >= json.size() || json[after] != ':') {
+            search = pos + 1;
+            continue;
+        }
+        ++after;
+        while (after < json.size() && (json[after] == ' ' || json[after] == '\t' || json[after] == '\n' || json[after] == '\r')) {
+            ++after;
+        }
+        if (after >= json.size() || json[after] != '"') return "";
+        ++after;
+        std::string out;
+        out.reserve(256);
+        while (after < json.size()) {
+            char c = json[after++];
+            if (c == '"') return out;
+            if (c == '\\' && after < json.size()) {
+                char e = json[after++];
+                switch (e) {
+                    case 'n': out.push_back('\n'); break;
+                    case 'r': out.push_back('\r'); break;
+                    case 't': out.push_back('\t'); break;
+                    case '"': out.push_back('"'); break;
+                    case '\\': out.push_back('\\'); break;
+                    case '/': out.push_back('/'); break;
+                    case 'u':
+                        if (after + 4 <= json.size()) after += 4;
+                        break;
+                    default: out.push_back(e); break;
+                }
+            } else {
+                out.push_back(c);
+            }
+        }
+        return out;
+    }
+    return "";
 }
 
 } // namespace

@@ -33,13 +33,13 @@ jobs:
         with: { python-version: "3.12" }
       - name: Install Python package
         run: pip install -e ".[dev]"
-      - name: Configure C++ agent with libdatachannel
+      - name: Configure C++ agent with libdatachannel (Mbed TLS, no system OpenSSL)
         working-directory: windows-agent
         run: |
-          cmake -B build -DAIBRIDGE_WITH_LIBDATACHANNEL=ON -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -DAIBRIDGE_WITH_LIBDATACHANNEL=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release
       - name: Build desktop agent
         working-directory: windows-agent
-        run: cmake --build build --config Release --target ai_bridge_desktop
+        run: cmake --build build --config Release --target ai_bridge_desktop -- /m
       - name: Native PeerConnection ↔ plane E2E harness
         env:
           AIBRIDGE_DESKTOP_EXE: ${{ github.workspace }}\windows-agent\build\Release\ai_bridge_desktop.exe

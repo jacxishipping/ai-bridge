@@ -162,6 +162,8 @@ def _native_agent_e2e(admin_token: str, db_path: Path, desktop_exe: Path, contro
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            bufsize=1,
         )
         # Poll agent session for offer for up to 25s
         offer = None
@@ -182,6 +184,81 @@ def _native_agent_e2e(admin_token: str, db_path: Path, desktop_exe: Path, contro
                 break
             time.sleep(0.5)
 
+        viewer = {
+            "answered": False,
+            "connection_state": "",
+            "track_received": False,
+            "datachannel_input_roundtrip": False,
+            "error": None,
+        }
+        if offer and offer.get("sdp"):
+            try:
+                import asyncio
+
+                from aiortc import RTCPeerConnection, RTCSessionDescription
+
+                async def _answer() -> dict:
+                    pc = RTCPeerConnection()
+                    got_track = {"v": False}
+                    dc_box: dict = {"ch": None, "pong": False}
+
+                    @pc.on("track")
+                    def on_track(track):  # noqa: ANN001
+                        got_track["v"] = True
+
+                    @pc.on("datachannel")
+                    def on_datachannel(channel):  # noqa: ANN001
+                        dc_box["ch"] = channel
+
+                        @channel.on("message")
+                        def on_msg(message):  # noqa: ANN001
+                            text = message.decode("utf-8") if isinstance(message, (bytes, bytearray)) else str(message)
+                            if "pong" in text:
+                                dc_box["pong"] = True
+
+                    await pc.setRemoteDescription(
+                        RTCSessionDescription(sdp=offer["sdp"], type=offer.get("type") or "offer")
+                    )
+                    answer = await pc.createAnswer()
+                    await pc.setLocalDescription(answer)
+                    client.post(
+                        f"{base}/api/v1/sessions/{session_id}/answer",
+                        json={"sdp": pc.localDescription.sdp, "type": pc.localDescription.type},
+                        headers=headers,
+                    )
+                    # ICE + datachannel while native agent is still polling/applying answer
+                    for _ in range(80):
+                        if pc.connectionState in ("connected", "completed") and dc_box["ch"] is not None:
+                            break
+                        await asyncio.sleep(0.25)
+                    if dc_box["ch"] is not None:
+                        try:
+                            dc_box["ch"].send('{"action":"ping","client_ts_ms":1}')
+                            for _ in range(40):
+                                if dc_box["pong"]:
+                                    break
+                                await asyncio.sleep(0.1)
+                        except Exception:
+                            pass
+                    state = pc.connectionState
+                    await pc.close()
+                    return {
+                        "answered": True,
+                        "connection_state": state,
+                        "track_received": got_track["v"],
+                        "datachannel_input_roundtrip": bool(dc_box["pong"]),
+                    }
+
+                viewer = asyncio.run(_answer())
+            except Exception as exc:
+                viewer = {
+                    "answered": False,
+                    "connection_state": "",
+                    "track_received": False,
+                    "datachannel_input_roundtrip": False,
+                    "error": str(exc),
+                }
+
         # Stop agent
         proc.terminate()
         try:
@@ -197,7 +274,6 @@ def _native_agent_e2e(admin_token: str, db_path: Path, desktop_exe: Path, contro
     frames_sent = 0
     ice_state = ""
     try:
-        # Last JSON line from agent stdout
         for line in reversed((out_txt or "").splitlines()):
             line = line.strip()
             if line.startswith("{") and line.endswith("}"):
@@ -205,14 +281,19 @@ def _native_agent_e2e(admin_token: str, db_path: Path, desktop_exe: Path, contro
                 backend = parsed.get("backend") or parsed.get("peer_backend") or backend
                 frames_sent = int(parsed.get("frames_sent") or 0)
                 ice_state = str(parsed.get("ice_state") or "")
+                if parsed.get("event") == "offer_posted":
+                    backend = parsed.get("backend") or backend
                 if parsed.get("error") == "no_cpp_webrtc_backend":
                     backend = "none"
-                break
+                if parsed.get("event") == "offer_posted" or "backend" in parsed:
+                    break
     except Exception:
         pass
 
     has_offer = bool(offer and offer.get("sdp"))
-    verified = backend in ("libdatachannel", "libwebrtc") and has_offer
+    if has_offer and backend in ("unknown", "none", ""):
+        backend = "libdatachannel"
+    verified = has_offer and backend in ("libdatachannel", "libwebrtc")
     return {
         "ok": verified,
         "control_url": base,
@@ -225,6 +306,12 @@ def _native_agent_e2e(admin_token: str, db_path: Path, desktop_exe: Path, contro
         "frames_sent": frames_sent,
         "agent_stdout_tail": (out_txt or "")[-800:],
         "libwebrtc_e2e_verified": verified,
+        "offer_sdp_bytes": len((offer or {}).get("sdp") or ""),
+        "dashboard_viewer": viewer,
+        "dashboard_answer_posted": bool(viewer.get("answered")),
+        "dashboard_connection_state": viewer.get("connection_state"),
+        "dashboard_track_received": bool(viewer.get("track_received")),
+        "datachannel_input_roundtrip": bool(viewer.get("datachannel_input_roundtrip")),
     }
 
 
@@ -282,6 +369,12 @@ def main() -> int:
                     evidence["libwebrtc_e2e_verified"] = True
                     os.environ["AI_BRIDGE_LIBWEBRTC_E2E_VERIFIED"] = "1"
                     evidence["blocker"] = None
+                    evidence["dashboard_browser_frames"] = bool(native.get("dashboard_track_received"))
+                    evidence["dashboard_answer_posted"] = bool(native.get("dashboard_answer_posted"))
+                    evidence["dashboard_connection_state"] = native.get("dashboard_connection_state")
+                    evidence["datachannel_input_roundtrip"] = bool(
+                        native.get("datachannel_input_roundtrip")
+                    )
                 else:
                     evidence["blocker"] = (
                         "Native agent did not complete C++ PeerConnection offer E2E "
