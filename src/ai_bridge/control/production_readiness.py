@@ -26,6 +26,10 @@ def turn_credentials_configured() -> bool:
     return False
 
 
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes")
+
+
 def assess_production_readiness(conn: Any) -> dict[str, Any]:
     """Return checklist items; ``ok`` is False when critical prod issues exist."""
     from . import plane_state
@@ -47,8 +51,58 @@ def assess_production_readiness(conn: Any) -> dict[str, Any]:
         issues.append(
             {
                 "code": "admin_token_unset",
+                "severity": "critical",
+                "message": "AI_BRIDGE_ADMIN_TOKEN is required in production (legacy admin / quick-approval HMAC).",
+            }
+        )
+
+    if prod and _truthy_env("AI_BRIDGE_HTTP_ALLOW_ANON"):
+        issues.append(
+            {
+                "code": "anon_mcp_enabled",
+                "severity": "critical",
+                "message": "AI_BRIDGE_HTTP_ALLOW_ANON=1 is not allowed in production.",
+            }
+        )
+
+    public_base = os.environ.get("AI_BRIDGE_PUBLIC_BASE_URL", "").strip()
+    if prod and public_base.lower().startswith("http://"):
+        issues.append(
+            {
+                "code": "public_base_url_http",
+                "severity": "critical",
+                "message": "AI_BRIDGE_PUBLIC_BASE_URL must use https:// in production (TLS at the proxy).",
+            }
+        )
+    elif prod and not public_base:
+        issues.append(
+            {
+                "code": "tls_termination_documented",
                 "severity": "warning",
-                "message": "AI_BRIDGE_ADMIN_TOKEN is unset; legacy admin auth is disabled or weak.",
+                "message": "Set AI_BRIDGE_PUBLIC_BASE_URL to your https:// public origin; TLS terminates at the reverse proxy.",
+            }
+        )
+
+    browser_isolation: dict[str, Any] = {}
+    chromium_sandbox = True
+    try:
+        from ai_bridge import browser_tools
+
+        browser_isolation = browser_tools.browser_isolation_report()
+        chromium_sandbox = not browser_tools._allow_browser_no_sandbox()
+        browser_isolation = {**browser_isolation, "chromium_sandbox": chromium_sandbox}
+    except Exception as exc:
+        browser_isolation = {"error": str(exc), "chromium_sandbox": None}
+
+    if prod and chromium_sandbox is False and not _truthy_env("AI_BRIDGE_ALLOW_UNSAFE_BROWSER"):
+        issues.append(
+            {
+                "code": "browser_sandbox_disabled",
+                "severity": "critical",
+                "message": (
+                    "Chromium sandbox is disabled (AI_BRIDGE_ALLOW_BROWSER_NO_SANDBOX). "
+                    "Unset it, or set AI_BRIDGE_ALLOW_UNSAFE_BROWSER=1 to acknowledge risk."
+                ),
             }
         )
 
@@ -68,6 +122,14 @@ def assess_production_readiness(conn: Any) -> dict[str, Any]:
     from . import durable_ratelimit as drl
 
     rate_backend = drl.backend_name(conn)
+    if prod and str(rate_backend).lower() in ("memory", "mem", "inmemory", "local"):
+        issues.append(
+            {
+                "code": "rate_limit_memory_backend",
+                "severity": "warning",
+                "message": f"Rate-limit backend is '{rate_backend}'; use Redis/DB for multi-worker production.",
+            }
+        )
 
     critical = [i for i in issues if i["severity"] == "critical"]
     return {
@@ -76,5 +138,6 @@ def assess_production_readiness(conn: Any) -> dict[str, Any]:
         "turn_configured": turn_credentials_configured(),
         "emergency_stop_durable": emergency_stop_durable,
         "rate_limit_backend": rate_backend,
+        "browser_isolation": browser_isolation,
         "issues": issues,
     }

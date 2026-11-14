@@ -8,9 +8,13 @@ login, like device tokens.
 Roles: viewer (read) < operator (submit/cancel tasks) < admin (everything).
 The legacy shared admin token (AI_BRIDGE_ADMIN_TOKEN) still works as an
 admin credential for backwards compatibility, unless
-AI_BRIDGE_DISABLE_LEGACY_ADMIN_TOKEN=1 is set. Local accounts are the
-interim step: a real OIDC provider integration is the next item (see
-docs/security.md) and is NOT claimed here — there is no fake OIDC flow.
+AI_BRIDGE_DISABLE_LEGACY_ADMIN_TOKEN=1 is set.
+
+OIDC login is implemented on the control plane (`/api/auth/oidc/*` via
+`control/oidc.py` + `app.py`) and activates when `AI_BRIDGE_OIDC_*` provider
+env is configured. This module owns local passwords/sessions only — not the
+OIDC HTTP routes. Device mTLS remains a reverse-proxy residual (see
+docs/threat-model.md).
 """
 from __future__ import annotations
 

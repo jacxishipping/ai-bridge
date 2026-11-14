@@ -94,9 +94,17 @@ def _rate_limit(key: str, limit: int = 120, window: int = 60, conn: Any | None =
 
 
 def make_quick_sig(admin_token: str | None, approval_id: str, decision: str) -> str:
-    secret = (admin_token or "ai-bridge-secret").encode("utf-8")
+    from . import production_readiness as prodready
+
+    secret = (admin_token or os.environ.get("AI_BRIDGE_ADMIN_TOKEN") or "").strip()
+    if not secret:
+        if prodready.is_production_profile():
+            raise ValueError(
+                "Quick approval signature requires AI_BRIDGE_ADMIN_TOKEN (or admin_token) in production."
+            )
+        secret = "ai-bridge-secret"
     msg = f"{approval_id}:{decision}".encode("utf-8")
-    return hmac.new(secret, msg, hashlib.sha256).hexdigest()[:32]
+    return hmac.new(secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()[:32]
 
 
 def send_webhook_notification(
@@ -936,7 +944,12 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 "production_checklist": checklist,
             }
             if prodready.is_production_profile() and not checklist.get("ok"):
-                raise HTTPException(status_code=503, detail=body)
+                # Unauthenticated readiness must not dump the full checklist.
+                codes = [str(i.get("code") or "") for i in (checklist.get("issues") or []) if i.get("code")]
+                raise HTTPException(
+                    status_code=503,
+                    detail={"ok": False, "status": "not_ready", "codes": codes},
+                )
             return body
         except HTTPException:
             raise
@@ -1943,11 +1956,20 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         enriched = []
         for r in rows:
             d = dict(r)
-            payload = f"{prev_h}|{d.get('id')}|{d.get('ts')}|{d.get('actor')}|{d.get('device_id')}|{d.get('tool')}|{d.get('args_json')}|{d.get('decision')}"
-            cur_h = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-            d["prev_hash"] = prev_h
-            d["hash"] = cur_h
-            prev_h = cur_h
+            stored_prev = d.get("prev_hash")
+            stored_entry = d.get("entry_hash")
+            if stored_prev and stored_entry:
+                d["prev_hash"] = stored_prev
+                d["hash"] = stored_entry
+                d["entry_hash"] = stored_entry
+                prev_h = stored_entry
+            else:
+                payload = f"{prev_h}|{d.get('id')}|{d.get('ts')}|{d.get('actor')}|{d.get('device_id')}|{d.get('tool')}|{d.get('args_json')}|{d.get('decision')}"
+                cur_h = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+                d["prev_hash"] = prev_h
+                d["hash"] = cur_h
+                d["entry_hash"] = cur_h
+                prev_h = cur_h
             enriched.append(d)
         return list(reversed(enriched))
 
