@@ -1,7 +1,10 @@
 # AI Bridge - Locked dependencies
 # Generated from pyproject.toml. Update with: pip-compile pyproject.toml
 # or: pip freeze > requirements.txt
-ai-bridge==0.3.0
+#
+# Install the local package (not published to PyPI). Render and other hosts
+# that run `pip install -r requirements.txt` need this editable install.
+-e .
 mcp>=1.6.0,<2.0.0
 fastapi>=0.110
 uvicorn>=0.29
