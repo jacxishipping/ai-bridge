@@ -1505,7 +1505,10 @@ def wait_for_text(
     interval = max(0.2, min(float(poll_interval), 5.0))
     attempts = 0
 
+    from .control.task_runtime import cooperative_sleep, raise_if_cancelled
+
     while True:
+        raise_if_cancelled()
         attempts += 1
         shot_res = capture_desktop_screenshot(approval_granted=approval_granted, policy=eff_policy)
         img_path = shot_res.get("path") if shot_res.get("available") else None
@@ -1535,7 +1538,7 @@ def wait_for_text(
                 "error": f"Timeout waiting for text '{text}' on screen after {elapsed}s.",
             }
         rem = deadline - now
-        time.sleep(min(interval, rem))
+        cooperative_sleep(min(interval, rem), interval=0.25)
 
 
 def verify_screen_contains(

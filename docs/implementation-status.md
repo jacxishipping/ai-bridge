@@ -56,3 +56,14 @@ Not implemented / documented only:
   frames until WASAPI loopback is production-ready). Covered by `tests/unit/test_phase9_deep.py`.
 - Canonical session API is `POST /api/v1/sessions`; legacy device WebRTC session routes return
   `Deprecation` headers. Native C++ libwebrtc E2E remains an out-of-repo residual.
+
+## ServerAI MCP + orchestration (latency / reliability)
+- MCP → control plane uses a **process-wide keep-alive `httpx.Client`** in `device_routing.py`
+  (no per-call client); `run_device_tool` relies on `?wait=` long-poll (no extra sleep) and can
+  abort via `should_abort` → `cancel_device_task`. Responses include `queue_ms` / `exec_ms`.
+- Short TTL cache on OAuth verify (token hash → device_id) when not using the in-process verify hook.
+- Agents keep HTTP claim (`GET /api/agent/tasks/next`) as lease source of truth; optional
+  **`WS /api/agent/ws`** side-channel pushes `task_available` / `cancel` / `emergency_stop`
+  (`agent_channel.py` + poller `start_side_channel`). HTTP long-poll remains the fallback.
+- Cooperative cancel deepened on shell (`_run_argv`), `wait_for_text`, and sliced
+  `browser_wait_for_selector` waits. Tests: `tests/unit/test_serverai_mcp_orchestration.py`.

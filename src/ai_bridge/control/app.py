@@ -31,7 +31,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 
 import httpx
 
-from fastapi import Body, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Body, FastAPI, Header, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -41,6 +41,7 @@ from .. import tools
 from .. import terminal_manager
 from ..policy import Policy, TOOL_TIERS
 from ..security import redact, redact_obj
+from . import agent_channel
 from . import alerts as alertsmod
 from . import auth as authmod
 from . import metrics as metricsmod
@@ -650,9 +651,15 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     task_cond = threading.Condition()
     app.state.task_cond = task_cond
 
-    def notify_tasks() -> None:
+    def notify_tasks(device_id: str | None = None, task_id: str | None = None, *, cancel: bool = False) -> None:
         with task_cond:
             task_cond.notify_all()
+        if not device_id:
+            return
+        if cancel and task_id:
+            agent_channel.notify_cancel(device_id, task_id)
+        elif not cancel:
+            agent_channel.notify_task_available(device_id, task_id)
 
     def get_webhook_url() -> str:
         row = conn.execute("SELECT value FROM settings WHERE key='webhook_url'").fetchone()
@@ -1491,7 +1498,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                          (task_id, body.device_id, body.tenant, body.tool, json.dumps(body.args), tier.value, status, approval_id, dbmod.now(), dbmod.now()))
         audit(actor, body.device_id, body.tool, body.args, status, tenant=body.tenant)
         if status == "queued":
-            notify_tasks()
+            notify_tasks(body.device_id, task_id)
         elif status == "needs_approval":
             wh_url = get_webhook_url()
             if wh_url:
@@ -1549,7 +1556,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             return {"task_id": task_id, "status": row["status"]}
         conn.execute("UPDATE tasks SET status='cancelled', updated_at=? WHERE id=?", (dbmod.now(), task_id))
         conn.commit()
-        notify_tasks()
+        notify_tasks(row["device_id"], task_id, cancel=True)
         audit("admin", row["device_id"], "cancel_task", {"task_id": task_id}, "allowed")
         return {"task_id": task_id, "status": "cancelled"}
 
@@ -1677,11 +1684,17 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             raise HTTPException(status_code=409, detail="Approval has expired.")
         now = dbmod.now()
         conn.execute("UPDATE approvals SET status=?, decided_by=?, decided_at=? WHERE id=? AND status='pending'", (body.decision, actor, now, approval_id))
+        device_id = None
         if row["task_id"]:
             new_status = "queued" if body.decision == "approved" else "cancelled"
             conn.execute("UPDATE tasks SET status=?, updated_at=? WHERE id=?", (new_status, now, row["task_id"]))
+            trow = conn.execute("SELECT device_id FROM tasks WHERE id=?", (row["task_id"],)).fetchone()
+            device_id = trow["device_id"] if trow else None
         conn.commit()
-        notify_tasks()
+        if device_id and row["task_id"]:
+            notify_tasks(device_id, row["task_id"], cancel=(body.decision != "approved"))
+        else:
+            notify_tasks()
         audit(actor, "", "decide_approval", {"approval_id": approval_id, "decision": body.decision, "reason": body.reason}, "allowed")
         return {"approval_id": approval_id, "status": body.decision, "decided_by": actor, "decided_at": now}
 
@@ -1938,6 +1951,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         app.state.emergency_stop = True
         plane_state.set_emergency_stop(conn, True)
         notify_tasks()
+        agent_channel.notify_emergency_stop(True)
         audit(actor, "", "emergency_stop", {}, "allowed")
         alertsmod.dispatch_alert("emergency_stop", "critical", "EMERGENCY STOP ACTIVATED", {"actor": actor})
         return {"emergency_stop": True}
@@ -1948,6 +1962,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         app.state.emergency_stop = False
         plane_state.set_emergency_stop(conn, False)
         notify_tasks()
+        agent_channel.notify_emergency_stop(False)
         audit("admin", "", "emergency_stop_clear", {}, "allowed")
         return {"emergency_stop": False}
 
@@ -4167,6 +4182,67 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         # validating a token never makes a device look freshly seen.
         row = device_row(x_device_token)
         return {"device_id": row["id"]}
+
+    @app.websocket("/api/agent/ws")
+    async def agent_ws(websocket: WebSocket):
+        """Persistent wake/cancel side-channel for outbound agents.
+
+        Auth: ``X-Device-Token`` header or ``?token=`` query (agents only).
+        HTTP ``/api/agent/tasks/next`` remains the lease/claim path.
+        """
+        token = websocket.headers.get("x-device-token") or websocket.query_params.get("token")
+        try:
+            row = device_row(token)
+        except HTTPException as exc:
+            await websocket.close(code=4401, reason=str(exc.detail)[:120])
+            return
+        await websocket.accept()
+        try:
+            agent_channel.bind_event_loop(asyncio.get_running_loop())
+        except RuntimeError:
+            pass
+        device_id = row["id"]
+        agent_channel.register(device_id, websocket)
+        plane_state.sync_emergency_stop_to_app(conn, app.state)
+        try:
+            await websocket.send_json(
+                {
+                    "type": "hello",
+                    "device_id": device_id,
+                    "emergency_stop": plane_state.is_emergency_stop(conn, app.state),
+                }
+            )
+            while True:
+                try:
+                    msg = await asyncio.wait_for(websocket.receive_json(), timeout=45.0)
+                except asyncio.TimeoutError:
+                    await websocket.send_json({"type": "ping", "ts": time.time()})
+                    continue
+                except WebSocketDisconnect:
+                    break
+                if not isinstance(msg, dict):
+                    continue
+                mtype = str(msg.get("type") or "")
+                if mtype in {"pong", "heartbeat"}:
+                    conn.execute(
+                        "UPDATE devices SET status='online', last_seen=? WHERE id=?",
+                        (dbmod.now(), device_id),
+                    )
+                    conn.commit()
+                    await websocket.send_json(
+                        {
+                            "type": "heartbeat_ok",
+                            "emergency_stop": plane_state.is_emergency_stop(conn, app.state),
+                        }
+                    )
+                elif mtype == "ping":
+                    await websocket.send_json({"type": "pong", "ts": time.time()})
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            pass
+        finally:
+            agent_channel.unregister(device_id, websocket)
 
     @app.get("/api/agent/policy")
     def get_agent_policy(x_device_token: str | None = Header(default=None)):

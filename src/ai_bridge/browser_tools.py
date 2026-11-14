@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import os
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -542,10 +543,31 @@ def browser_wait_for_selector(
     timeout: Maximum seconds to wait.
     state: 'visible', 'hidden', 'attached', or 'detached'.
     """
+    from .control.task_runtime import TaskCancelled, raise_if_cancelled
+
     eff_policy = policy or default_policy()
     _check("browser_wait_for_selector", approval_granted=approval_granted, policy=eff_policy)
     page = _ensure_browser()
-    page.locator(selector).first.wait_for(state=state, timeout=timeout * 1000)
+    # Slice Playwright waits so fleet cancel can interrupt long selector polls.
+    deadline = time.time() + max(0.5, float(timeout))
+    last_exc: Exception | None = None
+    while True:
+        raise_if_cancelled()
+        rem_ms = int(max(0.0, deadline - time.time()) * 1000)
+        if rem_ms <= 0:
+            if last_exc is not None:
+                raise last_exc
+            raise TimeoutError(f"Timeout waiting for selector {selector!r} (state={state})")
+        slice_ms = min(500, rem_ms)
+        try:
+            page.locator(selector).first.wait_for(state=state, timeout=slice_ms)
+            break
+        except TaskCancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001 — retry until overall deadline
+            last_exc = exc
+            if time.time() >= deadline:
+                raise
     return {
         "ok": True,
         "action": "browser_wait_for_selector",

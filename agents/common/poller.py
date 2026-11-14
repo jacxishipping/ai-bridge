@@ -130,6 +130,13 @@ class Poller:
         spool_path = self.token_file.parent / "agent_spool.db" if self.token_file else None
         self.spooler = TaskSpooler(spool_path)
         self.backoff = 2.0
+        self._wake = threading.Event()
+        self._ws_cancel_task_id: str | None = None
+        self._ws_cancel_lock = threading.Lock()
+        self._ws_connected = threading.Event()
+        self._ws_stop = threading.Event()
+        self._active_cancel_event: threading.Event | None = None
+        self._ws_thread: threading.Thread | None = None
 
     def _req(self, method: str, path: str, payload: dict | None = None, timeout: int = 15) -> dict:
         data = json.dumps(payload).encode() if payload is not None else None
@@ -316,10 +323,20 @@ class Poller:
             return {"task": None, "emergency_stop": nxt.get("emergency_stop", False)}
         task_id = task["id"]
         cancel_stop = threading.Event()
+        self._active_cancel_event = cancel_stop
+        with self._ws_cancel_lock:
+            if self._ws_cancel_task_id == task_id:
+                cancel_stop.set()
+                self._ws_cancel_task_id = None
 
         def _cancelled() -> bool:
             if cancel_stop.is_set():
                 return True
+            with self._ws_cancel_lock:
+                if self._ws_cancel_task_id == task_id:
+                    cancel_stop.set()
+                    self._ws_cancel_task_id = None
+                    return True
             try:
                 st = self._req("GET", f"/api/agent/tasks/{task_id}/execution-state", timeout=8)
                 if st.get("emergency_stop"):
@@ -358,6 +375,7 @@ class Poller:
             status, text = "failed", f"{type(exc).__name__}: {exc}"
         finally:
             cancel_stop.set()
+            self._active_cancel_event = None
             poll_thread.join(timeout=2.0)
             clear_execution_context()
         # Persist locally in spool before transmission
@@ -370,16 +388,118 @@ class Poller:
         self.backoff = 2.0
         return {"task": task_id, "status": status}
 
+    def _handle_ws_message(self, msg: dict) -> None:
+        from ai_bridge.plane_control_flags import set_emergency_stop
+
+        mtype = str(msg.get("type") or "")
+        if mtype == "task_available":
+            self._wake.set()
+        elif mtype == "cancel":
+            tid = str(msg.get("task_id") or "")
+            with self._ws_cancel_lock:
+                self._ws_cancel_task_id = tid or self._ws_cancel_task_id
+            if self._active_cancel_event is not None:
+                self._active_cancel_event.set()
+            if msg.get("emergency_stop"):
+                set_emergency_stop(True)
+            self._wake.set()
+        elif mtype == "emergency_stop":
+            set_emergency_stop(bool(msg.get("active")))
+            if msg.get("active") and self._active_cancel_event is not None:
+                self._active_cancel_event.set()
+            self._wake.set()
+        elif mtype == "hello":
+            set_emergency_stop(bool(msg.get("emergency_stop")))
+
+    def _ws_loop(self) -> None:
+        """Best-effort wake/cancel side-channel; HTTP claim remains authoritative."""
+        try:
+            from websockets.sync.client import connect as ws_connect
+        except Exception:
+            print(f"[{time.strftime('%H:%M:%S')}] Agent WS unavailable (install websockets); HTTP poll only.", flush=True)
+            return
+        base = self.control_url
+        if base.startswith("https://"):
+            ws_url = "wss://" + base[len("https://") :] + "/api/agent/ws"
+        elif base.startswith("http://"):
+            ws_url = "ws://" + base[len("http://") :] + "/api/agent/ws"
+        else:
+            ws_url = base.rstrip("/") + "/api/agent/ws"
+        backoff = 2.0
+        while not self._ws_stop.is_set():
+            try:
+                with ws_connect(
+                    ws_url,
+                    additional_headers={"X-Device-Token": self.device_token},
+                    open_timeout=15,
+                    close_timeout=5,
+                    ping_interval=20,
+                    ping_timeout=20,
+                ) as ws:
+                    self._ws_connected.set()
+                    backoff = 2.0
+                    print(f"[{time.strftime('%H:%M:%S')}] Agent WS connected ({ws_url})", flush=True)
+                    while not self._ws_stop.is_set():
+                        try:
+                            raw = ws.recv(timeout=30)
+                        except TimeoutError:
+                            try:
+                                ws.send(json.dumps({"type": "heartbeat"}))
+                            except Exception:
+                                break
+                            continue
+                        if raw is None:
+                            break
+                        try:
+                            msg = json.loads(raw) if isinstance(raw, (str, bytes, bytearray)) else {}
+                        except Exception:
+                            continue
+                        if isinstance(msg, dict):
+                            if msg.get("type") == "ping":
+                                try:
+                                    ws.send(json.dumps({"type": "pong"}))
+                                except Exception:
+                                    break
+                            self._handle_ws_message(msg)
+            except Exception as exc:
+                self._ws_connected.clear()
+                if self._ws_stop.is_set():
+                    break
+                print(f"[{time.strftime('%H:%M:%S')}] Agent WS reconnect in {backoff:.0f}s: {exc}", flush=True)
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 60.0)
+        self._ws_connected.clear()
+
+    def start_side_channel(self) -> None:
+        if self._ws_thread and self._ws_thread.is_alive():
+            return
+        self._ws_stop.clear()
+        self._ws_thread = threading.Thread(target=self._ws_loop, name="ai-bridge-agent-ws", daemon=True)
+        self._ws_thread.start()
+
+    def stop_side_channel(self) -> None:
+        self._ws_stop.set()
+        self._wake.set()
+
     def run_forever(self) -> None:
         print(f"[{time.strftime('%H:%M:%S')}] AI Bridge Agent polling {self.control_url} ...", flush=True)
+        self.start_side_channel()
         had_error = False
         while True:
             try:
-                out = self.run_once(wait=15)
+                # Shorter long-poll when WS wake channel is up; full wait as fallback.
+                wait = 5 if self._ws_connected.is_set() else 15
+                self._wake.clear()
+                out = self.run_once(wait=wait)
                 if had_error:
                     print(f"[{time.strftime('%H:%M:%S')}] Agent reconnected to control plane (OK).", flush=True)
                     had_error = False
-                time.sleep(0.1 if out.get("task") else 0.5)
+                if out.get("task"):
+                    time.sleep(0.05)
+                elif self._wake.wait(timeout=0.5):
+                    self._wake.clear()
+                else:
+                    time.sleep(0.1)
             except Exception as exc:
                 had_error = True
                 print(f"[{time.strftime('%H:%M:%S')}] Agent error (retry in {self.backoff:.0f}s): {exc}", flush=True)

@@ -19,6 +19,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import platform
 import threading
@@ -26,6 +27,8 @@ import time
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger("ai_bridge.webrtc")
 
 SESSION_TTL_SECONDS = 600
 DEFAULT_ICE_SERVERS = [{"urls": "stun:stun.l.google.com:19302"}]
@@ -566,6 +569,12 @@ class AgentStreamer:
         try:
             asyncio.run(self._run())
         except Exception as exc:
+            logger.error(
+                "WebRTC stream failed for session %s: %s",
+                self.session_id,
+                exc,
+                exc_info=True,
+            )
             try:
                 self.signaling.post_error(str(exc))
             except Exception:

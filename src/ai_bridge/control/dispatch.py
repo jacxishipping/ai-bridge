@@ -57,15 +57,18 @@ def _dispatch_browser(tool: str, a: dict, *, approval_granted: bool, policy: Pol
     a = a or {}
     common = {"approval_granted": approval_granted, "policy": policy}
     if tool == "browser_navigate":
+        raise_if_cancelled()
         timeout_raw = a.get("timeout")
         timeout = int(timeout_raw) if timeout_raw is not None else None
-        return browser_tools.browser_navigate(
+        result = browser_tools.browser_navigate(
             a["url"],
             wait_until=str(a.get("wait_until", "networkidle")),
             timeout=timeout,
             screenshot_after_nav=bool(a.get("screenshot_after_nav", False)),
             **common,
         )
+        raise_if_cancelled()
+        return result
     if tool == "browser_screenshot":
         return browser_tools.browser_screenshot(full_page=bool(a.get("full_page", False)), **common)
     if tool == "browser_click":
