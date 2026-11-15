@@ -13,9 +13,12 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 from starlette.applications import Starlette
+from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ai_bridge.device_routing import BindingError, set_verify_hook
+
+from .app import allowed_cors_origins, create_app
 
 
 def _should_embed() -> bool:
@@ -28,6 +31,54 @@ def _should_embed() -> bool:
     return "PORT" in os.environ
 
 
+def _merge_csv_env(var_name: str, items: list[str]) -> list[str]:
+    merged: list[str] = []
+    for raw in os.environ.get(var_name, "").split(",") + list(items):
+        val = str(raw or "").strip().rstrip("/")
+        if val and val not in merged:
+            merged.append(val)
+    if merged:
+        os.environ[var_name] = ",".join(merged)
+    return merged
+
+
+def _sync_mcp_transport_security(allowed_hosts: list[str], allowed_origins: list[str]) -> None:
+    """Sync TransportSecuritySettings when ai_bridge.server was imported before _prepare_embed_env()."""
+    server_mod = sys.modules.get("ai_bridge.server")
+    if server_mod is None:
+        return
+    mcp_obj = getattr(server_mod, "mcp", None)
+    settings = getattr(mcp_obj, "settings", None)
+    if settings is None:
+        return
+    ts = getattr(settings, "transport_security", None)
+    if ts is None:
+        if os.environ.get("AI_BRIDGE_MCP_ALLOWED_HOSTS") and os.environ.get("AI_BRIDGE_MCP_DISABLE_DNS_PROTECTION") != "1":
+            try:
+                from mcp.server.transport_security import TransportSecuritySettings
+
+                ts = TransportSecuritySettings(
+                    enable_dns_rebinding_protection=True,
+                    allowed_hosts=list(allowed_hosts),
+                    allowed_origins=list(allowed_origins),
+                )
+                settings.transport_security = ts
+            except Exception:
+                return
+        else:
+            return
+    elif getattr(ts, "enable_dns_rebinding_protection", False):
+        if allowed_hosts:
+            cur_hosts = [h for h in getattr(ts, "allowed_hosts", []) if h]
+            ts.allowed_hosts = list(dict.fromkeys([*cur_hosts, *allowed_hosts]))
+        if allowed_origins:
+            cur_origins = [o.rstrip("/") for o in getattr(ts, "allowed_origins", []) if o]
+            ts.allowed_origins = list(dict.fromkeys([*cur_origins, *allowed_origins]))
+    session_mgr = getattr(mcp_obj, "_session_manager", None)
+    if session_mgr is not None and hasattr(session_mgr, "security_settings") and ts is not None:
+        session_mgr.security_settings = ts
+
+
 def _prepare_embed_env() -> str:
     """Set OAuth/MCP env before importing gateway or FastMCP. Returns public base URL."""
     data_dir = Path(os.environ.get("AI_BRIDGE_DATA_DIR", str(Path.home() / ".ai-bridge")))
@@ -38,18 +89,32 @@ def _prepare_embed_env() -> str:
 
     public = (
         prodready.env_public_base_url()
+        or os.environ.get("RENDER_EXTERNAL_URL", "")
         or os.environ.get("AI_BRIDGE_OAUTH_ISSUER")
         or ""
-    ).rstrip("/")
+    ).strip().rstrip("/")
+    allowed_hosts: list[str] = []
     if public:
         os.environ.setdefault("AI_BRIDGE_OAUTH_ISSUER", public)
         os.environ.setdefault("AI_BRIDGE_CONTROL_URL", public)
         host = public.split("://", 1)[-1].split("/", 1)[0]
-        existing = [h.strip() for h in os.environ.get("AI_BRIDGE_MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
-        for candidate in (host, f"{host}:*", "localhost:*", "127.0.0.1:*"):
-            if candidate not in existing:
-                existing.append(candidate)
-        os.environ["AI_BRIDGE_MCP_ALLOWED_HOSTS"] = ",".join(existing)
+        allowed_hosts = _merge_csv_env(
+            "AI_BRIDGE_MCP_ALLOWED_HOSTS",
+            [host, f"{host}:*", "localhost:*", "127.0.0.1:*"],
+        )
+    else:
+        allowed_hosts = _merge_csv_env("AI_BRIDGE_MCP_ALLOWED_HOSTS", [])
+
+    allowed_origins = _merge_csv_env(
+        "AI_BRIDGE_MCP_ALLOWED_ORIGINS",
+        [
+            *allowed_cors_origins(),
+            public,
+            os.environ.get("AI_BRIDGE_OAUTH_ISSUER", ""),
+            os.environ.get("AI_BRIDGE_CONTROL_URL", ""),
+        ],
+    )
+    _sync_mcp_transport_security(allowed_hosts, allowed_origins)
 
     # Prefer in-process verify to avoid single-worker HTTP self-deadlock.
     os.environ["AI_BRIDGE_GATEWAY_VERIFY_URL"] = "inprocess:"
@@ -131,8 +196,6 @@ def _lifespan_context(app: ASGIApp):
 
 def create_combined_app():
     """Build the ASGI app used by `python -m ai_bridge.control`."""
-    from .app import create_app
-
     if not _should_embed():
         return create_app()
 
@@ -140,17 +203,32 @@ def create_combined_app():
     gateway = _load_oauth_gateway()
     _install_inprocess_verify(gateway)
 
-    # Import MCP HTTP only after ALLOWED_HOSTS / VERIFY_URL env are set.
+    # Import MCP HTTP only after ALLOWED_HOSTS / ALLOWED_ORIGINS / VERIFY_URL env are set.
     from ai_bridge.server import create_http_app
 
     control = create_app()
     mcp_http = create_http_app()
     oauth = gateway.app
-    dispatcher = _PathPrefixDispatch(control, mcp_http, oauth)
 
     # FastMCP Streamable HTTP requires its lifespan (task group) to run.
-    # create_http_app wraps the Starlette app in bearer middleware; unwrap for lifespan.
+    # create_http_app wraps the Starlette app in bearer middleware; unwrap BEFORE CORSMiddleware.
     mcp_inner = getattr(mcp_http, "app", mcp_http)
+    origins = allowed_cors_origins()
+    mcp_cors = CORSMiddleware(
+        mcp_http,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    oauth_cors = CORSMiddleware(
+        oauth,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    dispatcher = _PathPrefixDispatch(control, mcp_cors, oauth_cors)
 
     @asynccontextmanager
     async def lifespan(_app: Starlette):

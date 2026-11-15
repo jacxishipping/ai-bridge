@@ -640,6 +640,30 @@ def _render_quick_decision_html(
 """
 
 
+def allowed_cors_origins() -> list[str]:
+    """Return deduplicated allowed browser CORS origins without trailing slashes."""
+    from . import production_readiness as prodready
+
+    raw_origins = [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://201.79.36.129",
+        "https://jxiptvplayer.app",
+        "https://ai-bridge-dashboard.onrender.com",
+        prodready.env_public_base_url() or os.environ.get("RENDER_EXTERNAL_URL", "") or "https://your-aws-domain.com",
+        os.environ.get("RENDER_EXTERNAL_URL", ""),
+        os.environ.get("AI_BRIDGE_DASHBOARD_URL", ""),
+    ]
+    for origin in os.environ.get("AI_BRIDGE_CORS_ORIGINS", "").split(","):
+        raw_origins.append(origin)
+    cleaned: list[str] = []
+    for raw in raw_origins:
+        norm = str(raw or "").strip().rstrip("/")
+        if norm and norm not in cleaned:
+            cleaned.append(norm)
+    return cleaned
+
+
 def create_app(*, admin_token: str | None = None, db_path: Path | None = None, database_url: str | None = None) -> FastAPI:
     token = admin_token or get_secret("AI_BRIDGE_ADMIN_TOKEN") or os.environ.get("AI_BRIDGE_ADMIN_TOKEN")
     data_dir = Path(os.environ.get("AI_BRIDGE_DATA_DIR", str(Path.home() / ".ai-bridge")))
@@ -650,21 +674,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         app.middleware("http")(csrf_middleware)
     # Browser dashboards call the API cross-origin; allow_credentials=True
     # requires an explicit origin list (not "*"). Extend via AI_BRIDGE_CORS_ORIGINS.
-    from . import production_readiness as _prodready_cors
-
-    allowed_origins = [
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
-        "http://201.79.36.129",
-        "https://jxiptvplayer.app",
-        "https://ai-bridge-dashboard.onrender.com",
-        _prodready_cors.env_public_base_url() or "https://your-aws-domain.com",
-        os.environ.get("AI_BRIDGE_DASHBOARD_URL", ""),
-    ]
-    for origin in os.environ.get("AI_BRIDGE_CORS_ORIGINS", "").split(","):
-        allowed_origins.append(origin.strip())
-    allowed_origins = [o for o in dict.fromkeys(allowed_origins) if o]
-    app.add_middleware(CORSMiddleware, allow_origins=allowed_origins,
+    app.add_middleware(CORSMiddleware, allow_origins=allowed_cors_origins(),
                        allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     app.state.conn = conn
     app.state.admin_token = token
@@ -4284,14 +4294,19 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
     # --- Connections + logs (dashboard insight views) ---------------------
     @app.get("/api/connections")
-    def connections(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+    def connections(
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
         """Live connection status: MCP service, OAuth gateway, and the
         ChatGPT OAuth clients/tokens registered with the gateway.
         Token hashes are never returned, only counts and client metadata."""
         import socket
         import sqlite3
+        from . import combined as combinedmod
 
-        require_role("viewer", x_admin_token, x_session_token)
+        require_role("viewer", x_admin_token, x_session_token, authorization)
 
         def tcp_up(host: str, port: int) -> bool:
             for h in (host, "127.0.0.1"):
@@ -4336,9 +4351,17 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             pass
         mcp_host = os.environ.get("AI_BRIDGE_MCP_HOST", "127.0.0.1")
         oauth_host = os.environ.get("AI_BRIDGE_OAUTH_HOST", "127.0.0.1")
+        mcp_up = tcp_up(mcp_host, 8001)
+        oauth_up = tcp_up(oauth_host, 8002)
+        embedded = combinedmod._should_embed()
+        raw_ctrl_port = (os.environ.get("PORT") or os.environ.get("AI_BRIDGE_CONTROL_PORT") or "8000").strip()
+        try:
+            control_port = int(raw_ctrl_port)
+        except ValueError:
+            control_port = 8000
         return {
-            "mcp": {"up": tcp_up(mcp_host, 8001), "port": 8001},
-            "oauth_gateway": {"up": tcp_up(oauth_host, 8002), "port": 8002},
+            "mcp": {"up": True, "port": control_port} if (embedded and not mcp_up) else {"up": mcp_up, "port": 8001},
+            "oauth_gateway": {"up": True, "port": control_port} if (embedded and not oauth_up) else {"up": oauth_up, "port": 8002},
             "chatgpt": {
                 "clients": clients,
                 "active_access_tokens": active_access,
@@ -4349,10 +4372,16 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         }
 
     @app.put("/api/connections/clients/{client_id}")
-    def update_oauth_client(client_id: str, body: OAuthClientUpdateIn, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+    def update_oauth_client(
+        client_id: str,
+        body: OAuthClientUpdateIn,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
         import sqlite3
 
-        actor = require_role("admin", x_admin_token, x_session_token)
+        actor = require_role("admin", x_admin_token, x_session_token, authorization)
         oauth_db = os.environ.get("AI_BRIDGE_OAUTH_DB", "/etc/ai-bridge-oauth/oauth.db")
         try:
             odb = sqlite3.connect(oauth_db, timeout=10.0)
@@ -4380,10 +4409,15 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         return {"client_id": client_id, "client_name": cname, "redirect_uris": ruris}
 
     @app.delete("/api/connections/clients/{client_id}")
-    def delete_oauth_client(client_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+    def delete_oauth_client(
+        client_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
         import sqlite3
 
-        actor = require_role("admin", x_admin_token, x_session_token)
+        actor = require_role("admin", x_admin_token, x_session_token, authorization)
         oauth_db = os.environ.get("AI_BRIDGE_OAUTH_DB", "/etc/ai-bridge-oauth/oauth.db")
         try:
             odb = sqlite3.connect(oauth_db, timeout=10.0)
