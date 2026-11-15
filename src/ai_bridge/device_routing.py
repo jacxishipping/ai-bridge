@@ -34,6 +34,7 @@ _HTTP_CLIENT_FACTORY: object = None
 # Short-lived OAuth verify cache (token hash -> (device_id_or_None, expires_at)).
 _VERIFY_CACHE: dict[str, tuple[str | None, float]] = {}
 _VERIFY_CACHE_LOCK = threading.Lock()
+_VERIFY_CACHE_FACTORY: tuple[object, object] | None = None
 _VERIFY_CACHE_TTL_SEC = 15.0
 _VERIFY_CACHE_MAX = 256
 
@@ -50,6 +51,7 @@ def get_http_client() -> httpx.Client:
     with _CLIENT_LOCK:
         if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed or _HTTP_CLIENT_FACTORY is not current_factory:
             old_client = _HTTP_CLIENT
+            factory_changed = _HTTP_CLIENT_FACTORY is not None and _HTTP_CLIENT_FACTORY is not current_factory
             if old_client is not None and not old_client.is_closed:
                 try:
                     old_client.close()
@@ -61,7 +63,8 @@ def get_http_client() -> httpx.Client:
                 follow_redirects=True,
             )
             _HTTP_CLIENT_FACTORY = current_factory
-            clear_verify_cache()
+            if factory_changed:
+                clear_verify_cache()
         return _HTTP_CLIENT
 
 
@@ -91,6 +94,7 @@ def resolve_binding(verify_url: str, bearer_token: str, timeout: int = 10) -> st
     Raises BindingError when the binding cannot be resolved: callers
     must fail closed rather than silently run droplet tools for a
     session that was meant to be device-scoped."""
+    global _VERIFY_CACHE_FACTORY
     if _VERIFY_HOOK is not None and (
         not verify_url or verify_url.startswith("inprocess:") or verify_url == "inprocess"
     ):
@@ -104,12 +108,13 @@ def resolve_binding(verify_url: str, bearer_token: str, timeout: int = 10) -> st
             raise BindingError("gateway verify rejected the token")
         return data.get("device_id") or None
 
-    if _HTTP_CLIENT_FACTORY is not httpx.Client:
-        clear_verify_cache()
-
     cache_key = _token_cache_key(bearer_token)
     now = time.time()
+    current_pair = (httpx.Client, get_http_client)
     with _VERIFY_CACHE_LOCK:
+        if _VERIFY_CACHE_FACTORY is not None and _VERIFY_CACHE_FACTORY != current_pair:
+            _VERIFY_CACHE.clear()
+        _VERIFY_CACHE_FACTORY = current_pair
         cached = _VERIFY_CACHE.get(cache_key)
         if cached is not None and cached[1] > now:
             return cached[0]
