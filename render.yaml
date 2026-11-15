@@ -42,6 +42,8 @@ services:
         value: "1"
       - key: AI_BRIDGE_MCP_ALLOWED_HOSTS
         value: "ai-bridge-control.onrender.com,ai-bridge-control.onrender.com:*,localhost:*,127.0.0.1:*"
+      - key: AI_BRIDGE_MCP_ALLOWED_ORIGINS
+        value: "https://ai-bridge-dashboard.onrender.com,https://ai-bridge-control.onrender.com,http://localhost:5173,http://127.0.0.1:5173"
       - key: AI_BRIDGE_CORS_ORIGINS
         value: "https://ai-bridge-dashboard.onrender.com"
       - key: AI_BRIDGE_DASHBOARD_URL
