@@ -70,7 +70,7 @@ def generate_pkce_pair() -> tuple[str, str]:
 def discover_oauth_metadata(mcp_url: str, timeout: float = 10.0) -> dict[str, Any]:
     """Discover OAuth 2.0 / 2.1 authorization_endpoint, token_endpoint, and registration_endpoint."""
     parsed = urllib.parse.urlparse(mcp_url.strip())
-    if not parsed.scheme or not parsed.netloc:
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return {"ok": False, "error": "Invalid MCP URL."}
 
     origin = f"{parsed.scheme}://{parsed.netloc}"
@@ -91,16 +91,21 @@ def discover_oauth_metadata(mcp_url: str, timeout: float = 10.0) -> dict[str, An
                 issuer = str(auth_servers[0]).rstrip("/")
                 break
 
-    # 2. Try RFC 8414 / OIDC authorization server metadata
-    as_candidates = [
+    # 2. Try RFC 8414 / OIDC authorization server metadata (including path-aware issuers)
+    issuer_parsed = urllib.parse.urlparse(issuer)
+    issuer_origin = f"{issuer_parsed.scheme}://{issuer_parsed.netloc}" if issuer_parsed.netloc else origin
+    issuer_path = issuer_parsed.path.rstrip("/")
+    raw_candidates = [
+        f"{issuer_origin}/.well-known/oauth-authorization-server{issuer_path}" if issuer_path else f"{issuer_origin}/.well-known/oauth-authorization-server",
         f"{issuer}/.well-known/oauth-authorization-server",
         f"{issuer}/.well-known/openid-configuration",
     ]
-    if issuer != origin:
-        as_candidates.extend([
+    if issuer_origin != origin or issuer != origin:
+        raw_candidates.extend([
             f"{origin}/.well-known/oauth-authorization-server",
             f"{origin}/.well-known/openid-configuration",
         ])
+    as_candidates = list(dict.fromkeys(raw_candidates))
 
     for as_url in as_candidates:
         status, data = _http_json(as_url, timeout=timeout)

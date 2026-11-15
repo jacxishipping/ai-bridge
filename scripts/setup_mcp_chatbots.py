@@ -21,6 +21,7 @@ import json
 import secrets
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -53,8 +54,8 @@ def register_client(base_url: str, admin_token: str, name: str, redirect_uris: l
 
 def generate_pkce() -> tuple[str, str]:
     """Generate PKCE code_verifier and code_challenge (S256)."""
-    import hashlib
     import base64
+    import hashlib
 
     verifier = base64.urlsafe_b64encode(
         secrets.token_bytes(32)
@@ -79,8 +80,7 @@ def get_auth_url(base_url: str, client_id: str, redirect_uri: str, state: str = 
     if state:
         params["state"] = state
 
-    from urllib.parse import urlencode
-    auth_url = f"{base_url}/oauth/authorize?{urlencode(params)}"
+    auth_url = f"{base_url}/oauth/authorize?{urllib.parse.urlencode(params)}"
     return auth_url, verifier, challenge
 
 
@@ -292,15 +292,21 @@ headers = {{ Authorization = "Bearer <ACCESS_TOKEN_FROM_AUTH>" }}
     print()
 
     print("3. TEST CONNECTION:")
-    print(f"   curl -H 'Authorization: Bearer <TOKEN>' {base_url}/mcp/")
+    print(
+        f"   curl -H 'Authorization: Bearer <TOKEN>' -H 'Content-Type: application/json' "
+        f"-H 'Accept: application/json, text/event-stream' "
+        f"-d '{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{{}}}}' "
+        f"{base_url}/mcp"
+    )
+    print(f"   curl {base_url}/.well-known/oauth-authorization-server")
     print()
 
     if args.device:
-        print(f"🔒 All clients bound to device: {args.device}")
-        print("   (Clients can only control this device)")
+        print(f"ℹ️  Target device noted: {args.device}")
+        print("   Note: OAuth registration issues fleet-capable clients; restrict a session to a device via select_device() or gateway device-token binding.")
     else:
         print("⚠️  Clients have FLEET-WIDE access (all devices)")
-        print("   Use --device DEVICE_ID to restrict to one device")
+        print("   Use select_device('<device>') in-session or gateway device-token binding to restrict to one device.")
 
 
 if __name__ == "__main__":

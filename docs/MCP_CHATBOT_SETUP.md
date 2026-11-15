@@ -67,7 +67,7 @@ Visit the generated authorization URLs in your browser. You'll see a secure appr
 ![OAuth Approval](https://jxiptvplayer.app/oauth/authorize?client_id=...)
 
 Enter your **admin token** to approve. The chatbot gets:
-- Access to all fleet devices (or one specific device if `--device` was used)
+- Access to fleet devices (optionally scoped in-session via `select_device()` or gateway device-token binding)
 - A refresh token for long-term access
 - PKCE S256 security
 
@@ -245,9 +245,13 @@ screenshot = client.take_screenshot(device="windows-pc")
 ```
 
 ### Option B: OpenAI-Compatible API
-AI Bridge exposes `/v1/chat/completions`. Point any OpenAI-compatible client:
+AI Bridge exposes `/v1/chat/completions` (and `/api/v1/chat/completions`). Point any OpenAI-compatible client:
 ```python
 from openai import OpenAI
+from ai_bridge import AIBridgeClient
+
+bridge = AIBridgeClient(base_url="https://jxiptvplayer.app", token="YOUR_ACCESS_TOKEN")
+tools = bridge.get_tools(format="openai")
 
 client = OpenAI(
     base_url="https://jxiptvplayer.app/api/v1",
@@ -257,7 +261,7 @@ client = OpenAI(
 response = client.chat.completions.create(
     model="gpt-4o",
     messages=[{"role": "user", "content": "Check server status"}],
-    tools=tools  # fetched from AI Bridge
+    tools=tools,
 )
 ```
 
@@ -307,15 +311,9 @@ sysadmin = Agent(
 ## 🛡️ Security Best Practices
 
 1. **Never share admin token** in chat or config files
-2. **Use OAuth clients** per chatbot with device binding
-3. **Rotate tokens** regularly via the OAuth revocation endpoint
-4. **Enable device binding** to restrict chatbot access:
-   ```bash
-   python scripts/setup_mcp_chatbots.py \
-     --url https://jxiptvplayer.app \
-     --token YOUR_ADMIN_TOKEN \
-     --device windows-pc-01
-   ```
+2. **Use OAuth clients** per chatbot
+3. **Rotate tokens** regularly via the OAuth revocation endpoint (`/oauth/revoke`)
+4. **Scope device access** in-session with `select_device("<device>")` (or gateway device-token binding)
 5. **Monitor access** via the AI Bridge dashboard
 
 ---
@@ -323,16 +321,16 @@ sysadmin = Agent(
 ## 🧪 Testing Your Connection
 
 ```bash
-# Test MCP endpoint
+# List available tools via Streamable HTTP JSON-RPC (/mcp)
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://jxiptvplayer.app/mcp/
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+  "$BASE/mcp"
 
-# List available tools
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://jxiptvplayer.app/mcp/tools/list
-
-# Check OAuth discovery
-curl https://jxiptvplayer.app/oauth/.well-known/oauth-authorization-server
+# Check OAuth 2.1 discovery metadata
+curl "$BASE/.well-known/oauth-authorization-server"
+curl "$BASE/.well-known/oauth-protected-resource"
 ```
 
 ---
@@ -364,8 +362,8 @@ Once connected, your AI can execute:
 | Issue | Solution |
 |-------|----------|
 | `401 Unauthorized` | Check token validity or re-authorize |
-| `404 Not Found` | Ensure `/mcp/` has trailing slash |
-| Connection timeout | SSE streaming is normal — use `--max-time` with curl |
+| `404 Not Found` | Use `POST /mcp` (JSON-RPC) and `/.well-known/oauth-authorization-server` (no `/oauth` prefix) |
+| Connection timeout | SSE streaming on `GET /mcp` stays open — use `POST /mcp` for JSON-RPC or `--max-time` with curl |
 | Claude not seeing tools | Restart Claude after config changes |
 | ChatGPT not connecting | Verify your plan supports remote MCP |
 | Device not responding | Check agent is running on target device |
@@ -377,4 +375,4 @@ Once connected, your AI can execute:
 - [MCP Protocol Docs](https://modelcontextprotocol.io)
 - [AI Bridge Architecture](architecture.md)
 - [Remote Access Guide](remote-access.md)
-- [OAuth Gateway](deployment/oauth/gateway.py)
+- [OAuth Gateway](../deployment/oauth/gateway.py)

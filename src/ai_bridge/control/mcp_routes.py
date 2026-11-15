@@ -4,7 +4,6 @@ from __future__ import annotations
 import html
 import json
 import logging
-import os
 import secrets
 import time
 import urllib.parse
@@ -76,20 +75,21 @@ def _mask(val: str) -> str:
     return f"{s[:4]}...{s[-4:]}" if len(s) > 8 else "****"
 
 
+def _safe_json_loads(raw: Any, default: Any) -> Any:
+    try:
+        return json.loads(raw) if raw else default
+    except Exception:
+        return default
+
+
 def _serialize_mcp_server(row: dict[str, Any]) -> dict[str, Any]:
     out = dict(row)
     out["enabled"] = bool(out.get("enabled"))
-    try:
-        tools = json.loads(out.pop("tools_json", "[]") or "[]")
-    except Exception:
-        tools = []
-    out["tools"] = tools
-    out["tools_count"] = len(tools)
-    try:
-        headers = json.loads(out.pop("headers_json", "{}") or "{}")
-    except Exception:
-        headers = {}
-    out["headers"] = headers
+    tools = _safe_json_loads(out.pop("tools_json", "[]"), [])
+    out["tools"] = tools if isinstance(tools, list) else []
+    out["tools_count"] = len(out["tools"])
+    headers = _safe_json_loads(out.pop("headers_json", "{}"), {})
+    out["headers"] = headers if isinstance(headers, dict) else {}
 
     token = str(out.pop("auth_token", None) or "").strip()
     out["token_masked"] = _mask(token)
@@ -109,6 +109,10 @@ def _callback_url(request: Request) -> str:
     pub = prodready.env_public_base_url()
     if pub:
         return f"{pub}/api/mcp/oauth/callback"
+    fwd_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    fwd_proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    if fwd_host:
+        return f"{fwd_proto}://{fwd_host}".rstrip("/") + "/api/mcp/oauth/callback"
     base = str(request.base_url).rstrip("/")
     return f"{base}/api/mcp/oauth/callback"
 
@@ -197,8 +201,9 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
     def get_mcp_templates(
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ):
-        require_role("viewer", x_admin_token, x_session_token)
+        require_role("viewer", x_admin_token, x_session_token, authorization)
         return {"ok": True, "templates": POPULAR_MCP_TEMPLATES}
 
     @app.get("/api/mcp/servers")
@@ -206,8 +211,9 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
         tenant: str = "default",
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ):
-        require_role("viewer", x_admin_token, x_session_token)
+        require_role("viewer", x_admin_token, x_session_token, authorization)
         rows = conn.execute(
             "SELECT * FROM mcp_servers WHERE tenant=? ORDER BY created_at DESC", (tenant,)
         ).fetchall()
@@ -218,8 +224,9 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
         body: MCPDiscoverIn,
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ):
-        require_role("admin", x_admin_token, x_session_token)
+        require_role("admin", x_admin_token, x_session_token, authorization)
         return discover_oauth_metadata(body.url)
 
     @app.post("/api/mcp/servers")
@@ -227,8 +234,9 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
         body: MCPServerIn,
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ):
-        actor = require_role("admin", x_admin_token, x_session_token)
+        actor = require_role("admin", x_admin_token, x_session_token, authorization)
         url = body.url.strip()
         name = body.name.strip()
         if not name or not url:
@@ -358,8 +366,9 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
         request: Request,
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ):
-        actor = require_role("admin", x_admin_token, x_session_token)
+        actor = require_role("admin", x_admin_token, x_session_token, authorization)
         row = conn.execute("SELECT * FROM mcp_servers WHERE id=?", (server_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="MCP Server not found.")
@@ -468,6 +477,8 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
         st = dict(st_row)
         conn.execute("DELETE FROM mcp_oauth_states WHERE state=?", (state,))
         conn.commit()
+        if time.time() - float(st.get("created_at") or 0) > 900:
+            return _html("Expired OAuth2 Session", "OAuth2 authorization session expired. Please try again.", False)
 
         srv_row = conn.execute("SELECT * FROM mcp_servers WHERE id=?", (st["server_id"],)).fetchone()
         if not srv_row:
@@ -495,9 +506,8 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
         refresh_token = tok_res.get("refresh_token") or s.get("oauth_refresh_token") or ""
         expires_at = tok_res.get("expires_at")
 
-        try:
-            extra_h = json.loads(s.get("headers_json") or "{}")
-        except Exception:
+        extra_h = _safe_json_loads(s.get("headers_json"), {})
+        if not isinstance(extra_h, dict):
             extra_h = {}
 
         ok, tools, msg = fetch_mcp_tools(
@@ -508,6 +518,7 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
         )
 
         now = time.time()
+        existing_tools = _safe_json_loads(s.get("tools_json"), [])
         conn.execute(
             "UPDATE mcp_servers SET auth_token=?, oauth_refresh_token=?, oauth_token_expires_at=?, "
             "status=?, tools_json=?, last_checked_at=?, last_error=?, updated_at=? WHERE id=?",
@@ -516,7 +527,7 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
                 refresh_token,
                 expires_at,
                 "healthy" if ok else "offline",
-                json.dumps(tools if ok else json.loads(s.get("tools_json") or "[]")),
+                json.dumps(tools if ok else existing_tools),
                 now,
                 "" if ok else msg,
                 now,
@@ -537,16 +548,16 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
         server_id: str,
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ):
-        actor = require_role("admin", x_admin_token, x_session_token)
+        actor = require_role("admin", x_admin_token, x_session_token, authorization)
         row = conn.execute("SELECT * FROM mcp_servers WHERE id=?", (server_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="MCP Server not found.")
         s = ensure_valid_mcp_token(conn, dict(row))
 
-        try:
-            extra_h = json.loads(s.get("headers_json") or "{}")
-        except Exception:
+        extra_h = _safe_json_loads(s.get("headers_json"), {})
+        if not isinstance(extra_h, dict):
             extra_h = {}
 
         ok, tools, msg = fetch_mcp_tools(
@@ -558,9 +569,10 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
 
         now = time.time()
         status = "healthy" if ok else "offline"
+        existing_tools = _safe_json_loads(s.get("tools_json"), [])
         conn.execute(
             "UPDATE mcp_servers SET status=?, tools_json=?, last_checked_at=?, last_error=?, updated_at=? WHERE id=?",
-            (status, json.dumps(tools if ok else json.loads(s.get("tools_json") or "[]")), now, "" if ok else msg, now, server_id),
+            (status, json.dumps(tools if ok else existing_tools), now, "" if ok else msg, now, server_id),
         )
         conn.commit()
         audit(actor, "", "sync_mcp_server", {"server_id": server_id, "tools_found": len(tools)}, "allowed")
@@ -579,8 +591,9 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
         body: MCPServerPatch,
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ):
-        actor = require_role("admin", x_admin_token, x_session_token)
+        actor = require_role("admin", x_admin_token, x_session_token, authorization)
         row = conn.execute("SELECT * FROM mcp_servers WHERE id=?", (server_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="MCP Server not found.")
@@ -588,10 +601,18 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
 
         name = (body.name if body.name is not None else current["name"]).strip()
         url = (body.url if body.url is not None else current["url"]).strip()
+        if not name or not url:
+            raise HTTPException(status_code=400, detail="Server name and URL cannot be empty.")
         transport = body.transport if body.transport is not None else current["transport"]
         auth_type = (body.auth_type if body.auth_type is not None else current.get("auth_type", "bearer")).strip().lower()
-        auth_header = (body.auth_header if body.auth_header is not None else current.get("auth_header", "")).strip()
-        auth_token = (body.auth_token if body.auth_token is not None else current.get("auth_token", "")).strip()
+        if auth_type not in ("none", "bearer", "oauth2_client_credentials", "oauth2_pkce"):
+            raise HTTPException(status_code=400, detail=f"Unsupported auth_type: {auth_type}")
+        if auth_type == "none":
+            auth_header = ""
+            auth_token = ""
+        else:
+            auth_header = (body.auth_header if body.auth_header is not None else current.get("auth_header", "")).strip()
+            auth_token = (body.auth_token if body.auth_token is not None else current.get("auth_token", "")).strip()
         oauth_client_id = (body.oauth_client_id if body.oauth_client_id is not None else current.get("oauth_client_id", "")).strip()
         oauth_client_secret = (body.oauth_client_secret if body.oauth_client_secret is not None else current.get("oauth_client_secret", "")).strip()
         oauth_auth_url = (body.oauth_auth_url if body.oauth_auth_url is not None else current.get("oauth_auth_url", "")).strip()
@@ -622,8 +643,9 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
         server_id: str,
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ):
-        actor = require_role("admin", x_admin_token, x_session_token)
+        actor = require_role("admin", x_admin_token, x_session_token, authorization)
         row = conn.execute("SELECT * FROM mcp_servers WHERE id=?", (server_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="MCP Server not found.")
@@ -640,16 +662,16 @@ def install_mcp_routes(app: Any, conn: Any, require_role: Any, audit: Any) -> No
         body: MCPExecuteIn,
         x_admin_token: str | None = Header(default=None),
         x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ):
-        actor = require_role("admin", x_admin_token, x_session_token)
+        actor = require_role("admin", x_admin_token, x_session_token, authorization)
         row = conn.execute("SELECT * FROM mcp_servers WHERE id=?", (server_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="MCP Server not found.")
         s = ensure_valid_mcp_token(conn, dict(row))
 
-        try:
-            extra_h = json.loads(s.get("headers_json") or "{}")
-        except Exception:
+        extra_h = _safe_json_loads(s.get("headers_json"), {})
+        if not isinstance(extra_h, dict):
             extra_h = {}
 
         res = execute_mcp_tool(
