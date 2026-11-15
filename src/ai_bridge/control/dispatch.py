@@ -15,7 +15,7 @@ from .. import audit as audit_mod
 from .. import browser_tools, dev_tools, diagnostics, execution, git_ops, tasks, tools, workspace, webrtc_stream
 from ..policy import TOOL_TIERS, Policy, RiskTier, decide, normalize_tool_name
 from . import dispatch_audit, supervisor
-from .task_runtime import TaskCancelled, current_device_id, raise_if_cancelled
+from .task_runtime import current_device_id, raise_if_cancelled
 
 
 def _start_webrtc_from_task(a: dict) -> dict:
@@ -287,7 +287,12 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         raise PermissionError(d.reason)
     raise_if_cancelled()
     tier = TOOL_TIERS.get(tool)
-    if tier == RiskTier.HIGH_RISK and not approval_granted and getattr(policy, "max_tier_unattended", 2) < 4:
+    if (
+        tier == RiskTier.HIGH_RISK
+        and not approval_granted
+        and not getattr(policy, "unrestricted", False)
+        and getattr(policy, "max_tier_unattended", 2) < 4
+    ):
         raise PermissionError("High-risk tool requires an approved approval record.")
     normalized_args = dict(args or {})
     if raw_tool == "desktop.launch_app" and "app" in normalized_args and "app_name" not in normalized_args:

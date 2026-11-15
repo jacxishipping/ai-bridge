@@ -92,6 +92,7 @@ def set_device_human_takeover(
 def hydrate_human_takeover_from_db(conn: Any) -> None:
     from . import plane_state
 
+    _HUMAN_TAKEOVER_BY_DEVICE.clear()
     for dev_id, state in plane_state.load_all_human_takeovers(conn).items():
         if state.get("human_takeover_active"):
             _HUMAN_TAKEOVER_BY_DEVICE[dev_id] = state
@@ -266,6 +267,12 @@ def attach_v1_routes(
     audit,
 ) -> None:
     """Attach `/api/v1/*` REST and WebSocket routes to the FastAPI application."""
+    def _notify_task(device_id: str | None = None, task_id: str | None = None) -> None:
+        try:
+            notify_tasks(device_id, task_id)
+        except TypeError:
+            notify_tasks()
+
     ws_subscribers: dict[str, set[WebSocket]] = {}
 
     async def _broadcast_ws(session_id: str, event: dict[str, Any]) -> None:
@@ -694,9 +701,18 @@ def attach_v1_routes(
                 (task_id, body.device_id, dev_row["tenant"], "start_webrtc_stream", json.dumps(args), now_ts, now_ts),
             )
             conn.commit()
-            notify_tasks()
+            _notify_task(body.device_id, task_id)
 
         return format_session_v1(sess)
+
+    @app.get("/api/v1/sessions/ice-servers")
+    def v1_get_ice_servers(
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        require_role("viewer", x_admin_token, x_session_token, authorization)
+        return {"ice_servers": webrtc_stream.get_configured_ice_servers()}
 
     @app.get("/api/v1/sessions/{session_id}")
     def v1_get_session(
@@ -904,15 +920,6 @@ def attach_v1_routes(
             await _broadcast_ws(session_id, {"type": "ice", "from": from_side, "candidate": cand})
         return {"ok": True, "session_id": session_id}
 
-    @app.get("/api/v1/sessions/ice-servers")
-    def v1_get_ice_servers(
-        x_admin_token: str | None = Header(default=None),
-        x_session_token: str | None = Header(default=None),
-        authorization: str | None = Header(default=None),
-    ):
-        require_role("viewer", x_admin_token, x_session_token, authorization)
-        return {"ice_servers": webrtc_stream.get_configured_ice_servers()}
-
     @app.get("/api/v1/sessions/{session_id}/recording")
     def v1_get_session_recording(
         session_id: str,
@@ -1049,7 +1056,8 @@ def attach_v1_routes(
         tier = TOOL_TIERS.get(tool_name)
         if tier is None:
             raise HTTPException(status_code=400, detail=f"Unknown tool: '{tool_name}'.")
-        _ensure_v1_device_exists(device_id)
+        dev_rec = _ensure_v1_device_exists(device_id)
+        tenant = (dev_rec.get("tenant") if dev_rec else None) or str(body.get("tenant") or "default")
         eff_pol = get_effective_device_policy(device_id)
         if tool_name in eff_pol.get("denied_tools", []):
             raise HTTPException(status_code=403, detail=f"Tool '{tool_name}' is denied by device policy.")
@@ -1063,14 +1071,49 @@ def attach_v1_routes(
         task_id = uuid.uuid4().hex[:12]
         now_ts = dbmod.now()
         t_val = tier.value
-        conn.execute(
-            "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, created_at, updated_at) VALUES (?,?,?,?,?,?,'queued',?,?)",
-            (task_id, device_id, "default", tool_name, json.dumps(args), t_val, now_ts, now_ts),
-        )
-        conn.commit()
-        notify_tasks()
-        audit(actor, device_id, tool_name, args, "queued")
-        return {"task_id": task_id, "device_id": device_id, "tool": tool_name, "status": "queued"}
+        status = "queued"
+        approval_id = None
+        max_unattended = int(eff_pol.get("max_tier_unattended", 2))
+        allow_t3 = bool(eff_pol.get("allow_tier3", False))
+        allow_file_del = bool(eff_pol.get("allow_file_deletion", False))
+        is_unrestricted = bool(eff_pol.get("unrestricted", False))
+        needs_approval = False
+        if not is_unrestricted:
+            if t_val >= 4:
+                if max_unattended < 4:
+                    needs_approval = True
+                elif tool_name == "delete_workspace_file" and not allow_file_del:
+                    needs_approval = True
+            elif t_val == 3:
+                if not (allow_t3 or max_unattended >= 3):
+                    needs_approval = True
+            elif t_val > max_unattended:
+                needs_approval = True
+        with conn.transaction():
+            if needs_approval:
+                approval_id = uuid.uuid4().hex[:12]
+                approval_ttl = max(60, int(os.environ.get("AI_BRIDGE_APPROVAL_TTL_SECONDS", "3600")))
+                policy_row = conn.execute("SELECT MAX(version) AS version FROM policies").fetchone()
+                policy_version = (policy_row["version"] if policy_row else None) or 0
+                conn.execute(
+                    "INSERT INTO approvals (id, task_id, tool, reason, created_at, expires_at, policy_version) VALUES (?,?,?,?,?,?,?)",
+                    (approval_id, task_id, tool_name, f"Tier-{t_val} operation requires human approval.", now_ts, now_ts + approval_ttl, policy_version),
+                )
+                status = "needs_approval"
+            conn.execute(
+                "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, approval_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (task_id, device_id, tenant, tool_name, json.dumps(args), t_val, status, approval_id, now_ts, now_ts),
+            )
+        if status == "queued":
+            _notify_task(device_id, task_id)
+        try:
+            audit(actor, device_id, tool_name, args, status, tenant=tenant)
+        except TypeError:
+            audit(actor, device_id, tool_name, args, status)
+        out = {"task_id": task_id, "device_id": device_id, "tool": tool_name, "tier": t_val, "status": status}
+        if approval_id is not None:
+            out["approval_id"] = approval_id
+        return out
 
     @app.get("/api/v1/tasks/{task_id}")
     def v1_get_task(

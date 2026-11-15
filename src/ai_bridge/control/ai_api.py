@@ -1271,15 +1271,12 @@ def attach_ai_routes(
         eff_session = x_session_token or bearer
         eff_admin = x_admin_token or bearer
 
-        # Let auth_context determine actor and role
+        # Let auth_context determine actor and role (handles session tokens,
+        # hmac.compare_digest admin token, and AI_BRIDGE_DISABLE_LEGACY_ADMIN_TOKEN).
         try:
+            return auth_context(eff_admin, eff_session, auth_hdr)
+        except TypeError:
             return auth_context(eff_admin, eff_session)
-        except Exception:
-            # Check if bearer matches legacy admin token directly
-            admin_tok = getattr(app.state, "admin_token", "")
-            if bearer and admin_tok and bearer == admin_tok:
-                return "admin-token", "admin"
-            raise HTTPException(status_code=401, detail="Authentication required (provide Bearer token, X-Admin-Token, or X-Session-Token).")
 
     # 1. Tools Catalog Endpoint
     @app.get("/api/ai/tools")
@@ -1347,9 +1344,20 @@ def attach_ai_routes(
             )
 
         start_time = time.time()
+        from .v1_routes import is_device_human_takeover_active
 
         # Handle local execution
         if is_local:
+            eff_local = get_effective_device_policy("local")
+            if tool in eff_local.get("denied_tools", []):
+                raise HTTPException(status_code=403, detail=f"Tool '{tool}' is disabled by global policy.")
+            if eff_local.get("allowed_tools") is not None and tool not in eff_local["allowed_tools"]:
+                raise HTTPException(status_code=403, detail=f"Tool '{tool}' is not in the allowed tools list.")
+            if is_device_human_takeover_active("local") and tool not in ("list_devices", "get_device_status"):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Human takeover is active on this device; autonomous AI tasks are paused until control is handed back.",
+                )
             try:
                 if tool == "list_devices":
                     rows = conn.execute(
@@ -1367,7 +1375,23 @@ def attach_ai_routes(
                             raise HTTPException(status_code=404, detail=f"Device '{d_arg}' not found in tenant '{body.tenant}'.")
                         res = d_rec
                 else:
-                    res = dispatch(tool, body.args, is_admin=(role == "admin"))
+                    from .. import tools as _tools_mod
+                    from ..policy import Policy as _Policy
+
+                    _base_pol = _tools_mod.default_policy()
+                    local_policy = _Policy(
+                        allow_writes=bool(eff_local.get("allow_writes", _base_pol.allow_writes)),
+                        allow_tier3=bool(eff_local.get("allow_tier3", _base_pol.allow_tier3)),
+                        allowed_services=frozenset(eff_local["allowed_services"]) if eff_local.get("allowed_services") else _base_pol.allowed_services,
+                        allowed_apps=frozenset(eff_local["allowed_apps"]) if eff_local.get("allowed_apps") else _base_pol.allowed_apps,
+                        allowed_test_commands=frozenset(eff_local["allowed_test_commands"]) if eff_local.get("allowed_test_commands") else _base_pol.allowed_test_commands,
+                        desktop_enabled=bool(eff_local.get("desktop_enabled", _base_pol.desktop_enabled)),
+                        max_tier_unattended=int(eff_local.get("max_tier_unattended", _base_pol.max_tier_unattended)),
+                        allowed_tools=frozenset(eff_local["allowed_tools"]) if eff_local.get("allowed_tools") is not None else _base_pol.allowed_tools,
+                        denied_tools=frozenset(eff_local.get("denied_tools") or ()),
+                        unrestricted=bool(eff_local.get("unrestricted", False)),
+                    )
+                    res = dispatch(tool, body.args, policy=local_policy, is_admin=(role == "admin"))
                 duration_ms = int((time.time() - start_time) * 1000)
                 audit(actor, "local", tool, body.args, "completed", tenant=body.tenant)
                 return {
@@ -1392,6 +1416,11 @@ def attach_ai_routes(
             raise HTTPException(status_code=403, detail=f"Tool '{tool}' is disabled by device policy for '{dev_rec['name']}'.")
         if eff_policy.get("allowed_tools") is not None and tool not in eff_policy["allowed_tools"]:
             raise HTTPException(status_code=403, detail=f"Tool '{tool}' is not in the allowed tools list for device '{dev_rec['name']}'.")
+        if is_device_human_takeover_active(dev_rec["id"]):
+            raise HTTPException(
+                status_code=409,
+                detail="Human takeover is active on this device; autonomous AI tasks are paused until control is handed back.",
+            )
 
         # Approval evaluation
         is_unrestricted = bool(eff_policy.get("unrestricted", False))
@@ -1447,7 +1476,10 @@ def attach_ai_routes(
         )
         conn.commit()
         audit(actor, dev_rec["id"], tool, body.args, "queued", tenant=body.tenant)
-        notify_tasks()
+        try:
+            notify_tasks(dev_rec["id"], task_id)
+        except TypeError:
+            notify_tasks()
 
         # Await completion
         wait_seconds = max(1, min(int(body.timeout or 30), 120))

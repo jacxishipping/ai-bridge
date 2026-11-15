@@ -218,6 +218,16 @@ _WRITE_TOOLS = frozenset({
     "git_apply_patch",
 })
 
+DESKTOP_POLICY_TOOLS = frozenset({
+    "capture_desktop_screenshot", "capture_desktop_frame", "take_screenshot", "start_webrtc_stream", "launch_approved_application",
+    "perform_approved_ui_action", "mouse_click", "mouse_move", "mouse_scroll",
+    "mouse_drag", "keyboard_type", "keyboard_press", "press_hotkey", "focus_window",
+    "ocr_screen", "click_text", "click_element", "list_ui_elements", "set_of_marks_screenshot",
+    "wait_for_text", "verify_screen_contains", "execute_workflow",
+    "desktop_get_screenshot", "desktop_get_window_screenshot", "desktop_mouse_move", "desktop_click", "desktop_keyboard",
+    "desktop_scroll", "desktop_clipboard_set", "desktop_open_application", "desktop_wait", "desktop_verify_action",
+})
+
 def decide(policy: Policy, tool: str, *, approval_granted: bool = False,
            device_revoked: bool = False, is_admin: bool = False) -> Decision:
     if device_revoked:
@@ -242,16 +252,7 @@ def decide(policy: Policy, tool: str, *, approval_granted: bool = False,
             return Decision(False, needs_approval=True,
                             reason="High-risk operation requires explicit human approval.")
     if tier == RiskTier.SENSITIVE:
-        desktop_tools = {
-            "capture_desktop_screenshot", "capture_desktop_frame", "take_screenshot", "start_webrtc_stream", "launch_approved_application",
-            "perform_approved_ui_action", "mouse_click", "mouse_move", "mouse_scroll",
-            "mouse_drag", "keyboard_type", "keyboard_press", "press_hotkey", "focus_window",
-            "ocr_screen", "click_text", "click_element", "list_ui_elements", "set_of_marks_screenshot",
-            "wait_for_text", "verify_screen_contains", "execute_workflow",
-            "desktop_get_screenshot", "desktop_get_window_screenshot", "desktop_mouse_move", "desktop_click", "desktop_keyboard",
-            "desktop_scroll", "desktop_clipboard_set", "desktop_open_application", "desktop_wait", "desktop_verify_action",
-        }
-        if canonical in desktop_tools and not policy.desktop_enabled:
+        if canonical in DESKTOP_POLICY_TOOLS and not policy.desktop_enabled:
             return Decision(False, reason="Desktop automation is not enabled.")
         # A human approval record for this task is itself the Tier-3
         # opt-in: without it, an approved task would be re-denied by the

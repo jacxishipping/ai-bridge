@@ -27,19 +27,20 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlencode, urlparse, parse_qs
 
 import httpx
 
 from fastapi import Body, FastAPI, Header, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.datastructures import Headers
 
 from .. import tools
 from .. import terminal_manager
-from ..policy import Policy, TOOL_TIERS, normalize_tool_name
+from ..policy import DESKTOP_POLICY_TOOLS, Policy, TOOL_TIERS, normalize_tool_name
 from ..security import redact, redact_obj
 from . import agent_channel
 from . import alerts as alertsmod
@@ -669,7 +670,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     app.state.admin_token = token
     app.state.emergency_stop = False
     from . import plane_state, role_catalog
-    from .v1_routes import bind_control_connection, hydrate_human_takeover_from_db
+    from .v1_routes import bind_control_connection, hydrate_human_takeover_from_db, is_device_human_takeover_active
 
     plane_state.sync_emergency_stop_to_app(conn, app.state)
     hydrate_human_takeover_from_db(conn)
@@ -820,12 +821,8 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         if custom.get("allow_file_deletion") is False:
             denied.add("delete_workspace_file")
         if custom.get("desktop_enabled") is False:
-            denied.update([
-                "capture_desktop_screenshot", "take_screenshot", "launch_approved_application",
-                "perform_approved_ui_action", "mouse_click", "mouse_move", "mouse_scroll",
-                "mouse_drag", "keyboard_type", "keyboard_press", "list_desktop_windows",
-                "focus_window", "get_screen_size",
-            ])
+            denied.update(DESKTOP_POLICY_TOOLS)
+            denied.update(["list_desktop_windows", "get_screen_size"])
         if custom.get("allow_writes") is False:
             denied.update(["create_workspace_file", "edit_workspace_file", "move_workspace_file", "delete_workspace_file"])
 
@@ -852,23 +849,28 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         approval and path-confinement checks.
         """
         current = effective or {}
+        candidate = get_effective_device_policy({"policy_json": json.dumps(proposed)})
         for key in _POLICY_ESCALATION_FLAGS:
-            if proposed.get(key) is True and not current.get(key):
+            if (proposed.get(key) is True or candidate.get(key) is True) and not current.get(key):
                 raise HTTPException(status_code=403, detail=f"Device tokens cannot enable '{key}'; an administrator must.")
-        ceiling = proposed.get("max_tier_unattended")
-        if ceiling is not None and int(ceiling) > int(current.get("max_tier_unattended") or 0):
-            raise HTTPException(status_code=403, detail="Device tokens cannot raise 'max_tier_unattended'; an administrator must.")
+        cur_ceiling = int(current["max_tier_unattended"]) if current.get("max_tier_unattended") is not None else 2
+        for ceiling in (proposed.get("max_tier_unattended"), candidate.get("max_tier_unattended")):
+            if ceiling is not None and int(ceiling) > cur_ceiling:
+                raise HTTPException(status_code=403, detail="Device tokens cannot raise 'max_tier_unattended'; an administrator must.")
+        if candidate.get("allowed_tools") is None and current.get("allowed_tools") is not None:
+            raise HTTPException(status_code=403, detail="Device tokens cannot clear 'allowed_tools'; an administrator must.")
         for key in ("allowed_apps", "allowed_services", "allowed_tools"):
-            wanted = proposed.get(key)
-            if wanted is None:
-                continue
             current_list = current.get(key)
-            if current_list is None and key == "allowed_tools":
-                continue  # previously unrestricted; any explicit list narrows it
-            if not set(wanted) <= set(current_list or []):
-                raise HTTPException(status_code=403, detail=f"Device tokens cannot add entries to '{key}'; an administrator must.")
-        denied = proposed.get("denied_tools")
-        if denied is not None and not set(current.get("denied_tools") or []) <= set(denied):
+            for wanted in (proposed.get(key), candidate.get(key)):
+                if wanted is None:
+                    continue
+                if current_list is None and key == "allowed_tools":
+                    continue  # previously unrestricted; any explicit list narrows it
+                if not set(wanted) <= set(current_list or []):
+                    raise HTTPException(status_code=403, detail=f"Device tokens cannot add entries to '{key}'; an administrator must.")
+        cur_denied = set(current.get("denied_tools") or [])
+        cand_denied = set(candidate.get("denied_tools") or [])
+        if not cur_denied <= cand_denied:
             raise HTTPException(status_code=403, detail="Device tokens cannot remove entries from 'denied_tools'.")
 
     device_ttl_days = int(os.environ.get("AI_BRIDGE_DEVICE_TOKEN_TTL_DAYS", "7"))
@@ -1164,8 +1166,18 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         return {"device_id": device_id, "deleted": True}
 
     @app.get("/api/devices/{device_id}/policy")
-    def get_device_policy_api(device_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
-        require_role("viewer", x_admin_token, x_session_token)
+    def get_device_policy_api(
+        device_id: str,
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+        x_device_token: str | None = Header(default=None),
+    ):
+        if x_device_token and not (x_admin_token or x_session_token):
+            dev_tok_row = device_row(x_device_token)
+            if dev_tok_row["id"] != device_id:
+                raise HTTPException(status_code=403, detail="Device token not authorized for this device_id.")
+        else:
+            require_role("viewer", x_admin_token, x_session_token)
         row = conn.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Device not found.")
@@ -1220,7 +1232,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         conn.execute("UPDATE devices SET policy_json=? WHERE id=?", (json.dumps(policy_data), device_id))
         conn.commit()
         audit(actor, device_id, "set_device_policy", policy_data, "allowed")
-        return get_device_policy_api(device_id, x_admin_token, x_session_token)
+        return get_device_policy_api(device_id, x_admin_token, x_session_token, x_device_token)
 
     @app.delete("/api/devices/{device_id}/policy")
     def reset_device_policy_api(device_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None), x_device_token: str | None = Header(default=None)):
@@ -1496,14 +1508,22 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         row = conn.execute("SELECT * FROM devices WHERE id=? AND tenant=? AND revoked=0", (body.device_id, body.tenant)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="Device not found or revoked.")
-        tier = TOOL_TIERS.get(body.tool)
+        tool_name = normalize_tool_name(body.tool)
+        tier = TOOL_TIERS.get(tool_name)
         if tier is None:
             raise HTTPException(status_code=400, detail=f"Unknown tool: {body.tool}")
         eff_policy = get_effective_device_policy(row)
-        if body.tool in eff_policy.get("denied_tools", []):
-            raise HTTPException(status_code=403, detail=f"Tool '{body.tool}' is disabled by device policy for '{row['name']}'.")
-        if eff_policy.get("allowed_tools") is not None and body.tool not in eff_policy["allowed_tools"]:
-            raise HTTPException(status_code=403, detail=f"Tool '{body.tool}' is not in the allowed tools list for device '{row['name']}'.")
+        denied_tools = eff_policy.get("denied_tools", [])
+        if body.tool in denied_tools or tool_name in denied_tools:
+            raise HTTPException(status_code=403, detail=f"Tool '{tool_name}' is disabled by device policy for '{row['name']}'.")
+        allowed_tools = eff_policy.get("allowed_tools")
+        if allowed_tools is not None and body.tool not in allowed_tools and tool_name not in allowed_tools:
+            raise HTTPException(status_code=403, detail=f"Tool '{tool_name}' is not in the allowed tools list for device '{row['name']}'.")
+        if is_device_human_takeover_active(body.device_id):
+            raise HTTPException(
+                status_code=409,
+                detail="Human takeover is active on this device; autonomous AI tasks are paused until control is handed back.",
+            )
         task_id = uuid.uuid4().hex[:12]
         status = "queued"
         approval_id = None
@@ -1517,7 +1537,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             if tier.value >= 4:
                 if max_unattended < 4:
                     needs_approval = True
-                elif body.tool == "delete_workspace_file" and not allow_file_del:
+                elif tool_name == "delete_workspace_file" and not allow_file_del:
                     needs_approval = True
             elif tier.value == 3:
                 if not (allow_t3 or max_unattended >= 3):
@@ -1545,12 +1565,12 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 policy_row = conn.execute("SELECT MAX(version) AS version FROM policies").fetchone()
                 policy_version = policy_row["version"] or 0
                 conn.execute("INSERT INTO approvals (id, task_id, tool, reason, created_at, expires_at, policy_version) VALUES (?,?,?,?,?,?,?)",
-                             (approval_id, task_id, body.tool, f"Tier-{tier.value} operation requires human approval.", dbmod.now(), dbmod.now() + approval_ttl, policy_version))
+                             (approval_id, task_id, tool_name, f"Tier-{tier.value} operation requires human approval.", dbmod.now(), dbmod.now() + approval_ttl, policy_version))
                 status = "needs_approval"
             conn.execute("INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, approval_id, created_at, updated_at)"
                          " VALUES (?,?,?,?,?,?,?,?,?,?)",
-                         (task_id, body.device_id, body.tenant, body.tool, json.dumps(body.args), tier.value, status, approval_id, dbmod.now(), dbmod.now()))
-        audit(actor, body.device_id, body.tool, body.args, status, tenant=body.tenant)
+                         (task_id, body.device_id, body.tenant, tool_name, json.dumps(body.args), tier.value, status, approval_id, dbmod.now(), dbmod.now()))
+        audit(actor, body.device_id, tool_name, body.args, status, tenant=body.tenant)
         if status == "queued":
             notify_tasks(body.device_id, task_id)
         elif status == "needs_approval":
@@ -1562,7 +1582,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                     "task_id": task_id,
                     "device_id": body.device_id,
                     "device_name": row["name"],
-                    "tool": body.tool,
+                    "tool": tool_name,
                     "tier": tier.value,
                     "args": body.args,
                     "policy_version": policy_version,
@@ -2652,7 +2672,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                                     "timestamp": now_ts,
                                     "content": f"🚨 Alert: Trigger '{trig['name']}' fired on {dev_row['name']}: {metric_key}={val} (threshold {op} {thresh})"
                                 }
-                                asyncio.run(send_webhook_notification_async(wh_url, evt, admin_token, get_public_base_url()))
+                                asyncio.run(send_webhook_notification_async(wh_url, evt, token, get_public_base_url()))
                                 audit("trigger", dev_row["id"], f"trigger:{trig['name']}", {"metric": metric_key, "value": val, "webhook": bool(wh_url)}, "executed", tenant=dev_row["tenant"])
         except Exception:
             pass
@@ -3181,7 +3201,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 "metric": row["metric"],
                 "content": f"🧪 Test Trigger '{row['name']}' simulated by {actor}."
             }
-            send_webhook_notification(wh_url, evt, admin_token, get_public_base_url())
+            send_webhook_notification(wh_url, evt, token, get_public_base_url())
             return {"trigger_id": trigger_id, "status": "webhook_sent"}
         return {"trigger_id": trigger_id, "status": "ok"}
 

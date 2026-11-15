@@ -55,3 +55,8 @@ CREATE TABLE IF NOT EXISTS alert_deliveries (
   created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_alert_deliveries_ts ON alert_deliveries(created_at DESC);
+
+ALTER TABLE task_submissions ADD COLUMN IF NOT EXISTS created_at REAL NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_devices_token_hash ON devices(token_hash);
+CREATE INDEX IF NOT EXISTS idx_approvals_task_id ON approvals(task_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_policies_version ON policies(version);

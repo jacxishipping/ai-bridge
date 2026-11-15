@@ -77,7 +77,9 @@ CREATE TABLE IF NOT EXISTS schedules (
   last_run_at REAL, next_run_at REAL NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1, created_at REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_devices_token_hash ON devices(token_hash);
+CREATE INDEX IF NOT EXISTS idx_devices_tenant_name ON devices(tenant, name, id);
 CREATE INDEX IF NOT EXISTS idx_tasks_device_status ON tasks(device_id, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_tenant_created ON tasks(tenant, created_at DESC, id);
 CREATE INDEX IF NOT EXISTS idx_approvals_task_id ON approvals(task_id);
 CREATE INDEX IF NOT EXISTS idx_audit_tenant_ts ON audit(tenant, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status);
