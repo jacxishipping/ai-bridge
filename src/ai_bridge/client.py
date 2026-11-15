@@ -142,7 +142,8 @@ class AIBridgeClient:
         devices = self.list_devices()
         target = device_id_or_name.lower().strip()
         for d in devices:
-            if d.get("id") == target or (d.get("name") or "").lower() == target:
+            target_low = target.lower()
+            if d.get("id") == target or (d.get("name") or "").lower() == target_low:
                 return d
         return None
 

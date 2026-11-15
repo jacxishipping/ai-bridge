@@ -335,7 +335,7 @@ def button(
         btn.configure(bg=hover_bg, fg=hover_fg)
 
     def _leave(_event):
-        btn.configure(bg=t[bg_key] if not btn.cget("state") == "disabled" else t[bg_key], fg=t[fg_key])
+        btn.configure(bg=t["bg_subtle"] if btn.cget("state") == "disabled" else t[bg_key], fg=t[fg_key])
 
     btn.bind("<Enter>", _enter)
     btn.bind("<Leave>", _leave)
@@ -958,10 +958,15 @@ def build_overview(app, parent: tk.Widget) -> None:
         ("Workspace writes", app.policy_allow_writes, "permission"),
         ("Shell access", app.policy_allow_shell, "approval"),
     )
-    for label, var, _ in flags:
+    for label, var, kind in flags:
         on = bool(var.get())
-        bg = t["success_bg"] if on else t["card_alt"]
-        fg = t["success_fg"] if on else t["fg_subtle"]
+        if on:
+            if kind == "approval":
+                bg, fg = t["warn_bg"], t["warn_fg"]
+            else:
+                bg, fg = t["success_bg"], t["success_fg"]
+        else:
+            bg, fg = t["card_alt"], t["fg_subtle"]
         chip = tk.Label(
             chips,
             text=f"{label}: {'on' if on else 'off'}",

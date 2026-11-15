@@ -62,8 +62,15 @@ def extract_request_fingerprint(
 
 
 def ensure_mtls_column(conn: Any) -> None:
+    dialect = getattr(conn, "dialect", "sqlite")
     try:
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(devices)").fetchall()}
+        if dialect == "postgres":
+            rows = conn.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'devices'"
+            ).fetchall()
+            cols = {r[0] for r in rows}
+        else:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(devices)").fetchall()}
     except Exception:
         cols = set()
     if "mtls_fingerprint" not in cols:
@@ -71,7 +78,11 @@ def ensure_mtls_column(conn: Any) -> None:
             conn.execute("ALTER TABLE devices ADD COLUMN mtls_fingerprint TEXT")
             conn.commit()
         except Exception:
-            pass
+            if dialect == "postgres":
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
 
 
 def set_device_fingerprint(conn: Any, device_id: str, fingerprint: str) -> None:

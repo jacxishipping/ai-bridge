@@ -120,16 +120,10 @@ def run_migrations(conn: Any, dialect: str = "sqlite", migrations_dir: Path | No
 
             # Record migration in tracking table
             now_ts = time.time()
-            if dialect == "sqlite":
-                conn.execute(
-                    "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
-                    (version, fpath.name, now_ts),
-                )
-            else:
-                conn.execute(
-                    "INSERT INTO schema_migrations (version, name, applied_at) VALUES (%s, %s, %s)",
-                    (version, fpath.name, now_ts),
-                )
+            conn.execute(
+                "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+                (version, fpath.name, now_ts),
+            )
             conn.commit()
             newly_applied.append(version)
             logger.info("Successfully applied migration [%s].", version)

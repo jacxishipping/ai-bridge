@@ -223,7 +223,7 @@ export const TerminalView: React.FC = () => {
           const at = token();
           if (st) headers["X-Session-Token"] = st;
           else if (at) headers["X-Admin-Token"] = at;
-          const url = `${apiOrigin}/api/devices/${encodeURIComponent(deviceId)}/terminal/${encodeURIComponent(sessionId)}/stream?since_seq=${seqRef.current}`;
+          const url = api.terminalStreamUrl(deviceId, sessionId, seqRef.current);
           const res = await fetch(url, { headers, signal: ctrl.signal });
           if (!res.ok || !res.body) {
             const err = new Error(`${res.status}: stream rejected`) as Error & { status?: number };
@@ -307,6 +307,7 @@ export const TerminalView: React.FC = () => {
       setLiveStatus("connecting");
       try {
         const { cols, rows } = measureSize();
+        void api.listTerminalSessions(deviceId).catch(() => undefined);
         const sess = await api.createTerminalSession(deviceId, cols, rows);
         if (genRef.current !== gen) {
           api.closeTerminalSession(deviceId, sess.session_id).catch(() => undefined);

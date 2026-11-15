@@ -143,11 +143,43 @@ TOOL_TIERS: dict[str, RiskTier] = {
     "git_create_branch": RiskTier.SENSITIVE,
     "git_checkpoint": RiskTier.SENSITIVE,
     "git_apply_patch": RiskTier.SENSITIVE,
+    "git_log": RiskTier.READ_ONLY,
+    "git_commit": RiskTier.SENSITIVE,
+    "desktop_get_ui_elements": RiskTier.READ_ONLY,
+    "desktop_veto_action": RiskTier.READ_ONLY,
+    "desktop_anticipate_action": RiskTier.READ_ONLY,
+    "browser_snapshot": RiskTier.READ_ONLY,
+    "run_diagnostic_task": RiskTier.READ_ONLY,
+    "agent_remember": RiskTier.LOW_RISK,
+    "agent_notify": RiskTier.LOW_RISK,
+    "agent_delegate": RiskTier.LOW_RISK,
+    "agent_run_workflow": RiskTier.SENSITIVE,
     "supervisor_delegate_role": RiskTier.READ_ONLY,
     "supervisor_enqueue_handoff": RiskTier.SENSITIVE,
     "supervisor_recover_role_tasks": RiskTier.SENSITIVE,
     "agent_run_role": RiskTier.SENSITIVE,
 }
+
+# Dotted frontend/client aliases mapped to canonical underscore tool names.
+TOOL_ALIASES: dict[str, str] = {
+    "desktop.capture_screen": "desktop_get_screenshot",
+    "desktop.click_coordinate": "desktop_click",
+    "desktop.launch_app": "desktop_open_application",
+    "desktop.type": "desktop_keyboard",
+    "desktop.scroll": "desktop_scroll",
+    "desktop.mouse_move": "desktop_mouse_move",
+    "shell.exec": "run_shell",
+    "pty.spawn": "terminal_exec",
+    "file.read": "read_file",
+    "file.write": "write_file",
+    "system.specs": "get_system_info",
+}
+
+
+def normalize_tool_name(tool: str) -> str:
+    """Resolve dotted client aliases to canonical underscore tool names."""
+    name = (tool or "").strip()
+    return TOOL_ALIASES.get(name, name)
 
 @dataclass(frozen=True)
 class Policy:
@@ -164,7 +196,7 @@ class Policy:
     unrestricted: bool = False  # Bypasses all risk tier, write, and approval blocks (server/DevOps mode)
 
     def tier_of(self, tool: str) -> RiskTier | None:
-        return TOOL_TIERS.get(tool)
+        return TOOL_TIERS.get(normalize_tool_name(tool))
 
 @dataclass
 class Decision:
@@ -172,29 +204,46 @@ class Decision:
     needs_approval: bool = False
     reason: str = ""
 
+_WRITE_TOOLS = frozenset({
+    "create_workspace_file",
+    "edit_workspace_file",
+    "move_workspace_file",
+    "delete_workspace_file",
+    "create_backup",
+    "deploy_application",
+    "write_file",
+    "git_create_branch",
+    "git_checkpoint",
+    "git_commit",
+    "git_apply_patch",
+})
+
 def decide(policy: Policy, tool: str, *, approval_granted: bool = False,
            device_revoked: bool = False, is_admin: bool = False) -> Decision:
     if device_revoked:
         return Decision(False, reason="Device is revoked.")
-    tier = policy.tier_of(tool)
+    canonical = normalize_tool_name(tool)
+    tier = TOOL_TIERS.get(canonical)
     if tier is None:
         return Decision(False, reason=f"Unknown or unlisted tool: {tool}")
     # Device-specific and policy-specific tool blocking
-    if tool in policy.denied_tools:
+    if tool in policy.denied_tools or canonical in policy.denied_tools:
         return Decision(False, reason=f"Tool '{tool}' is disabled by device policy.")
-    if policy.allowed_tools is not None and tool not in policy.allowed_tools:
+    if policy.allowed_tools is not None and tool not in policy.allowed_tools and canonical not in policy.allowed_tools:
         return Decision(False, reason=f"Tool '{tool}' is not in the allowed tools list for this policy.")
 
     # Unrestricted server mode (e.g. Linux servers / DevOps) bypasses all tier & approval guardrails
     if policy.unrestricted:
         return Decision(True, reason="Allowed (unrestricted server policy).")
+    if canonical in _WRITE_TOOLS and not policy.allow_writes:
+        return Decision(False, reason="Workspace writes are disabled by policy.")
     if tier == RiskTier.HIGH_RISK and not (approval_granted and is_admin):
-        if not (policy.max_tier_unattended >= 4 and tool not in policy.denied_tools):
+        if not (policy.max_tier_unattended >= 4 and tool not in policy.denied_tools and canonical not in policy.denied_tools):
             return Decision(False, needs_approval=True,
                             reason="High-risk operation requires explicit human approval.")
     if tier == RiskTier.SENSITIVE:
         desktop_tools = {
-            "capture_desktop_screenshot", "take_screenshot", "start_webrtc_stream", "launch_approved_application",
+            "capture_desktop_screenshot", "capture_desktop_frame", "take_screenshot", "start_webrtc_stream", "launch_approved_application",
             "perform_approved_ui_action", "mouse_click", "mouse_move", "mouse_scroll",
             "mouse_drag", "keyboard_type", "keyboard_press", "press_hotkey", "focus_window",
             "ocr_screen", "click_text", "click_element", "list_ui_elements", "set_of_marks_screenshot",
@@ -202,18 +251,16 @@ def decide(policy: Policy, tool: str, *, approval_granted: bool = False,
             "desktop_get_screenshot", "desktop_get_window_screenshot", "desktop_mouse_move", "desktop_click", "desktop_keyboard",
             "desktop_scroll", "desktop_clipboard_set", "desktop_open_application", "desktop_wait", "desktop_verify_action",
         }
-        if tool in desktop_tools and not policy.desktop_enabled:
+        if canonical in desktop_tools and not policy.desktop_enabled:
             return Decision(False, reason="Desktop automation is not enabled.")
         # A human approval record for this task is itself the Tier-3
         # opt-in: without it, an approved task would be re-denied by the
         # agent after the control plane released it (see next_task).
-        if not (policy.allow_tier3 or policy.max_tier_unattended >= 3 or is_admin) and not approval_granted and tool not in {"submit_task", "create_backup"}:
+        if not (policy.allow_tier3 or policy.max_tier_unattended >= 3 or is_admin) and not approval_granted and canonical not in {"submit_task", "create_backup"}:
             return Decision(False, needs_approval=True,
                             reason="Sensitive operation requires Tier-3 opt-in or approval.")
-        effective_ceiling = max(policy.max_tier_unattended, 3) if (policy.allow_tier3 or policy.max_tier_unattended >= 3 or is_admin or tool in {"submit_task", "create_backup"}) else policy.max_tier_unattended
+        effective_ceiling = max(policy.max_tier_unattended, 3) if (policy.allow_tier3 or policy.max_tier_unattended >= 3 or is_admin or canonical in {"submit_task", "create_backup"}) else policy.max_tier_unattended
         if not is_admin and tier > effective_ceiling and not approval_granted:
             return Decision(False, needs_approval=True,
                             reason="Operation exceeds the unattended tier ceiling.")
-    if tier == RiskTier.LOW_RISK and tool in {"create_workspace_file"} and not policy.allow_writes:
-        return Decision(False, reason="Workspace writes are disabled by policy.")
     return Decision(True, reason=f"Allowed (tier {tier}).")

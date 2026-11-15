@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # AI Bridge Windows Agent — Clean Uninstaller
 # ==============================================================================
 [CmdletBinding()]
@@ -13,25 +13,34 @@ Write-Host "====================================================================
 
 # 1. Stop running processes
 Write-Host "Stopping any running AI Bridge processes..." -ForegroundColor DarkGray
-Get-Process python, pythonw -ErrorAction SilentlyContinue | Where-Object {
-    $_.CommandLine -like "*gui_app.py*" -or $_.CommandLine -like "*agent_main.py*"
-} | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    ($_.Name -match '^python(w)?\.exe$' -and ($_.CommandLine -like "*gui_app.py*" -or $_.CommandLine -like "*agent_main.py*")) -or
+    ($_.Name -match '^AIBridge-(Agent|Setup)\.exe$')
+} | ForEach-Object {
+    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+}
 
-# 2. Remove HKCU Autostart Registry entry
+# 2. Remove HKCU Autostart Registry entries
 $RegRunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-try {
-    $Val = Get-ItemPropertyValue -Path $RegRunKey -Name "AIBridgeWindowsClient" -ErrorAction SilentlyContinue
-    if ($Val) {
-        Remove-ItemProperty -Path $RegRunKey -Name "AIBridgeWindowsClient" -ErrorAction SilentlyContinue
-        Write-Host "Removed Windows Startup entry from HKCU." -ForegroundColor Green
-    }
-} catch {}
+foreach ($RegName in @("AIBridgeWindowsClient", "AIBridgeWindowsAgent")) {
+    try {
+        $Val = Get-ItemPropertyValue -Path $RegRunKey -Name $RegName -ErrorAction SilentlyContinue
+        if ($Val) {
+            Remove-ItemProperty -Path $RegRunKey -Name $RegName -ErrorAction SilentlyContinue
+            Write-Host "Removed Windows Startup entry '$RegName' from HKCU." -ForegroundColor Green
+        }
+    } catch {}
+}
 
-# 3. Remove Scheduled Task if present
-try {
-    schtasks /delete /tn "AI Bridge Agent" /f 2>$null
-    Write-Host "Removed Scheduled Task 'AI Bridge Agent'." -ForegroundColor Green
-} catch {}
+# 3. Remove Scheduled Tasks if present
+foreach ($TaskName in @("AI Bridge Agent", "AIBridgeAgent")) {
+    try {
+        schtasks /delete /tn $TaskName /f 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Removed Scheduled Task '$TaskName'." -ForegroundColor Green
+        }
+    } catch {}
+}
 
 # 4. Remove Shortcuts
 $DesktopDir = [Environment]::GetFolderPath("Desktop")

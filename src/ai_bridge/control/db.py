@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS devices (
   tenant TEXT NOT NULL DEFAULT 'default', token_hash TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'offline', last_seen REAL,
   policy_json TEXT NOT NULL DEFAULT '{}', revoked INTEGER NOT NULL DEFAULT 0,
-  created_at REAL NOT NULL, token_expires_at REAL, token_issued_at REAL);
+  created_at REAL NOT NULL, token_expires_at REAL, token_issued_at REAL,
+  capabilities_json TEXT NOT NULL DEFAULT '[]', mtls_fingerprint TEXT);
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY, device_id TEXT NOT NULL, tenant TEXT NOT NULL DEFAULT 'default',
   tool TEXT NOT NULL, args_json TEXT NOT NULL DEFAULT '{}', tier INTEGER,
@@ -39,7 +40,8 @@ CREATE TABLE IF NOT EXISTS approvals (
   expires_at REAL, decided_at REAL, policy_version INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS audit (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, tenant TEXT,
-  actor TEXT, device_id TEXT, tool TEXT, args_json TEXT, decision TEXT, result TEXT);
+  actor TEXT, device_id TEXT, tool TEXT, args_json TEXT, decision TEXT, result TEXT,
+  prev_hash TEXT, entry_hash TEXT);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
@@ -175,6 +177,29 @@ CREATE TABLE IF NOT EXISTS alert_deliveries (
   detail TEXT DEFAULT '',
   created_at REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_alert_deliveries_ts ON alert_deliveries(created_at DESC);
+CREATE TABLE IF NOT EXISTS device_metadata (
+  device_id TEXT PRIMARY KEY,
+  group_name TEXT NOT NULL DEFAULT '',
+  tags_json TEXT NOT NULL DEFAULT '[]');
+CREATE TABLE IF NOT EXISTS task_events (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  event TEXT NOT NULL,
+  detail_json TEXT,
+  created_at REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, created_at);
+CREATE TABLE IF NOT EXISTS agent_memory_chunks (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  tenant TEXT NOT NULL DEFAULT 'default',
+  chunk_index INTEGER NOT NULL DEFAULT 0,
+  content TEXT NOT NULL,
+  project_tag TEXT,
+  task_tag TEXT,
+  created_at REAL NOT NULL,
+  updated_at REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_agent_memory_agent ON agent_memory_chunks(agent_id, chunk_index);
+CREATE INDEX IF NOT EXISTS idx_agent_memory_tags ON agent_memory_chunks(agent_id, project_tag, task_tag);
 """
 
 
@@ -415,20 +440,27 @@ def now() -> float:
 
 
 def _ensure_audit_hash_columns(conn: Any) -> None:
+    dialect = getattr(conn, "dialect", "sqlite")
     try:
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(audit)").fetchall()}
+        if dialect == "postgres":
+            cols = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'audit'"
+                ).fetchall()
+            }
+        else:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(audit)").fetchall()}
     except Exception:
         cols = set()
-    if "entry_hash" not in cols:
-        try:
-            conn.execute("ALTER TABLE audit ADD COLUMN entry_hash TEXT")
-        except Exception:
-            pass
-    if "prev_hash" not in cols:
-        try:
-            conn.execute("ALTER TABLE audit ADD COLUMN prev_hash TEXT")
-        except Exception:
-            pass
+    for col in ("entry_hash", "prev_hash"):
+        if col not in cols:
+            try:
+                conn.execute(f"ALTER TABLE audit ADD COLUMN {col} TEXT")
+            except Exception:
+                if dialect == "postgres":
+                    with contextlib.suppress(Exception):
+                        conn.rollback()
 
 
 def audit(conn: Any, *, tenant: str, actor: str, device_id: str,
@@ -454,13 +486,23 @@ def audit(conn: Any, *, tenant: str, actor: str, device_id: str,
         " VALUES (?,?,?,?,?,?,?,?,?,?)",
         (ts, tenant, actor, device_id, tool, args_json, decision, safe_result, prev_hash, None),
     )
-    row_id = cur.lastrowid
+    row_id = getattr(cur, "lastrowid", None)
+    if row_id is None:
+        try:
+            latest = conn.execute(
+                "SELECT id FROM audit WHERE actor=? AND tool=? AND entry_hash IS NULL ORDER BY id DESC LIMIT 1",
+                (actor, tool),
+            ).fetchone()
+            row_id = latest["id"] if latest else None
+        except Exception:
+            row_id = None
     payload = f"{prev_hash}|{row_id}|{ts}|{actor}|{device_id}|{tool}|{args_json}|{decision}"
     entry_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    try:
-        conn.execute("UPDATE audit SET entry_hash=? WHERE id=?", (entry_hash, row_id))
-    except Exception:
-        pass
+    if row_id is not None:
+        try:
+            conn.execute("UPDATE audit SET entry_hash=? WHERE id=?", (entry_hash, row_id))
+        except Exception:
+            pass
     conn.commit()
     try:
         from . import worm_siem

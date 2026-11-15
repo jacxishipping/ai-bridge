@@ -31,8 +31,6 @@ def install_workspace_routes(app, conn, require_role, audit):
             # Serialize concurrent admin changes across PostgreSQL workers too.
             if conn.dialect == "postgres":
                 conn.execute("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE")
-            else:
-                conn.execute("BEGIN IMMEDIATE")
             user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
             if user is None:
                 raise HTTPException(404, "User not found.")

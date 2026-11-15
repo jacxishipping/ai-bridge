@@ -3,12 +3,19 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path "$PSScriptRoot\..\..").Path
 $GuiScript = Join-Path $RepoRoot "agents\windows\gui_app.py"
-$PythonW = "$env:ProgramData\ai-bridge\.venv\Scripts\pythonw.exe"
-if (-not (Test-Path $PythonW)) {
-    $PythonW = (Get-Command pythonw.exe -ErrorAction SilentlyContinue).Source
-}
+$Candidates = @(
+    "$env:ProgramData\ai-bridge\.venv\Scripts\pythonw.exe",
+    "$env:LOCALAPPDATA\ai-bridge\.venv\Scripts\pythonw.exe",
+    "$RepoRoot\.venv\Scripts\pythonw.exe",
+    (Get-Command pythonw.exe -ErrorAction SilentlyContinue).Source,
+    "$env:ProgramData\ai-bridge\.venv\Scripts\python.exe",
+    "$env:LOCALAPPDATA\ai-bridge\.venv\Scripts\python.exe",
+    "$RepoRoot\.venv\Scripts\python.exe",
+    (Get-Command python.exe -ErrorAction SilentlyContinue).Source
+)
+$PythonW = $Candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 if (-not $PythonW) {
-    $PythonW = "$env:ProgramData\ai-bridge\.venv\Scripts\python.exe"
+    throw "Could not locate pythonw.exe or python.exe to create shortcuts."
 }
 
 $WshShell = New-Object -ComObject WScript.Shell

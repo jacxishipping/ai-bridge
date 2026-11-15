@@ -9,7 +9,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { motion } from "motion/react";
-import { api } from "../api";
+import { api, apiOrigin, sessionToken, token } from "../api";
 import {
   JXContainer,
   JXStack,
@@ -29,6 +29,7 @@ import {
   GlassModal,
   HoldToConfirmButton,
   BreadcrumbTrail,
+  ProductToolbar,
 } from "../ui";
 import {
   Server,
@@ -109,6 +110,9 @@ export const Device360View: React.FC = () => {
   const setSelectedDeviceId = useDashboardStore((s) => s.setSelectedDeviceId);
   const setCurrentView = useDashboardStore((s) => s.setCurrentView);
   const dispatchTask = useDashboardStore((s) => s.dispatchTask);
+  const refreshLive = useDashboardStore((s) => s.refreshLive);
+  const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
+  const controlBase = (apiOrigin || (typeof window !== "undefined" ? window.location.origin : "")).replace(/\/$/, "");
 
   const selectedDevice = useMemo(
     () => devices.find((d) => d.id === selectedDeviceId) || devices[0],
@@ -135,7 +139,7 @@ export const Device360View: React.FC = () => {
     fingerprintSha256: "unknown",
   };
 
-  const isOffline = selectedDevice?.status === "offline";
+  const isOffline = !selectedDevice || selectedDevice.status === "offline";
 
   // Active diagnostic panel tab
   const [activeTab, setActiveTab] = useState<string>("processes");
@@ -162,6 +166,7 @@ export const Device360View: React.FC = () => {
   const [listeningSockets, setListeningSockets] = useState<SocketPort[]>([]);
   const [daemons, setDaemons] = useState<SystemDaemon[]>([]);
   const [loadingOverview, setLoadingOverview] = useState<boolean>(false);
+  const [telemetryHistoryCount, setTelemetryHistoryCount] = useState<number>(0);
 
   useEffect(() => {
     let active = true;
@@ -171,9 +176,19 @@ export const Device360View: React.FC = () => {
       setInstalledApps([]);
       setListeningSockets([]);
       setDaemons([]);
+      setTelemetryHistoryCount(0);
       return;
     }
     setLoadingOverview(true);
+    if (isLive) {
+      api.deviceTelemetry(selectedDevice.id, 20)
+        .then((hist: any) => {
+          if (!active) return;
+          const samples = Array.isArray(hist?.samples) ? hist.samples : Array.isArray(hist) ? hist : [];
+          setTelemetryHistoryCount(samples.length);
+        })
+        .catch(() => {});
+    }
     api.deviceOverview(selectedDevice.id)
       .then((data: any) => {
         if (!active) return;
@@ -280,11 +295,12 @@ export const Device360View: React.FC = () => {
 
   // Fast action command handlers
   const handleCaptureScreen = useCallback(async () => {
+    if (!selectedDevice) return;
     setActionFeedback(null);
     try {
       const task = await dispatchTask({
         deviceId: selectedDevice.id,
-        tool: "desktop.capture_screen",
+        tool: "desktop_get_screenshot",
         args: { format: "png", quality: 90 },
         riskTier: "tier1_safe",
       });
@@ -295,12 +311,14 @@ export const Device360View: React.FC = () => {
   }, [dispatchTask, selectedDevice]);
 
   const handleFlushDns = useCallback(async () => {
+    if (!selectedDevice) return;
     setActionFeedback(null);
+    const cmd = selectedDevice.platform === "windows" ? "ipconfig /flushdns" : "systemd-resolve --flush-caches";
     try {
       const task = await dispatchTask({
         deviceId: selectedDevice.id,
-        tool: "shell.exec",
-        args: { command: "systemd-resolve --flush-caches" },
+        tool: "run_shell",
+        args: { command: cmd },
         riskTier: "tier3_shell",
       });
       setActionFeedback(`DNS cache flush dispatched to ${selectedDevice.hostname} (#${task.id}).`);
@@ -310,12 +328,17 @@ export const Device360View: React.FC = () => {
   }, [dispatchTask, selectedDevice]);
 
   const handleCreateBackup = useCallback(async () => {
+    if (!selectedDevice) return;
     setActionFeedback(null);
+    const cmd =
+      selectedDevice.platform === "windows"
+        ? "powershell -NoProfile -Command \"Compress-Archive -Path C:\\ai-bridge\\workspace -DestinationPath C:\\ai-bridge\\snapshot.zip -Force\""
+        : "tar -czf /opt/backups/snapshot.tar.gz /opt/ai-bridge/workspace";
     try {
       const task = await dispatchTask({
         deviceId: selectedDevice.id,
-        tool: "shell.exec",
-        args: { command: "tar -czf /opt/backups/snapshot.tar.gz /opt/ai-bridge/workspace" },
+        tool: "run_shell",
+        args: { command: cmd },
         riskTier: "tier2_workspace",
       });
       setActionFeedback(`Backup archive snapshot initiated (#${task.id}).`);
@@ -325,12 +348,14 @@ export const Device360View: React.FC = () => {
   }, [dispatchTask, selectedDevice]);
 
   const handleRebootNode = useCallback(async () => {
+    if (!selectedDevice) return;
     setActionFeedback(null);
+    const cmd = selectedDevice.platform === "windows" ? "shutdown /r /t 5" : "systemctl reboot";
     try {
       const task = await dispatchTask({
         deviceId: selectedDevice.id,
-        tool: "shell.exec",
-        args: { command: "systemctl reboot" },
+        tool: "run_shell",
+        args: { command: cmd },
         riskTier: "tier4_kernel",
       });
       setActionFeedback(`SIGREBOOT issued for ${selectedDevice.hostname} (#${task.id}).`);
@@ -338,6 +363,57 @@ export const Device360View: React.FC = () => {
       setActionFeedback(`Reboot failed: ${err?.message}`);
     }
   }, [dispatchTask, selectedDevice]);
+
+  const handleRefreshTelemetry = useCallback(async () => {
+    if (!selectedDevice) return;
+    setActionFeedback(null);
+    if (!isLive) {
+      setActionFeedback(`Telemetry refreshed for ${selectedDevice.hostname} (demo snapshot).`);
+      return;
+    }
+    try {
+      await api.refreshDeviceTelemetry(selectedDevice.id);
+      await refreshLive?.();
+      setActionFeedback(`Live telemetry refresh queued for ${selectedDevice.hostname}.`);
+    } catch (err: any) {
+      setActionFeedback(`Telemetry refresh failed: ${err?.message}`);
+    }
+  }, [isLive, refreshLive, selectedDevice]);
+
+  const handleUpdateAgent = useCallback(async () => {
+    if (!selectedDevice) return;
+    setActionFeedback(null);
+    if (!isLive) {
+      setActionFeedback(`Demo agent upgrade simulated for ${selectedDevice.hostname}.`);
+      return;
+    }
+    try {
+      const res = await api.updateDeviceAgent(selectedDevice.id);
+      setActionFeedback(`Agent update dispatched for ${selectedDevice.hostname} (${res?.task_id || "queued"}).`);
+    } catch (err: any) {
+      setActionFeedback(`Agent update failed: ${err?.message}`);
+    }
+  }, [isLive, selectedDevice]);
+
+  const handleSyncDeviceMetadata = useCallback(async () => {
+    if (!selectedDevice) return;
+    setActionFeedback(null);
+    if (!isLive) {
+      setActionFeedback(`Metadata synchronized locally for ${selectedDevice.hostname}.`);
+      return;
+    }
+    try {
+      await api.updateDevice(selectedDevice.id, {
+        name: selectedDevice.name,
+        hostname: selectedDevice.hostname,
+        os: selectedDevice.osRelease,
+      });
+      await refreshLive?.();
+      setActionFeedback(`Synchronized control-plane record for ${selectedDevice.hostname}.`);
+    } catch (err: any) {
+      setActionFeedback(`Device update failed: ${err?.message}`);
+    }
+  }, [isLive, refreshLive, selectedDevice]);
 
   // Filtered and sorted processes
   const filteredProcesses = useMemo(() => {
@@ -359,7 +435,7 @@ export const Device360View: React.FC = () => {
   }, [processes, processSearch, processSortBy]);
 
   // Process termination handler with protection guard
-  const handleConfirmKillProcess = useCallback(() => {
+  const handleConfirmKillProcess = useCallback(async () => {
     if (!processToKill) return;
 
     if (processToKill.isProtected || processToKill.pid === 1 || processToKill.name === "ai-bridge-agent") {
@@ -369,14 +445,58 @@ export const Device360View: React.FC = () => {
       return;
     }
 
+    if (isLive && selectedDevice) {
+      try {
+        const cmd =
+          selectedDevice.platform === "windows"
+            ? `taskkill /PID ${processToKill.pid} /F`
+            : `kill -15 ${processToKill.pid}`;
+        const task = await dispatchTask({
+          deviceId: selectedDevice.id,
+          tool: "run_shell",
+          args: { command: cmd },
+          riskTier: "tier3_shell",
+        });
+        setActionFeedback(`Termination dispatched for PID ${processToKill.pid} (${processToKill.name}) (#${task.id}).`);
+      } catch (err: any) {
+        setKillGuardError(`Failed to dispatch kill task: ${err?.message || "Unknown error"}`);
+        return;
+      }
+    } else {
+      setActionFeedback(`Signal SIGTERM queued for PID ${processToKill.pid} (${processToKill.name}).`);
+    }
+
     setProcesses((prev) => prev.filter((p) => p.pid !== processToKill.pid));
-    setActionFeedback(`Signal SIGTERM sent to PID ${processToKill.pid} (${processToKill.name}).`);
     setProcessToKill(null);
     setKillGuardError(null);
-  }, [processToKill]);
+  }, [dispatchTask, isLive, processToKill, selectedDevice]);
 
   // Daemon state toggle handler
-  const handleDaemonAction = useCallback((daemonName: string, action: "start" | "stop" | "restart") => {
+  const handleDaemonAction = useCallback(async (daemonName: string, action: "start" | "stop" | "restart") => {
+    if (isLive && selectedDevice) {
+      const svc = daemonName.replace(/\.service$/, "");
+      const cmd =
+        selectedDevice.platform === "windows"
+          ? action === "restart"
+            ? `sc stop "${svc}" && sc start "${svc}"`
+            : `sc ${action} "${svc}"`
+          : `systemctl ${action} ${daemonName}`;
+      try {
+        const task = await dispatchTask({
+          deviceId: selectedDevice.id,
+          tool: "run_shell",
+          args: { command: cmd },
+          riskTier: "tier3_shell",
+        });
+        void api.refreshDeviceTelemetry(selectedDevice.id).catch(() => {});
+        setActionFeedback(`Daemon ${daemonName}: ${action.toUpperCase()} dispatched (#${task.id}).`);
+        return;
+      } catch (err: any) {
+        setActionFeedback(`Daemon ${daemonName} ${action} failed: ${err?.message || "Unknown error"}`);
+        return;
+      }
+    }
+    const deterministicPid = 1000 + ((daemonName.length * 137 + action.length * 41) % 8000);
     setDaemons((prev) =>
       prev.map((d) => {
         if (d.name !== daemonName) return d;
@@ -384,18 +504,18 @@ export const Device360View: React.FC = () => {
           return { ...d, status: "stopped", pid: 0 };
         }
         if (action === "start") {
-          return { ...d, status: "active", pid: Math.floor(1000 + Math.random() * 8000) };
+          return { ...d, status: "active", pid: deterministicPid };
         }
         return {
           ...d,
           status: "active",
-          pid: Math.floor(1000 + Math.random() * 8000),
+          pid: deterministicPid,
           restarts: d.restarts + 1,
         };
       })
     );
-    setActionFeedback(`Daemon ${daemonName}: ${action.toUpperCase()} action dispatched.`);
-  }, []);
+    setActionFeedback(`Daemon ${daemonName}: ${action.toUpperCase()} simulated in demo mode.`);
+  }, [dispatchTask, isLive, selectedDevice]);
 
   return (
     <div className="w-full space-y-4">
@@ -496,6 +616,39 @@ export const Device360View: React.FC = () => {
                   Create Backup
                 </JXButton>
 
+                <ProductToolbar>
+                  <JXButton
+                    variant="outlined"
+                    color="neutral"
+                    size="sm"
+                    disabled={isOffline}
+                    onClick={() => void handleRefreshTelemetry()}
+                    startIcon={<RefreshCw className="w-3.5 h-3.5 text-indigo-400" />}
+                  >
+                    Refresh Telemetry{telemetryHistoryCount > 0 ? ` (${telemetryHistoryCount})` : ""}
+                  </JXButton>
+                  <JXButton
+                    variant="outlined"
+                    color="neutral"
+                    size="sm"
+                    disabled={isOffline}
+                    onClick={() => void handleUpdateAgent()}
+                    startIcon={<Zap className="w-3.5 h-3.5 text-emerald-400" />}
+                  >
+                    Update Agent
+                  </JXButton>
+                  <JXButton
+                    variant="outlined"
+                    color="neutral"
+                    size="sm"
+                    disabled={!selectedDevice}
+                    onClick={() => void handleSyncDeviceMetadata()}
+                    startIcon={<CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />}
+                  >
+                    Sync Node Record
+                  </JXButton>
+                </ProductToolbar>
+
                 {/* Reboot Node Hold-to-Confirm Button */}
                 {isOffline ? (
                   <JXButton
@@ -532,9 +685,9 @@ export const Device360View: React.FC = () => {
                     </div>
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-[var(--product-canvas)]/80 border border-[var(--product-line)] text-xs font-mono">
                       <code className="text-indigo-300 truncate select-all">
-                        {selectedDevice.platform === "windows"
-                          ? `powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://jxiptvplayer.app/magic-install.ps1' -OutFile 'magic-install.ps1'; .\\magic-install.ps1 -ControlUrl 'https://jxiptvplayer.app'"`
-                          : `curl -fsSL https://jxiptvplayer.app/magic-install.sh | bash -s -- --control-url https://jxiptvplayer.app`}
+                        {selectedDevice?.platform === "windows"
+                          ? `powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '${controlBase}/magic-install.ps1' -OutFile 'magic-install.ps1'; .\\magic-install.ps1 -ControlUrl '${controlBase}'"`
+                          : `curl -fsSL ${controlBase}/magic-install.sh | bash -s -- --control-url ${controlBase}`}
                       </code>
                       <JXButton
                         variant="soft"
@@ -542,9 +695,9 @@ export const Device360View: React.FC = () => {
                         size="sm"
                         onClick={() =>
                           handleCopyCommand(
-                            selectedDevice.platform === "windows"
-                              ? `powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://jxiptvplayer.app/magic-install.ps1' -OutFile 'magic-install.ps1'; .\\magic-install.ps1 -ControlUrl 'https://jxiptvplayer.app'"`
-                              : `curl -fsSL https://jxiptvplayer.app/magic-install.sh | bash -s -- --control-url https://jxiptvplayer.app`
+                            selectedDevice?.platform === "windows"
+                              ? `powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '${controlBase}/magic-install.ps1' -OutFile 'magic-install.ps1'; .\\magic-install.ps1 -ControlUrl '${controlBase}'"`
+                              : `curl -fsSL ${controlBase}/magic-install.sh | bash -s -- --control-url ${controlBase}`
                           )
                         }
                         startIcon={copiedCommand ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-indigo-400" />}
@@ -718,7 +871,7 @@ export const Device360View: React.FC = () => {
                   <div className="flex justify-between items-center">
                     <span className="text-[var(--product-text-tertiary)]">PUBLIC IP:</span>
                     <span className="text-[var(--product-text-secondary)]">
-                      {isOffline ? "—" : (import.meta as any).env?.VITE_PUBLIC_IP || "your-aws-ip"}
+                      {isOffline ? "—" : (import.meta as any).env?.VITE_PUBLIC_IP || telemetry.ipAddress || "Not reported"}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">

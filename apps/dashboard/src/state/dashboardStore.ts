@@ -6,7 +6,7 @@
 
 import { useSyncExternalStore } from "react";
 import { readRoute, writeRoute } from "./navigation";
-import { api, token, sessionToken } from "../api";
+import { api, token, sessionToken, toIsoTimestamp } from "../api";
 
 function isLiveAuthenticated(): boolean {
   return typeof window !== "undefined" && Boolean(token() || sessionToken());
@@ -743,7 +743,7 @@ class DashboardStore {
         const lines = buf.split("\n");
         buf = lines.pop() || "";
         for (const line of lines) {
-          if (line.startsWith("data:") && line.includes('"sync"') && this.state.autoPollEnabled) {
+          if (line.startsWith("data:") && line.length > 5 && this.state.autoPollEnabled) {
             void this.syncWithBackend();
           }
         }
@@ -762,6 +762,7 @@ class DashboardStore {
     const adminTok = token();
     const sessTok = sessionToken();
     if (!adminTok && !sessTok) return;
+    if (!this.eventStreamActive) void this.startEventStream();
 
     try {
       const startTime = performance.now();
@@ -831,7 +832,7 @@ class DashboardStore {
             osRelease: d.os || "OS not reported",
             arch: (d.os?.toLowerCase().includes("arm") || d.os?.toLowerCase().includes("aarch64")) ? "aarch64" : "x86_64",
             status: isOnline ? "online" : "offline",
-            lastHeartbeat: d.last_seen ? new Date(d.last_seen * 1000).toISOString() : "",
+            lastHeartbeat: toIsoTimestamp(d.last_seen),
             pollIntervalSec: typeof d.poll_interval_sec === "number" ? d.poll_interval_sec : 0,
             latencyMs: isOnline ? Math.max(8, latency) : 0,
             workspacePath: typeof d.workspace === "string" ? d.workspace : "Not reported",
@@ -881,9 +882,9 @@ class DashboardStore {
           status: (t.status || "pending") as TaskStatus,
           approvalId: t.approval_id || undefined,
           invoker: t.tenant ? `tenant:${t.tenant}` : "operator:admin",
-          createdAt: t.created_at ? new Date(t.created_at * 1000).toISOString() : new Date().toISOString(),
-          startedAt: t.created_at ? new Date(t.created_at * 1000).toISOString() : undefined,
-          completedAt: t.updated_at ? new Date(t.updated_at * 1000).toISOString() : undefined,
+          createdAt: toIsoTimestamp(t.created_at, new Date().toISOString()),
+          startedAt: toIsoTimestamp(t.created_at) || undefined,
+          completedAt: toIsoTimestamp(t.updated_at) || undefined,
           result: t.result ? (typeof t.result === "string" ? { stdout: t.result } : t.result) : undefined,
         }));
       }
@@ -898,18 +899,18 @@ class DashboardStore {
           riskTier: (a.tier === 1 ? "tier1_safe" : a.tier === 2 ? "tier2_workspace" : a.tier === 3 ? "tier3_shell" : "tier4_kernel") as TaskRiskTier,
           reason: a.reason || "Operation requires operator approval.",
           requester: a.tenant ? `tenant:${a.tenant}` : "agent:fleet-controller",
-          requestedAt: a.created_at ? new Date(a.created_at * 1000).toISOString() : new Date().toISOString(),
-          expiresAt: a.expires_at ? new Date(a.expires_at * 1000).toISOString() : "",
+          requestedAt: toIsoTimestamp(a.created_at, new Date().toISOString()),
+          expiresAt: toIsoTimestamp(a.expires_at),
           status: (a.status || "pending") as "pending" | "approved" | "denied",
           decidedBy: a.decided_by,
-          decidedAt: a.decided_at ? new Date(a.decided_at * 1000).toISOString() : undefined,
+          decidedAt: toIsoTimestamp(a.decided_at) || undefined,
         }));
       }
 
       if (Array.isArray(rawAudit)) {
         nextState.auditEvents = rawAudit.map((ev: any, idx: number) => ({
           blockNumber: ev.id || (rawAudit.length - idx),
-          timestamp: ev.ts ? new Date(ev.ts * 1000).toISOString() : new Date().toISOString(),
+          timestamp: toIsoTimestamp(ev.ts, new Date().toISOString()),
           actor: ev.actor || "operator",
           action: ev.tool || "system",
           targetHost: liveDevices.find((d) => d.id === ev.device_id)?.hostname || ev.device_id || "fleet-gateway",
@@ -926,7 +927,7 @@ class DashboardStore {
           const argsStr = typeof ev.args_json === "string" ? ev.args_json : JSON.stringify(ev.args_json || {});
           return {
             id: `log-${ev.id || idx}`,
-            timestamp: ev.ts ? new Date(ev.ts * 1000).toISOString() : new Date().toISOString(),
+            timestamp: toIsoTimestamp(ev.ts, new Date().toISOString()),
             service,
             moduleTag: toolName,
             workerThread: ev.actor || "operator",
@@ -975,7 +976,7 @@ class DashboardStore {
           clientName: String(c.client_name || c.client_id_prefix || "OAuth Client"),
           pkceType: "S256",
           scopes: ["mcp", "openid", "offline_access"],
-          createdAt: c.created_at ? new Date(c.created_at * 1000).toISOString() : new Date().toISOString(),
+          createdAt: toIsoTimestamp(c.created_at, new Date().toISOString()),
           expiresAt: "",
           status: "active",
           tokenSecretMasked: `${String(c.client_id_prefix || c.client_id || "").slice(0, 12)}••••••••`,
@@ -1010,8 +1011,8 @@ class DashboardStore {
                 error: r?.error,
               };
             }),
-            startedAt: w.created_at ? new Date(w.created_at * 1000).toISOString() : new Date().toISOString(),
-            completedAt: w.completed_at ? new Date(w.completed_at * 1000).toISOString() : undefined,
+            startedAt: toIsoTimestamp(w.created_at, new Date().toISOString()),
+            completedAt: toIsoTimestamp(w.completed_at) || undefined,
           };
         });
       }
@@ -1084,6 +1085,7 @@ class DashboardStore {
         void this.syncWithBackend();
       } catch (err) {
         console.warn("Live emergency stop failed:", err);
+        throw err;
       }
     }
     this.state = {
@@ -1119,6 +1121,7 @@ class DashboardStore {
         void this.syncWithBackend();
       } catch (err) {
         console.warn("Live emergency clear failed:", err);
+        throw err;
       }
     }
     this.state = {
@@ -1211,7 +1214,8 @@ class DashboardStore {
         void this.syncWithBackend();
         return res;
       } catch (err) {
-        console.warn("Live task dispatch failed, fallback to local registration:", err);
+        console.warn("Live task dispatch failed:", err);
+        throw err;
       }
     }
     const device = this.state.devices.find((d) => d.id === params.deviceId);

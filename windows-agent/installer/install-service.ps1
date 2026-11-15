@@ -106,6 +106,19 @@ $config = @{
 $configDir = Split-Path $ConfigPath -Parent
 if (-not (Test-Path $configDir)) { New-Item -ItemType Directory -Path $configDir -Force | Out-Null }
 Set-Content -Path $ConfigPath -Value $config -Encoding UTF8
+$cfgAcl = Get-Acl -LiteralPath $ConfigPath
+$cfgAcl.SetAccessRuleProtection($true, $false)
+foreach ($rule in @($cfgAcl.Access)) { [void]$cfgAcl.RemoveAccessRule($rule) }
+$allowRule = [System.Security.AccessControl.AccessControlType]::Allow
+$sysSid = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18")
+$admSid = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
+$usrSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$cfgAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($sysSid, "FullControl", $allowRule)))
+$cfgAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($admSid, "FullControl", $allowRule)))
+if ($usrSid) {
+    $cfgAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($usrSid, "Read", $allowRule)))
+}
+Set-Acl -LiteralPath $ConfigPath -AclObject $cfgAcl
 
 # Stop / remove existing service if present
 $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue

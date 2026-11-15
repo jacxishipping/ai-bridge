@@ -39,7 +39,7 @@ from starlette.datastructures import Headers
 
 from .. import tools
 from .. import terminal_manager
-from ..policy import Policy, TOOL_TIERS
+from ..policy import Policy, TOOL_TIERS, normalize_tool_name
 from ..security import redact, redact_obj
 from . import agent_channel
 from . import alerts as alertsmod
@@ -48,7 +48,8 @@ from . import metrics as metricsmod
 from . import db as dbmod
 from .dispatch import dispatch
 from .ratelimit import rate_limit, make_rate_limiter
-from .csrf import generate_csrf_token, validate_csrf_token
+from .csrf import csrf_middleware, generate_csrf_token, validate_csrf_token
+from .secrets_backend import get_secret
 
 MAX_RESULT_CHARS = 512_000
 _DUMMY_SALT = "0" * 32
@@ -87,6 +88,9 @@ def _valid_oauth_redirect_uri(uri: str) -> bool:
 
 
 def _rate_limit(key: str, limit: int = 120, window: int = 60, conn: Any | None = None) -> None:
+    if os.environ.get("REDIS_URL") or os.environ.get("AI_BRIDGE_REDIS_URL"):
+        rate_limit(key, limit, window)()
+        return
     from .durable_ratelimit import allow
 
     if not allow(key, limit, float(window), conn=conn):
@@ -636,11 +640,13 @@ def _render_quick_decision_html(
 
 
 def create_app(*, admin_token: str | None = None, db_path: Path | None = None, database_url: str | None = None) -> FastAPI:
-    token = admin_token or os.environ.get("AI_BRIDGE_ADMIN_TOKEN")
+    token = admin_token or get_secret("AI_BRIDGE_ADMIN_TOKEN") or os.environ.get("AI_BRIDGE_ADMIN_TOKEN")
     data_dir = Path(os.environ.get("AI_BRIDGE_DATA_DIR", str(Path.home() / ".ai-bridge")))
     db_path = db_path or (data_dir / "control.db")
     conn = dbmod.connect(db_path=db_path, database_url=database_url)
     app = FastAPI(title="AI Bridge Control Plane", version="0.3.0")
+    if os.environ.get("AI_BRIDGE_CSRF_ENABLED", "").strip().lower() in ("1", "true", "yes"):
+        app.middleware("http")(csrf_middleware)
     # Browser dashboards call the API cross-origin; allow_credentials=True
     # requires an explicit origin list (not "*"). Extend via AI_BRIDGE_CORS_ORIGINS.
     from . import production_readiness as _prodready_cors
@@ -2030,12 +2036,12 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
     @app.post("/api/emergency-stop/clear")
     def emergency_clear(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
-        require_admin(x_admin_token, x_session_token)
+        actor = require_admin(x_admin_token, x_session_token)
         app.state.emergency_stop = False
         plane_state.set_emergency_stop(conn, False)
         notify_tasks()
         agent_channel.notify_emergency_stop(False)
-        audit("admin", "", "emergency_stop_clear", {}, "allowed")
+        audit(actor, "", "emergency_stop_clear", {}, "allowed")
         return {"emergency_stop": False}
 
     # --- Autonomous Workflows & Multi-Turn Plan Execution -----------------
@@ -2230,6 +2236,9 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     )
 
     def _execute_workflow_step_sync(action: str, args: dict, target_device_id: str | None, tenant: str, actor: str) -> dict:
+        if getattr(app.state, "emergency_stop", False):
+            raise PermissionError("Emergency stop is active; workflow execution is halted.")
+        action = normalize_tool_name(action)
         # Supervisor / role-orchestration tools must run on the control plane DB.
         if action in _PLANE_SUPERVISOR_TOOLS:
             from . import supervisor as _sup
@@ -2268,6 +2277,11 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         if target_device_id and target_device_id != "local":
             dev_row = conn.execute("SELECT * FROM devices WHERE id=? AND revoked=0", (target_device_id,)).fetchone()
             if dev_row:
+                eff_pol = get_effective_device_policy(dev_row)
+                if action in eff_pol.get("denied_tools", []):
+                    raise PermissionError(f"Tool '{action}' is denied by policy for device '{dev_row['name']}'.")
+                if eff_pol.get("allowed_tools") is not None and action not in eff_pol["allowed_tools"]:
+                    raise PermissionError(f"Tool '{action}' is not in allowed_tools for device '{dev_row['name']}'.")
                 tier = TOOL_TIERS.get(action)
                 t_val = tier.value if tier else 2
                 task_id = uuid.uuid4().hex[:12]
@@ -2950,6 +2964,12 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         x_session_token: str | None = Header(default=None),
     ):
         actor = require_role("operator", x_admin_token, x_session_token)
+        if getattr(app.state, "emergency_stop", False):
+            raise HTTPException(status_code=403, detail="Emergency stop is active; fleet broadcast is disabled.")
+        tool_name = normalize_tool_name(body.tool)
+        tier = TOOL_TIERS.get(tool_name)
+        if tier is None:
+            raise HTTPException(status_code=400, detail=f"Unknown tool: '{body.tool}'.")
         query = "SELECT * FROM devices WHERE revoked=0 AND tenant=?"
         params = [body.tenant]
         if body.target_os:
@@ -2969,15 +2989,19 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
         batch_id = uuid.uuid4().hex[:12]
         now_ts = dbmod.now()
-        tier = TOOL_TIERS.get(body.tool)
-        t_val = tier.value if tier else 2
+        t_val = tier.value
 
         tasks_out = []
         for dev in target_devs:
+            eff_pol = get_effective_device_policy(dev)
+            if tool_name in eff_pol.get("denied_tools", []):
+                continue
+            if eff_pol.get("allowed_tools") is not None and tool_name not in eff_pol["allowed_tools"]:
+                continue
             task_id = f"bcast-{batch_id}-{dev['id'][:6]}"
             conn.execute(
                 "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, created_at, updated_at) VALUES (?,?,?,?,?,?,'queued',?,?)",
-                (task_id, dev["id"], dev["tenant"], body.tool, json.dumps(body.args), t_val, now_ts, now_ts),
+                (task_id, dev["id"], dev["tenant"], tool_name, json.dumps(body.args), t_val, now_ts, now_ts),
             )
             tasks_out.append({
                 "device_id": dev["id"],
@@ -2987,12 +3011,14 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 "status": "queued",
             })
 
+        if not tasks_out:
+            raise HTTPException(status_code=403, detail=f"Tool '{tool_name}' is blocked by policy on all matching devices.")
         conn.commit()
         notify_tasks()
-        audit(actor, "fleet", "broadcast_command", {"batch_id": batch_id, "tool": body.tool, "device_count": len(tasks_out)}, "allowed", tenant=body.tenant)
+        audit(actor, "fleet", "broadcast_command", {"batch_id": batch_id, "tool": tool_name, "device_count": len(tasks_out)}, "allowed", tenant=body.tenant)
         return {
             "batch_id": batch_id,
-            "tool": body.tool,
+            "tool": tool_name,
             "device_count": len(tasks_out),
             "tasks": tasks_out,
         }
@@ -5112,9 +5138,10 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
         @app.get("/{full_path:path}")
         async def serve_spa_frontend(full_path: str):
-            target = dist_dir / full_path
-            if full_path and target.is_file():
+            dist_root = dist_dir.resolve()
+            target = (dist_root / full_path).resolve()
+            if full_path and target.is_relative_to(dist_root) and target.is_file():
                 return FileResponse(target)
-            return FileResponse(dist_dir / "index.html")
+            return FileResponse(dist_root / "index.html")
 
     return app

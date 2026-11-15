@@ -178,7 +178,7 @@ def browser_isolation_report() -> dict[str, Any]:
     }
 
 
-def playwright_launch_options(*, headless: bool = True) -> dict[str, Any]:
+def playwright_launch_options(*, headless: bool = True, create_dir: bool = True) -> dict[str, Any]:
     """Pure launch config for tests — Chromium sandbox on unless explicitly opted out."""
     launch_args: list[str] = []
     if _allow_browser_no_sandbox():
@@ -197,8 +197,11 @@ def playwright_launch_options(*, headless: bool = True) -> dict[str, Any]:
     if _browser_network_lockdown():
         launch_args.append("--host-resolver-rules=MAP * 127.0.0.1")
     profile_parent = ensure_workspace() / ".ai-bridge" / "browser-profiles"
-    profile_parent.mkdir(parents=True, exist_ok=True)
-    user_data_dir = profile_parent / uuid.uuid4().hex[:12]
+    if create_dir:
+        profile_parent.mkdir(parents=True, exist_ok=True)
+        user_data_dir = profile_parent / uuid.uuid4().hex[:12]
+    else:
+        user_data_dir = profile_parent / "default"
     isolation = browser_isolation_report()
     return {
         "headless": headless,
@@ -213,7 +216,7 @@ def playwright_launch_options(*, headless: bool = True) -> dict[str, Any]:
 def browser_session_info() -> dict:
     """Return whether a reusable Playwright session is active (fleet diagnostics)."""
     alive = _page is not None and not _page.is_closed()
-    opts = playwright_launch_options()
+    opts = playwright_launch_options(create_dir=False)
     return {
         "active": alive,
         "has_browser": _browser is not None,
@@ -226,6 +229,24 @@ def browser_session_info() -> dict:
         "console_errors": len([c for c in _console_logs if c.get("type") == "error"]),
         "failed_requests": len(_failed_requests),
     }
+
+
+def browser_snapshot(
+    selector: str = "body",
+    *,
+    approval_granted: bool = False,
+    policy: Policy | None = None,
+) -> dict[str, Any]:
+    """Capture combined URL, visible text, and interactive DOM elements from the active browser page."""
+    url_info = browser_get_url(approval_granted=approval_granted, policy=policy)
+    text_info = browser_get_text(selector, approval_granted=approval_granted, policy=policy)
+    el_info = browser_get_elements(
+        "a,button,input,textarea,select,[role='button']",
+        include_text=True,
+        approval_granted=approval_granted,
+        policy=policy,
+    )
+    return {"ok": True, "url": url_info, "text": text_info, "elements": el_info}
 
 
 def attach_external_page(pw, browser, context, page, *, device: dict[str, Any] | None = None) -> None:

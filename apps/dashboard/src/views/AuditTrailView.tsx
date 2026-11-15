@@ -39,7 +39,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { api, token, sessionToken } from "../api";
-import { useDashboardStore } from "../state/dashboardStore";
+import { dashboardStore, useDashboardStore } from "../state/dashboardStore";
 import type { AuditEvent } from "../types/dashboard";
 
 export const AuditTrailView: React.FC = () => {
@@ -92,19 +92,42 @@ export const AuditTrailView: React.FC = () => {
   }, [auditEvents, actorFilter, verdictFilter, hostSearch, hashSearch]);
 
   const handleVerifyIntegrity = async () => {
+    const t0 = performance.now();
     setIsVerifying(true);
-    if (Boolean(token() || sessionToken())) {
-      await refreshLive?.();
-    }
-    setTimeout(() => {
-      setIsVerifying(false);
+    try {
+      if (Boolean(token() || sessionToken())) {
+        await refreshLive?.();
+      }
+      const events = dashboardStore.getState().auditEvents;
+      let chainValid = events.length === 0 ? true : true;
+      for (let i = 0; i < events.length; i++) {
+        const cur = events[i];
+        if (!cur.sha256Hash || cur.sha256Hash === "not recorded") {
+          chainValid = false;
+          break;
+        }
+        const nextOlder = events[i + 1];
+        if (
+          nextOlder &&
+          cur.prevHash &&
+          cur.prevHash !== "not recorded" &&
+          nextOlder.sha256Hash !== "not recorded" &&
+          cur.prevHash !== nextOlder.sha256Hash
+        ) {
+          chainValid = false;
+          break;
+        }
+      }
+      const elapsed = Math.max(1, Math.round(performance.now() - t0));
       setVerificationProof({
-        verified: true,
-        blocksChecked: isLive ? auditEvents.length : 14920,
-        latencyMs: 38,
-        root: auditEvents[0]?.sha256Hash || merkleRoot,
+        verified: chainValid,
+        blocksChecked: isLive ? events.length : 14920,
+        latencyMs: elapsed,
+        root: events[0]?.sha256Hash || merkleRoot,
       });
-    }, 700);
+    } finally {
+      setIsVerifying(false);
+    }
   };
 
   const handleExport = async (format: "csv" | "jsonld" | "jsonl") => {

@@ -80,6 +80,36 @@ export function clearCredentials() {
   localStorage.removeItem("ai_bridge_session_token");
 }
 
+/** Build an auth query fragment (?session_token=... or ?token=...) for SSE/WebSocket URLs. */
+function authQuerySuffix(prefix: "?" | "&" = "?"): string {
+  const st = sessionToken();
+  const at = token();
+  if (st) return `${prefix}session_token=${encodeURIComponent(st)}`;
+  if (at) return `${prefix}token=${encodeURIComponent(at)}`;
+  return "";
+}
+
+/** Safely convert epoch seconds, epoch milliseconds, or ISO strings to an ISO-8601 string. */
+export function toIsoTimestamp(ts: unknown, fallback = ""): string {
+  if (ts === null || ts === undefined || ts === "") return fallback;
+  if (typeof ts === "number") {
+    if (!Number.isFinite(ts) || ts <= 0) return fallback;
+    const ms = ts < 1e12 ? ts * 1000 : ts;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? fallback : d.toISOString();
+  }
+  const raw = String(ts).trim();
+  if (!raw) return fallback;
+  if (/^\d+(?:\.\d+)?$/.test(raw)) {
+    const num = Number(raw);
+    if (!Number.isFinite(num) || num <= 0) return fallback;
+    const d = new Date(num < 1e12 ? num * 1000 : num);
+    return Number.isNaN(d.getTime()) ? fallback : d.toISOString();
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed.toISOString();
+}
+
 /** Consume the server's OIDC redirect once, before rendering or saving history.
  * The live view verifies this session with /api/auth/me before showing any data.
  */
@@ -188,12 +218,7 @@ export const api = {
     const qs = q.toString();
     return call(`/api/agents/${encodeURIComponent(agentId)}/memory/chunks${qs ? `?${qs}` : ""}`, "DELETE");
   },
-  liveActivityStreamUrl: () => {
-    const st = sessionToken();
-    const at = token();
-    const authQuery = st ? `?session_token=${encodeURIComponent(st)}` : at ? `?token=${encodeURIComponent(at)}` : "";
-    return `${BASE}/api/activity/stream${authQuery}`;
-  },
+  liveActivityStreamUrl: () => `${BASE}/api/activity/stream${authQuerySuffix("?")}`,
   taskDetail: (id: string) => call(`/api/tasks/${id}`),
   submitTask: (device_id: string, tool: string, args: any = {}, tenant?: string, requestKey = crypto.randomUUID()) =>
     call("/api/tasks", "POST", { device_id, tool, args, tenant }, { "Idempotency-Key": requestKey }),
@@ -307,8 +332,8 @@ export const api = {
   deleteWorkflow: (id: string) => call(`/api/workflows/${encodeURIComponent(id)}`, "DELETE"),
   scheduleWorkflow: (id: string, body: { name?: string; interval_seconds?: number; device_id?: string }) =>
     call(`/api/workflows/${encodeURIComponent(id)}/schedule`, "POST", body),
-  streamWorkflowUrl: (id: string) => `${BASE}/api/workflows/${encodeURIComponent(id)}/stream`,
-  eventsStreamUrl: () => `${BASE}/api/events/stream`,
+  streamWorkflowUrl: (id: string) => `${BASE}/api/workflows/${encodeURIComponent(id)}/stream${authQuerySuffix("?")}`,
+  eventsStreamUrl: () => `${BASE}/api/events/stream${authQuerySuffix("?")}`,
   alertsConfig: () => call("/api/alerts/config"),
   updateAlertsConfig: (body: { slack_webhook?: string; discord_webhook?: string; telegram_token?: string; telegram_chat_id?: string; generic_webhook?: string }) =>
     call("/api/alerts/config", "PUT", body),
@@ -317,7 +342,21 @@ export const api = {
   backups: () => call("/api/admin/backups"),
   createBackup: () => call("/api/admin/backups", "POST", {}),
   restoreBackup: (filename: string) => call(`/api/admin/backups/${encodeURIComponent(filename)}/restore`, "POST", {}),
-  backupDownloadUrl: (filename: string) => `${BASE}/api/admin/backups/${encodeURIComponent(filename)}`,
+  downloadBackupBlob: async (filename: string): Promise<Blob> => {
+    const headers: Record<string, string> = {};
+    const st = sessionToken();
+    const at = token();
+    if (st) headers["X-Session-Token"] = st;
+    else if (at) headers["X-Admin-Token"] = at;
+    const res = await fetch(`${BASE}/api/admin/backups/${encodeURIComponent(filename)}`, {
+      headers,
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) {
+      throw new ApiError(`${res.status}: Failed to download backup ${filename}`, false, res.status);
+    }
+    return await res.blob();
+  },
   tenants: () => call("/api/tenants"),
   fleetTelemetry: () => call("/api/fleet/telemetry"),
   fleetHealth: () => call("/api/fleet/health"),
@@ -356,9 +395,6 @@ export const api = {
     call(`/api/fleet/desktop/frames${os ? `?os=${encodeURIComponent(os)}` : ""}`),
   deviceMonitors: (deviceId: string) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/desktop/monitors`),
-  /** @deprecated Thin v1 wrapper — legacy /api/devices/.../webrtc/session is gone in production. */
-  createWebrtcSession: (deviceId: string, scale = 0.75, fps = 30, monitor_index?: number) =>
-    call("/api/v1/sessions", "POST", { device_id: deviceId, scale, fps, monitor_index, mode: "ai_assisted" }),
   createTerminalSession: (deviceId: string, cols = 120, rows = 35) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/terminal/sessions`, "POST", { cols, rows }),
   listTerminalSessions: (deviceId?: string) =>
@@ -367,36 +403,8 @@ export const api = {
     call(`/api/devices/${encodeURIComponent(deviceId)}/terminal/${encodeURIComponent(sessionId)}/input`, "POST", { input }),
   closeTerminalSession: (deviceId: string, sessionId: string) =>
     call(`/api/devices/${encodeURIComponent(deviceId)}/terminal/${encodeURIComponent(sessionId)}`, "DELETE"),
-  terminalStreamUrl: (deviceId: string, sessionId: string, sinceSeq = 0) => {
-    const st = sessionToken();
-    const at = token();
-    const authQuery = st ? `&session_token=${encodeURIComponent(st)}` : at ? `&token=${encodeURIComponent(at)}` : "";
-    return `${BASE}/api/devices/${encodeURIComponent(deviceId)}/terminal/${encodeURIComponent(sessionId)}/stream?since_seq=${sinceSeq}${authQuery}`;
-  },
-  streamTerminalUrl: (deviceId: string, sessionId: string, sinceSeq = 0) => {
-    const st = sessionToken();
-    const at = token();
-    const authQuery = st ? `&session_token=${encodeURIComponent(st)}` : at ? `&token=${encodeURIComponent(at)}` : "";
-    return `${BASE}/api/devices/${encodeURIComponent(deviceId)}/terminal/${encodeURIComponent(sessionId)}/stream?since_seq=${sinceSeq}${authQuery}`;
-  },
-
-  /** @deprecated Thin v1 wrapper. */
-  getWebrtcSession: (_deviceId: string, sessionId: string) =>
-    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}`),
-  /** @deprecated Thin v1 wrapper. */
-  postWebrtcAnswer: (_deviceId: string, sessionId: string, answer: any) =>
-    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/answer`, "POST", {
-      sdp: answer?.sdp,
-      type: answer?.type || "answer",
-    }),
-  /** @deprecated Thin v1 wrapper. */
-  postWebrtcCandidate: (_deviceId: string, sessionId: string, candidate: any) =>
-    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/ice`, "POST", {
-      candidate: candidate?.candidate ?? candidate,
-    }),
-  /** @deprecated Thin v1 wrapper. */
-  endWebrtcSession: (_deviceId: string, sessionId: string) =>
-    call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/terminate`, "POST", {}),
+  terminalStreamUrl: (deviceId: string, sessionId: string, sinceSeq = 0) =>
+    `${BASE}/api/devices/${encodeURIComponent(deviceId)}/terminal/${encodeURIComponent(sessionId)}/stream?since_seq=${sinceSeq}${authQuerySuffix("&")}`,
   createSessionV1: (body: {
     device_id?: string;
     mode?: "view_only" | "human_control" | "ai_assisted";
@@ -421,7 +429,7 @@ export const api = {
     call(`/api/v1/sessions/${encodeURIComponent(sessionId)}/ice`, "POST", { candidate }),
   sessionWebSocketUrl: (sessionId: string) => {
     const wsBase = BASE.replace(/^http/, "ws");
-    return `${wsBase}/api/v1/ws/sessions/${encodeURIComponent(sessionId)}`;
+    return `${wsBase}/api/v1/ws/sessions/${encodeURIComponent(sessionId)}${authQuerySuffix("?")}`;
   },
   getDeviceMonitorsV1: (deviceId: string) =>
     call(`/api/v1/devices/${encodeURIComponent(deviceId)}/monitors`),

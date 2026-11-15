@@ -86,8 +86,12 @@ class TaskRunner:
         if name == "run_linter":
             return [sys.executable, "-m", "ruff", "check", "."]
         if name == "uptime":
+            if os.name == "nt" or shutil.which("uptime") is None:
+                return None
             return ["uptime"]
         if name == "memory_summary":
+            if os.name == "nt" or shutil.which("free") is None:
+                return None
             return ["free", "-h"]
         return None  # disk_usage / cpu_summary handled by diagnostics
 
@@ -100,8 +104,10 @@ class TaskRunner:
         try:
             argv = self._argv(name, test_command, allowed_test_commands)
             if argv is None:
-                from . import diagnostics
-                if name == "disk_usage":
+                from . import diagnostics, tasks
+                if name in tasks.TASKS:
+                    result.output = tasks.run_diagnostic(name)
+                elif name == "disk_usage":
                     d = diagnostics.disk_usage("/")
                     result.output = str(d)
                 else:

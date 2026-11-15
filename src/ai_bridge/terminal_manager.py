@@ -97,11 +97,17 @@ def _start_windows_conpty(cols: int, rows: int, env: dict[str, str]):
     InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(size_attr))
     attr_list = (ctypes.c_byte * size_attr.value)()
     if not InitializeProcThreadAttributeList(attr_list, 1, 0, ctypes.byref(size_attr)):
+        kernel32.ClosePseudoConsole(hpcon)
+        CloseHandle(in_write)
+        CloseHandle(out_read)
         raise OSError("InitializeProcThreadAttributeList failed")
     if not UpdateProcThreadAttribute(
         attr_list, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, hpcon, ctypes.sizeof(hpcon), None, None
     ):
         DeleteProcThreadAttributeList(attr_list)
+        kernel32.ClosePseudoConsole(hpcon)
+        CloseHandle(in_write)
+        CloseHandle(out_read)
         raise OSError("UpdateProcThreadAttribute failed")
 
     si = STARTUPINFOEXW()
@@ -110,20 +116,29 @@ def _start_windows_conpty(cols: int, rows: int, env: dict[str, str]):
     pi = wintypes.PROCESS_INFORMATION()
     cmdline = ctypes.create_unicode_buffer("powershell.exe -NoLogo -NoExit")
     EXTENDED_STARTUPINFO_PRESENT = 0x00080000
+    CREATE_UNICODE_ENVIRONMENT = 0x00000400
+    merged_env = dict(os.environ)
+    if env:
+        merged_env.update(env)
+    env_items = "".join(f"{k}={v}\0" for k, v in merged_env.items() if "=" not in str(k) and v is not None) + "\0"
+    env_buf = ctypes.create_unicode_buffer(env_items)
     ok = CreateProcessW(
         None,
         cmdline,
         None,
         None,
         False,
-        EXTENDED_STARTUPINFO_PRESENT,
-        None,
+        EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+        env_buf,
         None,
         ctypes.byref(si),
         ctypes.byref(pi),
     )
     DeleteProcThreadAttributeList(attr_list)
     if not ok:
+        kernel32.ClosePseudoConsole(hpcon)
+        CloseHandle(in_write)
+        CloseHandle(out_read)
         raise OSError("CreateProcessW for ConPTY failed")
 
     # Convert HANDLEs to Python file descriptors for os.read/os.write.
@@ -138,8 +153,11 @@ def _start_windows_conpty(cols: int, rows: int, env: dict[str, str]):
             self._ph = process_handle
             self._th = thread_handle
             self.returncode = None
+            self._closed = False
 
         def poll(self):
+            if self._closed or not self._ph:
+                return self.returncode
             # 259 = STILL_ACTIVE
             code = wintypes.DWORD()
             if kernel32.GetExitCodeProcess(self._ph, ctypes.byref(code)):
@@ -149,10 +167,31 @@ def _start_windows_conpty(cols: int, rows: int, env: dict[str, str]):
             return None
 
         def terminate(self):
-            kernel32.TerminateProcess(self._ph, 1)
+            if not self._closed and self._ph:
+                kernel32.TerminateProcess(self._ph, 1)
 
         def kill(self):
             self.terminate()
+
+        def close(self):
+            if self._closed:
+                return
+            self._closed = True
+            if self._th:
+                try:
+                    CloseHandle(self._th)
+                except Exception:
+                    pass
+                self._th = None
+            if self._ph:
+                try:
+                    CloseHandle(self._ph)
+                except Exception:
+                    pass
+                self._ph = None
+
+        def __del__(self):
+            self.close()
 
     proc = _ConPtyProc(pi.hProcess, pi.hThread)
     return proc, read_fd, write_fd, hpcon
@@ -503,9 +542,12 @@ class TerminalSession:
             if self.proc:
                 self.proc.terminate()
                 try:
-                    self.proc.wait(timeout=1.0)
+                    if hasattr(self.proc, "wait"):
+                        self.proc.wait(timeout=1.0)
                 except Exception:
                     self.proc.kill()
+                if hasattr(self.proc, "close"):
+                    self.proc.close()
         except Exception:
             pass
 

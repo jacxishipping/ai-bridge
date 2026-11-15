@@ -45,8 +45,10 @@ class Settings:
         self.max_concurrent_tasks = _int("AI_BRIDGE_MAX_CONCURRENT", 4)
         self.control_api_url = os.environ.get("AI_BRIDGE_CONTROL_URL", "http://127.0.0.1:8000")
         self.control_api_port = _int("AI_BRIDGE_CONTROL_PORT", 8000)
-        self.admin_token = os.environ.get("AI_BRIDGE_ADMIN_TOKEN") or None
-        self.device_token = os.environ.get("AI_BRIDGE_DEVICE_TOKEN") or None
+        from .control.secrets_backend import get_secret
+
+        self.admin_token = get_secret("AI_BRIDGE_ADMIN_TOKEN") or os.environ.get("AI_BRIDGE_ADMIN_TOKEN") or None
+        self.device_token = get_secret("AI_BRIDGE_DEVICE_TOKEN") or os.environ.get("AI_BRIDGE_DEVICE_TOKEN") or None
         self.tenant_id = os.environ.get("AI_BRIDGE_TENANT", "default")
         self.desktop_enabled = _bool("AI_BRIDGE_DESKTOP_ENABLED", False)
         self.allow_tier3 = _bool("AI_BRIDGE_ALLOW_TIER3", False)

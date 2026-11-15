@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # AI Bridge Windows — compatibility shim
 # ==============================================================================
 # CANONICAL INSTALLER: deployment/windows/installer_gui.py, launched by
@@ -148,6 +148,9 @@ $forward = @($Wizard)
 $interactive = -not ($Silent -or $NoGui)
 
 if ($interactive) {
+    if ($ControlUrl) { $forward += @("--url", $ControlUrl) }
+    if ($DeviceToken) { $forward += @("--token", $DeviceToken) }
+    if ($InstallDir) { $forward += @("--install-dir", $InstallDir) }
     Write-Host "[INFO] Launching the AI Bridge setup wizard (canonical installer)." -ForegroundColor Cyan
     Write-Host "[INFO] Modes: Attended (tray) | Headless (sign-in poller) | Service (boot poller via install-agent.ps1)." -ForegroundColor DarkGray
 } else {

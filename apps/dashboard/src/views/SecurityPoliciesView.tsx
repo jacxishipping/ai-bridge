@@ -663,7 +663,28 @@ const LiveSecurityPolicies: React.FC = () => {
                 <span className="text-[var(--product-text-secondary)]">{b.filename}</span>
                 <div className="flex items-center gap-3">
                   <span className="text-[var(--product-text-tertiary)]">{Math.round((b.size_bytes || 0) / 1024)} KB</span>
-                  <a href={api.backupDownloadUrl(b.filename)} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">Download</a>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setBusy(true);
+                      try {
+                        const blob = await api.downloadBackupBlob(b.filename);
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = b.filename;
+                        a.click();
+                        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+                      } catch (e) {
+                        flash("err", errMsg(e));
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                    className="text-indigo-400 hover:underline"
+                  >
+                    Download
+                  </button>
                   {canEdit && (
                     <button
                       type="button"

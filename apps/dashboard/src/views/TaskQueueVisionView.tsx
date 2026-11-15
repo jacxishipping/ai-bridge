@@ -100,38 +100,33 @@ const DEFAULT_SOM_MARKS: SoMMark[] = [
 const PRESETS = [
   {
     name: "Full 4K Screenshot",
-    tool: "desktop.capture_screen",
+    tool: "desktop_get_screenshot",
     tier: "tier1_safe" as TaskRiskTier,
     payload: {
-      display_index: 0,
+      monitor_index: 0,
       format: "png",
-      compress_quality: 85,
+      quality: 85,
       include_som_metadata: true,
     },
   },
   {
-    name: "Active Window Only",
-    tool: "desktop.capture_screen",
+    name: "Window Capture",
+    tool: "desktop_get_window_screenshot",
     tier: "tier1_safe" as TaskRiskTier,
     payload: {
       target_window: "active",
       format: "png",
-      crop_decorations: false,
     },
   },
   {
-    name: "Top 10 Processes",
-    tool: "process.list",
+    name: "Fleet Status",
+    tool: "list_devices",
     tier: "tier1_safe" as TaskRiskTier,
-    payload: {
-      sort: "cpu",
-      limit: 10,
-      include_threads: false,
-    },
+    payload: {},
   },
   {
     name: "System Specs",
-    tool: "system.specs",
+    tool: "get_system_info",
     tier: "tier1_safe" as TaskRiskTier,
     payload: {
       format: "json",
@@ -141,7 +136,7 @@ const PRESETS = [
   },
   {
     name: "Tail Journal",
-    tool: "shell.exec",
+    tool: "run_shell",
     tier: "tier3_shell" as TaskRiskTier,
     payload: {
       command: "journalctl -u ai-bridge-agent -f -n 50",
@@ -162,7 +157,7 @@ export const TaskQueueVisionView: React.FC = () => {
 
   // Studio form states
   const [targetHost, setTargetHost] = useState<string>(selectedDeviceId || "srv-us-east-412");
-  const [selectedTool, setSelectedTool] = useState<string>("desktop.capture_screen");
+  const [selectedTool, setSelectedTool] = useState<string>("desktop_get_screenshot");
   const [activeRiskTier, setActiveRiskTier] = useState<TaskRiskTier>("tier1_safe");
   const [argsJson, setArgsJson] = useState<string>(
     JSON.stringify(PRESETS[0].payload, null, 2)
@@ -195,11 +190,32 @@ export const TaskQueueVisionView: React.FC = () => {
 
   // Sync risk tier when tool changes
   useEffect(() => {
-    if (selectedTool.startsWith("desktop.capture") || selectedTool.startsWith("system.specs") || selectedTool.startsWith("process.list")) {
+    if (
+      selectedTool.startsWith("desktop_get") ||
+      selectedTool === "desktop_get_screenshot" ||
+      selectedTool === "get_system_info" ||
+      selectedTool === "list_devices" ||
+      selectedTool === "get_device_status" ||
+      selectedTool === "read_file" ||
+      selectedTool.startsWith("desktop.capture") ||
+      selectedTool.startsWith("system.specs") ||
+      selectedTool.startsWith("process.list")
+    ) {
       setActiveRiskTier("tier1_safe");
-    } else if (selectedTool.startsWith("desktop.click") || selectedTool.startsWith("desktop.type") || selectedTool.startsWith("file.read") || selectedTool.startsWith("file.write")) {
+    } else if (
+      selectedTool.startsWith("desktop_") ||
+      selectedTool === "write_file" ||
+      selectedTool === "apply_patch" ||
+      selectedTool.startsWith("desktop.click") ||
+      selectedTool.startsWith("desktop.type") ||
+      selectedTool.startsWith("file.")
+    ) {
       setActiveRiskTier("tier2_workspace");
-    } else if (selectedTool.startsWith("shell.exec") || selectedTool.startsWith("pty.spawn")) {
+    } else if (
+      selectedTool === "run_shell" ||
+      selectedTool.startsWith("shell.exec") ||
+      selectedTool.startsWith("pty.spawn")
+    ) {
       setActiveRiskTier("tier3_shell");
     } else {
       setActiveRiskTier("tier4_kernel");
@@ -507,9 +523,39 @@ export const TaskQueueVisionView: React.FC = () => {
   }, [statusFilter, deviceFilter, searchQuery, useServerHistory]);
 
   // Active inspected task
-  const activeTask = useMemo(() => {
+  const [liveTaskDetailResult, setLiveTaskDetailResult] = useState<any>(null);
+  const baseActiveTask = useMemo(() => {
     return tasks.find((t) => t.id === selectedTaskId) || tasks[0];
   }, [tasks, selectedTaskId]);
+
+  useEffect(() => {
+    if (!isLive || !selectedTaskId) {
+      setLiveTaskDetailResult(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .taskDetail(selectedTaskId)
+      .then((res) => {
+        if (!cancelled && res && typeof res === "object") {
+          setLiveTaskDetailResult(res.result ?? res);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLiveTaskDetailResult(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isLive, selectedTaskId]);
+
+  const activeTask = useMemo(() => {
+    if (!baseActiveTask) return undefined;
+    if (liveTaskDetailResult && !baseActiveTask.result) {
+      return { ...baseActiveTask, result: liveTaskDetailResult };
+    }
+    return baseActiveTask;
+  }, [baseActiveTask, liveTaskDetailResult]);
 
   const handleCaptureLiveScreenshot = useCallback(async () => {
     if (Boolean(token() || sessionToken())) {
@@ -676,20 +722,21 @@ export const TaskQueueVisionView: React.FC = () => {
                   className="w-full min-h-[42px] px-3 py-2 rounded-xl bg-[var(--product-canvas)]/80 border border-[var(--product-line)] text-[var(--product-text-secondary)] font-mono text-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors cursor-pointer"
                 >
                   <optgroup label="Vision & Input Primitives">
-                    <option value="desktop.capture_screen">desktop.capture_screen [Tier 1: Safe ReadOnly]</option>
-                    <option value="desktop.click_coordinate">desktop.click_coordinate [Tier 2: Workspace Edit]</option>
-                    <option value="desktop.type_text">desktop.type_text [Tier 2: Workspace Edit]</option>
+                    <option value="desktop_get_screenshot">desktop_get_screenshot [Tier 1: Safe ReadOnly]</option>
+                    <option value="desktop_get_window_screenshot">desktop_get_window_screenshot [Tier 1: Safe ReadOnly]</option>
+                    <option value="desktop_click">desktop_click [Tier 2: Workspace Edit]</option>
+                    <option value="desktop_type">desktop_type [Tier 2: Workspace Edit]</option>
                   </optgroup>
-                  <optgroup label="Terminal & Shell Execution">
-                    <option value="shell.exec">shell.exec [Tier 3: Elevated Shell]</option>
-                    <option value="pty.spawn">pty.spawn [Tier 3: Elevated Shell]</option>
-                    <option value="process.list">process.list [Tier 1: Safe ReadOnly]</option>
+                  <optgroup label="Terminal & Fleet Inspection">
+                    <option value="run_shell">run_shell [Tier 3: Elevated Shell]</option>
+                    <option value="list_devices">list_devices [Tier 1: Safe ReadOnly]</option>
+                    <option value="get_device_status">get_device_status [Tier 1: Safe ReadOnly]</option>
                   </optgroup>
                   <optgroup label="File & System Operations">
-                    <option value="file.read">file.read [Tier 1: Safe ReadOnly]</option>
-                    <option value="file.write">file.write [Tier 2: Workspace Edit]</option>
-                    <option value="file.apply_diff">file.apply_diff [Tier 2: Workspace Edit]</option>
-                    <option value="system.specs">system.specs [Tier 1: Safe ReadOnly]</option>
+                    <option value="read_file">read_file [Tier 1: Safe ReadOnly]</option>
+                    <option value="write_file">write_file [Tier 2: Workspace Edit]</option>
+                    <option value="apply_patch">apply_patch [Tier 2: Workspace Edit]</option>
+                    <option value="get_system_info">get_system_info [Tier 1: Safe ReadOnly]</option>
                   </optgroup>
                 </select>
               </div>
@@ -1171,9 +1218,15 @@ export const TaskQueueVisionView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Vision Screen Canvas (Simulated High-Res Desktop Frame Buffer with SoM Marks) */}
+                {/* Vision Screen Canvas (Live captured frame when available, demo canvas otherwise) */}
                 <div className="relative w-full aspect-video rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] overflow-hidden select-none">
-                  {/* Simulated Desktop Environment */}
+                  {liveScreenshotDataUrl ? (
+                    <img
+                      src={liveScreenshotDataUrl}
+                      alt={`Desktop frame for ${activeTask?.deviceHostname || activeTask?.deviceId || targetHost}`}
+                      className="h-full w-full object-contain bg-black"
+                    />
+                  ) : (
                   <div className="absolute inset-0 flex flex-col bg-[var(--product-canvas)]">
                     {/* Top Simulated OS Bar */}
                     <div className="h-6 w-full bg-[var(--product-surface)] border-b border-[var(--product-line)] px-3 flex items-center justify-between font-mono text-[11px] text-[var(--product-text-tertiary)]">
@@ -1236,6 +1289,7 @@ export const TaskQueueVisionView: React.FC = () => {
                       </div>
                     </div>
                   </div>
+                  )}
 
                   {/* Set-of-Marks (SoM) Bounding Boxes Overlay */}
                   {somEnabled && (

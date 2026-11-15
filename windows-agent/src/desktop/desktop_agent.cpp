@@ -11,15 +11,62 @@
 #include "../webrtc/webrtc_transport.hpp"
 #include "../webrtc/peer_connection.hpp"
 #include "../mcp/mcp_executor.hpp"
+#include "../security/local_security.hpp"
 
 #include <atomic>
 #include <csignal>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 
 namespace {
 std::atomic<bool> g_stop{false};
 void on_signal(int) { g_stop.store(true); }
+
+std::string ExtractJsonField(const std::string& json, const std::string& key) {
+    std::string needle = "\"" + key + "\"";
+    size_t pos = json.find(needle);
+    if (pos == std::string::npos) return {};
+    pos = json.find(':', pos + needle.size());
+    if (pos == std::string::npos) return {};
+    pos = json.find('"', pos + 1);
+    if (pos == std::string::npos) return {};
+    ++pos;
+    std::string out;
+    while (pos < json.size()) {
+        char c = json[pos++];
+        if (c == '\\' && pos < json.size()) {
+            out.push_back(json[pos++]);
+            continue;
+        }
+        if (c == '"') break;
+        out.push_back(c);
+    }
+    return out;
+}
+
+void RegisterWithSupervisorPipe(const std::string& pipe_name_utf8, const std::string& pipe_secret) {
+    if (pipe_secret.empty()) return;
+    std::wstring pipe_w = L"\\\\.\\pipe\\AIBridgeDesktopPipe";
+    if (!pipe_name_utf8.empty()) {
+        int needed = MultiByteToWideChar(CP_UTF8, 0, pipe_name_utf8.data(), static_cast<int>(pipe_name_utf8.size()), nullptr, 0);
+        if (needed > 0) {
+            pipe_w.assign(needed, L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, pipe_name_utf8.data(), static_cast<int>(pipe_name_utf8.size()), pipe_w.data(), needed);
+        }
+    }
+    HANDLE hPipe = aibridge::security::SecureNamedPipe::ConnectClientPipe(pipe_w.c_str(), 1000);
+    if (hPipe != INVALID_HANDLE_VALUE) {
+        DWORD sess_id = 0;
+        ProcessIdToSessionId(GetCurrentProcessId(), &sess_id);
+        std::string payload = "{\"session\":" + std::to_string(sess_id) + "}";
+        aibridge::security::SecureNamedPipe::SendAuthenticatedMessage(
+            hPipe, "REGISTER_DESKTOP_AGENT", payload, pipe_secret
+        );
+        CloseHandle(hPipe);
+    }
+}
 }
 
 int main(int argc, char* argv[]) {
@@ -27,6 +74,9 @@ int main(int argc, char* argv[]) {
     std::string control_url;
     std::string device_token;
     std::string session_id;
+    std::string config_path;
+    std::string pipe_name;
+    std::string pipe_secret;
     int fps = 30;
     int bitrate_kbps = 4500;
 
@@ -40,16 +90,32 @@ int main(int argc, char* argv[]) {
             device_token = argv[++i];
         } else if (arg == "--session-id" && i + 1 < argc) {
             session_id = argv[++i];
+        } else if (arg == "--config" && i + 1 < argc) {
+            config_path = argv[++i];
         } else if (arg == "--fps" && i + 1 < argc) {
             fps = std::atoi(argv[++i]);
         } else if (arg == "--bitrate-kbps" && i + 1 < argc) {
             bitrate_kbps = std::atoi(argv[++i]);
         } else if (arg == "--help") {
-            std::cout << "Usage:\n  ai_bridge_desktop [--monitor N]\n"
+            std::cout << "Usage:\n  ai_bridge_desktop [--monitor N] [--config PATH]\n"
                       << "  ai_bridge_desktop --control-url URL --device-token TOK --session-id ID\n";
             return 0;
         }
     }
+
+    if (!config_path.empty()) {
+        std::ifstream ifs(config_path);
+        if (ifs) {
+            std::ostringstream ss;
+            ss << ifs.rdbuf();
+            std::string body = ss.str();
+            if (control_url.empty()) control_url = ExtractJsonField(body, "control_url");
+            if (device_token.empty()) device_token = ExtractJsonField(body, "device_token");
+            pipe_name = ExtractJsonField(body, "pipe_name");
+            pipe_secret = ExtractJsonField(body, "pipe_secret");
+        }
+    }
+    RegisterWithSupervisorPipe(pipe_name, pipe_secret);
 
     if (!control_url.empty() && !device_token.empty() && !session_id.empty()) {
         std::signal(SIGINT, on_signal);

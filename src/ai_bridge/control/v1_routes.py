@@ -35,7 +35,7 @@ except ImportError:
         return default
 
 from .. import webrtc_stream
-from ..policy import TOOL_TIERS
+from ..policy import TOOL_TIERS, normalize_tool_name
 from . import db as dbmod
 
 VALID_SESSION_MODES = {"view_only", "human_control", "ai_assisted"}
@@ -62,6 +62,7 @@ def set_device_human_takeover(
     conn: Any | None = None,
 ) -> dict[str, Any]:
     """Set or clear human takeover on a device. When active=True, AI input is immediately revoked."""
+    global _BOUND_CONN
     state = {
         "device_id": device_id,
         "human_takeover_active": bool(active),
@@ -75,10 +76,14 @@ def set_device_human_takeover(
     if conn is not None:
         from . import plane_state
 
-        if active:
-            plane_state.save_human_takeover(conn, device_id, state)
-        else:
-            plane_state.clear_human_takeover(conn, device_id)
+        try:
+            if active:
+                plane_state.save_human_takeover(conn, device_id, state)
+            else:
+                plane_state.clear_human_takeover(conn, device_id)
+        except Exception:
+            if conn is _BOUND_CONN:
+                _BOUND_CONN = None
     if active:
         webrtc_stream.release_all_held_keys()
     return state
@@ -94,6 +99,7 @@ def hydrate_human_takeover_from_db(conn: Any) -> None:
 
 def is_device_human_takeover_active(device_id: str | None = None) -> bool:
     """Return True if a human operator has taken over control and suppressed AI actions."""
+    global _BOUND_CONN
     key = (device_id or "local").strip() or "local"
     entry = _HUMAN_TAKEOVER_BY_DEVICE.get(key) or _HUMAN_TAKEOVER_BY_DEVICE.get("local")
     if entry and entry.get("human_takeover_active"):
@@ -101,7 +107,10 @@ def is_device_human_takeover_active(device_id: str | None = None) -> bool:
     if _BOUND_CONN is not None:
         from . import plane_state
 
-        return plane_state.is_human_takeover_active(_BOUND_CONN, key)
+        try:
+            return plane_state.is_human_takeover_active(_BOUND_CONN, key)
+        except Exception:
+            _BOUND_CONN = None
     return False
 
 
@@ -393,6 +402,16 @@ def attach_v1_routes(
         mons = meta.get("monitors") or [{"index": 0, "name": "Display 1 (Primary)", "width": 1920, "height": 1080, "is_primary": True}]
         return {"device_id": device_id, "monitors": mons, "count": len(mons)}
 
+    def _ensure_v1_device_exists(device_id: str) -> dict[str, Any] | None:
+        if device_id == "local":
+            return None
+        row = conn.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Device not found.")
+        if int(row["revoked"] or 0):
+            raise HTTPException(status_code=403, detail="Device is revoked.")
+        return dict(row)
+
     @app.get("/api/v1/devices/{device_id}/ui-elements")
     def v1_get_device_ui_elements(
         device_id: str,
@@ -403,6 +422,7 @@ def attach_v1_routes(
         authorization: str | None = Header(default=None),
     ):
         require_role("viewer", x_admin_token, x_session_token, authorization)
+        _ensure_v1_device_exists(device_id)
         from .. import tools
         return tools.desktop_get_ui_elements(include_controls=include_controls, max_elements=max_elements)
 
@@ -414,6 +434,7 @@ def attach_v1_routes(
         authorization: str | None = Header(default=None),
     ):
         require_role("viewer", x_admin_token, x_session_token, authorization)
+        _ensure_v1_device_exists(device_id)
         from .. import tools
         files = tools.desktop_list_transfers()
         return {"device_id": device_id, "files": files, "count": len(files)}
@@ -427,6 +448,9 @@ def attach_v1_routes(
         authorization: str | None = Header(default=None),
     ):
         require_role("operator", x_admin_token, x_session_token, authorization)
+        if getattr(app.state, "emergency_stop", False):
+            raise HTTPException(status_code=403, detail="Emergency stop is active; file uploads are disabled.")
+        _ensure_v1_device_exists(device_id)
         filename = str(body.get("filename") or f"upload_{int(time.time())}.bin")
         content_b64 = str(body.get("content_b64") or "")
         expected_sha = str(body.get("sha256") or "")
@@ -461,6 +485,7 @@ def attach_v1_routes(
         authorization: str | None = Header(default=None),
     ):
         require_role("viewer", x_admin_token, x_session_token, authorization)
+        _ensure_v1_device_exists(device_id)
         from .. import tools
         meta = tools.desktop_prepare_file_download(path)
         if not meta.get("ok"):
@@ -767,14 +792,19 @@ def attach_v1_routes(
         x_session_token: str | None = Header(default=None),
         authorization: str | None = Header(default=None),
     ):
-        actor, _role = auth_context(x_admin_token, x_session_token, authorization)
+        actor = require_role("operator", x_admin_token, x_session_token, authorization)
         sess = load_webrtc_session_db(conn, app.state, session_id)
         if sess is None:
             raise HTTPException(status_code=404, detail="Session not found.")
+        owner = str(sess.get("user_id") or "")
+        if owner and actor != "admin-token" and owner != actor:
+            require_role("admin", x_admin_token, x_session_token, authorization)
         perms = sess.get("permissions") or {}
         if not perms.get("clipboard_sync", False):
             raise HTTPException(status_code=403, detail="Clipboard synchronization is disabled for this session.")
         action = str(body.get("action") or "get").lower()
+        if action != "get" and getattr(app.state, "emergency_stop", False):
+            raise HTTPException(status_code=403, detail="Emergency stop is active; clipboard write denied.")
         from .. import tools
 
         if action == "get":
@@ -791,10 +821,13 @@ def attach_v1_routes(
         x_session_token: str | None = Header(default=None),
         authorization: str | None = Header(default=None),
     ):
-        actor, _role = auth_context(x_admin_token, x_session_token, authorization)
+        actor = require_role("operator", x_admin_token, x_session_token, authorization)
         sess = load_webrtc_session_db(conn, app.state, session_id)
         if sess is None:
             raise HTTPException(status_code=404, detail="Session not found.")
+        owner = str(sess.get("user_id") or "")
+        if owner and actor != "admin-token" and owner != actor:
+            require_role("admin", x_admin_token, x_session_token, authorization)
         sess["status"] = "ended"
         save_webrtc_session_db(conn, app.state, sess)
         device_id = str(sess.get("device_id") or "local")
@@ -917,26 +950,44 @@ def attach_v1_routes(
 
     @app.websocket("/api/v1/ws/sessions/{session_id}")
     async def v1_session_websocket(websocket: WebSocket, session_id: str):
+        dev_tok = websocket.headers.get("x-device-token") or websocket.query_params.get("device_token")
+        adm_tok = websocket.headers.get("x-admin-token") or websocket.query_params.get("admin_token")
+        sess_tok = websocket.headers.get("x-session-token") or websocket.query_params.get("session_token")
+        auth_hdr = websocket.headers.get("authorization")
+        q_tok = websocket.query_params.get("token")
+        if q_tok and not (adm_tok or sess_tok or auth_hdr):
+            auth_hdr = f"Bearer {q_tok}"
+        try:
+            if dev_tok:
+                device_row(dev_tok)
+            else:
+                require_role("viewer", adm_tok, sess_tok, auth_hdr)
+        except HTTPException:
+            await websocket.close(code=4401)
+            return
+
         await websocket.accept()
         ws_subscribers.setdefault(session_id, set()).add(websocket)
         try:
-            sess = _sessions_store().get(session_id)
+            sess = load_webrtc_session_db(conn, app.state, session_id)
             if sess is not None:
                 await websocket.send_json({"type": "session_snapshot", "session": format_session_v1(sess)})
             while True:
                 msg = await websocket.receive_json()
                 mtype = str(msg.get("type") or "").lower()
-                sess = _sessions_store().get(session_id)
+                sess = load_webrtc_session_db(conn, app.state, session_id)
                 if sess is None:
                     await websocket.send_json({"type": "error", "detail": "Session not found."})
                     continue
                 if mtype == "answer" and msg.get("answer"):
                     sess["answer"] = msg["answer"]
                     sess["status"] = "answered"
+                    save_webrtc_session_db(conn, app.state, sess)
                     await _broadcast_ws(session_id, {"type": "answer", "answer": sess["answer"]})
                 elif mtype == "offer" and msg.get("offer"):
                     sess["offer"] = msg["offer"]
                     sess["status"] = "offered"
+                    save_webrtc_session_db(conn, app.state, sess)
                     await _broadcast_ws(session_id, {"type": "offer", "offer": sess["offer"]})
                 elif mtype == "ice" and msg.get("candidate"):
                     side = str(msg.get("from") or "viewer")
@@ -944,6 +995,7 @@ def attach_v1_routes(
                         sess.setdefault("agent_candidates", []).append(msg["candidate"])
                     else:
                         sess.setdefault("viewer_candidates", []).append(msg["candidate"])
+                    save_webrtc_session_db(conn, app.state, sess)
                     await _broadcast_ws(session_id, {"type": "ice", "from": side, "candidate": msg["candidate"]})
                 elif mtype == "ping":
                     await websocket.send_json({
@@ -987,11 +1039,22 @@ def attach_v1_routes(
         authorization: str | None = Header(default=None),
     ):
         actor = require_role("operator", x_admin_token, x_session_token, authorization)
+        if getattr(app.state, "emergency_stop", False):
+            raise HTTPException(status_code=403, detail="Emergency stop is active; tasks cannot be queued.")
         device_id = str(body.get("device_id") or "local")
-        tool_name = str(body.get("tool") or "")
+        tool_name = normalize_tool_name(str(body.get("tool") or ""))
         args = body.get("args") if isinstance(body.get("args"), dict) else {}
         if not tool_name:
             raise HTTPException(status_code=400, detail="tool is required.")
+        tier = TOOL_TIERS.get(tool_name)
+        if tier is None:
+            raise HTTPException(status_code=400, detail=f"Unknown tool: '{tool_name}'.")
+        _ensure_v1_device_exists(device_id)
+        eff_pol = get_effective_device_policy(device_id)
+        if tool_name in eff_pol.get("denied_tools", []):
+            raise HTTPException(status_code=403, detail=f"Tool '{tool_name}' is denied by device policy.")
+        if eff_pol.get("allowed_tools") is not None and tool_name not in eff_pol["allowed_tools"]:
+            raise HTTPException(status_code=403, detail=f"Tool '{tool_name}' is not in device allowed_tools.")
         if is_device_human_takeover_active(device_id) and not bool(body.get("human_initiated", False)):
             raise HTTPException(
                 status_code=409,
@@ -999,8 +1062,7 @@ def attach_v1_routes(
             )
         task_id = uuid.uuid4().hex[:12]
         now_ts = dbmod.now()
-        tier = TOOL_TIERS.get(tool_name)
-        t_val = tier.value if tier else 2
+        t_val = tier.value
         conn.execute(
             "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, created_at, updated_at) VALUES (?,?,?,?,?,?,'queued',?,?)",
             (task_id, device_id, "default", tool_name, json.dumps(args), t_val, now_ts, now_ts),

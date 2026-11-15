@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 #  AI Bridge — Universal Magic Installer & Environment Provisioner (Windows)
 # ==============================================================================
 #  Single-command bootstrap for completely fresh Windows Server or Desktop systems.
@@ -117,7 +117,16 @@ if ($Diagnose) {
 $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $IsAdmin) {
     Write-Host "[INFO] Requesting Administrator elevation..." -ForegroundColor Yellow
-    Start-Process powershell.exe -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -NoProfile -File `"$PSCommandPath`""
+    $elevArgs = @("-ExecutionPolicy", "Bypass", "-NoProfile", "-File", "`"$PSCommandPath`"")
+    foreach ($kv in $PSBoundParameters.GetEnumerator()) {
+        if ($kv.Value -is [switch]) {
+            if ($kv.Value.IsPresent) { $elevArgs += "-$($kv.Key)" }
+        } elseif ($null -ne $kv.Value -and "$($kv.Value)" -ne "") {
+            $escaped = ("$($kv.Value)").Replace('"', '\"')
+            $elevArgs += @("-$($kv.Key)", "`"$escaped`"")
+        }
+    }
+    Start-Process powershell.exe -Verb RunAs -ArgumentList $elevArgs
     exit 0
 }
 
@@ -305,7 +314,9 @@ if (-not (Test-Path $VenvPython)) {
 Write-Host "[PROVISION] Installing AI Bridge & Windows acceleration packages..." -ForegroundColor Cyan
 & $VenvPython -m pip install --upgrade pip wheel setuptools --quiet
 & $VenvPython -m pip install -e . --quiet
-if (Test-Path "requirements-windows.txt") {
+if (Test-Path "deployment\windows\requirements.txt") {
+    & $VenvPython -m pip install -r "deployment\windows\requirements.txt" --quiet
+} elseif (Test-Path "requirements-windows.txt") {
     & $VenvPython -m pip install -r requirements-windows.txt --quiet
 }
 
@@ -313,6 +324,9 @@ if (Test-Path "requirements-windows.txt") {
 $ConfigDir = "$env:ProgramData\AIBridge"
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
 $ConfigFile = Join-Path $ConfigDir "agent.env"
+$CanonicalDir = "$env:ProgramData\ai-bridge"
+New-Item -ItemType Directory -Force -Path $CanonicalDir | Out-Null
+$RunCmd = Join-Path $CanonicalDir "run-agent.cmd"
 
 if (-not $DeviceName) {
     $DeviceName = $env:COMPUTERNAME
@@ -351,17 +365,26 @@ AI_BRIDGE_DEVICE_TOKEN=$DeviceToken
 AI_BRIDGE_WORKSPACE=$InstallDir\workspace
 "@
 Set-Content -Path $ConfigFile -Value $envContent -Force
+$cmdContent = @"
+@echo off
+set AI_BRIDGE_CONTROL_URL=$ControlUrl
+set AI_BRIDGE_DEVICE_TOKEN=$DeviceToken
+set AI_BRIDGE_WORKSPACE=$InstallDir\workspace
+"$VenvPython" "$InstallDir\agents\windows\agent_main.py"
+"@
+Set-Content -Path $RunCmd -Value $cmdContent -Encoding ASCII -Force
 New-Item -ItemType Directory -Force -Path "$InstallDir\workspace" | Out-Null
 
 # --- 7. Auto-Start Setup ---
+$taskName = "AI Bridge Agent"
 if (-not $NoAutoStart) {
     Write-Host "[SERVICE] Registering Windows Scheduled Task for boot startup..." -ForegroundColor Cyan
-    $taskName = "AIBridgeAgent"
-    $action = New-ScheduledTaskAction -Execute $VenvPython -Argument "agents\windows\agent_main.py run" -WorkingDirectory $InstallDir
+    $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$RunCmd`"" -WorkingDirectory $InstallDir
     $trigger = New-ScheduledTaskTrigger -AtStartup
     $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1)
 
+    Unregister-ScheduledTask -TaskName "AIBridgeAgent" -Confirm:$false -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings | Out-Null
     Write-Host "[OK] Task '$taskName' registered to run on boot as SYSTEM." -ForegroundColor Green
@@ -370,7 +393,7 @@ if (-not $NoAutoStart) {
 # --- 8. Start Agent ---
 if (-not $SkipRun) {
     Write-Host "[START] Launching AI Bridge Windows Agent in background..." -ForegroundColor Cyan
-    Start-ScheduledTask -TaskName "AIBridgeAgent" -ErrorAction SilentlyContinue
+    Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 }
 
 Write-Host ""
@@ -381,7 +404,8 @@ Write-Host " Control Plane:  $ControlUrl"
 Write-Host " Install Dir:    $InstallDir"
 Write-Host " Python Bin:     $VenvPython"
 Write-Host " Config File:    $ConfigFile"
-Write-Host " Auto-Start:     Windows Scheduled Task (AIBridgeAgent)"
+Write-Host " Launcher:       $RunCmd"
+Write-Host " Auto-Start:     Windows Scheduled Task ($taskName)"
 Write-Host "=====================================================================" -ForegroundColor Green
 Write-Host ""
 

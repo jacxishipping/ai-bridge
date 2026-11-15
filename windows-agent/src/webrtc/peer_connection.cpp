@@ -1,4 +1,5 @@
 #include "peer_connection.hpp"
+#include "../input/sendinput_controller.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -6,6 +7,7 @@
 #include <future>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -37,12 +39,52 @@ PeerBackend DescribeAvailablePeerBackend() {
 #if defined(AIBRIDGE_WITH_LIBDATACHANNEL)
 namespace {
 
+std::string ExtractJsonStr(const std::string& json, const std::string& key) {
+    std::string needle = "\"" + key + "\"";
+    size_t pos = json.find(needle);
+    if (pos == std::string::npos) return {};
+    pos = json.find(':', pos + needle.size());
+    if (pos == std::string::npos) return {};
+    pos = json.find('"', pos + 1);
+    if (pos == std::string::npos) return {};
+    ++pos;
+    std::string out;
+    while (pos < json.size()) {
+        char c = json[pos++];
+        if (c == '\\' && pos < json.size()) {
+            out.push_back(json[pos++]);
+            continue;
+        }
+        if (c == '"') break;
+        out.push_back(c);
+    }
+    return out;
+}
+
+double ExtractJsonNum(const std::string& json, const std::string& key, double fallback = 0.0) {
+    std::string needle = "\"" + key + "\"";
+    size_t pos = json.find(needle);
+    if (pos == std::string::npos) return fallback;
+    pos = json.find(':', pos + needle.size());
+    if (pos == std::string::npos) return fallback;
+    ++pos;
+    while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t')) ++pos;
+    try {
+        return std::stod(json.substr(pos));
+    } catch (...) {
+        return fallback;
+    }
+}
+
 class LibDataChannelSession : public PeerConnectionSession {
 public:
     explicit LibDataChannelSession(PeerConnectionConfig cfg) : cfg_(std::move(cfg)) {}
 
     PeerBackend Backend() const override { return PeerBackend::LibDataChannel; }
-    std::string IceState() const override { return ice_state_; }
+    std::string IceState() const override {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        return ice_state_;
+    }
     uint64_t FramesSent() const override { return frames_sent_.load(); }
 
     bool RunUntilStopped(std::atomic<bool>* stop_flag, std::string* error_out) override {
@@ -50,9 +92,20 @@ public:
         rtc::Configuration rtc_cfg;
         rtc_cfg.iceServers.emplace_back("stun:stun.l.google.com:19302");
 
+        aibridge::input::WindowsInputController input_ctrl;
+        input_ctrl.SetPermissions(aibridge::input::SessionInputPermissions{true, true, false, true});
+
         auto pc = std::make_shared<rtc::PeerConnection>(rtc_cfg);
-        pc->onStateChange([this](rtc::PeerConnection::State state) {
-            ice_state_ = std::to_string(static_cast<int>(state));
+        pc->onStateChange([this, &input_ctrl](rtc::PeerConnection::State state) {
+            {
+                std::lock_guard<std::mutex> lock(state_mutex_);
+                ice_state_ = std::to_string(static_cast<int>(state));
+            }
+            if (state == rtc::PeerConnection::State::Disconnected ||
+                state == rtc::PeerConnection::State::Failed ||
+                state == rtc::PeerConnection::State::Closed) {
+                input_ctrl.ReleaseAllHeldKeys();
+            }
         });
         pc->onLocalCandidate([&signaling](rtc::Candidate cand) {
             IceCandidateJson j;
@@ -81,7 +134,10 @@ public:
 
         // Same contract as Python webrtc_stream: agent-offerred "input" datachannel.
         auto input_dc = pc->createDataChannel("input");
-        input_dc->onMessage([input_dc](rtc::message_variant msg) {
+        input_dc->onClosed([&input_ctrl]() {
+            input_ctrl.ReleaseAllHeldKeys();
+        });
+        input_dc->onMessage([input_dc, &input_ctrl](rtc::message_variant msg) {
             std::string text;
             if (std::holds_alternative<std::string>(msg)) {
                 text = std::get<std::string>(msg);
@@ -89,12 +145,49 @@ public:
                 const auto& bin = std::get<rtc::binary>(msg);
                 text.assign(reinterpret_cast<const char*>(bin.data()), bin.size());
             }
-            if (text.find("\"ping\"") == std::string::npos && text.find("ping") == std::string::npos) {
+            std::string mtype = ExtractJsonStr(text, "type");
+            if (mtype.empty()) mtype = ExtractJsonStr(text, "action");
+            if (mtype == "ping" || (mtype.empty() && text.find("ping") != std::string::npos)) {
+                try {
+                    input_dc->send(std::string("{\"type\":\"pong\",\"action\":\"pong\"}"));
+                } catch (...) {
+                }
                 return;
             }
-            try {
-                input_dc->send(std::string("{\"type\":\"pong\",\"action\":\"pong\"}"));
-            } catch (...) {
+            if (mtype == "mouse_move") {
+                double x = ExtractJsonNum(text, "x", 0.5);
+                double y = ExtractJsonNum(text, "y", 0.5);
+                input_ctrl.MoveMouse(x, y, true);
+            } else if (mtype == "mouse_down" || mtype == "mouse_up" || mtype == "click") {
+                double x = ExtractJsonNum(text, "x", 0.5);
+                double y = ExtractJsonNum(text, "y", 0.5);
+                std::string btn = ExtractJsonStr(text, "button");
+                if (btn.empty()) btn = "left";
+                if (mtype == "click") {
+                    input_ctrl.MouseButton(btn, "down", x, y, true);
+                    input_ctrl.MouseButton(btn, "up", x, y, true);
+                } else {
+                    input_ctrl.MouseButton(btn, mtype == "mouse_down" ? "down" : "up", x, y, true);
+                }
+            } else if (mtype == "scroll") {
+                int dy = static_cast<int>(ExtractJsonNum(text, "delta_y", 0.0));
+                int dx = static_cast<int>(ExtractJsonNum(text, "delta_x", 0.0));
+                input_ctrl.MouseScroll(dy, dx);
+            } else if (mtype == "key_down" || mtype == "key_up") {
+                std::string key = ExtractJsonStr(text, "key");
+                if (!key.empty()) {
+                    input_ctrl.KeyTokenEvent(key, mtype == "key_down" ? "down" : "up");
+                }
+            } else if (mtype == "type") {
+                std::string chars = ExtractJsonStr(text, "text");
+                if (!chars.empty()) {
+                    int wlen = MultiByteToWideChar(CP_UTF8, 0, chars.data(), static_cast<int>(chars.size()), nullptr, 0);
+                    if (wlen > 0) {
+                        std::wstring wtext(wlen, L'\0');
+                        MultiByteToWideChar(CP_UTF8, 0, chars.data(), static_cast<int>(chars.size()), wtext.data(), wlen);
+                        input_ctrl.TypeUnicodeText(wtext);
+                    }
+                }
             }
         });
 
@@ -160,12 +253,14 @@ public:
             int sleep_ms = 1000 / (cfg_.fps > 0 ? cfg_.fps : 30);
             std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms > 0 ? sleep_ms : 1));
         }
+        input_ctrl.ReleaseAllHeldKeys();
         pipeline.StopSession();
         return true;
     }
 
 private:
     PeerConnectionConfig cfg_;
+    mutable std::mutex state_mutex_;
     std::string ice_state_ = "new";
     std::atomic<uint64_t> frames_sent_{0};
 };

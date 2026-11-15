@@ -27,21 +27,40 @@ def ensure_memory_table(conn: Any) -> None:
         s = stmt.strip()
         if s:
             conn.execute(s)
+    dialect = getattr(conn, "dialect", "sqlite")
     try:
-        conn.execute("ALTER TABLE agent_memory_chunks ADD COLUMN project_tag TEXT")
+        if dialect == "postgres":
+            cols = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'agent_memory_chunks'"
+                ).fetchall()
+            }
+        else:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(agent_memory_chunks)").fetchall()}
     except Exception:
-        pass
-    try:
-        conn.execute("ALTER TABLE agent_memory_chunks ADD COLUMN task_tag TEXT")
-    except Exception:
-        pass
+        cols = set()
+    for col in ("project_tag", "task_tag"):
+        if col not in cols:
+            try:
+                conn.execute(f"ALTER TABLE agent_memory_chunks ADD COLUMN {col} TEXT")
+            except Exception:
+                if dialect == "postgres":
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
     try:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_memory_tags "
             "ON agent_memory_chunks(agent_id, project_tag, task_tag)"
         )
     except Exception:
-        pass
+        if dialect == "postgres":
+            try:
+                conn.rollback()
+            except Exception:
+                pass
     conn.commit()
 
 

@@ -285,39 +285,34 @@ export const SecurityPoliciesDemo: React.FC = () => {
   };
 
   const handleTestPing = (whId: string) => {
+    const now = new Date().toISOString();
+    const latency = 35 + ((whId.charCodeAt(0) * 5) % 20);
+    const target = webhooks.find((w) => w.id === whId);
+
     setWebhooks((prev) =>
-      prev.map((w) => (w.id === whId ? { ...w, isPinging: true } : w))
+      prev.map((w) =>
+        w.id === whId
+          ? {
+              ...w,
+              isPinging: false,
+              lastPingStatus: { code: 200, latencyMs: latency, timestamp: now },
+            }
+          : w
+      )
     );
 
-    setTimeout(() => {
-      const now = new Date().toISOString();
-      const latency = Math.floor(35 + Math.random() * 20);
-      setWebhooks((prev) =>
-        prev.map((w) =>
-          w.id === whId
-            ? {
-                ...w,
-                isPinging: false,
-                lastPingStatus: { code: 200, latencyMs: latency, timestamp: now },
-              }
-            : w
-        )
-      );
-
-      const target = webhooks.find((w) => w.id === whId);
-      if (target) {
-        setDeliveryLogs((prev) => [
-          {
-            id: `del-${Date.now().toString(16)}`,
-            event: "TEST_PING",
-            channel: target.name,
-            status: `delivered (200 OK - ${latency}ms)`,
-            time: new Date().toLocaleTimeString() + " UTC",
-          },
-          ...prev,
-        ]);
-      }
-    }, 700);
+    if (target) {
+      setDeliveryLogs((prev) => [
+        {
+          id: `del-${Date.now().toString(16)}`,
+          event: "TEST_PING",
+          channel: target.name,
+          status: `delivered (200 OK - ${latency}ms)`,
+          time: new Date().toLocaleTimeString() + " UTC",
+        },
+        ...prev,
+      ]);
+    }
   };
 
   const handleToggleSubscription = (
