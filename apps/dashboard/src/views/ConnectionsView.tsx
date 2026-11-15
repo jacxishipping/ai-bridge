@@ -48,7 +48,7 @@ import {
   Clock,
   Sparkles,
 } from "lucide-react";
-import { api, apiOrigin, token, sessionToken } from "../api";
+import { api, apiOrigin, token, sessionToken, toIsoTimestamp } from "../api";
 import { PageEmpty } from "../components/PageEmpty";
 import { useDashboardStore } from "../state/dashboardStore";
 import type { MCPConnection, OAuthClient } from "../types/dashboard";
@@ -339,7 +339,7 @@ export const ConnectionsView: React.FC = () => {
         clientName: String(c.client_name || c.client_id_prefix || "OAuth Client"),
         pkceType: "S256",
         scopes: ["mcp", "openid", "offline_access"],
-        createdAt: c.created_at ? new Date(c.created_at * 1000).toISOString() : new Date().toISOString(),
+        createdAt: toIsoTimestamp(c.created_at, new Date().toISOString()),
         expiresAt: "Dynamic / Refresh",
         status: "active" as const,
         tokenSecretMasked: `${String(c.client_id_prefix || c.client_id || "").slice(0, 12)}••••••••`,
@@ -455,8 +455,21 @@ export const ConnectionsView: React.FC = () => {
   // Inspect Spec Modal
   const [inspectSpecStream, setInspectSpecStream] = useState<MCPConnection | null>(null);
 
-  const handleRotateSecret = () => {
+  const handleRotateSecret = async () => {
     setIsRotatingSecret(true);
+    if (isLive) {
+      try {
+        await fetchLiveConnections();
+        setRotateNotice(
+          "Gateway secrets are managed by the control plane (AI_BRIDGE_ADMIN_TOKEN / JWT secret). Refreshed active token state."
+        );
+      } catch (err) {
+        setConnError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setIsRotatingSecret(false);
+      }
+      return;
+    }
     setTimeout(() => {
       setIsRotatingSecret(false);
       setRotateNotice("Master Gateway Secret successfully rotated. New ephemeral keys deployed to all active SSE streams.");
@@ -900,6 +913,25 @@ export const ConnectionsView: React.FC = () => {
                           >
                             {client.status}
                           </span>
+                          {isLive && (
+                            <JXButton
+                              variant="soft"
+                              color="neutral"
+                              size="sm"
+                              onClick={async () => {
+                                const nextName = typeof window !== "undefined" ? window.prompt("New OAuth client name:", client.clientName) : null;
+                                if (!nextName || !nextName.trim()) return;
+                                try {
+                                  await api.updateOAuthClient(client.id, { client_name: nextName.trim() });
+                                  await fetchLiveConnections();
+                                } catch (err) {
+                                  setConnError(err instanceof Error ? err.message : String(err));
+                                }
+                              }}
+                            >
+                              Rename
+                            </JXButton>
+                          )}
                           {isLive && (
                             <JXButton
                               variant={confirmDeleteClientId === client.id ? "contained" : "soft"}

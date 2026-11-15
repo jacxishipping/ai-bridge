@@ -12,7 +12,8 @@ import secrets
 import time
 from typing import Callable
 
-from fastapi import HTTPException, Request
+from fastapi import Request
+from fastapi.responses import JSONResponse
 
 _CSRF_SECRET = os.environ.get("AI_BRIDGE_CSRF_SECRET") or secrets.token_hex(32)
 _CSRF_TTL = 86400  # 24 hours
@@ -50,29 +51,29 @@ def validate_csrf_token(session_token: str, token: str) -> bool:
         return False
 
 
-def csrf_middleware(get_response: Callable) -> Callable:
-    """Optional middleware that validates CSRF tokens on mutating requests.
+async def csrf_middleware(request: Request, call_next: Callable):
+    """FastAPI HTTP middleware that validates CSRF tokens on mutating session-auth requests.
 
     Usage: app.middleware("http")(csrf_middleware)
     """
-    async def middleware(request: Request, call_next: Callable) -> None:
-        if request.method in ("GET", "HEAD", "OPTIONS", "TRACE"):
-            return await call_next(request)
-
-        # Only check session-based auth (not admin-token or device-token)
-        session_token = (
-            request.headers.get("x-session-token")
-            or request.headers.get("authorization", "").removeprefix("Bearer ")
-        )
-        if not session_token:
-            return await call_next(request)
-
-        csrf_token = request.headers.get("x-csrf-token")
-        if not csrf_token or not validate_csrf_token(session_token, csrf_token):
-            return HTTPException(
-                status_code=403,
-                detail="CSRF token missing or invalid. Include X-CSRF-Token header.",
-            )
+    if request.method in ("GET", "HEAD", "OPTIONS", "TRACE"):
         return await call_next(request)
 
-    return middleware
+    # Admin-token, device-token, and auth login/logout bootstrap endpoints do not require CSRF.
+    if request.headers.get("x-admin-token") or request.headers.get("x-device-token"):
+        return await call_next(request)
+    if request.url.path in ("/api/auth/login", "/api/auth/logout"):
+        return await call_next(request)
+
+    # Check explicit X-Session-Token when CSRF validation is active.
+    session_token = request.headers.get("x-session-token")
+    if not session_token:
+        return await call_next(request)
+
+    csrf_token = request.headers.get("x-csrf-token")
+    if not csrf_token or not validate_csrf_token(session_token, csrf_token):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "CSRF token missing or invalid. Include X-CSRF-Token header."},
+        )
+    return await call_next(request)

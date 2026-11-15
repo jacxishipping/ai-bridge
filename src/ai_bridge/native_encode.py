@@ -50,12 +50,18 @@ def describe_native_encode() -> dict[str, Any]:
         reason = "ai_bridge_native_dll_not_loaded"
     elif not has_encode:
         reason = "dll_missing_aibridge_encode_h264_frame"
+    try:
+        use_native_timing = should_use_native_encode_timing()
+    except RuntimeError as exc:
+        use_native_timing = False
+        if not reason:
+            reason = str(exc)
     return {
         "mode": mode,
         "dll_loaded": dll is not None,
         "dll_on_disk": dll_present,
         "encode_export_available": has_encode,
-        "use_native_encode_timing": should_use_native_encode_timing(),
+        "use_native_encode_timing": use_native_timing,
         "fallback": "pyav_screen_track",
         "search_paths": paths[:5],
         "reason": reason,

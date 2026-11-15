@@ -48,30 +48,72 @@ bool DpapiSecretStore::UnprotectSecret(const std::vector<uint8_t>& encrypted, st
 }
 
 std::string SecureNamedPipe::ComputeTag(const std::string& msg_type, const std::string& payload, const std::string& secret) {
-    // FNV-1a / SipHash-style keyed 256-bit digest using Windows CryptoAPI SHA-256
-    std::string combined = secret + "|" + msg_type + "|" + payload + "|" + secret;
-    HCRYPTPROV hProv = 0;
-    HCRYPTHASH hHash = 0;
-    std::string hex_out;
-
-    if (CryptAcquireContextW(&hProv, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
-        if (CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash)) {
-            if (CryptHashData(hHash, reinterpret_cast<const BYTE*>(combined.data()), static_cast<DWORD>(combined.size()), 0)) {
-                BYTE hash[32] = {0};
-                DWORD hash_len = sizeof(hash);
-                if (CryptGetHashParam(hHash, HP_HASHVAL, hash, &hash_len, 0)) {
-                    std::ostringstream oss;
-                    for (DWORD i = 0; i < hash_len; ++i) {
-                        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+    // RFC 2104 HMAC-SHA256 using Windows CryptoAPI SHA-256 primitive.
+    auto sha256 = [](const uint8_t* data, size_t len, std::vector<uint8_t>& digest) -> bool {
+        HCRYPTPROV hProv = 0;
+        HCRYPTHASH hHash = 0;
+        bool ok = false;
+        if (CryptAcquireContextW(&hProv, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
+            if (CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash)) {
+                if (len == 0 || CryptHashData(hHash, data, static_cast<DWORD>(len), 0)) {
+                    digest.resize(32);
+                    DWORD hash_len = 32;
+                    if (CryptGetHashParam(hHash, HP_HASHVAL, digest.data(), &hash_len, 0) && hash_len == 32) {
+                        ok = true;
                     }
-                    hex_out = oss.str();
                 }
+                CryptDestroyHash(hHash);
             }
-            CryptDestroyHash(hHash);
+            CryptReleaseContext(hProv, 0);
         }
-        CryptReleaseContext(hProv, 0);
+        return ok;
+    };
+
+    constexpr size_t kBlockSize = 64;
+    std::vector<uint8_t> key(kBlockSize, 0);
+    if (secret.size() > kBlockSize) {
+        std::vector<uint8_t> hashed_key;
+        if (!sha256(reinterpret_cast<const uint8_t*>(secret.data()), secret.size(), hashed_key)) {
+            return {};
+        }
+        std::copy(hashed_key.begin(), hashed_key.end(), key.begin());
+    } else {
+        std::memcpy(key.data(), secret.data(), secret.size());
     }
-    return hex_out;
+
+    std::vector<uint8_t> ipad(kBlockSize);
+    std::vector<uint8_t> opad(kBlockSize);
+    for (size_t i = 0; i < kBlockSize; ++i) {
+        ipad[i] = static_cast<uint8_t>(key[i] ^ 0x36);
+        opad[i] = static_cast<uint8_t>(key[i] ^ 0x5C);
+    }
+
+    std::string message = msg_type + "|" + payload;
+    std::vector<uint8_t> inner_in;
+    inner_in.reserve(kBlockSize + message.size());
+    inner_in.insert(inner_in.end(), ipad.begin(), ipad.end());
+    inner_in.insert(inner_in.end(), message.begin(), message.end());
+
+    std::vector<uint8_t> inner_hash;
+    if (!sha256(inner_in.data(), inner_in.size(), inner_hash)) {
+        return {};
+    }
+
+    std::vector<uint8_t> outer_in;
+    outer_in.reserve(kBlockSize + inner_hash.size());
+    outer_in.insert(outer_in.end(), opad.begin(), opad.end());
+    outer_in.insert(outer_in.end(), inner_hash.begin(), inner_hash.end());
+
+    std::vector<uint8_t> mac;
+    if (!sha256(outer_in.data(), outer_in.size(), mac)) {
+        return {};
+    }
+
+    std::ostringstream oss;
+    for (uint8_t b : mac) {
+        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(b);
+    }
+    return oss.str();
 }
 
 HANDLE SecureNamedPipe::CreateRestrictedServerPipe(const wchar_t* pipe_name) {

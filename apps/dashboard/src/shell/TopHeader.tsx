@@ -15,6 +15,7 @@ export const TopHeader: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
   const resume = useDashboardStore((s) => s.resumeFleet);
   const setCommandPaletteOpen = useDashboardStore((s) => s.setCommandPaletteOpen);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [stopError, setStopError] = useState<string | null>(null);
   const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ K" : "Ctrl K";
 
   return (
@@ -44,7 +45,7 @@ export const TopHeader: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
         <ThemeControl />
       </GlassToolbar>
       <JXButton variant="outlined" color={stopped ? "success" : "error"} size="sm"
-        onClick={() => setConfirmOpen(true)}
+        onClick={() => { setStopError(null); setConfirmOpen(true); }}
         aria-label={stopped ? (isLive ? "Resume Fleet" : "Resume demo fleet") : "Emergency All-Stop"}
         startIcon={stopped ? <Play className="h-4 w-4" /> : <Square className="h-4 w-4" />}>
         <span className="inline-flex items-center gap-1.5">
@@ -67,6 +68,11 @@ export const TopHeader: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
               : (stopped ? "Resume the simulated fleet. Cancelled sample tasks will not restart." : "Cancel pending and running sample tasks in this browser only. Real computers are not affected.")}
           </p>
           <div className="flex flex-wrap items-center justify-end gap-3">
+            {stopError && (
+              <p role="alert" className="w-full rounded-lg border border-rose-500/40 bg-rose-950/40 px-3 py-2 text-xs text-rose-200">
+                {stopError}
+              </p>
+            )}
             <JXButton variant="outlined" color="neutral" onClick={() => setConfirmOpen(false)}>Cancel</JXButton>
             <HoldToConfirmButton
               label={stopped ? (isLive ? "Hold to resume fleet" : "Hold to resume demo") : (isLive ? "Hold for Emergency All-Stop" : "Hold to stop demo tasks")}
@@ -74,8 +80,13 @@ export const TopHeader: React.FC<{ onMenu: () => void }> = ({ onMenu }) => {
               variant="solid"
               holdDurationMs={isLive ? 1200 : 700}
               onConfirm={async () => {
-                if (stopped) await resume(); else await stop();
-                setConfirmOpen(false);
+                setStopError(null);
+                try {
+                  if (stopped) await resume(); else await stop();
+                  setConfirmOpen(false);
+                } catch (err: any) {
+                  setStopError(err?.message || "Failed to update control-plane emergency state.");
+                }
               }}
             />
           </div>

@@ -7,8 +7,13 @@ here — this is the server-side enforcement point, not the prompt.
 """
 from __future__ import annotations
 
-from .. import browser_tools, dev_tools, diagnostics, git_ops, tools, workspace, webrtc_stream
-from ..policy import TOOL_TIERS, Policy, RiskTier, decide
+import os
+from dataclasses import asdict
+from pathlib import Path
+
+from .. import audit as audit_mod
+from .. import browser_tools, dev_tools, diagnostics, execution, git_ops, tasks, tools, workspace, webrtc_stream
+from ..policy import TOOL_TIERS, Policy, RiskTier, decide, normalize_tool_name
 from . import dispatch_audit, supervisor
 from .task_runtime import TaskCancelled, current_device_id, raise_if_cancelled
 
@@ -58,6 +63,95 @@ def _agent_run_role(a: dict) -> dict:
         "agent_run_role is claimed by the control-plane AgentRunner; "
         "do not execute it on a device poller."
     )
+
+
+def _dispatch_list_devices() -> dict:
+    conn = supervisor.get_plane_conn()
+    if conn is None:
+        return {"devices": [{"id": "local", "name": "local", "status": "online", **tools.get_system_info()}]}
+    rows = conn.execute(
+        "SELECT id, name, hostname, os, status, last_seen, tags_json FROM devices WHERE revoked=0 ORDER BY last_seen DESC"
+    ).fetchall()
+    return {"devices": [dict(r) for r in rows]}
+
+
+def _dispatch_device_status(a: dict) -> dict:
+    dev_id = str(a.get("device_id") or a.get("id") or "local").strip()
+    conn = supervisor.get_plane_conn()
+    if not dev_id or dev_id.lower() in ("local", "host", "droplet") or conn is None:
+        return {"device_id": "local", "status": "online", **tools.get_resource_usage()}
+    row = conn.execute(
+        "SELECT id, name, hostname, os, status, last_seen FROM devices WHERE (id=? OR LOWER(name)=LOWER(?)) AND revoked=0 LIMIT 1",
+        (dev_id, dev_id),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"Device '{dev_id}' not found.")
+    return {"device_id": row["id"], "name": row["name"], "hostname": row["hostname"], "os": row["os"], "status": row["status"], "last_seen": row["last_seen"]}
+
+
+def _dispatch_browser_snapshot(a: dict, *, approval_granted: bool, policy: Policy | None) -> dict:
+    url_info = browser_tools.browser_get_url(approval_granted=approval_granted, policy=policy)
+    text_info = browser_tools.browser_get_text(str(a.get("selector", "body")), approval_granted=approval_granted, policy=policy)
+    el_info = browser_tools.browser_get_elements("a,button,input,textarea,select,[role='button']", include_text=True, approval_granted=approval_granted, policy=policy)
+    return {"ok": True, "url": url_info, "text": text_info, "elements": el_info}
+
+
+def _dispatch_agent_notify(a: dict) -> dict:
+    from . import alerts
+
+    title = str(a.get("title") or "AI Bridge Notification").strip()
+    message = str(a.get("message") or "").strip()
+    sev = str(a.get("severity") or "info").strip().lower()
+    if sev not in ("info", "warning", "critical"):
+        sev = "info"
+    return {"ok": True, "dispatched": alerts.dispatch_alert("agent_alert", sev, title, {"message": message}, async_dispatch=False)}
+
+
+def _dispatch_agent_remember(a: dict) -> dict:
+    conn = supervisor.get_plane_conn()
+    if conn is None:
+        raise RuntimeError("agent_remember requires control-plane database context.")
+    from . import agent_memory
+
+    fact = str(a.get("fact") or "").strip()
+    if not fact:
+        raise ValueError("fact is required.")
+    agent_id = str(a.get("agent_id") or "supervisor").strip()
+    chunk = agent_memory.append_memory_chunk(
+        conn,
+        agent_id,
+        fact,
+        tenant=str(a.get("tenant") or "default"),
+        project_tag=str(a.get("project") or "").strip() or None,
+        task_tag=str(a.get("task") or "").strip() or None,
+    )
+    conn.commit()
+    return {"ok": True, "remembered": fact, "chunk": chunk}
+
+
+def _dispatch_agent_delegate(a: dict) -> dict:
+    conn = supervisor.get_plane_conn()
+    if conn is None:
+        raise RuntimeError("agent_delegate requires control-plane database context.")
+    role = str(a.get("role") or "").strip().lower()
+    if not role and str(a.get("target_agent") or "").startswith("agent-role-"):
+        role = str(a["target_agent"]).removeprefix("agent-role-").lower()
+    if not role:
+        return supervisor.delegate_role_target(str(a.get("target_agent") or "planner"))
+    return supervisor.enqueue_agent_run_role(
+        conn,
+        device_id=str(a.get("device") or "local"),
+        tenant=str(a.get("tenant") or "default"),
+        role=role,
+        prompt=str(a.get("prompt") or a.get("message") or ""),
+        parent_task_id=a.get("parent_task_id"),
+        goal=str(a.get("goal") or "")[:200] or None,
+    )
+
+
+def _dispatch_agent_run_workflow(a: dict) -> dict:
+    steps = a.get("steps") or []
+    return tools.execute_workflow(steps, stop_on_failure=bool(a.get("stop_on_failure", True)))
 
 
 def _dispatch_browser(tool: str, a: dict, *, approval_granted: bool, policy: Policy | None) -> dict:
@@ -182,6 +276,8 @@ def _dispatch_browser(tool: str, a: dict, *, approval_granted: bool, policy: Pol
 
 def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
              approval_granted: bool = False, is_admin: bool = False):
+    raw_tool = tool
+    tool = normalize_tool_name(tool)
     explicit_policy = policy
     policy = policy or tools.default_policy()
     # Approval records in the control plane can only be decided by an admin,
@@ -193,11 +289,24 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
     tier = TOOL_TIERS.get(tool)
     if tier == RiskTier.HIGH_RISK and not approval_granted and getattr(policy, "max_tier_unattended", 2) < 4:
         raise PermissionError("High-risk tool requires an approved approval record.")
+    normalized_args = dict(args or {})
+    if raw_tool == "desktop.launch_app" and "app" in normalized_args and "app_name" not in normalized_args:
+        normalized_args["app_name"] = normalized_args["app"]
+    elif raw_tool == "desktop.type" and "action" not in normalized_args:
+        normalized_args["action"] = "type"
     handlers = {
+        "list_devices": lambda a: _dispatch_list_devices(),
+        "get_device_status": lambda a: _dispatch_device_status(a),
         "get_system_info": lambda a: tools.get_system_info(),
         "get_resource_usage": lambda a: tools.get_resource_usage(),
+        "get_network_info": lambda a: diagnostics.network_info(),
         "get_disk_usage": lambda a: diagnostics.disk_usage("/"),
         "get_memory_usage": lambda a: diagnostics.memory_usage(),
+        "run_diagnostic_task": lambda a: tasks.run_diagnostic(str(a.get("task_name") or a.get("name") or "uptime")),
+        "submit_task": lambda a: asdict(execution.RUNNER.submit(str(a.get("task_name") or a.get("name") or "uptime"), timeout=int(a.get("timeout", 30)), test_command=str(a.get("test_command", "pytest")))),
+        "get_task_status": lambda a: asdict(execution.RUNNER.get(str(a["task_id"]))),
+        "get_task_result": lambda a: asdict(execution.RUNNER.get(str(a["task_id"]))),
+        "cancel_task": lambda a: asdict(execution.RUNNER.cancel(str(a["task_id"]))),
         "list_workspace": lambda a: workspace.list_workspace(a.get("relative_directory", ".")),
         "read_workspace_file": lambda a: workspace.read_workspace_text(a["relative_path"]),
         "search_workspace": lambda a: workspace.search_workspace(a["query"], a.get("relative_directory", ".")),
@@ -211,6 +320,8 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         "list_docker_containers": lambda a: diagnostics.list_docker_containers(),
         "git_status": lambda a: git_ops.git_status(a.get("relative_directory", ".")),
         "git_diff": lambda a: git_ops.git_diff(a.get("relative_directory", ".")),
+        "git_log": lambda a: git_ops.git_log(a.get("relative_directory", "."), int(a.get("limit", 20))),
+        "git_commit": lambda a: git_ops.git_commit(a.get("relative_directory", "."), str(a.get("message", ""))),
         "git_create_branch": lambda a: git_ops.git_create_branch(
             a.get("relative_directory", "."),
             a["branch_name"],
@@ -243,6 +354,11 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         "supervisor_enqueue_handoff": lambda a: _supervisor_enqueue_handoff(a),
         "supervisor_recover_role_tasks": lambda a: _supervisor_recover_role_tasks(a),
         "agent_run_role": lambda a: _agent_run_role(a),
+        "agent_remember": lambda a: _dispatch_agent_remember(a),
+        "agent_notify": lambda a: _dispatch_agent_notify(a),
+        "agent_delegate": lambda a: _dispatch_agent_delegate(a),
+        "agent_run_workflow": lambda a: _dispatch_agent_run_workflow(a),
+        "browser_snapshot": lambda a: _dispatch_browser_snapshot(a, approval_granted=approval_granted, policy=policy),
         "run_linter": lambda a: tools.run_linter(a.get("timeout", 60)),
         "create_backup": lambda a: tools.create_backup(a.get("relative_directory", "."), approval_granted=approval_granted, policy=policy),
         "deploy_application": lambda a: tools.deploy_application(a.get("project_directory", "."), a.get("target_directory", "deploy-staging"), approval_granted=approval_granted, policy=policy),
@@ -433,6 +549,28 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
         ),
         # Canonical v1.0 MCP Computer-Use Toolset (Section 8)
         "desktop_get_screenshot": lambda a: tools.desktop_get_screenshot(approval_granted=approval_granted, policy=policy),
+        "desktop_get_window_screenshot": lambda a: tools.desktop_get_window_screenshot(
+            hwnd=a.get("hwnd"),
+            title=str(a.get("title", "")),
+            scale=float(a.get("scale", 1.0)),
+            approval_granted=approval_granted,
+            policy=policy,
+        ),
+        "desktop_get_monitors": lambda a: tools.desktop_get_monitors(policy=policy),
+        "desktop_clipboard_get": lambda a: tools.desktop_clipboard_get(policy=policy),
+        "desktop_clipboard_set": lambda a: tools.desktop_clipboard_set(
+            str(a.get("text", "")),
+            paste=bool(a.get("paste", False)),
+            approval_granted=approval_granted,
+            policy=policy,
+        ),
+        "desktop_get_ui_elements": lambda a: tools.desktop_get_ui_elements(
+            include_controls=bool(a.get("include_controls", True)),
+            max_elements=int(a.get("max_elements", 25)),
+            monitor_index=a.get("monitor_index"),
+            approval_granted=approval_granted,
+            policy=policy,
+        ),
         "desktop_get_status": lambda a: tools.desktop_get_status(),
         "desktop_mouse_move": lambda a: tools.desktop_mouse_move(
             int(a.get("x", 0)),
@@ -503,6 +641,16 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
             str(a.get("intent_id", "")),
             str(a.get("reason", "Operator override")),
         ),
+        "desktop_anticipate_action": lambda a: tools.desktop_anticipate_action(
+            action=str(a.get("action", "")),
+            x=float(a.get("x", 0.0)),
+            y=float(a.get("y", 0.0)),
+            label=str(a.get("label", "")),
+            risk_tier=str(a.get("risk_tier", "tier2_workspace")),
+            countdown_ms=int(a.get("countdown_ms", 2000)),
+            approval_granted=True,
+            policy=policy,
+        ),
     }
     from ..connectors import browserbase, firecrawl, microsoft365, you_search
 
@@ -543,11 +691,26 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
     handler = handlers.get(tool)
     if handler is None:
         raise ValueError(f"Tool not executable via the control plane: {tool}")
-    result = handler(args or {})
+    result = handler(normalized_args)
+    dev_id = current_device_id() or ""
     dispatch_audit.record_dispatch_tool(
         tool,
-        args or {},
+        normalized_args,
         result,
-        device_id=current_device_id() or "",
+        device_id=dev_id,
     )
+    audit_log_path = os.environ.get("AI_BRIDGE_AUDIT_LOG", "").strip()
+    if audit_log_path:
+        try:
+            audit_mod.audit_event(
+                Path(audit_log_path),
+                actor="dispatch",
+                device_id=dev_id or "local",
+                tool=tool,
+                arguments=normalized_args,
+                decision="allowed",
+                result=str(result)[:500],
+            )
+        except Exception:
+            pass
     return result

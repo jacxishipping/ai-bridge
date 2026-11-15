@@ -14,9 +14,10 @@ mcp>=1.6.0,<2.0.0
 # Desktop Vision, Automation & Screen Capture
 Pillow>=10.0.0
 
-# Real-Time WebRTC Desktop Media Streaming
+# Real-Time WebRTC Desktop Media Streaming & WS Wake Side-Channel
 aiortc>=1.8.0
 av>=11.0.0
+websockets>=12,<16
 
 # Windows System Integration & System Tray
 pystray>=0.19.5

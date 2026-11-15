@@ -269,7 +269,12 @@ def check_control_plane(url: str, token: str = "") -> tuple[bool, str, int, bool
 
     route = f"{base}/api/agent/tasks/next?wait=0"
     req = urllib.request.Request(
-        route, headers={"Authorization": f"Bearer {token.strip()}", "User-Agent": USER_AGENT}
+        route,
+        headers={
+            "X-Device-Token": token.strip(),
+            "Authorization": f"Bearer {token.strip()}",
+            "User-Agent": USER_AGENT,
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=8.0) as resp:

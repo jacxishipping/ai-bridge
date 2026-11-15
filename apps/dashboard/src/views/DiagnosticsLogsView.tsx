@@ -341,9 +341,16 @@ export const DiagnosticsLogsView: React.FC = () => {
   }, [activeLogs, selectedEntry]);
 
   // Ring Buffer calculations (F30)
-  const ringBufferUsedMb = 30.72;
   const ringBufferTotalMb = 64.0;
-  const ringBufferPercent = Math.round((ringBufferUsedMb / ringBufferTotalMb) * 100); // 48%
+  const ringBufferUsedMb = useMemo(() => {
+    if (!isLive) return 30.72;
+    const totalBytes = activeLogs.reduce(
+      (acc, l) => acc + (l.message?.length || 0) + (l.timestamp?.length || 0) + 64,
+      0
+    );
+    return Number(Math.min(ringBufferTotalMb, Math.max(0.01, totalBytes / (1024 * 1024))).toFixed(2));
+  }, [isLive, activeLogs]);
+  const ringBufferPercent = Math.round((ringBufferUsedMb / ringBufferTotalMb) * 100);
 
   const getRingBufferColor = (pct: number) => {
     if (pct >= 90) return "text-rose-400";
@@ -376,15 +383,29 @@ export const DiagnosticsLogsView: React.FC = () => {
     setTimeout(() => setCopiedBuffer(false), 2000);
   };
 
-  const handleDownloadLog = () => {
+  const handleDownloadLog = async () => {
     const raw = filteredLogs.map((l) => `${l.timestamp} [${l.workerThread}] [${l.moduleTag}] ${l.level} ${l.message}`).join("\n");
-    const blob = new Blob([raw], { type: "application/gzip" });
+    const ts = Date.now();
+    let blob: Blob;
+    let filename = `diagnostics-journal-${ts}.log`;
+    if (typeof CompressionStream !== "undefined") {
+      try {
+        const encoded = new TextEncoder().encode(raw);
+        const compressedStream = new Blob([encoded]).stream().pipeThrough(new CompressionStream("gzip"));
+        blob = await new Response(compressedStream).blob();
+        filename = `diagnostics-journal-${ts}.log.gz`;
+      } catch {
+        blob = new Blob([raw], { type: "text/plain;charset=utf-8" });
+      }
+    } else {
+      blob = new Blob([raw], { type: "text/plain;charset=utf-8" });
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `diagnostics-journal-${Date.now()}.log.gz`;
+    a.download = filename;
     a.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const handleFlushBuffer = () => {

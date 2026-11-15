@@ -704,9 +704,17 @@ def perform_approved_ui_action(
         "double_click", "triple_click", "right_click", "middle_click",
         "scroll", "type_text", "press_key", "hotkey", "drag", "mouse_drag",
         "get_screen_size",
+        "clipboard_get", "clipboard_set", "get_clipboard", "set_clipboard",
     }
     if action not in allowed_actions:
         raise ValueError(f"Unsupported UI action {action!r}. Choose one of: {', '.join(sorted(allowed_actions))}")
+
+    if action in {"clipboard_get", "get_clipboard"}:
+        return get_clipboard(policy=eff_policy)
+    if action in {"clipboard_set", "set_clipboard"}:
+        if text is None:
+            raise ValueError(f"Action '{action}' requires a 'text' parameter.")
+        return set_clipboard(str(text), paste=False, approval_granted=approval_granted, policy=eff_policy)
 
     if action in {"click", "double_click", "triple_click", "right_click", "middle_click", "move_mouse"}:
         if x is None or y is None:
@@ -1702,7 +1710,7 @@ def capture_desktop_frame(
 ) -> dict:
     """Capture a lightweight scaled desktop frame optimized for real-time visual streaming."""
     eff_policy = policy or default_policy()
-    _check("capture_desktop_screenshot", approval_granted=approval_granted, policy=eff_policy)
+    _check("capture_desktop_frame", approval_granted=approval_granted, policy=eff_policy)
     import io, base64
 
     try:
@@ -2682,18 +2690,23 @@ def desktop_handle_file_chunk(
                 "percent": round((info["received_chunks"] / max(1, info["total_chunks"])) * 100, 1),
                 "resumed_skip": True,
             }
+        total_chunks = int(info.get("total_chunks") or 0)
+        if chunk_index < 0 or (total_chunks > 0 and chunk_index >= total_chunks):
+            return {"ok": False, "error": "invalid_chunk_index", "chunk_index": chunk_index, "total_chunks": total_chunks}
+        expected_idx = int(info.get("received_chunks") or 0)
+        if chunk_index != expected_idx:
+            return {"ok": False, "error": "out_of_order_chunk", "chunk_index": chunk_index, "expected_chunk_index": expected_idx}
         limit = int(info.get("max_bytes") or max_transfer_bytes())
         curr = temp_path.stat().st_size if temp_path.exists() else 0
         if curr + len(raw_bytes) > limit:
             return {"ok": False, "error": "file_too_large", "max_bytes": limit}
 
-    try:
-        with open(temp_path, "ab") as f:
-            f.write(raw_bytes)
-    except Exception as exc:
-        return {"ok": False, "error": f"Failed writing chunk {chunk_index}: {exc}"}
+        try:
+            with open(temp_path, "ab") as f:
+                f.write(raw_bytes)
+        except Exception as exc:
+            return {"ok": False, "error": f"Failed writing chunk {chunk_index}: {exc}"}
 
-    with _TRANSFERS_LOCK:
         info["received_chunks"] += 1
         info["chunks_map"][chunk_index] = len(raw_bytes)
         rec_chunks = info["received_chunks"]
@@ -2811,6 +2824,15 @@ def desktop_prepare_file_download(path_or_name: str) -> dict[str, Any]:
     root = get_transfer_storage_dir()
     clean = Path(path_or_name).name
     target = root / clean
+    if not target.exists():
+        for candidate in (
+            get_transfer_quarantine_dir() / clean,
+            root / "downloads" / clean,
+            root / "workspace" / clean,
+        ):
+            if candidate.exists() and candidate.is_file():
+                target = candidate
+                break
     if not target.exists():
         # Try direct path within workspace
         target = Path(path_or_name)
@@ -2955,26 +2977,10 @@ def desktop_get_session_recording(session_id: str) -> dict[str, Any]:
     with _RECORDINGS_LOCK:
         rec = _SESSION_RECORDINGS.get(session_id)
         if not rec:
-            leaf = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
             return {
-                "ok": True,
+                "ok": False,
                 "session_id": session_id,
-                "device_id": "srv-us-east-412",
-                "status": "sealed",
-                "started_at": time.time() - 360,
-                "ended_at": time.time(),
-                "duration_seconds": 360,
-                "total_events": 6,
-                "merkle_leaf": f"0x{leaf[:32]}",
-                "sha256_hash": leaf,
-                "events": [
-                    {"index": 0, "event_type": "SESSION_INITIALIZED", "timestamp": time.time() - 360, "details": {"codec": "H264"}},
-                    {"index": 1, "event_type": "HUMAN_TAKEOVER_ENGAGED", "timestamp": time.time() - 300, "details": {"actor": "operator_admin"}},
-                    {"index": 2, "event_type": "AI_ACTION_ANTICIPATED", "timestamp": time.time() - 200, "details": {"target": "Deploy Canary"}},
-                    {"index": 3, "event_type": "OPERATOR_VETO_DISPATCHED", "timestamp": time.time() - 198, "details": {"reason": "Approval pending"}},
-                    {"index": 4, "event_type": "FILE_TRANSFER_COMPLETED", "timestamp": time.time() - 100, "details": {"file": "patch_v3.bin", "size": 153600}},
-                    {"index": 5, "event_type": "SESSION_SEALED", "timestamp": time.time() - 10, "details": {"merkle_root_linked": True}},
-                ],
+                "error": f"No recording found for session '{session_id}'",
             }
         return {"ok": True, **rec}
 

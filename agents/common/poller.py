@@ -202,16 +202,33 @@ class Poller:
     def _load_saved_token(self) -> str | None:
         if self._token_loader is not None:
             try:
-                return self._token_loader()
+                tok = self._token_loader()
+                if tok and tok.startswith("aib-dpapi-v1:"):
+                    return self._unseal_if_dpapi(tok)
+                return tok
             except Exception:
                 return None
         try:
             if self.token_file.exists():
                 tok = self.token_file.read_text(encoding="utf-8").strip()
+                if tok.startswith("aib-dpapi-v1:"):
+                    tok = self._unseal_if_dpapi(tok)
                 return tok or None
         except OSError:
             pass
         return None
+
+    @staticmethod
+    def _unseal_if_dpapi(tok: str) -> str:
+        try:
+            from windows.app_runtime import unseal_token
+            return unseal_token(tok)
+        except Exception:
+            try:
+                from app_runtime import unseal_token
+                return unseal_token(tok)
+            except Exception:
+                return tok
 
     def rotate_token(self) -> str:
         res = self._req("POST", "/api/agent/rotate", {})
@@ -256,7 +273,11 @@ class Poller:
             return base
 
         unrestricted = bool(remote_policy.get("unrestricted", getattr(base, "unrestricted", False))) or getattr(base, "unrestricted", False)
-        remote_denied = frozenset(remote_policy.get("denied_tools") or [])
+        remote_denied = set(remote_policy.get("denied_tools") or [])
+        if remote_policy.get("allow_shell") is False:
+            remote_denied.update({"run_shell", "terminal_exec", "desktop_execute_command"})
+        if remote_policy.get("allow_package_install") is False:
+            remote_denied.add("install_package")
         remote_allowed = frozenset(remote_policy.get("allowed_tools") or []) if "allowed_tools" in remote_policy and remote_policy["allowed_tools"] is not None else None
 
         if unrestricted:
@@ -270,7 +291,7 @@ class Poller:
                 allowed_services=base.allowed_services or frozenset({"*"}),
                 allowed_test_commands=frozenset({"*"}),
                 allowed_tools=remote_allowed,
-                denied_tools=base.denied_tools | remote_denied,
+                denied_tools=base.denied_tools | frozenset(remote_denied),
             )
 
         remote_apps = remote_policy.get("allowed_apps")
@@ -282,10 +303,16 @@ class Poller:
         else:
             allowed_apps = base.allowed_apps
 
-        allow_writes = bool(remote_policy.get("allow_writes", base.allow_writes)) or base.allow_writes
-        allow_tier3 = bool(remote_policy.get("allow_tier3", base.allow_tier3)) or base.allow_tier3
-        desktop_enabled = bool(remote_policy.get("desktop_enabled", base.desktop_enabled)) or base.desktop_enabled
-        max_tier_unattended = max(int(remote_policy.get("max_tier_unattended", base.max_tier_unattended)), base.max_tier_unattended)
+        if self._explicit_policy is not None:
+            allow_writes = bool(remote_policy.get("allow_writes", base.allow_writes)) or base.allow_writes
+            allow_tier3 = bool(remote_policy.get("allow_tier3", base.allow_tier3)) or base.allow_tier3
+            desktop_enabled = bool(remote_policy.get("desktop_enabled", base.desktop_enabled)) or base.desktop_enabled
+            max_tier_unattended = max(int(remote_policy.get("max_tier_unattended", base.max_tier_unattended)), base.max_tier_unattended)
+        else:
+            allow_writes = bool(remote_policy.get("allow_writes", base.allow_writes))
+            allow_tier3 = bool(remote_policy.get("allow_tier3", base.allow_tier3))
+            desktop_enabled = bool(remote_policy.get("desktop_enabled", base.desktop_enabled))
+            max_tier_unattended = int(remote_policy.get("max_tier_unattended", base.max_tier_unattended))
         return Policy(
             allow_writes=allow_writes,
             allow_tier3=allow_tier3,
@@ -295,7 +322,7 @@ class Poller:
             allowed_test_commands=base.allowed_test_commands,
             max_tier_unattended=max_tier_unattended,
             allowed_tools=remote_allowed,
-            denied_tools=base.denied_tools | remote_denied,
+            denied_tools=base.denied_tools | frozenset(remote_denied),
             unrestricted=False,
         )
 

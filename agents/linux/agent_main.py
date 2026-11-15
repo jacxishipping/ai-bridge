@@ -802,13 +802,16 @@ def update_cmd() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     log_info(f"Updating AI Bridge repository at {repo_root}...")
 
-    # Git pull
-    try:
-        subprocess.run(["git", "fetch", "origin", "main"], cwd=repo_root, check=True)
-        subprocess.run(["git", "reset", "--hard", "origin/main"], cwd=repo_root, check=True)
-        log_ok("Git repository updated to latest origin/main.")
-    except Exception as exc:
-        log_warn(f"Git update warning: {exc}")
+    # Git pull (only when running inside a git checkout)
+    if (repo_root / ".git").exists():
+        try:
+            subprocess.run(["git", "fetch", "origin", "main"], cwd=repo_root, check=True)
+            subprocess.run(["git", "pull", "--ff-only", "origin", "main"], cwd=repo_root, check=True)
+            log_ok("Git repository updated cleanly to latest origin/main.")
+        except Exception as exc:
+            log_warn(f"Git update warning: {exc}")
+    else:
+        log_info("No .git checkout found; skipping git update.")
 
     # Virtualenv update
     exec_pip = repo_root / ".venv" / "bin" / "pip"
@@ -891,20 +894,20 @@ def main() -> None:
 
     # Subcommand: run
     p_run = subparsers.add_parser("run", help="Run agent poller in foreground")
-    p_run.add_argument("--control-url", default="")
-    p_run.add_argument("--device-token", default="")
-    p_run.add_argument("--token-file", default="")
-    p_run.add_argument("--once", action="store_true")
+    p_run.add_argument("--control-url", default=argparse.SUPPRESS)
+    p_run.add_argument("--device-token", default=argparse.SUPPRESS)
+    p_run.add_argument("--token-file", default=argparse.SUPPRESS)
+    p_run.add_argument("--once", action="store_true", default=argparse.SUPPRESS)
 
     # Subcommand: status
     p_status = subparsers.add_parser("status", help="Show system status and device identity")
-    p_status.add_argument("--control-url", default="")
-    p_status.add_argument("--device-token", default="")
+    p_status.add_argument("--control-url", default=argparse.SUPPRESS)
+    p_status.add_argument("--device-token", default=argparse.SUPPRESS)
 
     # Subcommand: doctor
     p_doc = subparsers.add_parser("doctor", help="Run complete server and connectivity health audit")
-    p_doc.add_argument("--control-url", default="")
-    p_doc.add_argument("--device-token", default="")
+    p_doc.add_argument("--control-url", default=argparse.SUPPRESS)
+    p_doc.add_argument("--device-token", default=argparse.SUPPRESS)
 
     # Subcommand: config
     p_cfg = subparsers.add_parser("config", help="View or modify agent configuration")
@@ -918,8 +921,8 @@ def main() -> None:
 
     # Subcommand: rotate-token
     p_rot = subparsers.add_parser("rotate-token", help="Rotate device token with the Control Plane")
-    p_rot.add_argument("--control-url", default="")
-    p_rot.add_argument("--device-token", default="")
+    p_rot.add_argument("--control-url", default=argparse.SUPPRESS)
+    p_rot.add_argument("--device-token", default=argparse.SUPPRESS)
 
     # Subcommand: service
     p_svc = subparsers.add_parser("service", help="Manage systemd background service")
@@ -927,7 +930,7 @@ def main() -> None:
 
     # Subcommand: enroll
     p_enr = subparsers.add_parser("enroll", help="Enroll device using Admin Token")
-    p_enr.add_argument("--control-url", default="")
+    p_enr.add_argument("--control-url", default=argparse.SUPPRESS)
     p_enr.add_argument("--admin-token", required=True, help="Control plane admin token")
     p_enr.add_argument("--name", default="", help="Device name (defaults to hostname)")
 

@@ -36,6 +36,7 @@ DEFAULT_ICE_SERVERS = [{"urls": "stun:stun.l.google.com:19302"}]
 _STREAMERS: dict[str, "AgentStreamer"] = {}
 _STREAM_TELEMETRY: dict[str, dict[str, Any]] = {}
 _AGENT_CONTEXT: dict[str, str] = {}
+_SESSION_DEVICES: dict[str, str] = {}
 _HELD_KEYS_LOCK = threading.Lock()
 _HELD_KEYS: set[str] = set()
 
@@ -207,7 +208,7 @@ def list_active_stream_health() -> list[dict[str, Any]]:
         out.append(
             {
                 "session_id": session_id,
-                "device_id": _AGENT_CONTEXT.get(session_id),
+                "device_id": _SESSION_DEVICES.get(session_id),
                 "pc_state": pc_state,
                 "healthy": healthy,
                 "telemetry": telem,
@@ -362,6 +363,7 @@ class ScreenTrack:
                                 w,
                                 h,
                                 3,
+                                1 if self._frames_sent % max(1, int(self.fps)) == 0 else 0,
                                 out_buf,
                                 out_cap,
                                 ctypes.byref(mstruct),
@@ -751,6 +753,12 @@ class AgentStreamer:
                 return {"ok": True, "action": "simulated_intent", "intent": payload}
 
             # Phase 3: Bi-Directional File Transfer over DataChannel
+            if action in ("file_start", "file_chunk", "file_end"):
+                if not self._check_rate_limit():
+                    return {"ok": False, "error": "rate_limit_exceeded"}
+                if not self._session_allows_input():
+                    return {"ok": False, "error": "session_is_view_only"}
+
             if action == "file_start":
                 from ai_bridge import tools
 
@@ -1307,6 +1315,11 @@ def start_stream(
     monitor_index: int | None = None,
     bitrate_kbps: int = 4500,
 ) -> dict:
+    sess_meta = getattr(signaling, "session", None)
+    if isinstance(sess_meta, dict) and sess_meta.get("device_id"):
+        _SESSION_DEVICES[session_id] = str(sess_meta["device_id"])
+    elif hasattr(signaling, "device_id") and getattr(signaling, "device_id"):
+        _SESSION_DEVICES[session_id] = str(getattr(signaling, "device_id"))
     streamer = AgentStreamer(
         session_id,
         signaling,

@@ -47,9 +47,12 @@ except ImportError:  # pragma: no cover - headless support hosts
 # Insert source paths
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import app_runtime as runtime  # noqa: E402
+import desktop_helper  # noqa: E402
 import diagnose  # noqa: E402
+import windows_agent  # noqa: E402
 from common.poller import Poller  # noqa: E402
 
 # Shared with the on-disk log written by app_runtime.configure_file_logging().
@@ -250,9 +253,10 @@ def gather_system_telemetry() -> dict:
 
 
 def _detect_scheduled_task_defaults() -> tuple[str, str]:
-    """Read Control URL and Device Token from the existing Scheduled Task if present."""
+    """Read Control URL and Device Token from the existing Scheduled Task or launcher files."""
     if platform.system() != "Windows":
         return "", ""
+    found_url, found_tok = "", ""
     try:
         cmd = [
             "powershell",
@@ -271,18 +275,55 @@ def _detect_scheduled_task_defaults() -> tuple[str, str]:
         args_str = (proc.stdout or "").strip()
         url_m = re.search(r"--control-url\s+(\S+)", args_str)
         tok_m = re.search(r"--device-token\s+(\S+)", args_str)
-        return (
-            url_m.group(1).strip("\"'") if url_m else "",
-            tok_m.group(1).strip("\"'") if tok_m else "",
-        )
+        if url_m:
+            found_url = url_m.group(1).strip("\"'")
+        if tok_m:
+            found_tok = tok_m.group(1).strip("\"'")
     except Exception:
-        return "", ""
+        pass
+    if found_url and found_tok:
+        return found_url, found_tok
+
+    prog_data = os.environ.get("ProgramData")
+    if prog_data:
+        cmd_file = Path(prog_data) / "ai-bridge" / "run-agent.cmd"
+        if cmd_file.is_file():
+            try:
+                text = cmd_file.read_text(encoding="utf-8", errors="ignore")
+                if not found_url:
+                    m = re.search(r"AI_BRIDGE_CONTROL_URL\s*=\s*([^\r\n]+)", text)
+                    if m:
+                        found_url = m.group(1).strip().strip('"')
+                if not found_tok:
+                    m = re.search(r"AI_BRIDGE_DEVICE_TOKEN\s*=\s*([^\r\n]+)", text)
+                    if m:
+                        found_tok = m.group(1).strip().strip('"')
+            except OSError:
+                pass
+        env_file = Path(prog_data) / "AIBridge" / "agent.env"
+        if env_file.is_file():
+            try:
+                for raw in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    line = raw.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k, v = k.strip(), v.strip().strip('"').strip("'")
+                    if k == "AI_BRIDGE_CONTROL_URL" and v and not found_url:
+                        found_url = v
+                    elif k == "AI_BRIDGE_DEVICE_TOKEN" and v and not found_tok:
+                        found_tok = v
+            except OSError:
+                pass
+    return found_url, found_tok
 
 
 def load_agent_config() -> dict:
     """Load configuration from ~/.ai-bridge/agent_gui.json, token file, or defaults."""
+    env_url = os.environ.get("AI_BRIDGE_CONTROL_URL", "").strip()
+    explicit_control_url = bool(env_url)
     cfg = {
-        "control_url": os.environ.get("AI_BRIDGE_CONTROL_URL", "https://ai-bridge-control.onrender.com"),
+        "control_url": env_url or "https://ai-bridge-control.onrender.com",
         "device_token": os.environ.get("AI_BRIDGE_DEVICE_TOKEN", ""),
         "auto_start": True,
         "theme": "dark",
@@ -312,6 +353,8 @@ def load_agent_config() -> dict:
         try:
             saved = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
             if isinstance(saved, dict):
+                if str(saved.get("control_url") or "").strip():
+                    explicit_control_url = True
                 cfg.update(saved)
         except Exception:
             pass
@@ -328,7 +371,7 @@ def load_agent_config() -> dict:
             pass
     if not cfg.get("device_token"):
         st_url, st_tok = _detect_scheduled_task_defaults()
-        if st_url:
+        if st_url and not explicit_control_url:
             cfg["control_url"] = st_url
         if st_tok:
             cfg["device_token"] = st_tok
@@ -431,6 +474,7 @@ class SystemTrayManager:
         self.hwnd: int | None = None
         self.hicon = None
         self.active = False
+        self._pystray_icon = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
@@ -443,10 +487,22 @@ class SystemTrayManager:
             self._thread = threading.Thread(target=self._run_tray_loop, daemon=True)
             self._thread.start()
         except Exception:
-            pass
+            try:
+                import pystray  # noqa: F401
+
+                self._thread = threading.Thread(target=self._run_pystray_loop, daemon=True)
+                self._thread.start()
+            except Exception:
+                pass
 
     def stop(self) -> None:
         self._stop_event.set()
+        if self._pystray_icon is not None:
+            try:
+                self._pystray_icon.stop()
+            except Exception:
+                pass
+            self._pystray_icon = None
         if self.hwnd and self.active:
             try:
                 import win32gui
@@ -455,6 +511,33 @@ class SystemTrayManager:
                 win32gui.PostMessage(self.hwnd, win32gui.WM_CLOSE, 0, 0)
             except Exception:
                 pass
+            self.active = False
+
+    def _run_pystray_loop(self) -> None:
+        try:
+            import pystray
+            from PIL import Image
+
+            ico_file = _resource_root() / "assets" / "ai-bridge.ico"
+            if ico_file.exists():
+                image = Image.open(ico_file)
+            else:
+                image = Image.new("RGB", (32, 32), color=(0, 120, 212))
+            menu = pystray.Menu(
+                pystray.MenuItem("Show AI Bridge Client", lambda: self.app.root.after(0, self.app.restore_from_tray)),
+                pystray.MenuItem(
+                    lambda _: "Stop Agent" if self.app.running else "Start Agent",
+                    lambda: self.app.root.after(0, self.app.toggle_agent),
+                ),
+                pystray.MenuItem("Capture Test Screenshot", lambda: self.app.root.after(0, self.app.capture_preview_screenshot)),
+                pystray.MenuItem("Web Dashboard", lambda: self.app.root.after(0, self.app.open_dashboard)),
+                pystray.MenuItem("Exit AI Bridge", lambda: self.app.root.after(0, self.app.exit_application)),
+            )
+            icon = pystray.Icon("ai-bridge", image, "AI Bridge Windows Client", menu)
+            self._pystray_icon = icon
+            self.active = True
+            icon.run()
+        except Exception:
             self.active = False
 
     def notify(self, title: str, message: str) -> None:
@@ -490,7 +573,10 @@ class SystemTrayManager:
             wc.lpszClassName = "AIBridgeTrayWindow"
             wc.lpfnWndProc = self._wnd_proc
 
-            class_atom = win32gui.RegisterClass(wc)
+            try:
+                class_atom = win32gui.RegisterClass(wc)
+            except win32gui.error:
+                class_atom = wc.lpszClassName
             self.hwnd = win32gui.CreateWindow(
                 class_atom,
                 "AIBridgeTrayWindow",
@@ -562,18 +648,21 @@ class SystemTrayManager:
         import win32gui
 
         menu = win32gui.CreatePopupMenu()
-        win32gui.AppendMenu(menu, win32con.MF_STRING, self.ID_SHOW, "Show AI Bridge Client")
-        toggle_label = "■ Stop Agent" if self.app.running else "▶ Start Agent"
-        win32gui.AppendMenu(menu, win32con.MF_STRING, self.ID_TOGGLE, toggle_label)
-        win32gui.AppendMenu(menu, win32con.MF_STRING, self.ID_SCREENSHOT, "📸 Capture Test Screenshot")
-        win32gui.AppendMenu(menu, win32con.MF_STRING, self.ID_DASHBOARD, "Web Dashboard ↗")
-        win32gui.AppendMenu(menu, win32con.MF_SEPARATOR, 0, "")
-        win32gui.AppendMenu(menu, win32con.MF_STRING, self.ID_EXIT, "Exit AI Bridge")
+        try:
+            win32gui.AppendMenu(menu, win32con.MF_STRING, self.ID_SHOW, "Show AI Bridge Client")
+            toggle_label = "■ Stop Agent" if self.app.running else "▶ Start Agent"
+            win32gui.AppendMenu(menu, win32con.MF_STRING, self.ID_TOGGLE, toggle_label)
+            win32gui.AppendMenu(menu, win32con.MF_STRING, self.ID_SCREENSHOT, "📸 Capture Test Screenshot")
+            win32gui.AppendMenu(menu, win32con.MF_STRING, self.ID_DASHBOARD, "Web Dashboard ↗")
+            win32gui.AppendMenu(menu, win32con.MF_SEPARATOR, 0, "")
+            win32gui.AppendMenu(menu, win32con.MF_STRING, self.ID_EXIT, "Exit AI Bridge")
 
-        pos = win32gui.GetCursorPos()
-        win32gui.SetForegroundWindow(self.hwnd)
-        win32gui.TrackPopupMenu(menu, win32con.TPM_RIGHTBUTTON, pos[0], pos[1], 0, self.hwnd, None)
-        win32gui.PostMessage(self.hwnd, win32con.WM_NULL, 0, 0)
+            pos = win32gui.GetCursorPos()
+            win32gui.SetForegroundWindow(self.hwnd)
+            win32gui.TrackPopupMenu(menu, win32con.TPM_RIGHTBUTTON, pos[0], pos[1], 0, self.hwnd, None)
+            win32gui.PostMessage(self.hwnd, win32con.WM_NULL, 0, 0)
+        finally:
+            win32gui.DestroyMenu(menu)
 
 
 class AgentGuiApp:
@@ -696,7 +785,6 @@ class AgentGuiApp:
         except Exception:
             self.active_tab_idx = 0
         self._tab_buttons: list[tk.Button] = []
-        self._tab_frames: list[tk.Frame] = []
 
         self._build_shell()
         self._apply_theme()
@@ -729,12 +817,18 @@ class AgentGuiApp:
             except ImportError:
                 missing.append(mod)
         if missing:
-            self.log(
-                "WebRTC Live Desktop unavailable — missing packages: "
-                f"{', '.join(missing)}. Install with: "
-                f'"{sys.executable}" -m pip install "ai-bridge[webrtc]"',
-                "warn",
-            )
+            if getattr(sys, "frozen", False):
+                self.log(
+                    f"WebRTC Live Desktop unavailable in this bundled build (missing: {', '.join(missing)}).",
+                    "warn",
+                )
+            else:
+                self.log(
+                    "WebRTC Live Desktop unavailable — missing packages: "
+                    f"{', '.join(missing)}. Install with: "
+                    f'"{sys.executable}" -m pip install "ai-bridge[webrtc]"',
+                    "warn",
+                )
         else:
             self.log("WebRTC dependencies OK (aiortc + av).", "ok")
 
@@ -902,12 +996,19 @@ class AgentGuiApp:
         """Construct the active Policy instance from current UI and configuration settings."""
         from ai_bridge.policy import Policy
 
+        denied: set[str] = set()
+        if not bool(self.policy_allow_shell.get()):
+            denied.update({"run_shell", "terminal_exec", "desktop_execute_command"})
+        if not bool(self.policy_allow_package_install.get()):
+            denied.add("install_package")
+
         return Policy(
             allow_writes=bool(self.policy_allow_writes.get()),
             allow_tier3=bool(self.policy_allow_tier3.get()),
             desktop_enabled=bool(self.policy_desktop_enabled.get()),
             max_tier_unattended=int(self.policy_max_tier.get()),
             allowed_apps=frozenset(self.policy_allowed_apps),
+            denied_tools=frozenset(denied),
         )
 
     def capture_preview_screenshot(self) -> None:
@@ -1352,52 +1453,6 @@ class AgentGuiApp:
     # -------------------------------------------------------------------------
     # SHARED HELPERS & LOGIC
     # -------------------------------------------------------------------------
-    def _make_kpi_tile(
-        self,
-        parent: tk.Frame,
-        col: int,
-        title: str,
-        var: tk.StringVar,
-        *,
-        copy_btn: bool = False,
-    ) -> None:
-        t = THEMES[self.theme_name]
-        tile = tk.Frame(parent, bg=t["card"], highlightthickness=1, highlightbackground=t["border"])
-        tile.grid(row=0, column=col, sticky="nsew", padx=(0 if col == 0 else 6, 0))
-
-        top_row = tk.Frame(tile, bg=t["card"])
-        top_row.pack(fill="x", padx=12, pady=(6, 2))
-        tk.Label(
-            top_row,
-            text=title,
-            bg=t["card"],
-            fg=t["fg_muted"],
-            font=("Segoe UI", 8, "bold"),
-        ).pack(side="left")
-
-        if copy_btn:
-            tk.Button(
-                top_row,
-                text="Copy",
-                command=self._copy_device_id,
-                bg=t["card_alt"],
-                fg=t["fg_muted"],
-                relief="flat",
-                font=("Segoe UI", 7, "bold"),
-                padx=5,
-                pady=0,
-                cursor="hand2",
-            ).pack(side="right")
-
-        tk.Label(
-            tile,
-            textvariable=var,
-            bg=t["card"],
-            fg=t["fg"],
-            font=("Segoe UI", 11, "bold"),
-            anchor="w",
-        ).pack(fill="x", padx=12, pady=(0, 6))
-
     def _apply_theme(self) -> None:
         """Repaint status surfaces that are not rebuilt on a state change."""
         paint_status_pill(self)
@@ -1611,6 +1666,14 @@ class AgentGuiApp:
         self.log("Stopping agent polling loop...", "warn")
 
     def _poll_loop(self, url: str, tok: str) -> None:
+        from ai_bridge.control.dispatch import dispatch
+        from ai_bridge.control.task_runtime import (
+            TaskCancelled,
+            clear_execution_context,
+            set_execution_context,
+        )
+        from ai_bridge.plane_control_flags import set_emergency_stop
+
         local_policy = self.get_current_policy()
         poller = Poller(
             url,
@@ -1622,124 +1685,188 @@ class AgentGuiApp:
             token_loader=lambda: runtime.load_token(TOKEN_FILE, default="") or None,
         )
         self.poller = poller
+        self._spooler = poller.spooler
         wait_s = max(5, min(self.poll_wait_var.get(), 60))
         self.log(f"Agent started polling {url} (long-poll wait={wait_s}s)", "ok")
         had_error = False
 
+        # Start WS wake/cancel side-channel alongside HTTP long-poll loop.
+        poller.start_side_channel()
         # Attempt background cloud policy sync on connection
         self.root.after(1000, lambda: self.sync_policy_to_server(notify_ui=False))
 
-        while not self.stop_event.is_set():
-            try:
-                hb = poller.heartbeat()
-                if poller.device_token != self.token_var.get():
-                    self.root.after(0, lambda nt=poller.device_token: self.token_var.set(nt))
-                    self.log("Device token auto-rotated and saved.", "ok")
-
-                did = hb.get("device_id") or "—"
-                exp = hb.get("token_expires_at")
-                exp_str = f"in {max(0, int((exp - time.time()) / 3600))}h" if isinstance(exp, (int, float)) else "—"
-                now_str = time.strftime("%H:%M:%S")
-
-                self._last_ok_poll = time.time()
-                self._last_poll_error = ""
-                self.root.after(
-                    0,
-                    lambda d=did, n=now_str, e=exp_str, x=exp: self._update_telemetry(
-                        d, n, e, x if isinstance(x, (int, float)) else None
-                    ),
-                )
-
-                if had_error:
-                    self.log("Agent reconnected to control plane (OK).", "ok")
-                    had_error = False
-
-                nxt = poller._req("GET", f"/api/agent/tasks/next?wait={wait_s}", timeout=wait_s + 6)
-                if self.stop_event.is_set():
-                    break
-                task = nxt.get("task")
-                if not task:
-                    poller.backoff = 2.0
-                    continue
-
-                task_id = task["id"]
-                tool_name = task["tool"]
-                self.root.after(0, lambda tl=tool_name: self.status_var.set(f"● Running {tl}"))
-                self.log(f"Executing task {task_id} -> {tool_name}", "info")
-                t0 = time.time()
-
+        try:
+            while not self.stop_event.is_set():
                 try:
-                    from ai_bridge.control.dispatch import dispatch
+                    try:
+                        poller.spooler.flush(poller._try_post_result)
+                        pending_cnt = len(poller.spooler.get_pending(200))
+                        self.root.after(0, lambda n=pending_cnt: self.queued_var.set(str(n)))
+                    except Exception:
+                        pass
 
-                    args = json.loads(task.get("args_json") or "{}")
-                    eff_policy = poller._effective_policy(task.get("policy"))
-                    result = dispatch(
-                        tool_name,
-                        args,
-                        policy=eff_policy,
-                        approval_granted=bool(task.get("approval_granted")),
-                    )
-                    status = "completed"
-                    text = json.dumps(result, default=str)[:512_000]
-                except PermissionError as exc:
-                    status, text = "failed", f"denied: {exc}"
-                    args = {}
-                except Exception as exc:
-                    status, text = "failed", f"{type(exc).__name__}: {exc}"
-                    args = {}
+                    hb = poller.heartbeat()
+                    if poller.device_token != self.token_var.get():
+                        self.root.after(0, lambda nt=poller.device_token: self.token_var.set(nt))
+                        self.log("Device token auto-rotated and saved.", "ok")
 
-                elapsed = time.time() - t0
-                poller._req("POST", f"/api/agent/tasks/{task_id}/result", {"status": status, "result": text})
-                self.tasks_count += 1
+                    did = hb.get("device_id") or "—"
+                    exp = hb.get("token_expires_at")
+                    exp_str = f"in {max(0, int((exp - time.time()) / 3600))}h" if isinstance(exp, (int, float)) else "—"
+                    now_str = time.strftime("%H:%M:%S")
 
-                # Record task in structured history
-                task_record = {
-                    "id": task_id,
-                    "tool": tool_name,
-                    "time": time.strftime("%H:%M:%S"),
-                    "duration_s": round(elapsed, 2),
-                    "status": status,
-                    "args": args,
-                    "result": text,
-                }
-                self.root.after(0, lambda r=task_record: self._append_task_record(r))
-                self.root.after(0, lambda c=self.tasks_count: self.tasks_var.set(str(c)))
-                self.root.after(0, lambda: self.status_var.set("● Online & Polling"))
-
-                self.log(
-                    f"Task {task_id} ({tool_name}) -> {status} ({elapsed:.2f}s)",
-                    "ok" if status == "completed" else "err",
-                )
-
-                if self.notifications_var.get():
-                    self.tray.notify(
-                        f"Task Executed: {tool_name}",
-                        f"Status: {status.upper()} in {elapsed:.2f}s",
+                    self._last_ok_poll = time.time()
+                    self._last_poll_error = ""
+                    self.root.after(
+                        0,
+                        lambda d=did, n=now_str, e=exp_str, x=exp: self._update_telemetry(
+                            d, n, e, x if isinstance(x, (int, float)) else None
+                        ),
                     )
 
-                poller.backoff = 2.0
-            except Exception as exc:
-                if self.stop_event.is_set():
-                    break
-                had_error = True
-                wait_time = poller.backoff
-                err_msg = str(exc)
-                if "401" in err_msg:
-                    self.root.after(0, lambda: self.status_var.set("✕ 401 Unauthorized"))
+                    if had_error:
+                        self.log("Agent reconnected to control plane (OK).", "ok")
+                        had_error = False
+
+                    poller._wake.clear()
+                    nxt = poller._req("GET", f"/api/agent/tasks/next?wait={wait_s}", timeout=wait_s + 6)
+                    set_emergency_stop(bool(nxt.get("emergency_stop")))
+                    if self.stop_event.is_set():
+                        break
+                    task = nxt.get("task")
+                    if not task:
+                        poller.backoff = 2.0
+                        poller._wake.wait(timeout=0.1)
+                        continue
+
+                    task_id = task["id"]
+                    tool_name = task["tool"]
+                    self.root.after(0, lambda tl=tool_name: self.status_var.set(f"● Running {tl}"))
+                    self.log(f"Executing task {task_id} -> {tool_name}", "info")
+                    t0 = time.time()
+
+                    cancel_stop = threading.Event()
+                    poller._active_cancel_event = cancel_stop
+                    with poller._ws_cancel_lock:
+                        if poller._ws_cancel_task_id == task_id:
+                            cancel_stop.set()
+                            poller._ws_cancel_task_id = None
+
+                    def _cancelled() -> bool:
+                        if self.stop_event.is_set() or cancel_stop.is_set():
+                            return True
+                        with poller._ws_cancel_lock:
+                            if poller._ws_cancel_task_id == task_id:
+                                cancel_stop.set()
+                                poller._ws_cancel_task_id = None
+                                return True
+                        try:
+                            st = poller._req("GET", f"/api/agent/tasks/{task_id}/execution-state", timeout=8)
+                            if st.get("emergency_stop"):
+                                set_emergency_stop(True)
+                                return True
+                            set_emergency_stop(bool(st.get("emergency_stop")))
+                            return str(st.get("status") or "") in {"cancelled", "timed_out"}
+                        except Exception:
+                            return False
+
+                    def _cancel_poller() -> None:
+                        while not cancel_stop.is_set() and not self.stop_event.is_set():
+                            if _cancelled():
+                                cancel_stop.set()
+                                return
+                            time.sleep(0.5)
+
+                    poll_thread = threading.Thread(target=_cancel_poller, daemon=True)
+                    set_execution_context(task_id, _cancelled, device_id=str(task.get("device_id") or ""))
+                    poll_thread.start()
+                    args: dict = {}
+                    try:
+                        args = json.loads(task.get("args_json") or "{}")
+                        eff_policy = poller._effective_policy(task.get("policy"))
+                        result = dispatch(
+                            tool_name,
+                            args,
+                            policy=eff_policy,
+                            approval_granted=bool(task.get("approval_granted")),
+                        )
+                        status = "completed"
+                        text = json.dumps(result, default=str)[:512_000]
+                    except TaskCancelled:
+                        status, text = "cancelled", json.dumps({"error": "Task cancelled or timed out."})
+                    except PermissionError as exc:
+                        status, text = "failed", f"denied: {exc}"
+                    except Exception as exc:
+                        status, text = "failed", f"{type(exc).__name__}: {exc}"
+                    finally:
+                        cancel_stop.set()
+                        poller._active_cancel_event = None
+                        poll_thread.join(timeout=2.0)
+                        clear_execution_context()
+
+                    elapsed = time.time() - t0
+                    poller.spooler.spool(task_id, status, text)
+                    if poller._try_post_result(task_id, status, text):
+                        poller.spooler.mark_flushed(task_id)
+                    else:
+                        self.log(f"Task {task_id} result spooled offline (will flush on reconnect).", "warn")
+                    try:
+                        pending_cnt = len(poller.spooler.get_pending(200))
+                        self.root.after(0, lambda n=pending_cnt: self.queued_var.set(str(n)))
+                    except Exception:
+                        pass
+                    self.tasks_count += 1
+
+                    # Record task in structured history
+                    task_record = {
+                        "id": task_id,
+                        "tool": tool_name,
+                        "time": time.strftime("%H:%M:%S"),
+                        "duration_s": round(elapsed, 2),
+                        "status": status,
+                        "args": args,
+                        "result": text,
+                    }
+                    self.root.after(0, lambda r=task_record: self._append_task_record(r))
+                    self.root.after(0, lambda c=self.tasks_count: self.tasks_var.set(str(c)))
+                    self.root.after(0, lambda: self.status_var.set("● Online & Polling"))
+
                     self.log(
-                        "Authentication failed: Device Token is invalid or expired (HTTP 401). "
-                        "Click 'Reload' next to Token or paste your valid Device Token in Settings.",
-                        "err",
+                        f"Task {task_id} ({tool_name}) -> {status} ({elapsed:.2f}s)",
+                        "ok" if status == "completed" else "err",
                     )
-                else:
-                    self.root.after(0, lambda w=wait_time: self.status_var.set(f"● Retry in {w:.0f}s"))
-                    self.log(f"Connection issue (retry in {wait_time:.0f}s): {exc}", "warn")
-                self._last_poll_error = err_msg[:80]
-                self.root.after(
-                    0, lambda w=wait_time, m=self._last_poll_error: self._set_poll_note(False, m, w)
-                )
-                self.stop_event.wait(wait_time)
-                poller.backoff = min(poller.backoff * 2, 60.0)
+
+                    if self.notifications_var.get():
+                        self.tray.notify(
+                            f"Task Executed: {tool_name}",
+                            f"Status: {status.upper()} in {elapsed:.2f}s",
+                        )
+
+                    poller.backoff = 2.0
+                except Exception as exc:
+                    if self.stop_event.is_set():
+                        break
+                    had_error = True
+                    wait_time = poller.backoff
+                    err_msg = str(exc)
+                    if "401" in err_msg:
+                        self.root.after(0, lambda: self.status_var.set("✕ 401 Unauthorized"))
+                        self.log(
+                            "Authentication failed: Device Token is invalid or expired (HTTP 401). "
+                            "Click 'Reload' next to Token or paste your valid Device Token in Settings.",
+                            "err",
+                        )
+                    else:
+                        self.root.after(0, lambda w=wait_time: self.status_var.set(f"● Retry in {w:.0f}s"))
+                        self.log(f"Connection issue (retry in {wait_time:.0f}s): {exc}", "warn")
+                    self._last_poll_error = err_msg[:80]
+                    self.root.after(
+                        0, lambda w=wait_time, m=self._last_poll_error: self._set_poll_note(False, m, w)
+                    )
+                    self.stop_event.wait(wait_time)
+                    poller.backoff = min(poller.backoff * 2, 60.0)
+        finally:
+            poller.stop_side_channel()
 
         self.log("Agent polling loop stopped.", "info")
 
@@ -1801,7 +1928,13 @@ class AgentGuiApp:
             messagebox.showwarning("Rotate Token", "Control Plane URL and Device Token are required.")
             return
         try:
-            poller = Poller(url, tok, token_file=TOKEN_FILE)
+            poller = Poller(
+                url,
+                tok,
+                token_file=TOKEN_FILE,
+                token_saver=lambda t: runtime.save_token(t, TOKEN_FILE),
+                token_loader=lambda: runtime.load_token(TOKEN_FILE, default="") or None,
+            )
             new_tok = poller.rotate_token()
             self.token_var.set(new_tok)
             self.save_current_config()
@@ -1889,6 +2022,8 @@ class AgentGuiApp:
                 "token_storage": self.token_storage_note(),
                 "last_ui_error": self._last_ui_error,
                 "poller": {"last_contact": self._last_ok_poll, "last_error": self._last_poll_error},
+                "windows_system": windows_agent.windows_system_info(),
+                "desktop_helper": desktop_helper.status(),
             }
         )
         return report
@@ -1974,7 +2109,7 @@ class AgentGuiApp:
                 from common.spool import TaskSpooler
 
                 if self._spooler is None:
-                    self._spooler = TaskSpooler()
+                    self._spooler = TaskSpooler(TOKEN_FILE.parent / "agent_spool.db")
                 self.queued_var.set(str(len(self._spooler.get_pending(200))))
             except Exception:
                 self._spool_failed = True

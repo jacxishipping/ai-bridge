@@ -82,6 +82,17 @@ def auto_update_allowed() -> bool:
     return os.environ.get("AI_BRIDGE_ALLOW_AUTO_UPDATE", "").strip().lower() in ("1", "true", "yes")
 
 
+def _safe_manifest_path(root: Path, rel: str) -> Path:
+    rel_clean = (rel or "").strip().replace("\\", "/")
+    if not rel_clean or rel_clean.startswith("/") or ":" in rel_clean.split("/")[0]:
+        raise ValueError(f"Unsafe manifest path: {rel!r}")
+    root_res = root.resolve()
+    target = (root_res / rel_clean).resolve()
+    if not target.is_relative_to(root_res) or target == root_res:
+        raise ValueError(f"Manifest path escapes target directory: {rel!r}")
+    return target
+
+
 def download_and_stage_update(
     manifest: dict,
     *,
@@ -101,7 +112,7 @@ def download_and_stage_update(
         expected = entry.get("sha256")
         if not rel or not url or not expected:
             raise ValueError(f"manifest file entry missing path/url/sha256: {entry}")
-        dest = staging_dir / rel
+        dest = _safe_manifest_path(staging_dir, rel)
         dest.parent.mkdir(parents=True, exist_ok=True)
         with urllib.request.urlopen(url, timeout=60) as resp:
             dest.write_bytes(resp.read())
@@ -124,8 +135,8 @@ def download_and_stage_update(
             raise ValueError("install_dir is required when apply=True")
         install_dir.mkdir(parents=True, exist_ok=True)
         for rel in downloaded:
-            src = staging_dir / rel
-            dst = install_dir / rel
+            src = _safe_manifest_path(staging_dir, rel)
+            dst = _safe_manifest_path(install_dir, rel)
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
             applied.append(rel)

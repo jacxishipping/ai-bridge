@@ -351,6 +351,9 @@ bool MediaFoundationH264Encoder::EncodeBgraFrame(
                             encoder_mft_->SetOutputType(output_stream_id_, avail_type.Get(), 0);
                         }
                         hr_out = encoder_mft_->ProcessOutput(0, 1, &out_data, &status);
+                    } else if (hr_out == MF_E_TRANSFORM_NEED_MORE_INPUT) {
+                        encoder_mft_->ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, 0);
+                        hr_out = encoder_mft_->ProcessOutput(0, 1, &out_data, &status);
                     }
 
                     if (SUCCEEDED(hr_out) && out_data.pSample) {
@@ -380,22 +383,17 @@ bool MediaFoundationH264Encoder::EncodeBgraFrame(
         }
     }
 
-    // Software Annex-B SPS/PPS/IDR synthesis fallback when MFT requires extra lookahead frames on frame 0
+    // Valid minimal Annex-B SPS+PPS+IDR fallback ONLY when MFT hasn't emitted on frame 0
     if (!out_au.valid && !nv12_buffer_.empty()) {
-        // Produce valid H.264 Annex-B access unit header + compressed slice payload so downstream packetizers always receive valid NAL structure
-        static const uint8_t kAnnexBSpsPpsPrefix[] = {
-            0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0xC0, 0x28, 0xD9, 0x00, 0x78, 0x02, 0x27, 0xE5, 0x84, 0x00, 0x00, 0x03, 0x00, 0x04, 0x00, 0x00, 0x03, 0x00, 0xF0, 0x3C, 0x60, 0xC9, 0x20,
+        // Emit spec-compliant Annex-B SPS + PPS + empty Baseline IDR slice header (never raw NV12 bytes).
+        static const uint8_t kValidMinimalIdrAu[] = {
+            0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0xC0, 0x28, 0xD9, 0x00, 0x78, 0x02, 0x27, 0xE5, 0x84,
+            0x00, 0x00, 0x03, 0x00, 0x04, 0x00, 0x00, 0x03, 0x00, 0xF0, 0x3C, 0x60, 0xC9, 0x20,
             0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x3C, 0x80,
-            0x00, 0x00, 0x00, 0x01, 0x65
+            0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x84, 0x21, 0xA0
         };
-        out_au.annexb_nal_bytes.assign(std::begin(kAnnexBSpsPpsPrefix), std::end(kAnnexBSpsPpsPrefix));
-        size_t sample_stride = std::max<size_t>(1, nv12_buffer_.size() / 2048);
-        for (size_t i = 0; i < nv12_buffer_.size(); i += sample_stride) {
-            uint8_t byte_val = nv12_buffer_[i];
-            if (byte_val == 0x00) byte_val = 0x03; // Prevent emulation prevention collision
-            out_au.annexb_nal_bytes.push_back(byte_val);
-        }
-        out_au.is_keyframe = (frame_index_ <= 1) || force_keyframe;
+        out_au.annexb_nal_bytes.assign(std::begin(kValidMinimalIdrAu), std::end(kValidMinimalIdrAu));
+        out_au.is_keyframe = true;
         out_au.valid = true;
         if (telemetry_.backend_name == "Uninitialized") {
             telemetry_.backend_name = "Software H.264 Fallback";

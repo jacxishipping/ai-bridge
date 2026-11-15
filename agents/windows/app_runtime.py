@@ -269,7 +269,10 @@ class SingleInstanceGuard:
     def release(self) -> None:
         if is_windows() and self._mutex is not None:
             with contextlib.suppress(OSError):
-                ctypes.WinDLL("kernel32").CloseHandle(self._mutex)
+                kernel32 = ctypes.WinDLL("kernel32")
+                kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+                kernel32.CloseHandle.restype = ctypes.c_int
+                kernel32.CloseHandle(self._mutex)
             self._mutex = None
         if self._handle is not None:
             with contextlib.suppress(OSError):

@@ -59,6 +59,7 @@ export function LiveControlView() {
   const [handoffMode, setHandoffMode] = useState<"gated" | "fanout">("gated");
   const [handoffDevice, setHandoffDevice] = useState("");
   const [handoffMsg, setHandoffMsg] = useState("");
+  const [handoffDetail, setHandoffDetail] = useState("");
   const [rolesCatalog, setRolesCatalog] = useState<{ id: string; name: string; enabled: boolean }[]>([]);
   // A 401 clears the stored credential, which would otherwise make the view look
   // like guest demo mode and quietly show sample data after a session ends.
@@ -392,8 +393,29 @@ export function LiveControlView() {
                     <span className="font-mono">{h.handoff_id.slice(0, 8)}</span>
                     <span>{(h.roles || []).join(" → ") || "—"}</span>
                     {h.blocked_reason && <span className="text-[color:var(--product-danger,#c0392b)]">{h.blocked_reason}</span>}
+                    <JXButton
+                      variant="soft"
+                      color="neutral"
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          const res = await api.supervisorHandoffStatus(h.handoff_id);
+                          const reason = res?.blocked_reason ? ` (${String(res.blocked_reason)})` : "";
+                          setHandoffDetail(`${h.handoff_id.slice(0, 8)}: ${String(res?.status || h.status || "active")}${reason}`);
+                        } catch (err) {
+                          setHandoffDetail(`${h.handoff_id.slice(0, 8)}: ${err instanceof Error ? err.message : "status check failed"}`);
+                        }
+                      }}
+                    >
+                      Status
+                    </JXButton>
                   </div>
                 ))}
+                {handoffDetail && (
+                  <p className="text-xs font-mono text-[color:var(--product-text-secondary)]" role="status">
+                    {handoffDetail}
+                  </p>
+                )}
               </div>
             )}
             {(opsPulse.items?.some((i) => i.role) || (opsPulse.recent_failures?.length ?? 0) > 0) && (

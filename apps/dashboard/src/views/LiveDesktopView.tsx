@@ -466,7 +466,7 @@ export const LiveDesktopView: React.FC = () => {
   const startFileTransfer = useCallback(
     async (file: File) => {
       if (!file) return;
-      const tid = `tx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const tid = `tx_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
       const chunkSize = 64 * 1024; // 64 KB
       const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
 
@@ -682,15 +682,23 @@ export const LiveDesktopView: React.FC = () => {
 
   const handleSealSessionRecording = useCallback(async () => {
     const sid = webrtcSessionId || "session_active";
+    if (!isLiveMode()) {
+      setRecentMacroNotice("Demo mode: simulated recording seal (0x7fa281b94d)");
+      setTimeout(() => setRecentMacroNotice(null), 3500);
+      return;
+    }
     try {
+      const existing = await api.getSessionRecordingV1(sid).catch(() => null);
       const res = await api.sealSessionRecordingV1(sid);
       if (res && res.ok) {
-        setRecentMacroNotice(`Sealed session recording. Merkle leaf: ${res.merkle_leaf || "0x7fa281b94d"}`);
+        setRecentMacroNotice(
+          `Sealed session recording (${existing?.frame_count ?? 0} frames). Merkle leaf: ${res.merkle_leaf || "recorded"}`
+        );
       } else {
-        setRecentMacroNotice("Sealed active session recording manifest and linked to audit trail.");
+        setRecentMacroNotice(res?.error || "Failed to seal session recording.");
       }
-    } catch {
-      setRecentMacroNotice("Sealed active session recording manifest and linked to audit trail.");
+    } catch (err: any) {
+      setRecentMacroNotice(`Seal recording failed: ${err?.message || "Unknown error"}`);
     }
     setTimeout(() => setRecentMacroNotice(null), 3500);
   }, [webrtcSessionId]);
@@ -732,7 +740,8 @@ export const LiveDesktopView: React.FC = () => {
 
     let cancelled = false;
     api
-      .deviceMonitors(selectedDevice.id)
+      .getDeviceMonitorsV1(selectedDevice.id)
+      .catch(() => api.deviceMonitors(selectedDevice.id))
       .then((res) => {
         if (!cancelled && Array.isArray(res?.monitors)) {
           setLiveMonitors(res.monitors);
@@ -974,7 +983,14 @@ export const LiveDesktopView: React.FC = () => {
     }, 2500);
   };
 
+  const webrtcSessionIdRef = useRef<string | null>(null);
+  webrtcSessionIdRef.current = webrtcSessionId;
+
   const cleanupWebrtc = useCallback(() => {
+    const activeSid = webrtcSessionIdRef.current;
+    if (activeSid && isLiveMode()) {
+      void api.terminateSessionV1(activeSid).catch(() => {});
+    }
     releaseAllRemoteKeys();
     mediaStreamRef.current = null;
     if (videoRef.current) {
@@ -1006,6 +1022,7 @@ export const LiveDesktopView: React.FC = () => {
       }
       pcRef.current = null;
     }
+    setWebrtcSessionId(null);
     setWebrtcConnected(false);
   }, [releaseAllRemoteKeys]);
 
@@ -1161,10 +1178,15 @@ export const LiveDesktopView: React.FC = () => {
         }
 
         if (typeof RTCPeerConnection !== "undefined" && offerSdp) {
+          let resolvedIceServers = Array.isArray(currentSess.ice_servers) ? currentSess.ice_servers : null;
+          if (!resolvedIceServers) {
+            const iceRes = await api.getIceServersV1().catch(() => null);
+            if (Array.isArray(iceRes?.ice_servers)) {
+              resolvedIceServers = iceRes.ice_servers;
+            }
+          }
           const pc = new RTCPeerConnection({
-            iceServers: Array.isArray(currentSess.ice_servers)
-              ? currentSess.ice_servers
-              : [{ urls: "stun:stun.l.google.com:19302" }],
+            iceServers: resolvedIceServers || [{ urls: "stun:stun.l.google.com:19302" }],
           });
           pcRef.current = pc;
 
@@ -1583,6 +1605,16 @@ export const LiveDesktopView: React.FC = () => {
                   : "Start stream"}
             </span>
           </button>
+          {webrtcSessionId && (
+            <button
+              type="button"
+              onClick={() => cleanupWebrtc()}
+              className="px-2.5 py-1 rounded-lg bg-rose-950/40 border border-rose-500/40 text-rose-300 hover:bg-rose-950/60 flex items-center gap-1.5"
+              title="Terminate active WebRTC session"
+            >
+              <span>Stop stream</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -2210,7 +2242,7 @@ export const LiveDesktopView: React.FC = () => {
                 </div>
                 {/* Countdown progress indicator */}
                 <div className="w-full bg-[var(--product-raised)] rounded-full h-1.5 overflow-hidden">
-                  <div className="bg-gradient-to-r from-cyan-500 to-indigo-500 h-full animate-pulse w-full" />
+                  <div className="bg-cyan-500 h-full animate-pulse w-full" />
                 </div>
                 <div className="flex items-center justify-between w-full pt-1 gap-2">
                   <span className="font-mono text-[10px] text-[var(--product-text-tertiary)]">

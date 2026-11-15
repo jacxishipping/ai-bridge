@@ -206,30 +206,32 @@ client = BridgeClient(
 # Dispatch desktop observation tool
 response = client.tools.execute(
     target_node="srv-us-east-412",
-    tool="desktop.capture_screen",
+    tool="desktop_get_screenshot",
     arguments={"include_som": True, "format": "png"}
 )
 
 print(f"Captured screen hash: {response.result['image_hash']}")
 print(f"Detected {len(response.result['som_marks'])} UI elements")`,
 
-  typescript: `// TypeScript / Node.js SDK Integration
-import { BridgeClient } from '@ai-bridge/sdk';
-
-const client = new BridgeClient({
-  apiKey: process.env.AI_BRIDGE_API_KEY!,
-  endpoint: 'https://bridge.internal/v1',
-  timeoutMs: 15000,
-});
+  typescript: `// TypeScript / Node.js REST Integration (Node 18+ built-in fetch)
+const endpoint = 'https://bridge.internal/api/ai/execute';
 
 async function main() {
-  const result = await client.tools.dispatch({
-    deviceId: 'srv-us-east-412',
-    tool: 'process.list',
-    riskTier: 'tier1_safe',
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Authorization': \`Bearer \${process.env.AI_BRIDGE_API_KEY ?? ''}\`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      device_id: 'srv-us-east-412',
+      tool: 'get_system_info',
+      arguments: {},
+    }),
   });
 
-  console.log('Top processes:', result.processes.slice(0, 5));
+  if (!response.ok) throw new Error(\`HTTP \${response.status}\`);
+  console.log('System telemetry:', await response.json());
 }
 
 main().catch(console.error);`,
@@ -240,7 +242,7 @@ curl -X POST "https://bridge.internal/v1/tools/dispatch" \\
   -H "Content-Type: application/json" \\
   -d '{
     "device_id": "srv-us-east-412",
-    "tool": "desktop.capture_screen",
+    "tool": "desktop_get_screenshot",
     "arguments": {
       "format": "png",
       "include_som": true
@@ -253,7 +255,7 @@ curl -X POST "https://bridge.internal/v1/tools/dispatch" \\
   "id": 10842,
   "method": "tools/call",
   "params": {
-    "name": "desktop.capture_screen",
+    "name": "desktop_get_screenshot",
     "arguments": {
       "target_node": "srv-us-east-412",
       "include_som": true,
@@ -306,7 +308,7 @@ export const AiApiHubView: React.FC = () => {
       status: "healthy",
       latencyMs: 6,
       keyMasked: "local-enclave-bound",
-      endpoint: "http://127.0.0.1:11434/v1",
+      endpoint: (import.meta as any).env?.VITE_OLLAMA_URL || "http://localhost:11434/v1",
     },
   ]);
 
@@ -317,7 +319,7 @@ export const AiApiHubView: React.FC = () => {
   // Interactive Execution Studio state
   const [selectedNode, setSelectedNode] = useState(devices[0]?.id || "srv-us-east-412");
   const [selectedModel, setSelectedModel] = useState("claude-3-5-sonnet-20241022");
-  const [selectedTool, setSelectedTool] = useState("desktop.capture_screen");
+  const [selectedTool, setSelectedTool] = useState("desktop_get_screenshot");
   const [promptText, setPromptText] = useState(
     JSON.stringify(
       {
@@ -605,11 +607,29 @@ export const AiApiHubView: React.FC = () => {
   const [mcpSyncing, setMcpSyncing] = useState<Record<string, boolean>>({});
   const [mcpNotice, setMcpNotice] = useState<{ severity: "success" | "error" | "info"; text: string } | null>(null);
   const [mcpToolsExpanded, setMcpToolsExpanded] = useState<Record<string, boolean>>({});
+  const [aiCatalogTools, setAiCatalogTools] = useState<string[]>([]);
+  const [aiFleetDevices, setAiFleetDevices] = useState<{ id: string; hostname?: string; name?: string; status?: string }[]>([]);
 
   const loadAiSettings = async (): Promise<void> => {
     if (!isLive) return;
     try {
-      const settings = (await api.getAiSettings()) as AiSettingsResponse;
+      const [settings, toolsRes, fleetRes] = await Promise.all([
+        api.getAiSettings() as Promise<AiSettingsResponse>,
+        api.aiTools("raw").catch(() => null),
+        api.aiFleet().catch(() => null),
+      ]);
+      if (Array.isArray(toolsRes?.tools)) {
+        setAiCatalogTools(
+          toolsRes.tools
+            .map((t: any) => String(t?.name || t?.function?.name || ""))
+            .filter(Boolean)
+        );
+      }
+      if (Array.isArray(fleetRes?.devices)) {
+        setAiFleetDevices(fleetRes.devices);
+      } else if (Array.isArray(fleetRes)) {
+        setAiFleetDevices(fleetRes);
+      }
       setAiSettings(settings);
       if (settings.provider) setAiProvider(settings.provider);
       if (settings.provider === "custom") {
@@ -878,6 +898,34 @@ export const AiApiHubView: React.FC = () => {
     }
   };
 
+  const handleToggleMcpServer = async (srv: McpServerItem): Promise<void> => {
+    setMcpLoading(true);
+    try {
+      await api.updateMcpServer(srv.id, { enabled: !srv.enabled });
+      setMcpNotice({ severity: "success", text: `MCP service "${srv.name}" ${srv.enabled ? "disabled" : "enabled"}.` });
+      await loadMcpServers();
+    } catch (error) {
+      setMcpNotice({ severity: "error", text: describeError(error) });
+    } finally {
+      setMcpLoading(false);
+    }
+  };
+
+  const handleTestMcpTool = async (srvId: string, toolName: string): Promise<void> => {
+    setMcpLoading(true);
+    try {
+      const res = await api.executeMcpTool(srvId, toolName, {});
+      setMcpNotice({
+        severity: "info",
+        text: `MCP tool ${toolName} returned: ${JSON.stringify(res?.result ?? res).slice(0, 180)}`,
+      });
+    } catch (error) {
+      setMcpNotice({ severity: "error", text: describeError(error) });
+    } finally {
+      setMcpLoading(false);
+    }
+  };
+
   const handleDeleteMcpServer = async (server: McpServerItem): Promise<void> => {
     if (!window.confirm(`Disconnect MCP service "${server.name}"? Agents using it will lose access to its tools.`)) return;
     setMcpLoading(true);
@@ -1064,24 +1112,36 @@ export const AiApiHubView: React.FC = () => {
     }
   };
 
-  const handlePing = (providerId: string) => {
+  const handlePing = async (providerId: string) => {
     setProviders((prev) =>
       prev.map((p) => (p.id === providerId ? { ...p, isPinging: true } : p))
     );
-    setTimeout(() => {
-      setProviders((prev) =>
-        prev.map((p) =>
-          p.id === providerId
-            ? {
-              ...p,
-              isPinging: false,
-              latencyMs: Math.floor(12 + Math.random() * 18),
-              status: "healthy",
-            }
-            : p
-        )
-      );
-    }, 600);
+    const t0 = performance.now();
+    if (isLive) {
+      try {
+        await Promise.all([api.getAiSettings(), api.aiTools("raw", selectedNode || undefined)]);
+        const measuredMs = Math.max(1, Math.round(performance.now() - t0));
+        setProviders((prev) =>
+          prev.map((p) =>
+            p.id === providerId ? { ...p, isPinging: false, latencyMs: measuredMs, status: "healthy" } : p
+          )
+        );
+      } catch {
+        const measuredMs = Math.max(1, Math.round(performance.now() - t0));
+        setProviders((prev) =>
+          prev.map((p) =>
+            p.id === providerId ? { ...p, isPinging: false, latencyMs: measuredMs, status: "degraded" } : p
+          )
+        );
+      }
+      return;
+    }
+    const demoLatency = 12 + ((providerId.charCodeAt(0) * 7) % 18);
+    setProviders((prev) =>
+      prev.map((p) =>
+        p.id === providerId ? { ...p, isPinging: false, latencyMs: demoLatency, status: "healthy" } : p
+      )
+    );
   };
 
   const handleCopyCode = () => {
@@ -1090,31 +1150,80 @@ export const AiApiHubView: React.FC = () => {
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  const handleExecuteTool = () => {
+  const handleExecuteTool = async () => {
     setIsExecuting(true);
-    setTimeout(() => {
-      setIsExecuting(false);
-      setExecutionResult({
-        status: "fulfilled",
-        nodeId: selectedNode,
-        tool: selectedTool,
-        model: selectedModel,
-        durationMs: Math.floor(110 + Math.random() * 80),
-        tokens: {
-          input: Math.floor(380 + Math.random() * 150),
-          output: Math.floor(60 + Math.random() * 80),
-          cost: "$0.0021",
-        },
-        output: {
-          execution_id: `inv-${Date.now().toString(16)}`,
-          node: selectedNode,
+    let parsedArgs: Record<string, unknown> = {};
+    try {
+      parsedArgs = promptText.trim() ? JSON.parse(promptText) : {};
+    } catch {
+      parsedArgs = { prompt: promptText };
+    }
+    const t0 = performance.now();
+    if (isLive) {
+      try {
+        const liveResult =
+          selectedTool === "ai_agent"
+            ? await api.aiAgent({
+                prompt: String(parsedArgs.prompt || promptText),
+                device: selectedNode || undefined,
+                model: selectedModel || undefined,
+              })
+            : await api.aiExecute({
+                tool: selectedTool,
+                device: selectedNode || undefined,
+                args: parsedArgs,
+              });
+        const elapsed = Math.max(1, Math.round(performance.now() - t0));
+        setExecutionResult({
+          status: String(liveResult?.status || (liveResult?.ok === false ? "failed" : "fulfilled")),
+          nodeId: selectedNode || "control-plane",
           tool: selectedTool,
-          exit_code: 0,
-          payload_hash: `sha256:${Date.now().toString(16).padStart(64, "0")}`,
-          verified_by: "mTLS Enclave Gateway",
-        },
-      });
-    }, 900);
+          model: selectedModel,
+          durationMs: elapsed,
+          tokens: {
+            input: Number(liveResult?.usage?.input_tokens || 0),
+            output: Number(liveResult?.usage?.output_tokens || 0),
+            cost: "live",
+          },
+          output: (liveResult && typeof liveResult === "object" ? liveResult : { result: liveResult }) as Record<string, unknown>,
+        });
+      } catch (error) {
+        const elapsed = Math.max(1, Math.round(performance.now() - t0));
+        setExecutionResult({
+          status: "error",
+          nodeId: selectedNode || "control-plane",
+          tool: selectedTool,
+          model: selectedModel,
+          durationMs: elapsed,
+          tokens: { input: 0, output: 0, cost: "error" },
+          output: { error: describeError(error) },
+        });
+      } finally {
+        setIsExecuting(false);
+      }
+      return;
+    }
+
+    setIsExecuting(false);
+    setExecutionResult({
+      status: "fulfilled",
+      nodeId: selectedNode,
+      tool: selectedTool,
+      model: selectedModel,
+      durationMs: 128,
+      tokens: {
+        input: 412,
+        output: 84,
+        cost: "demo",
+      },
+      output: {
+        execution_id: `inv-${Date.now().toString(16)}`,
+        node: selectedNode,
+        tool: selectedTool,
+        exit_code: 0,
+        verified_by: "Demo Mode Sandbox",
+      },
+    });
   };
 
   return (
@@ -1550,6 +1659,15 @@ export const AiApiHubView: React.FC = () => {
                           {mcpToolsExpanded[srv.id] ? "Hide tools" : "View tools"}
                         </JXButton>
                         <JXButton
+                          variant="outlined"
+                          color="neutral"
+                          size="sm"
+                          disabled={mcpLoading}
+                          onClick={() => void handleToggleMcpServer(srv)}
+                        >
+                          {srv.enabled ? "Disable" : "Enable"}
+                        </JXButton>
+                        <JXButton
                           variant="text"
                           color="error"
                           size="sm"
@@ -1582,16 +1700,26 @@ export const AiApiHubView: React.FC = () => {
                                     <p className="font-mono text-xs font-semibold text-indigo-300 truncate">
                                       mcp__{srv.name.toLowerCase().replace(/[^a-z0-9]/g, "_")}__{t.name}
                                     </p>
-                                    <select
-                                      aria-label={`Policy for ${t.name}`}
-                                      value={curPolicy}
-                                      onChange={(e) => void handleMcpPolicyChange(srv.id, t.name, e.target.value)}
-                                      className="rounded bg-black/50 border border-[var(--product-line)] px-1.5 py-0.5 text-[10px] font-mono text-neutral-200"
-                                    >
-                                      <option value="allow">Allow</option>
-                                      <option value="require_approval">Require approval</option>
-                                      <option value="deny">Deny</option>
-                                    </select>
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        disabled={mcpLoading}
+                                        onClick={() => void handleTestMcpTool(srv.id, t.name)}
+                                        className="rounded border border-[var(--product-line)] px-1.5 py-0.5 text-[10px] font-mono text-indigo-300 hover:bg-indigo-500/10"
+                                      >
+                                        Run
+                                      </button>
+                                      <select
+                                        aria-label={`Policy for ${t.name}`}
+                                        value={curPolicy}
+                                        onChange={(e) => void handleMcpPolicyChange(srv.id, t.name, e.target.value)}
+                                        className="rounded bg-black/50 border border-[var(--product-line)] px-1.5 py-0.5 text-[10px] font-mono text-neutral-200"
+                                      >
+                                        <option value="allow">Allow</option>
+                                        <option value="require_approval">Require approval</option>
+                                        <option value="deny">Deny</option>
+                                      </select>
+                                    </div>
                                   </div>
                                   <p className="text-xs text-[var(--product-text-tertiary)] line-clamp-2">{t.description}</p>
                                 </div>
@@ -2382,9 +2510,9 @@ export const AiApiHubView: React.FC = () => {
                       onChange={(e) => setSelectedNode(e.target.value)}
                       className="w-full p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs font-mono text-[var(--product-text-secondary)] focus:outline-none"
                     >
-                      {devices.map((d) => (
+                      {(aiFleetDevices.length > 0 ? aiFleetDevices : devices).map((d: any) => (
                         <option key={d.id} value={d.id}>
-                          {d.hostname} ({d.platform})
+                          {d.hostname || d.name || d.id} ({d.platform || d.status || "node"})
                         </option>
                       ))}
                     </select>
@@ -2418,10 +2546,18 @@ export const AiApiHubView: React.FC = () => {
                     onChange={(e) => setSelectedTool(e.target.value)}
                     className="w-full p-2 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] text-xs font-mono text-[var(--product-text-secondary)] focus:outline-none"
                   >
-                    <option value="desktop.capture_screen">desktop.capture_screen (SoM Visual)</option>
-                    <option value="shell.exec">shell.exec (Arbitrary Command Execution)</option>
-                    <option value="process.list">process.list (Process Inventory)</option>
-                    <option value="system_info">system_info (Hardware Telemetry)</option>
+                    <option value="desktop_get_screenshot">desktop_get_screenshot (SoM Visual)</option>
+                    <option value="run_shell">run_shell (Elevated Command Execution)</option>
+                    <option value="get_system_info">get_system_info (Hardware Telemetry)</option>
+                    <option value="list_devices">list_devices (Fleet Inventory)</option>
+                    <option value="ai_agent">ai_agent (Autonomous Objective)</option>
+                    {aiCatalogTools
+                      .filter((name) => !["desktop_get_screenshot", "run_shell", "get_system_info", "list_devices"].includes(name))
+                      .map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
                   </select>
                 </div>
 

@@ -47,7 +47,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useDashboardStore } from "../state/dashboardStore";
-import { api, token, sessionToken } from "../api";
+import { api, token, sessionToken, toIsoTimestamp } from "../api";
 
 function isLiveMode(): boolean {
   return typeof window !== "undefined" && Boolean(token() || sessionToken());
@@ -252,17 +252,33 @@ export const FleetOperationsView: React.FC = () => {
     },
   ]);
 
+  const [fleetFramesCount, setFleetFramesCount] = useState<number | null>(null);
+
   const loadLiveFleetConfig = useCallback(async () => {
     if (!isLiveMode()) return;
     try {
-      const [trigRes, schedRes, verRes] = await Promise.all([
+      const [trigRes, schedRes, verRes, framesRes] = await Promise.all([
         api.triggers().catch(() => null),
         api.schedules().catch(() => null),
         api.fleetVersion().catch(() => null),
+        api.fleetDesktopFrames().catch(() => null),
       ]);
 
       if (verRes && typeof verRes === "object") {
         setFleetVersionInfo(verRes);
+      }
+
+      if (framesRes && typeof framesRes === "object") {
+        const framesList = Array.isArray((framesRes as { frames?: unknown[] }).frames)
+          ? (framesRes as { frames: unknown[] }).frames
+          : null;
+        const count =
+          framesList !== null
+            ? framesList.length
+            : typeof (framesRes as { count?: unknown }).count === "number"
+            ? Number((framesRes as { count: number }).count)
+            : null;
+        setFleetFramesCount(count);
       }
 
       if (Array.isArray(trigRes) && trigRes.length > 0) {
@@ -284,7 +300,7 @@ export const FleetOperationsView: React.FC = () => {
             enabled: Boolean(t.enabled),
             firedCount: t.last_triggered_at ? 1 : 0,
             lastFired: t.last_triggered_at
-              ? new Date(Number(t.last_triggered_at) * 1000).toLocaleTimeString()
+              ? toIsoTimestamp(t.last_triggered_at, "Never")
               : "Never",
             category: cat,
             isBackend: true,
@@ -303,7 +319,7 @@ export const FleetOperationsView: React.FC = () => {
           lastStatus: "success",
           lastDuration: s.last_run_at ? "completed" : "pending",
           nextRun: s.next_run_at
-            ? new Date(Number(s.next_run_at) * 1000).toLocaleTimeString()
+            ? toIsoTimestamp(s.next_run_at, `Every ${s.interval_seconds || 300}s`)
             : `Every ${s.interval_seconds || 300}s`,
           enabled: Boolean(s.enabled),
           isBackend: true,
@@ -908,6 +924,11 @@ export const FleetOperationsView: React.FC = () => {
                     {fleetVersionInfo?.control_plane_version && (
                       <span className="text-[11px] font-mono text-[var(--product-text-tertiary)]">
                         v{fleetVersionInfo.control_plane_version} ({fleetVersionInfo.git_commit || "main"})
+                      </span>
+                    )}
+                    {fleetFramesCount !== null && (
+                      <span className="text-[11px] font-mono text-[var(--product-text-tertiary)]">
+                        {fleetFramesCount} live frame{fleetFramesCount === 1 ? "" : "s"}
                       </span>
                     )}
                     {fleetNotice && (
