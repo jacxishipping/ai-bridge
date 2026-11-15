@@ -1,6 +1,8 @@
 #include "http_signaling.hpp"
 
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #include <winhttp.h>
 
@@ -44,6 +46,32 @@ bool ParseUrl(const std::string& url, bool* https, std::wstring* host, INTERNET_
     *port = uc.nPort;
     *path = path_buf;
     return true;
+}
+
+std::string EscapeJson(const std::string& in) {
+    std::string out;
+    out.reserve(in.size() + 8);
+    for (unsigned char c : in) {
+        switch (c) {
+            case '\\': out += "\\\\"; break;
+            case '"': out += "\\\""; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    char buf[7];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned int>(c));
+                    out += buf;
+                } else {
+                    out.push_back(static_cast<char>(c));
+                }
+                break;
+        }
+    }
+    return out;
 }
 
 std::string JsonGetString(const std::string& json, const std::string& key) {
@@ -198,36 +226,16 @@ bool HttpSignalingClient::RequestJson(
 }
 
 bool HttpSignalingClient::PostOffer(const std::string& sdp, const std::string& type, std::string* error_out) {
-    // Escape minimal JSON (SDP should not contain raw quotes often; still escape).
-    auto esc = [](const std::string& in) {
-        std::string out;
-        out.reserve(in.size() + 8);
-        for (char c : in) {
-            if (c == '\\' || c == '"') out.push_back('\\');
-            if (c == '\n') { out += "\\n"; continue; }
-            if (c == '\r') { out += "\\r"; continue; }
-            out.push_back(c);
-        }
-        return out;
-    };
     std::ostringstream oss;
-    oss << "{\"sdp\":\"" << esc(sdp) << "\",\"type\":\"" << esc(type) << "\"}";
+    oss << "{\"sdp\":\"" << EscapeJson(sdp) << "\",\"type\":\"" << EscapeJson(type) << "\"}";
     std::string resp;
     return RequestJson("POST", "/api/agent/webrtc/" + session_id_ + "/offer", oss.str(), &resp, error_out);
 }
 
 bool HttpSignalingClient::PostCandidate(const IceCandidateJson& candidate, std::string* error_out) {
-    auto esc = [](const std::string& in) {
-        std::string out;
-        for (char c : in) {
-            if (c == '\\' || c == '"') out.push_back('\\');
-            out.push_back(c);
-        }
-        return out;
-    };
     std::ostringstream oss;
-    oss << "{\"from\":\"agent\",\"candidate\":{\"candidate\":\"" << esc(candidate.candidate)
-        << "\",\"sdpMid\":\"" << esc(candidate.sdp_mid)
+    oss << "{\"from\":\"agent\",\"candidate\":{\"candidate\":\"" << EscapeJson(candidate.candidate)
+        << "\",\"sdpMid\":\"" << EscapeJson(candidate.sdp_mid)
         << "\",\"sdpMLineIndex\":" << candidate.sdp_mline_index << "}}";
     std::string resp;
     return RequestJson("POST", "/api/agent/webrtc/" + session_id_ + "/candidates", oss.str(), &resp, error_out);
@@ -235,12 +243,7 @@ bool HttpSignalingClient::PostCandidate(const IceCandidateJson& candidate, std::
 
 bool HttpSignalingClient::PostError(const std::string& message) {
     std::ostringstream oss;
-    oss << "{\"error\":\"";
-    for (char c : message) {
-        if (c == '\\' || c == '"') oss << '\\';
-        oss << c;
-    }
-    oss << "\"}";
+    oss << "{\"error\":\"" << EscapeJson(message) << "\"}";
     std::string resp, err;
     return RequestJson("POST", "/api/agent/webrtc/" + session_id_ + "/error", oss.str(), &resp, &err);
 }

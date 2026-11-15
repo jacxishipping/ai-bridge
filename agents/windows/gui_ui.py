@@ -332,10 +332,12 @@ def button(
     hover_fg = t[hover_fg_key]
 
     def _enter(_event):
+        if btn.cget("state") == "disabled":
+            return
         btn.configure(bg=hover_bg, fg=hover_fg)
 
     def _leave(_event):
-        btn.configure(bg=t["bg_subtle"] if btn.cget("state") == "disabled" else t[bg_key], fg=t[fg_key])
+        btn.configure(bg=t["card_subtle"] if btn.cget("state") == "disabled" else t[bg_key], fg=t[fg_key])
 
     btn.bind("<Enter>", _enter)
     btn.bind("<Leave>", _leave)
@@ -679,7 +681,7 @@ def build_shell(app) -> None:
     tk.Label(
         status_row,
         textvariable=app.status_var,
-        bg=t["card_subtle"],
+        bg=t["card_alt"],
         fg=t["fg_muted"],
         font=ui_font(9),
         anchor="w",

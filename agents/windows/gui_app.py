@@ -78,6 +78,7 @@ REG_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 REG_APP_NAME = "AIBridgeWindowsClient"
 WINDOW_TITLE = "AI Bridge Windows Client (User App)"
 TASK_HISTORY_FILE = CONFIG_DIR / "task_history.json"
+_DEFAULT_TASK_HISTORY_FILE = TASK_HISTORY_FILE
 TASK_HISTORY_LIMIT = 500
 TASK_RESULT_PREVIEW = 4000
 
@@ -412,33 +413,53 @@ def save_agent_config(cfg: dict) -> None:
         _LOGGER.warning("Could not persist agent configuration: %s", exc)
 
 
+def _task_history_file() -> Path:
+    if TASK_HISTORY_FILE != _DEFAULT_TASK_HISTORY_FILE:
+        return TASK_HISTORY_FILE
+    return CONFIG_DIR / "task_history.json"
+
+
+def _dedupe_task_records(records: list[dict]) -> list[dict]:
+    """Keep the most recent entry per task id while preserving chronological order."""
+    by_id: dict[str, dict] = {}
+    for item in records:
+        if isinstance(item, dict) and item.get("id"):
+            tid = str(item["id"])
+            if tid in by_id:
+                del by_id[tid]
+            by_id[tid] = item
+    return list(by_id.values())
+
+
 def load_task_history() -> list[dict]:
     """Load the persisted task history, tolerating a missing or corrupt file."""
+    history_file = _task_history_file()
     try:
-        if not TASK_HISTORY_FILE.exists():
+        if not history_file.exists():
             return []
-        data = json.loads(TASK_HISTORY_FILE.read_text(encoding="utf-8"))
+        data = json.loads(history_file.read_text(encoding="utf-8"))
         if not isinstance(data, list):
             return []
-        return [item for item in data if isinstance(item, dict) and item.get("id")][:TASK_HISTORY_LIMIT]
+        return _dedupe_task_records(data)[-TASK_HISTORY_LIMIT:]
     except Exception:
-        _LOGGER.warning("Task history at %s is unreadable; starting empty.", TASK_HISTORY_FILE)
+        _LOGGER.warning("Task history at %s is unreadable; starting empty.", history_file)
         return []
 
 
 def save_task_history(records: list[dict]) -> None:
     """Persist the bounded task history; results are stored as previews only."""
+    history_file = _task_history_file()
     try:
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        history_file.parent.mkdir(parents=True, exist_ok=True)
         trimmed = []
-        for record in records[-TASK_HISTORY_LIMIT:]:
+        for record in _dedupe_task_records(records)[-TASK_HISTORY_LIMIT:]:
             item = dict(record)
             item["result"] = str(item.get("result", ""))[:TASK_RESULT_PREVIEW]
             item["args"] = item.get("args", {})
             trimmed.append(item)
-        temp = TASK_HISTORY_FILE.with_suffix(".json.tmp")
+        temp = history_file.with_suffix(".json.tmp")
         temp.write_text(json.dumps(trimmed, default=str), encoding="utf-8")
-        temp.replace(TASK_HISTORY_FILE)
+        temp.replace(history_file)
     except Exception as exc:
         _LOGGER.warning("Could not persist task history: %s", exc)
 
@@ -853,7 +874,7 @@ class AgentGuiApp:
         if not sel:
             return
         task_id = sel[0]
-        found = next((t for t in self.task_history if t["id"] == task_id), None)
+        found = next((t for t in reversed(self.task_history) if str(t.get("id")) == task_id), None)
         if not found:
             return
         self._selected_task = found
@@ -938,21 +959,28 @@ class AgentGuiApp:
         for item in self.task_tree.get_children():
             self.task_tree.delete(item)
         shown = [record for record in self.task_history if self._task_matches(record)]
-        for index, record in enumerate(reversed(shown)):
+        seen_ids: set[str] = set()
+        row_index = 0
+        for record in reversed(shown):
+            iid = str(record["id"])
+            if iid in seen_ids:
+                continue
+            seen_ids.add(iid)
             self.task_tree.insert(
                 "",
                 "end",
-                iid=record["id"],
+                iid=iid,
                 values=(
                     record.get("time", ""),
-                    str(record["id"])[:8],
+                    iid[:8],
                     record.get("tool", ""),
                     f"{record.get('duration_s', 0):.2f}s",
                     str(record.get("status", "")).upper(),
                 ),
-                tags=("even" if index % 2 == 0 else "odd",),
+                tags=("even" if row_index % 2 == 0 else "odd",),
             )
-        self._update_task_count(len(shown))
+            row_index += 1
+        self._update_task_count(row_index)
 
     def _update_task_count(self, shown: int | None = None) -> None:
         label = getattr(self, "task_count_label", None)
@@ -1871,21 +1899,27 @@ class AgentGuiApp:
         self.log("Agent polling loop stopped.", "info")
 
     def _append_task_record(self, record: dict) -> None:
+        rec_id = str(record["id"])
+        self.task_history = [item for item in self.task_history if str(item.get("id")) != rec_id]
         self.task_history.append(record)
         while len(self.task_history) > TASK_HISTORY_LIMIT:
             dropped = self.task_history.pop(0)
-            if hasattr(self, "task_tree") and self.task_tree.exists(dropped["id"]):
-                self.task_tree.delete(dropped["id"])
+            dropped_id = str(dropped["id"])
+            if hasattr(self, "task_tree") and self.task_tree.winfo_exists() and self.task_tree.exists(dropped_id):
+                self.task_tree.delete(dropped_id)
         save_task_history(self.task_history)
         row = (
             record.get("time", ""),
-            str(record["id"])[:8],
+            rec_id[:8],
             record.get("tool", ""),
             f"{record.get('duration_s', 0):.2f}s",
             str(record.get("status", "")).upper(),
         )
-        if hasattr(self, "task_tree") and self.task_tree.winfo_exists() and self._task_matches(record):
-            self.task_tree.insert("", 0, iid=record["id"], values=row, tags=("even",))
+        if hasattr(self, "task_tree") and self.task_tree.winfo_exists():
+            if self.task_tree.exists(rec_id):
+                self.task_tree.delete(rec_id)
+            if self._task_matches(record):
+                self.task_tree.insert("", 0, iid=rec_id, values=row, tags=("even",))
         self._update_task_count()
 
     def _update_telemetry(

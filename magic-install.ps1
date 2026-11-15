@@ -392,9 +392,15 @@ if (-not $NoAutoStart) {
 
 # --- 8. Start Agent ---
 if (-not $SkipRun) {
-    Write-Host "[START] Launching AI Bridge Windows Agent in background..." -ForegroundColor Cyan
-    Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if (-not $NoAutoStart) {
+        Write-Host "[START] Launching AI Bridge Windows Agent in background..." -ForegroundColor Cyan
+        Start-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    } else {
+        Write-Host "[INFO] Skipping scheduled task start because -NoAutoStart was specified." -ForegroundColor Yellow
+    }
 }
+
+$autoStartDesc = if ($NoAutoStart) { "Disabled (-NoAutoStart)" } else { "Windows Scheduled Task ($taskName)" }
 
 Write-Host ""
 Write-Host "=====================================================================" -ForegroundColor Green
@@ -405,7 +411,7 @@ Write-Host " Install Dir:    $InstallDir"
 Write-Host " Python Bin:     $VenvPython"
 Write-Host " Config File:    $ConfigFile"
 Write-Host " Launcher:       $RunCmd"
-Write-Host " Auto-Start:     Windows Scheduled Task ($taskName)"
+Write-Host " Auto-Start:     $autoStartDesc"
 Write-Host "=====================================================================" -ForegroundColor Green
 Write-Host ""
 

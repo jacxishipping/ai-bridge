@@ -883,7 +883,7 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="subcommand", help="Available commands")
 
     # Global options
-    parser.add_argument("--control-url", default=os.environ.get("AI_BRIDGE_CONTROL_URL", DEFAULT_CONTROL_URL))
+    parser.add_argument("--control-url", default=os.environ.get("AI_BRIDGE_CONTROL_URL", ""))
     parser.add_argument("--device-token", default=os.environ.get("AI_BRIDGE_DEVICE_TOKEN", ""))
     parser.add_argument("--token-file", default=os.environ.get("AI_BRIDGE_TOKEN_FILE", ""))
     parser.add_argument("--once", action="store_true", help="Run a single poll cycle, then exit.")

@@ -21,6 +21,32 @@ int g_enc_w = 0;
 int g_enc_h = 0;
 int g_enc_fps = 30;
 int g_enc_kbps = 4500;
+
+std::string EscapeJsonString(const std::string& in) {
+    std::string out;
+    out.reserve(in.size() + 8);
+    for (unsigned char c : in) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    char buf[7];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned int>(c));
+                    out += buf;
+                } else {
+                    out.push_back(static_cast<char>(c));
+                }
+                break;
+        }
+    }
+    return out;
+}
 } // namespace
 
 extern "C" {
@@ -163,8 +189,7 @@ AIBRIDGE_API int aibridge_encode_h264_frame(
         cfg.keyframe_interval_sec = 2;
         cfg.prefer_hardware = true;
         cfg.adaptive_bitrate = true;
-        g_encoder.Initialize(cfg);
-        g_encoder_initialized = true;
+        g_encoder_initialized = g_encoder.Initialize(cfg);
         g_enc_w = width;
         g_enc_h = height;
         g_enc_fps = target_fps;
@@ -224,6 +249,8 @@ AIBRIDGE_API int aibridge_get_system_health_json(char* out_json, int max_len) {
     if (!out_json || max_len <= 0) return 0;
     std::lock_guard<std::mutex> lock(g_api_mutex);
     auto snap = g_monitor.CollectSnapshot();
+    std::string host_escaped = EscapeJsonString(snap.hostname);
+    std::string user_escaped = EscapeJsonString(snap.active_user);
     int written = std::snprintf(
         out_json,
         static_cast<size_t>(max_len),
@@ -238,8 +265,8 @@ AIBRIDGE_API int aibridge_get_system_health_json(char* out_json, int max_len) {
         snap.disk_total_gb,
         snap.disk_free_gb,
         snap.uptime_hours,
-        snap.hostname.c_str(),
-        snap.active_user.c_str(),
+        host_escaped.c_str(),
+        user_escaped.c_str(),
         snap.active_session_id,
         snap.interactive_session_count
     );

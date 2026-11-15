@@ -136,6 +136,9 @@ show_help() {
     echo "  stop             Stop the running background agent service"
     echo "  restart          Restart the background agent service"
     echo "  status           Show service state, connectivity, and device identity"
+    echo "  doctor           Run complete server and connectivity health audit"
+    echo "  config           View or modify agent configuration (show|get|set|path)"
+    echo "  policy           Inspect or sync unrestricted server policy (get|sync)"
     echo "  logs             Tail realtime agent logs (supports journalctl)"
     echo "  test, whoami     Test connection to Control Plane and verify device token"
     echo "  enroll           Enroll/re-enroll this device using an Admin Token"
@@ -880,8 +883,20 @@ while [[ $# -gt 0 ]]; do
             SUBCOMMAND="enroll"
             shift
             ;;
-        rotate-token)
+        rotate|rotate-token)
             SUBCOMMAND="rotate"
+            shift
+            ;;
+        doctor|diagnose)
+            SUBCOMMAND="doctor"
+            shift
+            ;;
+        config)
+            SUBCOMMAND="config"
+            shift
+            ;;
+        policy)
+            SUBCOMMAND="policy"
             shift
             ;;
         update)
@@ -924,7 +939,7 @@ while [[ $# -gt 0 ]]; do
             CLI_DAEMON_MODE=true
             shift
             ;;
-        -r|--run)
+        -r|--run|--foreground)
             CLI_RUN_MODE=true
             shift
             ;;
@@ -933,8 +948,8 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
-            # Check for extra log args like -f or -n
-            if [ "$SUBCOMMAND" = "logs" ]; then
+            # Allow subcommand-specific arguments (e.g. logs -f, config set k v, policy sync)
+            if [ "$SUBCOMMAND" = "logs" ] || [ "$SUBCOMMAND" = "config" ] || [ "$SUBCOMMAND" = "policy" ]; then
                 break
             fi
             log_error "Unknown argument: $1"

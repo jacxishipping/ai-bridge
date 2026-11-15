@@ -70,6 +70,11 @@ EOF
 }
 
 # --- CLI Options -------------------------------------------------------------
+ORIG_ARGS=("$@")
+CURL_SEC_FLAGS=()
+if [ "${AI_BRIDGE_INSECURE_TLS:-0}" = "1" ]; then
+    CURL_SEC_FLAGS+=("-k")
+fi
 CLI_UNATTENDED=false
 CLI_CONTROL_URL=""
 CLI_ADMIN_TOKEN=""
@@ -117,7 +122,7 @@ check_privileges() {
     if [ "$(id -u)" -ne 0 ]; then
         if command -v sudo >/dev/null 2>&1; then
             log_warn "This script requires root privileges. Elevating with sudo..."
-            exec sudo -E bash "$0" "$@"
+            exec sudo -E bash "$0" "${ORIG_ARGS[@]}"
         else
             log_error "Please run this script as root: sudo bash magic-install.sh"
             exit 1
@@ -144,7 +149,7 @@ detect_system() {
 
     if [ "$KERNEL" = "Darwin" ]; then
         OS_ID="macos"
-        OS_PRETTY="macOS $(sw_vers -productVersion 2>/dev/null || '')"
+        OS_PRETTY="macOS $(sw_vers -productVersion 2>/dev/null || true)"
         PKG_MGR="brew"
     elif [ -f /etc/os-release ]; then
         . /etc/os-release
@@ -417,7 +422,7 @@ enroll_agent() {
         local existing_url existing_token
         existing_url="$(grep -E '^AI_BRIDGE_CONTROL_URL=' "$CONFIG_FILE" | cut -d= -f2- | tr -d '"\r ' || true)"
         existing_token="$(grep -E '^AI_BRIDGE_DEVICE_TOKEN=' "$CONFIG_FILE" | cut -d= -f2- | tr -d '"\r ' || true)"
-        if [ -n "$existing_url" ] && [ -n "$existing_token" ] && [ -z "$target_url" ] && [ -z "$target_device_token" ]; then
+        if [ -n "$existing_url" ] && [ -n "$existing_token" ] && [ -z "$target_url" ] && [ -z "$target_device_token" ] && [ -z "$target_admin_token" ]; then
             log_ok "Existing configuration detected ($existing_url). Preserving active credentials."
             return 0
         fi
@@ -463,7 +468,7 @@ enroll_agent() {
             '{name: $name, hostname: $host, os: $os, unrestricted: true}')
 
         local enroll_resp
-        enroll_resp=$(curl -s -k --connect-timeout 8 --max-time 15 \
+        enroll_resp=$(curl -s "${CURL_SEC_FLAGS[@]}" --connect-timeout 8 --max-time 15 \
             -X POST "${target_url%/}/api/devices/enroll" \
             -H "Content-Type: application/json" \
             -H "X-Admin-Token: $target_admin_token" \
