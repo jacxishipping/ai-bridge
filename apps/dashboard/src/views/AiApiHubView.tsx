@@ -590,7 +590,19 @@ export const AiApiHubView: React.FC = () => {
 
   // MCP Services state
   const [mcpServers, setMcpServers] = useState<McpServerItem[]>([]);
-  const [mcpTemplates, setMcpTemplates] = useState<McpTemplate[]>([]);
+  const [mcpTemplates, setMcpTemplates] = useState<McpTemplate[]>([
+    {
+      id: "render-mcp",
+      name: "Render MCP",
+      url: "https://mcp.render.com/mcp",
+      description:
+        "Manage Render web services, static sites, Postgres databases, deploys, logs, and metrics via Render's official hosted MCP server.",
+      category: "cloud",
+      requires_auth: true,
+      auth_type: "bearer",
+      auth_placeholder: "rnd_...",
+    },
+  ]);
   const [mcpLoading, setMcpLoading] = useState(false);
   const [mcpFormOpen, setMcpFormOpen] = useState(false);
   const [mcpName, setMcpName] = useState("");
@@ -1454,7 +1466,7 @@ export const AiApiHubView: React.FC = () => {
                     label="Service Name"
                     value={mcpName}
                     onChange={setMcpName}
-                    placeholder="GitHub MCP, Slack MCP, Database MCP"
+                    placeholder="Render MCP, GitHub MCP, Slack MCP, Database MCP"
                   />
                   <JXTextField
                     label="MCP Endpoint URL (HTTP or SSE)"

@@ -79,3 +79,22 @@ See `docs/MCP_CHATBOT_SETUP.md` for Claude / ChatGPT / Gemini / Grok / Cursor co
   URL still needs the admin token or a user login, and device tokens
   expire in 7 days by default — but treat the admin token as the key to
   the whole plane and rotate it if it ever leaks.
+
+## IDE & Agent MCP Config (`.mcp.json` / `mcp_config.json`)
+To manage Render infrastructure (`render`) alongside this deployed control plane (`ai-bridge-render`) from Antigravity, Cursor, or Claude Code:
+
+```json
+{
+  "mcpServers": {
+    "render": {
+      "url": "https://mcp.render.com/mcp"
+    },
+    "ai-bridge-render": {
+      "url": "https://ai-bridge-control.onrender.com/mcp"
+    }
+  }
+}
+```
+
+- Authenticate `render` with your Render API key (`rnd_...`, Bearer token or IDE OAuth prompt).
+- Authenticate `ai-bridge-render` with an OAuth 2.1 access token or `Authorization: Bearer <AI_BRIDGE_ADMIN_TOKEN>`.

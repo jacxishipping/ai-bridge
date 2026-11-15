@@ -1,4 +1,10 @@
 {
-	"mcpServers": {
-	}
+  "mcpServers": {
+    "render": {
+      "url": "https://mcp.render.com/mcp"
+    },
+    "ai-bridge-render": {
+      "url": "https://ai-bridge-control.onrender.com/mcp"
+    }
+  }
 }

@@ -123,6 +123,16 @@ POPULAR_MCP_TEMPLATES = [
         "requires_auth": False,
     },
     {
+        "id": "render-mcp",
+        "name": "Render MCP",
+        "url": "https://mcp.render.com/mcp",
+        "description": "Manage Render web services, static sites, Postgres databases, deploys, logs, and metrics via Render's official hosted MCP server.",
+        "category": "cloud",
+        "requires_auth": True,
+        "auth_type": "bearer",
+        "auth_placeholder": "rnd_...",
+    },
+    {
         "id": "github-mcp",
         "name": "GitHub MCP",
         "url": "https://api.githubcopilot.com/mcp",
