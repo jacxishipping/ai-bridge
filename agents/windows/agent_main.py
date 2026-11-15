@@ -21,8 +21,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import re
+import socket
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
@@ -41,11 +45,10 @@ def _resolve_saved_config(control_url: str, device_token: str, token_file: Path)
         resolved_tok = app_runtime.load_token(token_file, default="")
 
     env_default_url = "http://127.0.0.1:8000"
-    search_dirs = []
+    search_dirs = [Path.home() / ".ai-bridge"]
     for base_env in (os.environ.get("APPDATA"), os.environ.get("ProgramData")):
         if base_env:
             search_dirs.extend([Path(base_env) / "ai-bridge", Path(base_env) / "AIBridge"])
-    search_dirs.append(Path.home() / ".ai-bridge")
 
     for cfg_dir in search_dirs:
         gui_cfg = cfg_dir / "agent_gui.json"
@@ -91,17 +94,81 @@ def _resolve_saved_config(control_url: str, device_token: str, token_file: Path)
     return resolved_url or env_default_url, resolved_tok
 
 
+def _save_agent_config(control_url: str, device_token: str, token_path: Path) -> Path:
+    """Persist control URL and sealed device token so future runs need no CLI flags."""
+    clean_url = (control_url or "").strip().rstrip("/") or "http://127.0.0.1:8000"
+    if device_token:
+        app_runtime.save_token(device_token, token_path)
+    cfg_dir = Path.home() / ".ai-bridge"
+    env_file = cfg_dir / "agent.env"
+    existing: dict[str, str] = {}
+    if env_file.is_file():
+        try:
+            for raw in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                existing[k.strip()] = v.strip().strip('"').strip("'")
+        except OSError:
+            pass
+    existing["AI_BRIDGE_CONTROL_URL"] = clean_url
+    if device_token:
+        existing["AI_BRIDGE_DEVICE_TOKEN"] = app_runtime.seal_token(device_token)
+    lines = [f'{k}="{v}"' for k, v in existing.items() if v]
+    app_runtime._atomic_write(env_file, ("\n".join(lines) + "\n").encode("utf-8"))
+    return env_file
+
+
+def _enroll_with_admin_token(control_url: str, admin_token: str, name: str = "") -> tuple[str, str]:
+    """Enroll this Windows device with the control plane in a single API call."""
+    clean_url = (control_url or "").strip().rstrip("/")
+    if not clean_url or not admin_token.strip():
+        raise ValueError("Both control URL and admin token are required to enroll.")
+    host = socket.gethostname() or "windows-device"
+    payload = json.dumps({
+        "name": (name or "").strip() or host,
+        "hostname": host,
+        "os": f"Windows ({platform.release()})" if platform.release() else "Windows",
+        "unrestricted": True,
+        "set_default": True,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{clean_url}/api/devices/enroll",
+        data=payload,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "X-Admin-Token": admin_token.strip(),
+            "User-Agent": "AI-Bridge-Windows-Agent",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Enrollment failed (HTTP {exc.code}): {body}") from exc
+    dev_id = str(data.get("device_id") or "")
+    dev_tok = str(data.get("device_token") or "")
+    if not dev_tok:
+        raise RuntimeError(f"Enrollment response missing device_token: {data}")
+    return dev_id, dev_tok
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="ai-bridge-agent")
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["run", "status", "system-info", "event-logs"],
+        choices=["run", "enroll", "status", "system-info", "event-logs"],
         default="run",
         help="Subcommand to execute (default: run).",
     )
     parser.add_argument("--control-url", default=os.environ.get("AI_BRIDGE_CONTROL_URL", "http://127.0.0.1:8000"))
     parser.add_argument("--device-token", default=os.environ.get("AI_BRIDGE_DEVICE_TOKEN", ""))
+    parser.add_argument("--admin-token", default=os.environ.get("AI_BRIDGE_ADMIN_TOKEN", ""), help="Admin token to enroll and start automatically on first run.")
+    parser.add_argument("--name", default=os.environ.get("AI_BRIDGE_DEVICE_NAME", ""), help="Friendly device name when using --admin-token or 'enroll'.")
     parser.add_argument(
         "--token-file",
         default=os.environ.get("AI_BRIDGE_TOKEN_FILE", str(app_runtime.DEFAULT_TOKEN_FILE)),
@@ -176,6 +243,14 @@ def main() -> None:
     token_path = Path(args.token_file)
     control_url, device_token = _resolve_saved_config(args.control_url, args.device_token, token_path)
 
+    if args.command == "enroll":
+        if not args.admin_token:
+            parser.error("enroll requires --admin-token (or AI_BRIDGE_ADMIN_TOKEN).")
+        dev_id, device_token = _enroll_with_admin_token(control_url, args.admin_token, args.name)
+        saved_env = _save_agent_config(control_url, device_token, token_path)
+        print(f"Enrolled device '{dev_id}' on {control_url}; credentials saved to {saved_env}")
+        raise SystemExit(0)
+
     if args.command == "status":
         payload = {
             "control_url": control_url,
@@ -187,8 +262,15 @@ def main() -> None:
         print(json.dumps(payload, indent=2))
         raise SystemExit(0)
 
+    if not device_token and args.admin_token:
+        dev_id, device_token = _enroll_with_admin_token(control_url, args.admin_token, args.name)
+        saved_env = _save_agent_config(control_url, device_token, token_path)
+        print(f"Auto-enrolled device '{dev_id}' on {control_url}; saved to {saved_env}")
+    elif args.device_token and device_token:
+        _save_agent_config(control_url, device_token, token_path)
+
     if not device_token:
-        parser.error("A device token is required (--device-token or AI_BRIDGE_DEVICE_TOKEN).")
+        parser.error("A device token is required (--device-token, --admin-token to auto-enroll, or AI_BRIDGE_DEVICE_TOKEN).")
 
     app_runtime.configure_file_logging()
     app_runtime.install_excepthook()

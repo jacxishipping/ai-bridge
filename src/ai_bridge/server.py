@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import platform
+import time
 
 import anyio
 from mcp.server.fastmcp import FastMCP
@@ -154,6 +155,16 @@ def _oauth_bound_device() -> str | None:
         return None
 
 
+_AUTO_DEVICE_CACHE: dict[str, tuple[float, str | None]] = {}
+
+
+def _session_explicitly_local() -> bool:
+    """True when the caller explicitly selected 'local' for this MCP session."""
+    if _oauth_bound_device() is not None:
+        return False
+    return _SELECTED_DEVICE.get(_session_key()) == "local"
+
+
 def _session_device() -> str | None:
     """Device_id active for this MCP call, or None for unbound/local calls.
 
@@ -167,6 +178,54 @@ def _session_device() -> str | None:
         chosen = _SELECTED_DEVICE[key]
         return None if chosen in (None, "", "local") else chosen
     return None
+
+
+def _auto_select_remote_device() -> str | None:
+    """Pick the configured default or primary online enrolled device automatically.
+
+    Allows connected chatbots (ChatGPT, Grok, Gemini, Claude) to control the user's
+    added device immediately without requiring a manual select_device() step.
+    """
+    env_default = os.environ.get("AI_BRIDGE_DEFAULT_DEVICE", "").strip()
+    if env_default:
+        if env_default.lower() in ("local", "host", "droplet"):
+            return None
+        try:
+            rec = _resolve_device_record(env_default)
+            return rec["id"] if rec else env_default
+        except Exception:
+            return env_default
+
+    auto_flag = os.environ.get("AI_BRIDGE_AUTO_SELECT_DEVICE", "").strip().lower()
+    if auto_flag in ("0", "false", "no", "off"):
+        return None
+    if not (has_control_hook() or auto_flag in ("1", "true", "yes")):
+        return None
+
+    ctrl_url = _control_url()
+    use_cache = not has_control_hook()
+    cache_key = f"{ctrl_url}:{int(has_control_hook())}"
+    now = time.monotonic()
+    if use_cache:
+        cached = _AUTO_DEVICE_CACHE.get(cache_key)
+        if cached and (now - cached[0]) < 3.0:
+            return cached[1]
+
+    picked: str | None = None
+    try:
+        devices = list_all_devices(ctrl_url, _admin_token())
+        online = [d for d in devices if d.get("status") == "online" and not d.get("revoked")]
+        default_dev = next((d for d in online if d.get("is_default")), None)
+        if default_dev:
+            picked = default_dev.get("id")
+        elif online:
+            online_sorted = sorted(online, key=lambda d: float(d.get("last_seen") or 0), reverse=True)
+            picked = online_sorted[0].get("id")
+    except Exception:
+        picked = None
+    if use_cache:
+        _AUTO_DEVICE_CACHE[cache_key] = (now, picked)
+    return picked
 
 
 def _admin_token() -> str:
@@ -324,9 +383,11 @@ def device_aware(dispatch_name: str | None = None, *, bound: str = "route"):
                 device = _resolve_target_device(explicit_dev)
             else:
                 device = _session_device()
+                if device is None and not _session_explicitly_local():
+                    device = _auto_select_remote_device()
 
             # Auto-route desktop GUI automation tools to active Windows device on headless hosts
-            if device is None and (fn.__name__ in DESKTOP_ROUTING_TOOLS) and (platform.system() != "Windows"):
+            if device is None and not _session_explicitly_local() and (explicit_dev is None) and (fn.__name__ in DESKTOP_ROUTING_TOOLS) and (platform.system() != "Windows"):
                 win_dev = _find_default_windows_device()
                 if win_dev is not None:
                     device = win_dev
@@ -922,7 +983,9 @@ def list_devices() -> list[dict]:
       1. Pass device='<device_name_or_id>' to any tool call.
       2. Call select_device('<device_name_or_id>') to set the default target device for your session.
       3. Use device='local' to target the MCP host/droplet."""
-    active = _session_device() or "local"
+    selected = _session_device()
+    auto_selected = None if (selected is not None or _session_explicitly_local()) else _auto_select_remote_device()
+    active = selected or auto_selected or "local"
     out: list[dict] = []
     info = tools.get_system_info()
     out.append({
@@ -934,6 +997,8 @@ def list_devices() -> list[dict]:
         "status": "online",
         "workspace": info.get("workspace"),
         "active": active == "local",
+        "is_default": active == "local",
+        "auto_selected": False,
         "routing_hint": "Pass device='local' or call select_device('local') to target the droplet host.",
     })
     token = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
@@ -957,6 +1022,9 @@ def list_devices() -> list[dict]:
                     "status": d.get("status"),
                     "last_seen": d.get("last_seen"),
                     "active": did == active,
+                    "is_default": bool(d.get("is_default")),
+                    "unrestricted": bool(d.get("unrestricted", False)),
+                    "auto_selected": bool(auto_selected and did == auto_selected and selected is None),
                     "routing_hint": f"Pass device='{d.get('name') or did}' to target this machine.",
                 })
         except Exception as exc:

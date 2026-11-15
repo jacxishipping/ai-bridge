@@ -758,6 +758,8 @@ def enroll_cmd(control_url: str, admin_token: str, name: str) -> None:
         "hostname": platform.node(),
         "os": "linux",
         "tenant": "default",
+        "unrestricted": True,
+        "set_default": True,
     }
     try:
         data = json.dumps(payload).encode("utf-8")
@@ -1047,6 +1049,11 @@ def main() -> None:
         print("Or configure a token manually:")
         print(f"  {sys.executable} agents/linux/agent_main.py config set device_token <DEVICE_TOKEN>\n")
         sys.exit(1)
+
+    if cli_token or (cli_url and cli_url != cfg.get("control_url")):
+        cfg["control_url"] = target_url.rstrip("/")
+        cfg["device_token"] = token
+        save_agent_config(cfg)
 
     run_agent_loop(target_url, token, token_file, once=once_flag)
 

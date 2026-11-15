@@ -84,13 +84,14 @@ export const DevicesView: React.FC = () => {
 
   // Enrollment Modal state
   const [enrollModalOpen, setEnrollModalOpen] = useState<boolean>(false);
-  const [enrollPlatformTab, setEnrollPlatformTab] = useState<string>("linux");
+  const [enrollOs, setEnrollOs] = useState<"windows" | "linux" | "darwin">("windows");
+  const [enrollPlatformTab, setEnrollPlatformTab] = useState<string>("windows");
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
+  const [copiedPythonCmd, setCopiedPythonCmd] = useState<boolean>(false);
   const [clipboardError, setClipboardError] = useState("");
-  const [enrollDeviceName, setEnrollDeviceName] = useState<string>("edge-worker-node");
-  const [enrollArchRole, setEnrollArchRole] = useState<string>("Desktop Automation Host (Windows)");
-  const [sandboxDir, setSandboxDir] = useState<string>("/opt/ai-bridge/workspace");
-  const [tokenExpiry, setTokenExpiry] = useState<string>("24h");
+  const [enrollDeviceName, setEnrollDeviceName] = useState<string>("");
+  const [enrollUnrestricted, setEnrollUnrestricted] = useState<boolean>(true);
+  const [enrollSetDefault, setEnrollSetDefault] = useState<boolean>(true);
   const [tokenProvisioned, setTokenProvisioned] = useState<boolean>(false);
   const [enrolledToken, setEnrolledToken] = useState<string>("");
   const [enrolledDeviceId, setEnrolledDeviceId] = useState<string>("");
@@ -169,12 +170,22 @@ export const DevicesView: React.FC = () => {
 
   const controlUrl = apiOrigin.replace(/\/$/, "") || "http://127.0.0.1:8000";
   const hasRealToken = Boolean(enrolledToken);
+  const defaultEnrollName = enrollOs === "windows" ? "windows-pc" : enrollOs === "darwin" ? "macos-workstation" : "linux-server";
   const linuxEnrollCommand = hasRealToken
     ? `curl -sSL ${controlUrl}/install.sh | bash -s -- -y --device-token=${enrolledToken} --control-url=${controlUrl}`
-    : `# Generate an enrollment token first, then run:\n# curl -sSL ${controlUrl}/install.sh | bash -s -- -y --device-token=<TOKEN> --control-url=${controlUrl}`;
+    : `# Click "Generate & Copy Setup Command" above first:\n# curl -sSL ${controlUrl}/install.sh | bash -s -- -y --device-token=<TOKEN> --control-url=${controlUrl}`;
   const windowsEnrollCommand = hasRealToken
     ? `iwr ${controlUrl}/install.ps1 -OutFile install-ai-bridge.ps1; powershell -ExecutionPolicy Bypass -File .\\install-ai-bridge.ps1 -ControlUrl '${controlUrl}' -DeviceToken '${enrolledToken}'`
-    : `# Generate an enrollment token first, then:\n# iwr ${controlUrl}/install.ps1 -OutFile install-ai-bridge.ps1; powershell -File .\\install-ai-bridge.ps1 -ControlUrl '${controlUrl}' -DeviceToken <TOKEN>`;
+    : `# Click "Generate & Copy Setup Command" above first:\n# iwr ${controlUrl}/install.ps1 -OutFile install-ai-bridge.ps1; powershell -File .\\install-ai-bridge.ps1 -ControlUrl '${controlUrl}' -DeviceToken <TOKEN>`;
+  const activeInstallerCommand = enrollPlatformTab === "windows" ? windowsEnrollCommand : linuxEnrollCommand;
+  const agentScriptPath = enrollPlatformTab === "windows"
+    ? "agents\\windows\\agent_main.py"
+    : enrollPlatformTab === "darwin"
+    ? "agents/macos/agent_main.py"
+    : "agents/linux/agent_main.py";
+  const pythonDirectCommand = hasRealToken
+    ? `python ${agentScriptPath} --control-url "${controlUrl}" --device-token "${enrolledToken}"`
+    : `python ${agentScriptPath} --control-url "${controlUrl}" --admin-token "<YOUR_ADMIN_TOKEN>"`;
 
   const handleCopyEnrollCommand = useCallback(async () => {
     if (!hasRealToken) {
@@ -183,26 +194,56 @@ export const DevicesView: React.FC = () => {
         : "Connect to a control plane to issue a real device token.");
       return;
     }
-    const text = enrollPlatformTab === "linux" ? linuxEnrollCommand : windowsEnrollCommand;
     setClipboardError("");
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(activeInstallerCommand);
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2000);
     } catch {
       setClipboardError("Clipboard access was denied. Select and copy the install command manually.");
     }
-  }, [enrollPlatformTab, hasRealToken, isLive, linuxEnrollCommand, windowsEnrollCommand]);
+  }, [activeInstallerCommand, hasRealToken, isLive]);
+
+  const handleCopyPythonCommand = useCallback(async () => {
+    setClipboardError("");
+    try {
+      await navigator.clipboard.writeText(pythonDirectCommand);
+      setCopiedPythonCmd(true);
+      setTimeout(() => setCopiedPythonCmd(false), 2000);
+    } catch {
+      setClipboardError("Clipboard access was denied. Select and copy the Python command manually.");
+    }
+  }, [pythonDirectCommand]);
 
   const handleEnrollDevice = useCallback(async () => {
     setEnrollError("");
+    setClipboardError("");
+    const finalName = enrollDeviceName.trim() || defaultEnrollName;
+    const osLabel = enrollOs === "windows" ? "Windows" : enrollOs === "darwin" ? "macOS" : "Linux";
+    const tab = enrollOs === "windows" ? "windows" : enrollOs === "darwin" ? "darwin" : "linux";
+    setEnrollPlatformTab(tab);
+
     if (Boolean(token() || sessionToken())) {
       setIsEnrolling(true);
       try {
-        const res = await api.enroll(enrollDeviceName.trim() || "edge-worker-node");
-        setEnrolledToken(res?.device_token || "");
+        const res = await api.enroll(finalName, {
+          os: osLabel,
+          unrestricted: enrollUnrestricted,
+          set_default: enrollSetDefault,
+        });
+        const tok = res?.device_token || "";
+        setEnrolledToken(tok);
         setEnrolledDeviceId(res?.device_id || "");
         setTokenProvisioned(true);
+        if (tok && typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+          const autoCmd = tab === "windows"
+            ? `iwr ${controlUrl}/install.ps1 -OutFile install-ai-bridge.ps1; powershell -ExecutionPolicy Bypass -File .\\install-ai-bridge.ps1 -ControlUrl '${controlUrl}' -DeviceToken '${tok}'`
+            : `curl -sSL ${controlUrl}/install.sh | bash -s -- -y --device-token=${tok} --control-url=${controlUrl}`;
+          void navigator.clipboard.writeText(autoCmd).then(() => {
+            setCopiedCode(true);
+            setTimeout(() => setCopiedCode(false), 2500);
+          }).catch(() => {});
+        }
         await refreshLive?.();
       } catch (err: any) {
         setEnrollError(err?.message || "Failed to enroll device.");
@@ -216,7 +257,48 @@ export const DevicesView: React.FC = () => {
       setTokenProvisioned(false);
       setEnrollModalOpen(false);
     }, 800);
-  }, [enrollDeviceName, refreshLive]);
+  }, [controlUrl, defaultEnrollName, enrollDeviceName, enrollOs, enrollSetDefault, enrollUnrestricted, refreshLive]);
+
+  const handleSetDefaultDevice = useCallback(
+    async (device: EnrolledDevice) => {
+      if (Boolean(token() || sessionToken())) {
+        try {
+          await api.setDefaultDevice(device.id);
+          await refreshLive?.();
+          setDeviceActionNotice(`${device.hostname} is now the default AI target for connected chatbots.`);
+          setTimeout(() => setDeviceActionNotice(null), 3500);
+        } catch (err: any) {
+          setDeviceActionNotice(`Set default failed: ${err?.message || "Unknown error"}`);
+        }
+        return;
+      }
+      setDeviceActionNotice(`Simulated default target set to ${device.hostname}.`);
+      setTimeout(() => setDeviceActionNotice(null), 3000);
+    },
+    [refreshLive]
+  );
+
+  const handleToggleAccessMode = useCallback(
+    async (device: EnrolledDevice) => {
+      const nextMode: "unrestricted" | "guarded" = device.unrestricted ? "guarded" : "unrestricted";
+      if (Boolean(token() || sessionToken())) {
+        try {
+          await api.setDeviceAccessMode(device.id, nextMode);
+          await refreshLive?.();
+          setDeviceActionNotice(
+            `Updated ${device.hostname} to ${nextMode === "unrestricted" ? "Full Access (Unrestricted)" : "Guarded Mode"}.`
+          );
+          setTimeout(() => setDeviceActionNotice(null), 3500);
+        } catch (err: any) {
+          setDeviceActionNotice(`Access mode update failed: ${err?.message || "Unknown error"}`);
+        }
+        return;
+      }
+      setDeviceActionNotice(`Simulated switching ${device.hostname} to ${nextMode} mode.`);
+      setTimeout(() => setDeviceActionNotice(null), 3000);
+    },
+    [refreshLive]
+  );
 
   const handleRevokeDevice = useCallback(
     async (device: EnrolledDevice) => {
@@ -523,6 +605,42 @@ export const DevicesView: React.FC = () => {
                           <td className="py-3 px-3 sticky right-0 bg-[var(--product-surface)] group-hover:bg-[var(--product-raised)]/70 transition-colors text-right pr-4">
                             <div className="flex items-center justify-end gap-1.5 sm:gap-2">
                               <JXButton
+                                variant="soft"
+                                color={device.isDefault ? "primary" : "neutral"}
+                                size="sm"
+                                onClick={() => handleSetDefaultDevice(device)}
+                                startIcon={<CheckCircle2 className={`w-3 h-3 ${device.isDefault ? "text-emerald-300" : "text-[var(--product-text-tertiary)]"}`} />}
+                                className={`text-[11px] hidden lg:inline-flex ${
+                                  device.isDefault
+                                    ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                                    : "bg-[var(--product-raised)] text-[var(--product-text-secondary)]"
+                                }`}
+                              >
+                                {device.isDefault ? "Default Target" : "Set Default"}
+                              </JXButton>
+
+                              <JXButton
+                                variant="soft"
+                                color={device.unrestricted ? "neutral" : "warning"}
+                                size="sm"
+                                onClick={() => handleToggleAccessMode(device)}
+                                startIcon={
+                                  device.unrestricted ? (
+                                    <Zap className="w-3 h-3 text-emerald-400" />
+                                  ) : (
+                                    <Shield className="w-3 h-3 text-amber-400" />
+                                  )
+                                }
+                                className={`text-[11px] hidden md:inline-flex ${
+                                  device.unrestricted
+                                    ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
+                                    : ""
+                                }`}
+                              >
+                                {device.unrestricted ? "Full Access" : "Guarded"}
+                              </JXButton>
+
+                              <JXButton
                                 variant="text"
                                 color="neutral"
                                 size="sm"
@@ -635,42 +753,118 @@ export const DevicesView: React.FC = () => {
         />
       </div>
 
-      {/* Enroll Device Modal */}
+      {/* Simple 1-Click Add Device Modal */}
       {enrollModalOpen && (
         <GlassModal
           open={enrollModalOpen}
           onClose={() => setEnrollModalOpen(false)}
-          title={isLive ? "Enroll new device" : "Preview device enrollment"}
+          title={isLive ? "Add device in 1 click" : "Preview device enrollment"}
         >
           <div className="space-y-4 max-w-xl w-full text-xs font-mono">
             <ProductStepProgress
-              steps={["Name", "Token", "Install", "Heartbeat"]}
+              steps={["Pick OS", "Create Token", "Run Command", "Ready for AI"]}
               current={hasRealToken ? 2 : 0}
             />
             <p className="text-[var(--product-text-tertiary)] text-xs">
               {isLive
-                ? `Installers are served from the control plane (${controlUrl}/install.sh). After install, open Live home and wait for the first heartbeat.`
-                : "Demo preview only — no real device token is issued. Connect a control plane to enroll."}
+                ? `Pick your computer type and generate a setup command. Once started, chatbots (ChatGPT, Grok, Gemini) can use it automatically.`
+                : "Demo preview only — connect a control plane to issue a real device token."}
             </p>
             {hasRealToken && (
               <ProductNotice tone="success">
-                Token ready. Copy the install command, run it on the host, then watch Live home for the first heartbeat.
+                Ready for {enrolledDeviceId || defaultEnrollName}. Paste the command on your device — credentials save automatically on first run.
               </ProductNotice>
             )}
             {clipboardError && <p role="alert" className="text-rose-300">{clipboardError}</p>}
             {enrollError && <p role="alert" className="text-rose-300">{enrollError}</p>}
 
-            {/* Device Name */}
+            {/* Step 1: Operating System */}
+            <div className="space-y-1.5">
+              <label className="text-[var(--product-text-secondary)] font-semibold text-xs block">
+                1. Device Operating System
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { id: "windows", label: "Windows" },
+                  { id: "linux", label: "Linux" },
+                  { id: "darwin", label: "macOS" },
+                ] as const).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setEnrollOs(item.id);
+                      setEnrollPlatformTab(item.id);
+                    }}
+                    className={`py-2.5 px-3 rounded-xl border text-center transition-all flex items-center justify-center gap-2 ${
+                      enrollOs === item.id
+                        ? "bg-indigo-600/30 border-indigo-500 text-indigo-100 font-bold"
+                        : "bg-[var(--product-raised)] border-[var(--product-line)] text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
+                    }`}
+                  >
+                    {item.id === "windows" ? (
+                      <Monitor className="w-3.5 h-3.5 text-cyan-400" />
+                    ) : item.id === "darwin" ? (
+                      <Laptop className="w-3.5 h-3.5 text-purple-400" />
+                    ) : (
+                      <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                    )}
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Step 2: Optional Friendly Name */}
             <div className="space-y-1">
               <label className="text-[var(--product-text-secondary)] font-semibold text-xs block">
-                Device Name
+                2. Device Name <span className="font-normal text-[var(--product-text-tertiary)]">(optional)</span>
               </label>
               <JXTextField
                 value={enrollDeviceName}
                 onChange={(val) => setEnrollDeviceName(val)}
-                placeholder="edge-worker-node"
+                placeholder={defaultEnrollName}
                 size="md"
               />
+            </div>
+
+            {/* Step 3: Access & Chatbot Default toggles */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setEnrollUnrestricted(!enrollUnrestricted)}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  enrollUnrestricted
+                    ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-200"
+                    : "bg-[var(--product-raised)] border-[var(--product-line)] text-[var(--product-text-tertiary)]"
+                }`}
+              >
+                <div className="flex items-center justify-between font-semibold">
+                  <span>Full AI Control</span>
+                  <span>{enrollUnrestricted ? "ON" : "OFF"}</span>
+                </div>
+                <div className="text-[11px] opacity-80 mt-0.5">
+                  Allow shell & desktop actions without approval prompts.
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setEnrollSetDefault(!enrollSetDefault)}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  enrollSetDefault
+                    ? "bg-indigo-600/20 border-indigo-500/50 text-indigo-200"
+                    : "bg-[var(--product-raised)] border-[var(--product-line)] text-[var(--product-text-tertiary)]"
+                }`}
+              >
+                <div className="flex items-center justify-between font-semibold">
+                  <span>Default Chatbot Target</span>
+                  <span>{enrollSetDefault ? "ON" : "OFF"}</span>
+                </div>
+                <div className="text-[11px] opacity-80 mt-0.5">
+                  ChatGPT, Grok & Gemini target this machine automatically.
+                </div>
+              </button>
             </div>
 
             {enrolledToken && (
@@ -684,126 +878,87 @@ export const DevicesView: React.FC = () => {
               </div>
             )}
 
-            {/* Target Architecture & Role — UI hint only; enroll API does not consume this field */}
-            <div className="space-y-1">
-              <label className="text-[var(--product-text-secondary)] font-semibold text-xs block">
-                Target Architecture & Role{" "}
-                <span className="font-normal text-[var(--product-text-tertiary)]">(display only — not sent to enroll)</span>
-              </label>
-              <select
-                aria-label="Target architecture and role"
-                value={enrollArchRole}
-                onChange={(e) => setEnrollArchRole(e.target.value)}
-                className="w-full bg-[var(--product-raised)] border border-[var(--product-line)] text-[var(--product-text-secondary)] rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
-              >
-                <option value="Standard Worker (Linux x86_64 / arm64)">
-                  Standard Worker (Linux x86_64 / arm64)
-                </option>
-                <option value="Desktop Automation Host (Windows)">
-                  Desktop Automation Host (Windows only — WebRTC stream / SoM)
-                </option>
-                <option value="Confidential Compute Isolated Enclave (Intel SGX / AMD SEV) — not wired">
-                  Confidential Compute (SGX / SEV) — decorative, not wired
-                </option>
-              </select>
-            </div>
-
-            {/* Sandbox Path — decorative; enroll API does not accept sandbox_dir */}
-            <div className="space-y-1">
-              <label className="text-[var(--product-text-secondary)] font-semibold text-xs block">
-                Sandbox Home Directory{" "}
-                <span className="font-normal text-[var(--product-text-tertiary)]">(not wired to enroll API)</span>
-              </label>
-              <JXTextField
-                value={sandboxDir}
-                onChange={(val) => setSandboxDir(val)}
-                placeholder="/opt/ai-bridge/workspace"
-                size="md"
-              />
-              <span className="text-[11px] text-[var(--product-text-tertiary)]">
-                Preview-only path label. Enrollment issues a device token only; agent workspace is configured on the host install script / policy, not by this field.
-              </span>
-            </div>
-
-            {/* Expiration choices */}
-            <div className="space-y-1">
-              <label className="text-[var(--product-text-secondary)] font-semibold text-xs block">
-                Token Expiration Window
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {["1h", "24h", "7d"].map((exp) => (
-                  <button
-                    key={exp}
-                    type="button"
-                    onClick={() => setTokenExpiry(exp)}
-                    className={`py-2 px-3 rounded-xl border text-center transition-all ${
-                      tokenExpiry === exp
-                        ? "bg-indigo-600/30 border-indigo-500 text-indigo-200 font-bold"
-                        : "bg-[var(--product-raised)] border-[var(--product-line)] text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
-                    }`}
-                  >
-                    {exp === "1h" ? "1 Hour" : exp === "24h" ? "24 Hours" : "7 Days"}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Script Platform Tabs */}
-            <div className="space-y-2 pt-2 border-t border-[var(--product-line)]">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+            {/* Setup Commands */}
+            <div className="space-y-3 pt-2 border-t border-[var(--product-line)]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-[var(--product-text-secondary)] font-semibold text-xs">
-                  Provisioning One-Liner
+                  Option A: One-Line Auto-Installer
                 </span>
-                <div className="flex items-center gap-1.5 p-1 rounded-lg bg-[var(--product-raised)] border border-[var(--product-line)]">
-                  <button
-                    type="button"
-                    onClick={() => setEnrollPlatformTab("linux")}
-                    className={`px-2.5 py-1 rounded text-[11px] transition-all ${
-                      enrollPlatformTab === "linux"
-                        ? "bg-indigo-600 text-white font-semibold"
-                        : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
-                    }`}
-                  >
-                    Linux / macOS
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEnrollPlatformTab("windows")}
-                    className={`px-2.5 py-1 rounded text-[11px] transition-all ${
-                      enrollPlatformTab === "windows"
-                        ? "bg-indigo-600 text-white font-semibold"
-                        : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
-                    }`}
-                  >
-                    Windows PowerShell
-                  </button>
+                <div className="flex items-center gap-1 p-1 rounded-lg bg-[var(--product-raised)] border border-[var(--product-line)]">
+                  {(["windows", "linux", "darwin"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setEnrollPlatformTab(tab)}
+                      className={`px-2 py-0.5 rounded text-[11px] transition-all ${
+                        enrollPlatformTab === tab
+                          ? "bg-indigo-600 text-white font-semibold"
+                          : "text-[var(--product-text-tertiary)] hover:text-[var(--product-text-secondary)]"
+                      }`}
+                    >
+                      {tab === "windows" ? "Windows" : tab === "darwin" ? "macOS" : "Linux"}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Command box */}
-              <div className="relative p-3.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)]">
+              <div className="relative p-3 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)]">
                 <pre className="text-emerald-400 whitespace-pre-wrap break-all text-[11px] pr-20 select-all font-mono">
-                  {enrollPlatformTab === "linux" ? linuxEnrollCommand : windowsEnrollCommand}
+                  {activeInstallerCommand}
                 </pre>
-                <div className="absolute right-3 top-3">
-                <JXButton
-                  variant="contained"
-                  color="primary"
-                  size="sm"
-                  disabled={!hasRealToken}
-                  onClick={handleCopyEnrollCommand}
-                  startIcon={
-                    copiedCode ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-300" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )
-                  }
-                  className="bg-indigo-600 hover:bg-indigo-500 text-xs"
-                >
-                  {copiedCode ? "Copied!" : hasRealToken ? "Copy" : "Token first"}
-                </JXButton>
+                <div className="absolute right-2.5 top-2.5">
+                  <JXButton
+                    variant="contained"
+                    color="primary"
+                    size="sm"
+                    disabled={!hasRealToken}
+                    onClick={handleCopyEnrollCommand}
+                    startIcon={
+                      copiedCode ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-300" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )
+                    }
+                    className="bg-indigo-600 hover:bg-indigo-500 text-xs"
+                  >
+                    {copiedCode ? "Copied!" : hasRealToken ? "Copy" : "Create first"}
+                  </JXButton>
                 </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[var(--product-text-secondary)] font-semibold text-xs">
+                    Option B: Direct Python Command (remembers credentials after first run)
+                  </span>
+                </div>
+                <div className="relative p-3 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)]">
+                  <pre className="text-cyan-300 whitespace-pre-wrap break-all text-[11px] pr-20 select-all font-mono">
+                    {pythonDirectCommand}
+                  </pre>
+                  <div className="absolute right-2.5 top-2.5">
+                    <JXButton
+                      variant="soft"
+                      color="neutral"
+                      size="sm"
+                      onClick={handleCopyPythonCommand}
+                      startIcon={
+                        copiedPythonCmd ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-300" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )
+                      }
+                      className="text-xs"
+                    >
+                      {copiedPythonCmd ? "Copied!" : "Copy"}
+                    </JXButton>
+                  </div>
+                </div>
+                <p className="text-[11px] text-[var(--product-text-tertiary)]">
+                  After running once with a token, future runs only need: <span className="text-[var(--product-text-secondary)]">python {agentScriptPath}</span>
+                </p>
               </div>
             </div>
 
@@ -836,7 +991,7 @@ export const DevicesView: React.FC = () => {
                   {isLive
                     ? enrolledToken
                       ? "Issue another token"
-                      : "Generate enrollment token"
+                      : "Generate & Copy Setup Command"
                     : tokenProvisioned
                     ? "Preview complete"
                     : "Simulate key generation"}

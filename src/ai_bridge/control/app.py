@@ -276,6 +276,7 @@ class EnrollIn(BaseModel):
     tenant: str = "default"
     unrestricted: bool | None = None
     policy: dict | None = None
+    set_default: bool = False
 
 class TaskIn(BaseModel):
     device_id: str
@@ -1045,6 +1046,12 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             initial_policy = json.dumps(body.policy)
         conn.execute("INSERT INTO devices (id, name, hostname, os, tenant, token_hash, created_at, token_issued_at, token_expires_at, policy_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
                      (device_id, body.name, body.hostname, body.os, body.tenant, dbmod.hash_token(device_token), issued, issued, expires, initial_policy))
+        if body.set_default:
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('default_device_id', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (device_id,),
+            )
         conn.commit()
         from . import device_mtls
 
@@ -1056,10 +1063,13 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             enrolled_fp = device_mtls.normalize_fingerprint(str(mtls_fp))
             device_mtls.set_device_fingerprint(conn, device_id, enrolled_fp)
         audit(actor, device_id, "enroll_device", body.model_dump(), "allowed", tenant=body.tenant)
+        is_unrestricted = bool(body.unrestricted is True or (isinstance(body.policy, dict) and body.policy.get("unrestricted")))
         # Token is shown exactly once here; only its hash is stored.
         return {"device_id": device_id, "device_token": device_token, "token_expires_at": expires,
                 "token_ttl_days": device_ttl_days,
                 "mtls_fingerprint": enrolled_fp,
+                "unrestricted": is_unrestricted,
+                "is_default": bool(body.set_default),
                 "note": "Store the device token securely; it will not be shown again. It expires and must be rotated."}
 
     app.state.device_live_meta = {}
@@ -1101,31 +1111,45 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                 pass
         return meta
 
+    def _get_default_device_id() -> str | None:
+        row = conn.execute("SELECT value FROM settings WHERE key='default_device_id'").fetchone()
+        if row and row["value"]:
+            return str(row["value"]).strip() or None
+        return None
+
+    def _enrich_device_row(r, default_dev_id: str | None) -> dict:
+        d = dict(r)
+        d["group"] = d.pop("group_name", None) or ""
+        d["tags"] = json.loads(d.pop("tags_json", None) or "[]")
+        raw_p = d.get("policy_json") or "{}"
+        try:
+            parsed_p = json.loads(raw_p) if isinstance(raw_p, str) else (raw_p or {})
+        except Exception:
+            parsed_p = {}
+        d["has_custom_policy"] = bool(parsed_p)
+        d["policy"] = parsed_p
+        raw_tier = parsed_p.get("max_tier_unattended")
+        try:
+            tier_val = int(raw_tier) if raw_tier is not None else 2
+        except (TypeError, ValueError):
+            tier_val = 2
+        d["unrestricted"] = bool(parsed_p.get("unrestricted") or tier_val >= 4)
+        d["is_default"] = bool(default_dev_id and d.get("id") == default_dev_id)
+        live_meta = _get_device_live_meta(d["id"])
+        if live_meta.get("ip_address"):
+            d["ip_address"] = live_meta["ip_address"]
+        return d
+
     @app.get("/api/devices", summary="List devices", description="Lists all devices in the fleet with their status, metadata, and live telemetry.")
     def list_devices(x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None), tenant: str = "default"):
         require_role("viewer", x_admin_token, x_session_token)
+        default_dev_id = _get_default_device_id()
         rows = conn.execute(
             "SELECT d.id, d.name, d.hostname, d.os, d.tenant, d.status, d.last_seen, d.revoked, d.created_at, "
             "d.token_expires_at, d.policy_json, m.group_name, m.tags_json FROM devices d "
             "LEFT JOIN device_metadata m ON m.device_id=d.id WHERE d.tenant=?", (tenant,),
         ).fetchall()
-        result = []
-        for r in rows:
-            d = dict(r)
-            d["group"] = d.pop("group_name", None) or ""
-            d["tags"] = json.loads(d.pop("tags_json", None) or "[]")
-            raw_p = d.get("policy_json") or "{}"
-            try:
-                parsed_p = json.loads(raw_p) if isinstance(raw_p, str) else (raw_p or {})
-            except Exception:
-                parsed_p = {}
-            d["has_custom_policy"] = bool(parsed_p)
-            d["policy"] = parsed_p
-            live_meta = _get_device_live_meta(d["id"])
-            if live_meta.get("ip_address"):
-                d["ip_address"] = live_meta["ip_address"]
-            result.append(d)
-        return result
+        return [_enrich_device_row(r, default_dev_id) for r in rows]
 
     @app.post("/api/devices/{device_id}/revoke")
     def revoke(device_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -1258,6 +1282,58 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
         conn.commit()
         audit(actor, device_id, "reset_device_policy", {}, "allowed")
         return {"device_id": device_id, "reset": True, "message": "Device policy reset to inherit global server policy."}
+
+    @app.post("/api/devices/{device_id}/default", summary="Set default AI target device")
+    def set_default_device_api(device_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
+        actor = require_role("operator", x_admin_token, x_session_token)
+        if device_id != "local":
+            row = conn.execute("SELECT id FROM devices WHERE id=? AND revoked=0", (device_id,)).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Device not found or revoked.")
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('default_device_id', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (device_id,),
+        )
+        conn.commit()
+        audit(actor, device_id, "device.set_default", {"default_device_id": device_id}, "allowed")
+        return {"status": "ok", "default_device_id": device_id}
+
+    @app.post("/api/devices/{device_id}/access-mode", summary="Toggle device access mode")
+    def set_device_access_mode_api(
+        device_id: str,
+        body: dict = Body(default={}),
+        x_admin_token: str | None = Header(default=None),
+        x_session_token: str | None = Header(default=None),
+    ):
+        actor = require_role("admin", x_admin_token, x_session_token)
+        row = conn.execute("SELECT * FROM devices WHERE id=?", (device_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Device not found.")
+        mode = str((body or {}).get("mode", "unrestricted")).strip().lower()
+        if mode not in {"unrestricted", "guarded"}:
+            raise HTTPException(status_code=422, detail="mode must be 'unrestricted' or 'guarded'.")
+        if mode == "unrestricted":
+            unrestricted_policy = json.dumps({
+                "inherit_global": False,
+                "unrestricted": True,
+                "allow_writes": True,
+                "allow_tier3": True,
+                "desktop_enabled": True,
+                "allow_shell": True,
+                "allow_package_install": True,
+                "allow_file_deletion": True,
+                "max_tier_unattended": 4,
+                "allowed_apps": ["*"],
+                "allowed_services": ["*"],
+                "note": "Full AI Access (One-click unrestricted mode)",
+            })
+            conn.execute("UPDATE devices SET policy_json=? WHERE id=?", (unrestricted_policy, device_id))
+        else:
+            conn.execute("UPDATE devices SET policy_json='{}' WHERE id=?", (device_id,))
+        conn.commit()
+        audit(actor, device_id, "device.access_mode", {"mode": mode}, "allowed")
+        return {"status": "ok", "device_id": device_id, "mode": mode, "unrestricted": mode == "unrestricted"}
 
     @app.get("/api/devices/{device_id}/overview")
     def get_device_overview(device_id: str, x_admin_token: str | None = Header(default=None), x_session_token: str | None = Header(default=None)):
@@ -5193,6 +5269,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
 
         if verb == "GET" and clean_path == "/api/devices":
             tenant_filter = (query.get("tenant") or [None])[0]
+            default_dev_id = _get_default_device_id()
             if tenant_filter:
                 rows = conn.execute(
                     "SELECT d.id, d.name, d.hostname, d.os, d.tenant, d.status, d.last_seen, d.revoked, d.created_at, "
@@ -5208,23 +5285,7 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
                     "LEFT JOIN device_metadata m ON m.device_id=d.id WHERE d.revoked=0 "
                     "ORDER BY d.last_seen DESC"
                 ).fetchall()
-            result = []
-            for r in rows:
-                d = dict(r)
-                d["group"] = d.pop("group_name", None) or ""
-                d["tags"] = json.loads(d.pop("tags_json", None) or "[]")
-                raw_p = d.get("policy_json") or "{}"
-                try:
-                    parsed_p = json.loads(raw_p) if isinstance(raw_p, str) else (raw_p or {})
-                except Exception:
-                    parsed_p = {}
-                d["has_custom_policy"] = bool(parsed_p)
-                d["policy"] = parsed_p
-                live_meta = _get_device_live_meta(d["id"])
-                if live_meta.get("ip_address"):
-                    d["ip_address"] = live_meta["ip_address"]
-                result.append(d)
-            return result
+            return [_enrich_device_row(r, default_dev_id) for r in rows]
 
         if verb == "POST" and clean_path == "/api/tasks":
             payload = body if isinstance(body, dict) else {}

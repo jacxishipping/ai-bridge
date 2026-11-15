@@ -231,7 +231,11 @@ async function call(path: string, method = "GET", body?: unknown, extraHeaders: 
 export const api = {
   health: () => fetch(BASE + "/health", { signal: AbortSignal.timeout(10000) }).then(r => { if (!r.ok) throw new Error("Health check failed"); return r.json(); }),
   devices: () => call("/api/devices"),
-  enroll: (name: string) => call("/api/devices/enroll", "POST", { name }),
+  enroll: (name: string, options?: { os?: string; hostname?: string; unrestricted?: boolean; set_default?: boolean }) =>
+    call("/api/devices/enroll", "POST", { name, ...options }),
+  setDefaultDevice: (id: string) => call(`/api/devices/${encodeURIComponent(id)}/default`, "POST", {}),
+  setDeviceAccessMode: (id: string, mode: "unrestricted" | "guarded") =>
+    call(`/api/devices/${encodeURIComponent(id)}/access-mode`, "POST", { mode }),
   revoke: (id: string) => call(`/api/devices/${id}/revoke`, "POST", {}),
   updateDevice: (id: string, body: { name?: string; hostname?: string; os?: string; revoked?: boolean }) =>
     call(`/api/devices/${encodeURIComponent(id)}`, "PUT", body),

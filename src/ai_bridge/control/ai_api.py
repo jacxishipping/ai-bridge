@@ -1367,8 +1367,32 @@ def attach_ai_routes(
                 win_dev = find_default_windows_device(conn, body.tenant)
                 if win_dev:
                     target = win_dev["id"]
-            if target and target.strip().lower() == "auto":
-                target = "local"
+            if not target or target.strip().lower() == "auto":
+                # Prefer configured default device if online, else latest online device, else 'local'
+                picked = None
+                try:
+                    s_row = conn.execute("SELECT value FROM settings WHERE key='default_device_id'").fetchone()
+                    if s_row and s_row["value"] and str(s_row["value"]).strip() != "local":
+                        d_row = conn.execute(
+                            "SELECT id FROM devices WHERE id=? AND revoked=0 AND status='online'",
+                            (str(s_row["value"]).strip(),),
+                        ).fetchone()
+                        if d_row:
+                            picked = d_row["id"]
+                except Exception:
+                    picked = None
+                if not picked:
+                    o_row = conn.execute(
+                        "SELECT id FROM devices WHERE tenant=? AND revoked=0 AND status='online' ORDER BY last_seen DESC LIMIT 1",
+                        (body.tenant,),
+                    ).fetchone()
+                    if not o_row:
+                        o_row = conn.execute(
+                            "SELECT id FROM devices WHERE revoked=0 AND status='online' ORDER BY last_seen DESC LIMIT 1",
+                        ).fetchone()
+                    if o_row:
+                        picked = o_row["id"]
+                target = picked or "local"
 
             is_local = not target or target.strip().lower() in ("local", "host", "droplet")
             dev_rec = None if is_local else resolve_device_record(conn, target, body.tenant)

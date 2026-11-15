@@ -858,6 +858,8 @@ class DashboardStore {
               fingerprintSha256: "unknown",
             },
             revoked: Boolean(d.revoked),
+            isDefault: Boolean(d.is_default),
+            unrestricted: Boolean(d.unrestricted),
           };
         });
 

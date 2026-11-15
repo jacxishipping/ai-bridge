@@ -71,6 +71,8 @@ export interface EnrolledDevice {
   tags: string[];
   telemetry: DeviceTelemetry;
   revoked?: boolean;
+  isDefault?: boolean;
+  unrestricted?: boolean;
 }
 
 export type TaskRiskTier = "tier1_safe" | "tier2_workspace" | "tier3_shell" | "tier4_kernel";

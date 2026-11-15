@@ -1,6 +1,7 @@
 """Embedded control+MCP+OAuth dispatcher used on Render."""
 from __future__ import annotations
 
+from pathlib import Path
 import os
 
 import pytest
@@ -194,5 +195,119 @@ def test_combined_app_chatbot_lists_and_routes_enrolled_devices(monkeypatch, tmp
             assert ai_sel.json()["result"]["selected_device"] == dev_id
     finally:
         server._SELECTED_DEVICE.clear()
+        set_control_hook(None)
+        set_verify_hook(None)
+
+
+def test_simple_fleet_default_access_mode_and_agent_config_persistence(monkeypatch, tmp_path: Path):
+    """Verify 1-click default device routing, access-mode toggle, and Windows config persistence."""
+    import importlib
+
+    monkeypatch.setenv("AI_BRIDGE_EMBED_MCP", "1")
+    monkeypatch.setenv("AI_BRIDGE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("AI_BRIDGE_ADMIN_TOKEN", "test-admin-secret")
+    monkeypatch.setenv("AI_BRIDGE_OAUTH_SECRET", "test-oauth-secret-min-32-bytes-long-ok")
+    monkeypatch.setenv("AI_BRIDGE_PUBLIC_URL", "https://bridge.example.com")
+    monkeypatch.setenv(
+        "AI_BRIDGE_MCP_ALLOWED_HOSTS",
+        "testserver,bridge.example.com,localhost:*,127.0.0.1:*",
+    )
+    monkeypatch.delenv("PORT", raising=False)
+
+    import ai_bridge.control.combined as combined
+    import ai_bridge.server as server
+
+    importlib.reload(server)
+    importlib.reload(combined)
+
+    app = combined.create_combined_app()
+    headers_admin = {"X-Admin-Token": "test-admin-secret"}
+    try:
+        with TestClient(app) as client:
+            # 1. Enroll with unrestricted=True and set_default=True
+            r1 = client.post(
+                "/api/devices/enroll",
+                json={"name": "home-win-pc", "os": "Windows", "unrestricted": True, "set_default": True},
+                headers=headers_admin,
+            )
+            assert r1.status_code == 200, r1.text
+            d1 = r1.json()
+            assert d1["unrestricted"] is True
+            assert d1["is_default"] is True
+
+            # Enroll a second device without set_default
+            r2 = client.post(
+                "/api/devices/enroll",
+                json={"name": "edge-linux", "os": "Linux", "unrestricted": False, "set_default": False},
+                headers=headers_admin,
+            )
+            assert r2.status_code == 200, r2.text
+            d2 = r2.json()
+            assert d2["unrestricted"] is False
+            assert d2["is_default"] is False
+
+            # Simulate heartbeats so both devices are online
+            assert client.post("/api/agent/heartbeat", headers={"X-Device-Token": d1["device_token"]}).status_code == 200
+            assert client.post("/api/agent/heartbeat", headers={"X-Device-Token": d2["device_token"]}).status_code == 200
+
+            # Toggle d2 access mode to unrestricted and make it the default target
+            am = client.post(
+                f"/api/devices/{d2['device_id']}/access-mode",
+                json={"mode": "unrestricted"},
+                headers=headers_admin,
+            )
+            assert am.status_code == 200 and am.json()["unrestricted"] is True
+
+            sd = client.post(f"/api/devices/{d2['device_id']}/default", headers=headers_admin)
+            assert sd.status_code == 200 and sd.json()["default_device_id"] == d2["device_id"]
+
+            devs = client.get("/api/devices", headers=headers_admin).json()
+            by_id = {d["id"]: d for d in devs}
+            assert by_id[d2["device_id"]]["is_default"] is True
+            assert by_id[d2["device_id"]]["unrestricted"] is True
+            assert by_id[d1["device_id"]]["is_default"] is False
+
+            # Toggle d2 back to guarded mode
+            gm = client.post(
+                f"/api/devices/{d2['device_id']}/access-mode",
+                json={"mode": "guarded"},
+                headers=headers_admin,
+            )
+            assert gm.status_code == 200 and gm.json()["unrestricted"] is False
+
+            # Auto-routing without select_device targets the online default device (d2)
+            assert server._auto_select_remote_device() == d2["device_id"]
+
+            # Explicit select_device("local") overrides auto-routing cleanly
+            sel_local = server.select_device("local")
+            assert sel_local["mode"] == "local"
+            assert server._session_explicitly_local() is True
+            local_res = server.system_info()
+            assert "system" in local_res
+
+            # Unselecting restores automatic routing on non-local calls
+            server._SELECTED_DEVICE.clear()
+            routed_calls = []
+            monkeypatch.setattr(
+                server,
+                "run_device_tool",
+                lambda url, tok, dev_id, tool, args: routed_calls.append((dev_id, tool)) or {"ok": True, "dev": dev_id},
+            )
+            res_auto = server.system_info()
+            assert res_auto["dev"] == d2["device_id"]
+            assert routed_calls[-1] == (d2["device_id"], "get_system_info")
+
+        # Windows agent config persistence roundtrip
+        import agents.windows.agent_main as win_agent
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        tok_path = tmp_path / ".ai-bridge" / "device.token"
+        win_agent._save_agent_config("https://bridge.example.com/", "dev-tok-12345", tok_path)
+        resolved_url, resolved_tok = win_agent._resolve_saved_config("http://127.0.0.1:8000", "", tok_path)
+        assert resolved_url == "https://bridge.example.com"
+        assert resolved_tok == "dev-tok-12345"
+    finally:
+        server._SELECTED_DEVICE.clear()
+        server._AUTO_DEVICE_CACHE.clear()
         set_control_hook(None)
         set_verify_hook(None)
