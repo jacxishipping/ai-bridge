@@ -12,9 +12,17 @@ export const apiOrigin = BASE;
 export const isCrossOriginApi =
   typeof window !== "undefined" && BASE.replace(/\/$/, "") !== window.location.origin;
 
-function reachabilityHint(): string {
+/** Free-tier hosts (e.g. Render) often need 30–60s to wake after idle sleep. */
+const COLD_START_PROBE_MS = 60000;
+/** First cross-origin probe: long enough for a warm API, short enough to start a wake cycle. */
+const WAKE_KICK_PROBE_MS = 12000;
+
+function reachabilityHint(timedOut = false): string {
   if (!envBase && isProdOrigin) {
     return ` This static site is calling ${BASE}. Set VITE_API_URL to your control plane URL (e.g. https://ai-bridge-control.onrender.com) and redeploy the dashboard.`;
+  }
+  if (timedOut && isCrossOriginApi) {
+    return ` Control plane: ${BASE}. Free-tier APIs often sleep when idle — wait a minute and use Retry. If it stays down, ensure AI_BRIDGE_CORS_ORIGINS includes ${typeof window !== "undefined" ? window.location.origin : "this origin"}.`;
   }
   if (isCrossOriginApi) {
     return ` Control plane: ${BASE}. If the API is up, ensure AI_BRIDGE_CORS_ORIGINS includes ${typeof window !== "undefined" ? window.location.origin : "this origin"}.`;
@@ -22,25 +30,37 @@ function reachabilityHint(): string {
   return ` Control plane: ${BASE}.`;
 }
 
-export async function probeControlHealth(timeoutMs = 8000): Promise<{ ok: boolean; detail: string; version?: string }> {
-  try {
-    const response = await fetch(BASE + "/health", { signal: AbortSignal.timeout(timeoutMs) });
-    if (!response.ok) {
-      return { ok: false, detail: `Control plane returned HTTP ${response.status} at ${BASE}/health.` };
-    }
-    const body = await response.json().catch(() => ({} as { version?: string; status?: string }));
-    return {
-      ok: body?.status === "ok" || response.ok,
-      detail: `Reachable at ${BASE}`,
-      version: typeof body?.version === "string" ? body.version : undefined,
-    };
-  } catch (error) {
-    const timedOut = error instanceof DOMException && error.name === "TimeoutError";
-    return {
-      ok: false,
-      detail: (timedOut ? "Timed out reaching the control plane." : "Cannot reach the control plane.") + reachabilityHint(),
-    };
+async function fetchHealthOnce(timeoutMs: number): Promise<{ ok: boolean; detail: string; version?: string }> {
+  const response = await fetch(BASE + "/health", { signal: AbortSignal.timeout(timeoutMs) });
+  if (!response.ok) {
+    return { ok: false, detail: `Control plane returned HTTP ${response.status} at ${BASE}/health.` };
   }
+  const body = await response.json().catch(() => ({} as { version?: string; status?: string }));
+  return {
+    ok: body?.status === "ok" || response.ok,
+    detail: `Reachable at ${BASE}`,
+    version: typeof body?.version === "string" ? body.version : undefined,
+  };
+}
+
+export async function probeControlHealth(timeoutMs = COLD_START_PROBE_MS): Promise<{ ok: boolean; detail: string; version?: string }> {
+  // Cross-origin deploys: kick the free-tier wake with a short probe, then wait out cold start.
+  const budget = isCrossOriginApi && timeoutMs === COLD_START_PROBE_MS
+    ? [WAKE_KICK_PROBE_MS, COLD_START_PROBE_MS]
+    : [timeoutMs];
+  let lastTimedOut = false;
+  for (let attempt = 0; attempt < budget.length; attempt++) {
+    try {
+      return await fetchHealthOnce(budget[attempt]);
+    } catch (error) {
+      lastTimedOut = error instanceof DOMException && error.name === "TimeoutError";
+      if (attempt + 1 >= budget.length) break;
+    }
+  }
+  return {
+    ok: false,
+    detail: (lastTimedOut ? "Timed out reaching the control plane." : "Cannot reach the control plane.") + reachabilityHint(lastTimedOut),
+  };
 }
 
 export function token() {
@@ -83,7 +103,7 @@ export async function authenticate(credentials: { token: string } | { username: 
     if ("token" in credentials) {
       const response = await fetch(BASE + "/api/auth/me", {
         headers: { "X-Admin-Token": credentials.token },
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(COLD_START_PROBE_MS),
       });
       if (!response.ok) throw new Error("Token rejected. Check your server's admin token.");
       const identity = await response.json();
@@ -96,7 +116,8 @@ export async function authenticate(credentials: { token: string } | { username: 
   } catch (error) {
     clearCredentials();
     if (error instanceof TypeError || (error instanceof DOMException && error.name === "TimeoutError")) {
-      throw new Error("Cannot reach the control plane." + reachabilityHint());
+      const timedOut = error instanceof DOMException && error.name === "TimeoutError";
+      throw new Error((timedOut ? "Timed out reaching the control plane." : "Cannot reach the control plane.") + reachabilityHint(timedOut));
     }
     throw error;
   }

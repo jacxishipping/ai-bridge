@@ -17,3 +17,10 @@
   PowerShell cmdlet failed — see docs/implementation-status.md.
 - Dashboard "401": the admin token in the browser does not match
   `AI_BRIDGE_ADMIN_TOKEN` on the plane; re-enter it.
+- Dashboard "Timed out reaching the control plane" / "Control plane
+  unreachable": on Render free tier the API sleeps when idle. Wait up
+  to a minute, click **Retry connection check**, or hit
+  `https://<control>/health` in a browser to wake it. CORS is only the
+  next suspect if `/health` responds quickly but the dashboard still
+  fails — then ensure `AI_BRIDGE_CORS_ORIGINS` includes the dashboard
+  origin (Blueprint sets `https://ai-bridge-dashboard.onrender.com`).

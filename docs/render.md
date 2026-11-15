@@ -64,7 +64,10 @@ See `docs/MCP_CHATBOT_SETUP.md` for Claude / ChatGPT / Gemini / Grok / Cursor co
    Then open Live home and wait for the first heartbeat.
 
 ## Caveats for testing
-- Free web services sleep after inactivity and take a few seconds to wake.
+- Free web services sleep after inactivity. Cold start commonly takes
+  30–60 seconds; the dashboard health probe waits and retries once.
+  Open `/health` or use **Retry connection check** if the first load
+  timed out while the dyno was waking.
 - The Blueprint provisions managed Postgres (`ai-bridge-db`, basic-256mb)
   and wires `DATABASE_URL` via `fromDatabase`. To use external Timescale
   instead, replace that env binding in the Render dashboard with your

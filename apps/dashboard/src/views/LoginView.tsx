@@ -86,7 +86,7 @@ export const LoginView: React.FC = () => {
             <div lang="en" dir="ltr" className="rounded-lg border border-[color:var(--product-line)] bg-[var(--product-raised)]/40 px-3 py-2 text-xs text-[color:var(--product-text-tertiary)]">
               <p>Control plane: <code className="text-[color:var(--product-text-secondary)]">{apiOrigin}</code></p>
               <p className="mt-1" role="status">
-                {probing ? "Checking API…" : health?.ok
+                {probing ? "Checking API… free-tier hosts can take up to a minute to wake." : health?.ok
                   ? `API reachable${health.version ? ` · v${health.version}` : ""}`
                   : (health?.detail || "API unreachable")}
               </p>
