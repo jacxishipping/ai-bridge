@@ -610,6 +610,7 @@ export const AiApiHubView: React.FC = () => {
   const [mcpAuthType, setMcpAuthType] = useState("bearer");
   const [mcpAuthToken, setMcpAuthToken] = useState("");
   const [mcpAuthHeader, setMcpAuthHeader] = useState("");
+  const [mcpAuthPlaceholder, setMcpAuthPlaceholder] = useState("");
   const [mcpOAuthClientId, setMcpOAuthClientId] = useState("");
   const [mcpOAuthClientSecret, setMcpOAuthClientSecret] = useState("");
   const [mcpOAuthAuthUrl, setMcpOAuthAuthUrl] = useState("");
@@ -880,6 +881,7 @@ export const AiApiHubView: React.FC = () => {
       setMcpAuthType("bearer");
       setMcpAuthToken("");
       setMcpAuthHeader("");
+      setMcpAuthPlaceholder("");
       setMcpOAuthClientId("");
       setMcpOAuthClientSecret("");
       setMcpOAuthAuthUrl("");
@@ -1447,9 +1449,11 @@ export const AiApiHubView: React.FC = () => {
                             } else {
                               setMcpAuthType(tpl.requires_auth ? "bearer" : "none");
                             }
-                            if (tpl.oauth_auth_url) setMcpOAuthAuthUrl(tpl.oauth_auth_url);
-                            if (tpl.oauth_token_url) setMcpOAuthTokenUrl(tpl.oauth_token_url);
-                            if (tpl.oauth_scopes) setMcpOAuthScopes(tpl.oauth_scopes);
+                            setMcpAuthHeader(tpl.requires_auth ? "Authorization" : "");
+                            setMcpAuthPlaceholder(tpl.auth_placeholder || "");
+                            setMcpOAuthAuthUrl(tpl.oauth_auth_url || "");
+                            setMcpOAuthTokenUrl(tpl.oauth_token_url || "");
+                            setMcpOAuthScopes(tpl.oauth_scopes || "");
                             if (!tpl.requires_auth) setMcpAuthToken("");
                           }}
                           className="rounded px-2 py-0.5 text-[11px] bg-[var(--product-surface)] border border-[var(--product-line)] text-[var(--product-text-secondary)] hover:text-indigo-400"
@@ -1493,7 +1497,7 @@ export const AiApiHubView: React.FC = () => {
                       value={mcpAuthToken}
                       onChange={setMcpAuthToken}
                       clearable={false}
-                      placeholder="Bearer token or API key if required"
+                      placeholder={mcpAuthPlaceholder || "Bearer token or API key if required"}
                     />
                   )}
 

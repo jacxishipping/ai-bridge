@@ -1,46 +1,80 @@
-const envBase = (import.meta as any).env?.VITE_API_URL || "";
+const envBase = String((import.meta as any).env?.VITE_API_URL || "").trim().replace(/\/+$/, "");
 const isProdOrigin =
   typeof window !== "undefined" &&
   window.location.port !== "5173" &&
   window.location.hostname !== "localhost" &&
   window.location.hostname !== "127.0.0.1";
+const browserOrigin =
+  typeof window !== "undefined" && window.location?.origin
+    ? window.location.origin.replace(/\/+$/, "")
+    : "";
 const BASE =
-  envBase || (isProdOrigin ? window.location.origin : "http://127.0.0.1:8000");
+  envBase || (isProdOrigin ? browserOrigin : "http://127.0.0.1:8000");
 export const apiOrigin = BASE;
 
 /** True when the dashboard host is not the control API (cross-origin deploy). */
 export const isCrossOriginApi =
-  typeof window !== "undefined" && BASE.replace(/\/$/, "") !== window.location.origin;
+  typeof window !== "undefined" && Boolean(browserOrigin) && BASE !== browserOrigin;
 
 /** Free-tier hosts (e.g. Render) often need 30–60s to wake after idle sleep. */
 const COLD_START_PROBE_MS = 60000;
 /** First cross-origin probe: long enough for a warm API, short enough to start a wake cycle. */
 const WAKE_KICK_PROBE_MS = 12000;
+const TRANSIENT_COLD_START_STATUSES = new Set([429, 502, 503, 504]);
 
 function reachabilityHint(timedOut = false): string {
   if (!envBase && isProdOrigin) {
     return ` This static site is calling ${BASE}. Set VITE_API_URL to your control plane URL (e.g. https://ai-bridge-control.onrender.com) and redeploy the dashboard.`;
   }
   if (timedOut && isCrossOriginApi) {
-    return ` Control plane: ${BASE}. Free-tier APIs often sleep when idle — wait a minute and use Retry. If it stays down, ensure AI_BRIDGE_CORS_ORIGINS includes ${typeof window !== "undefined" ? window.location.origin : "this origin"}.`;
+    return ` Control plane: ${BASE}. Free-tier APIs often sleep when idle — wait a minute and use Retry. If it stays down, ensure AI_BRIDGE_CORS_ORIGINS includes ${browserOrigin || "this origin"}.`;
   }
   if (isCrossOriginApi) {
-    return ` Control plane: ${BASE}. If the API is up, ensure AI_BRIDGE_CORS_ORIGINS includes ${typeof window !== "undefined" ? window.location.origin : "this origin"}.`;
+    return ` Control plane: ${BASE}. If the API is up, ensure AI_BRIDGE_CORS_ORIGINS includes ${browserOrigin || "this origin"}.`;
   }
   return ` Control plane: ${BASE}.`;
 }
 
-async function fetchHealthOnce(timeoutMs: number): Promise<{ ok: boolean; detail: string; version?: string }> {
+interface HealthProbeAttempt {
+  ok: boolean;
+  detail: string;
+  version?: string;
+  retriable?: boolean;
+}
+
+async function fetchHealthOnce(timeoutMs: number): Promise<HealthProbeAttempt> {
   const response = await fetch(BASE + "/health", { signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) {
-    return { ok: false, detail: `Control plane returned HTTP ${response.status} at ${BASE}/health.` };
+    const retriable = TRANSIENT_COLD_START_STATUSES.has(response.status);
+    return {
+      ok: false,
+      detail: `Control plane returned HTTP ${response.status} at ${BASE}/health.${retriable ? reachabilityHint(true) : ""}`,
+      retriable,
+    };
   }
-  const body = await response.json().catch(() => ({} as { version?: string; status?: string }));
+  let body: { version?: unknown; status?: unknown } | null = null;
+  try {
+    const parsed = await response.json();
+    body = parsed && typeof parsed === "object" ? (parsed as { version?: unknown; status?: unknown }) : null;
+  } catch {
+    body = null;
+  }
+  if (!body || body.status !== "ok") {
+    return {
+      ok: false,
+      detail: `${BASE}/health returned an unexpected payload instead of control-plane JSON.${reachabilityHint(false)}`,
+    };
+  }
   return {
-    ok: body?.status === "ok" || response.ok,
+    ok: true,
     detail: `Reachable at ${BASE}`,
-    version: typeof body?.version === "string" ? body.version : undefined,
+    version: typeof body.version === "string" ? body.version : undefined,
   };
+}
+
+function isTimeoutError(error: unknown): boolean {
+  const name = (error as { name?: unknown } | null)?.name;
+  return name === "TimeoutError" || name === "AbortError";
 }
 
 export async function probeControlHealth(timeoutMs = COLD_START_PROBE_MS): Promise<{ ok: boolean; detail: string; version?: string }> {
@@ -49,13 +83,26 @@ export async function probeControlHealth(timeoutMs = COLD_START_PROBE_MS): Promi
     ? [WAKE_KICK_PROBE_MS, COLD_START_PROBE_MS]
     : [timeoutMs];
   let lastTimedOut = false;
+  let lastResult: HealthProbeAttempt | null = null;
   for (let attempt = 0; attempt < budget.length; attempt++) {
     try {
-      return await fetchHealthOnce(budget[attempt]);
+      const result = await fetchHealthOnce(budget[attempt]);
+      if (result.ok || !result.retriable || attempt + 1 >= budget.length) {
+        return { ok: result.ok, detail: result.detail, version: result.version };
+      }
+      lastResult = result;
+      lastTimedOut = true;
+      await new Promise((resolve) => setTimeout(resolve, 1200));
     } catch (error) {
-      lastTimedOut = error instanceof DOMException && error.name === "TimeoutError";
+      lastTimedOut = isTimeoutError(error);
       if (attempt + 1 >= budget.length) break;
+      if (!lastTimedOut) {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+      }
     }
+  }
+  if (lastResult) {
+    return { ok: lastResult.ok, detail: lastResult.detail, version: lastResult.version };
   }
   return {
     ok: false,
@@ -243,7 +290,7 @@ export const api = {
   exportAudit: () => call("/api/audit/export"),
   emergencyStop: () => call("/api/emergency-stop", "POST", {}),
   emergencyClear: () => call("/api/emergency-stop/clear", "POST", {}),
-  login: (username: string, password: string) => fetch(BASE + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }), signal: AbortSignal.timeout(15000) }).then(async r => { if (!r.ok) throw new Error("Username or password rejected."); return r.json(); }),
+  login: (username: string, password: string) => fetch(BASE + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }), signal: AbortSignal.timeout(COLD_START_PROBE_MS) }).then(async r => { if (!r.ok) throw new Error("Username or password rejected."); return r.json(); }),
   logout: () => call("/api/auth/logout", "POST", {}),
   policies: () => call("/api/policies"),
   policyHistory: () => call("/api/policies/history"),
@@ -269,7 +316,7 @@ export const api = {
   getWebhook: () => call("/api/settings/webhook"),
   setWebhook: (webhook_url: string) => call("/api/settings/webhook", "POST", { webhook_url }),
   testWebhook: () => call("/api/settings/webhook/test", "POST", {}),
-  oidcConfigured: () => fetch(BASE + "/api/auth/oidc/configured", { signal: AbortSignal.timeout(10000) }).then(r => { if (!r.ok) throw new Error("Identity provider unavailable"); return r.json(); }),
+  oidcConfigured: () => fetch(BASE + "/api/auth/oidc/configured", { signal: AbortSignal.timeout(COLD_START_PROBE_MS) }).then(r => { if (!r.ok) throw new Error("Identity provider unavailable"); return r.json(); }),
   me: () => call("/api/auth/me"),
   oidcLogin: () => { window.location.href = BASE + "/api/auth/oidc/login"; },
   aiTools: (format = "raw", device?: string) =>

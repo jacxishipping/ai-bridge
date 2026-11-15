@@ -143,24 +143,38 @@ export const ConnectionsView: React.FC = () => {
       const st = sessionToken();
       if (at) headers.Authorization = `Bearer ${at}`;
       else if (st) headers.Authorization = `Bearer ${st}`;
+      const reqStarted = performance.now();
+      const rpcBody = { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} };
       const res = await fetch(mcpUrl, {
         method: "POST",
         headers,
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+        body: JSON.stringify(rpcBody),
         signal: AbortSignal.timeout(15000),
       });
+      const latencyMs = Math.max(1, Math.round(performance.now() - reqStarted));
+      const tsNow = new Date().toISOString().slice(11, 23);
       if (!res.ok) {
         setMcpProbe("fail");
         const hint = res.status === 404
           ? " · Ensure AI_BRIDGE_EMBED_MCP=1 on the control plane and redeploy."
           : "";
         setMcpProbeDetail(`HTTP ${res.status} from ${mcpUrl}${hint}`);
+        setWireFrames((prev) => [
+          { id: Date.now() + 1, timestamp: tsNow, direction: "inbound", method: "tools/list", latencyMs, payload: { error: `HTTP ${res.status}` } },
+          { id: Date.now(), timestamp: tsNow, direction: "outbound", method: "tools/list", latencyMs: 0, payload: rpcBody },
+          ...prev,
+        ]);
         return;
       }
       const body = await res.json();
       const count = Array.isArray(body?.result?.tools) ? body.result.tools.length : 0;
       setMcpProbe("ok");
       setMcpProbeDetail(count ? `tools/list ok · ${count} tools` : "tools/list ok");
+      setWireFrames((prev) => [
+        { id: Date.now() + 1, timestamp: tsNow, direction: "inbound", method: "tools/list", latencyMs, payload: { jsonrpc: "2.0", id: 1, result: { tools_count: count } } },
+        { id: Date.now(), timestamp: tsNow, direction: "outbound", method: "tools/list", latencyMs: 0, payload: rpcBody },
+        ...prev,
+      ]);
     } catch (err) {
       setMcpProbe("fail");
       setMcpProbeDetail(
@@ -396,61 +410,65 @@ export const ConnectionsView: React.FC = () => {
   );
   const [copiedToken, setCopiedToken] = useState(false);
 
-  // Wire Protocol Audit Drawer & Frame list
+  // Wire Protocol Audit Drawer & Frame list (live starts empty and records real probes)
   const [wireFilter, setWireFilter] = useState<string>("all");
-  const [wireFrames, setWireFrames] = useState<WireFrame[]>([
-    {
-      id: 101,
-      timestamp: "14:28:11.892",
-      direction: "inbound",
-      method: "tools/call",
-      latencyMs: 14,
-      payload: {
-        jsonrpc: "2.0",
-        id: 101,
-        method: "tools/call",
-        params: { name: "system_info", endpoint: `${browserOrigin}/mcp`, arguments: { node_id: "srv-us-east-412" } },
-      },
-    },
-    {
-      id: 102,
-      timestamp: "14:28:12.014",
-      direction: "outbound",
-      method: "tools/call",
-      latencyMs: 12,
-      payload: {
-        jsonrpc: "2.0",
-        id: 101,
-        result: { status: "fulfilled", cpu_percent: 28.4, mem_gb: 18.4 },
-      },
-    },
-    {
-      id: 103,
-      timestamp: "14:28:13.410",
-      direction: "inbound",
-      method: "resources/read",
-      latencyMs: 18,
-      payload: {
-        jsonrpc: "2.0",
-        id: 102,
-        method: "resources/read",
-        params: { uri: `${browserOrigin}/mcp/resources/active` },
-      },
-    },
-    {
-      id: 104,
-      timestamp: "14:28:15.901",
-      direction: "inbound",
-      method: "tools/list",
-      latencyMs: 8,
-      payload: {
-        jsonrpc: "2.0",
-        id: 103,
-        method: "tools/list",
-        params: {},
-      },
-    },
-  ]);
+  const [wireFrames, setWireFrames] = useState<WireFrame[]>(() =>
+    isLive
+      ? []
+      : [
+          {
+            id: 101,
+            timestamp: "14:28:11.892",
+            direction: "inbound",
+            method: "tools/call",
+            latencyMs: 14,
+            payload: {
+              jsonrpc: "2.0",
+              id: 101,
+              method: "tools/call",
+              params: { name: "system_info", endpoint: `${browserOrigin}/mcp`, arguments: { node_id: "srv-us-east-412" } },
+            },
+          },
+          {
+            id: 102,
+            timestamp: "14:28:12.014",
+            direction: "outbound",
+            method: "tools/call",
+            latencyMs: 12,
+            payload: {
+              jsonrpc: "2.0",
+              id: 101,
+              result: { status: "fulfilled", cpu_percent: 28.4, mem_gb: 18.4 },
+            },
+          },
+          {
+            id: 103,
+            timestamp: "14:28:13.410",
+            direction: "inbound",
+            method: "resources/read",
+            latencyMs: 18,
+            payload: {
+              jsonrpc: "2.0",
+              id: 102,
+              method: "resources/read",
+              params: { uri: `${browserOrigin}/mcp/resources/active` },
+            },
+          },
+          {
+            id: 104,
+            timestamp: "14:28:15.901",
+            direction: "inbound",
+            method: "tools/list",
+            latencyMs: 8,
+            payload: {
+              jsonrpc: "2.0",
+              id: 103,
+              method: "tools/list",
+              params: {},
+            },
+          },
+        ]
+  );
 
   // Inspect Spec Modal
   const [inspectSpecStream, setInspectSpecStream] = useState<MCPConnection | null>(null);
@@ -1040,7 +1058,9 @@ export const ConnectionsView: React.FC = () => {
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[var(--product-text-tertiary)]">Live Signed JWT Bearer Token</span>
+                    <span className="text-[var(--product-text-tertiary)]">
+                      {isLive ? "Sample JWT Payload Preview (Unsigned)" : "Sample Signed JWT Bearer Token"}
+                    </span>
                     <JXButton
                       variant="soft"
                       color="primary"
@@ -1115,7 +1135,13 @@ export const ConnectionsView: React.FC = () => {
 
         <JXCardContent>
           <div className="space-y-2 font-mono text-xs max-h-64 overflow-y-auto">
-            {filteredWireFrames.map((frame) => (
+            {filteredWireFrames.length === 0 ? (
+              <div className="p-6 text-center font-sans text-[var(--product-text-tertiary)]">
+                {isLive
+                  ? 'No protocol frames captured yet. Use "Test tools/list" above to probe the control plane.'
+                  : "No protocol frames match the current filter."}
+              </div>
+            ) : filteredWireFrames.map((frame) => (
               <div
                 key={frame.id}
                 className="p-3 rounded-lg bg-[var(--product-canvas)] border border-[var(--product-line)] flex items-start justify-between gap-4"

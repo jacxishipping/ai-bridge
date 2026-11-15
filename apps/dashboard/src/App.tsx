@@ -8,6 +8,7 @@ import React, { useEffect } from "react";
 import { AppShell } from "./shell/AppShell";
 import { BreadcrumbTrail } from "./ui";
 import { useDashboardStore } from "./state/dashboardStore";
+import { sessionToken, token } from "./api";
 import type { ViewId } from "./types/dashboard";
 
 // Import all 15 operational screen views
@@ -134,7 +135,9 @@ export const App: React.FC = () => {
 
   const currentMeta = viewMeta[currentView] || viewMeta.overview;
   useEffect(() => {
-    document.title = `${currentMeta.breadcrumbs[currentMeta.breadcrumbs.length - 1]} · AI Bridge${currentView !== "live" && currentView !== "login" ? " · Demo" : ""}`;
+    const isAuthenticated = typeof window !== "undefined" && Boolean(token() || sessionToken());
+    const suffix = !isAuthenticated && currentView !== "live" && currentView !== "login" ? " · Demo" : "";
+    document.title = `${currentMeta.breadcrumbs[currentMeta.breadcrumbs.length - 1]} · AI Bridge${suffix}`;
   }, [currentView, currentMeta.title]);
 
   const renderActiveView = () => {

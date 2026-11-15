@@ -285,7 +285,9 @@ export const AuditTrailView: React.FC = () => {
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 <span>
-                  Sample verification complete: {verificationProof.blocksChecked} blocks.
+                  {isLive
+                    ? `Live ledger check complete: ${verificationProof.blocksChecked} event${verificationProof.blocksChecked === 1 ? "" : "s"}.`
+                    : `Sample verification complete: ${verificationProof.blocksChecked} blocks.`}
                 </span>
               </div>
               <span className="text-[var(--product-text-tertiary)]">Validated in {verificationProof.latencyMs}ms</span>
@@ -417,7 +419,7 @@ export const AuditTrailView: React.FC = () => {
       {/* Cryptographic Verification Modal */}
       <AnimatePresence>
         {selectedProofEvent && (
-          <GlassModal onClose={() => setSelectedProofEvent(null)} title="Sample audit proof">
+          <GlassModal onClose={() => setSelectedProofEvent(null)} title={isLive ? "Audit event proof" : "Sample audit proof"}>
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -468,8 +470,8 @@ export const AuditTrailView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Session Recording Manifest / Keyframe Timeline if session action */}
-                {(selectedProofEvent.action.toLowerCase().includes("session") ||
+                {/* Session Recording Manifest / Keyframe Timeline (demo preview only) */}
+                {!isLive && (selectedProofEvent.action.toLowerCase().includes("session") ||
                   selectedProofEvent.action.toLowerCase().includes("recording") ||
                   selectedProofEvent.action.toLowerCase().includes("desktop")) && (
                   <div>
@@ -499,7 +501,13 @@ export const AuditTrailView: React.FC = () => {
 
                 <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Cryptographic hash linkage matches Merkle Root branch 0x7fa281b94d.</span>
+                  <span>
+                    {isLive
+                      ? selectedProofEvent.sha256Hash !== "not recorded"
+                        ? "Audit digest recorded by the control plane."
+                        : "Server did not record a separate SHA-256 digest for this entry."
+                      : "Cryptographic hash linkage matches Merkle Root branch 0x7fa281b94d."}
+                  </span>
                 </div>
               </div>
 

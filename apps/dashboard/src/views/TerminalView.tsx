@@ -1,5 +1,5 @@
 /**
- * AI Bridge Enterprise Dashboard â€” Interactive Terminal (Screen 6)
+ * AI Bridge Enterprise Dashboard — Interactive Terminal (Screen 6)
  * Live mode (signed in): real session on the control plane via the terminal API
  * (create / SSE stream via fetch / input / resize / close). No fabricated output.
  * Demo mode (not signed in): clearly labelled local simulation using DEMO_* fixtures only.
@@ -59,7 +59,7 @@ const DEMO_TERMINAL_LINES: TerminalLine[] = [
   {
     id: "line-out-1",
     type: "output",
-    text: "â— ai-bridge-agent.service - AI Bridge Enterprise Gateway Host Daemon\n   Loaded: loaded (/etc/systemd/system/ai-bridge-agent.service; enabled; vendor preset: enabled)\n   Active: active (running) since Sun 2024-10-27 06:12:44 UTC; 1 day 8h ago\n Main PID: 18492 (agent_worker)\n    Tasks: 28 (limit: 77174)\n   Memory: 412.4M (peak: 512.0M, limit: 2.0G)\n      CPU: 18min 42.129s\n   CGroup: /system.slice/ai-bridge-agent.service\n           â”œâ”€18492 /opt/ai-bridge/bin/agent_worker --config /etc/ai-bridge/fleet.yaml --mtls-strict\n           â””â”€18504 /opt/ai-bridge/bin/pty_multiplexer --unix-socket /run/ai-bridge/pty.sock",
+    text: "● ai-bridge-agent.service - AI Bridge Enterprise Gateway Host Daemon\n   Loaded: loaded (/etc/systemd/system/ai-bridge-agent.service; enabled; vendor preset: enabled)\n   Active: active (running) since Sun 2024-10-27 06:12:44 UTC; 1 day 8h ago\n Main PID: 18492 (agent_worker)\n    Tasks: 28 (limit: 77174)\n   Memory: 412.4M (peak: 512.0M, limit: 2.0G)\n      CPU: 18min 42.129s\n   CGroup: /system.slice/ai-bridge-agent.service\n           ├─18492 /opt/ai-bridge/bin/agent_worker --config /etc/ai-bridge/fleet.yaml --mtls-strict\n           └─18504 /opt/ai-bridge/bin/pty_multiplexer --unix-socket /run/ai-bridge/pty.sock",
   },
   {
     id: "line-cmd-2",
@@ -405,7 +405,7 @@ export const TerminalView: React.FC = () => {
         setLines([]);
         return;
       }
-      const outputText = `[demo] Simulated output only â€” "${trimmed}" was not run anywhere.`;
+      const outputText = `[demo] Simulated output only — "${trimmed}" was not run anywhere.`;
       setLines((prev) => [...prev, newCmdLine, { id: `out-${Date.now()}`, type: "output", text: outputText }]);
     },
     [isWindows],
@@ -448,7 +448,7 @@ export const TerminalView: React.FC = () => {
       void sendLive("\x03");
       return;
     }
-    setLines((prev) => [...prev, { id: `int-${Date.now()}`, type: "warn", text: "^C (demo only â€” nothing was interrupted)" }]);
+    setLines((prev) => [...prev, { id: `int-${Date.now()}`, type: "warn", text: "^C (demo only — nothing was interrupted)" }]);
   };
 
   const sendEof = () => {
@@ -456,7 +456,7 @@ export const TerminalView: React.FC = () => {
       void sendLive("\x04");
       return;
     }
-    setLines((prev) => [...prev, { id: `eof-${Date.now()}`, type: "info", text: "^D (demo only â€” nothing was sent)" }]);
+    setLines((prev) => [...prev, { id: `eof-${Date.now()}`, type: "info", text: "^D (demo only — nothing was sent)" }]);
   };
 
   const clearBuffer = () => {
@@ -505,13 +505,13 @@ export const TerminalView: React.FC = () => {
   const devicesForSelect: { id: string; label: string }[] = live
     ? liveDevices.map((d) => ({
         id: d.id,
-        label: `${d.hostname || d.name || d.id} (${d.os || "unknown"}) â€” ${d.revoked ? "revoked" : d.status || "unknown"}`,
+        label: `${d.hostname || d.name || d.id} (${d.os || "unknown"}) — ${d.revoked ? "revoked" : d.status || "unknown"}`,
       }))
     : demoDevices.map((d) => ({ id: d.id, label: `${d.hostname} (${d.osRelease})` }));
 
   const statusLabel: Record<LiveStatus, string> = {
     idle: "No session",
-    connecting: "Connectingâ€¦",
+    connecting: "Connecting…",
     connected: "Connected",
     closed: "Session ended",
     error: "Error",
@@ -666,7 +666,7 @@ export const TerminalView: React.FC = () => {
             <div className="w-3 h-3 rounded-full bg-emerald-500/80"></div>
             <TerminalIcon className="w-3.5 h-3.5 ml-2 text-[var(--product-text-tertiary)]" />
             <span className="font-semibold text-[var(--product-text-secondary)]">
-              {live ? `${targetHostname} â€” live session` : `${promptPrefix} (demo)`}
+              {live ? `${targetHostname} — live session` : `${promptPrefix} (demo)`}
             </span>
           </div>
 
@@ -681,7 +681,7 @@ export const TerminalView: React.FC = () => {
         <div className="p-4 md:p-6 overflow-y-auto max-h-[520px] min-h-[420px] space-y-3 font-normal leading-relaxed text-[var(--product-text-secondary)] select-text">
           {live ? (
             <pre aria-label="Terminal output" className="font-mono text-xs text-[var(--product-text-secondary)] leading-relaxed whitespace-pre-wrap break-words">
-              {liveStatus === "connecting" ? "Opening terminal sessionâ€¦" : cleanTerminalText(liveText)}
+              {liveStatus === "connecting" ? "Opening terminal session…" : cleanTerminalText(liveText)}
             </pre>
           ) : (
             lines.map((line) => {
@@ -737,9 +737,9 @@ export const TerminalView: React.FC = () => {
                 placeholder={
                   live
                     ? liveStatus === "connected"
-                      ? "Type a command and press Enterâ€¦"
-                      : "Waiting for a connected sessionâ€¦"
-                    : "Demo only â€” commands are not executed anywhereâ€¦"
+                      ? "Type a command and press Enter…"
+                      : "Waiting for a connected session…"
+                    : "Demo only — commands are not executed anywhere…"
                 }
                 autoComplete="off"
                 spellCheck={false}

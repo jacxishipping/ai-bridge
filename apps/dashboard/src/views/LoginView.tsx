@@ -43,7 +43,12 @@ export const LoginView: React.FC = () => {
     let active = true;
     setProbing(true);
     probeControlHealth().then((result) => {
-      if (active) { setHealth(result); setProbing(false); }
+      if (!active) return;
+      setHealth(result);
+      setProbing(false);
+      if (result.ok) {
+        api.oidcConfigured().then((data) => { if (active) setSsoConfigured(Boolean(data.enabled)); }).catch(() => {});
+      }
     });
     return () => { active = false; };
   }, []);
@@ -131,10 +136,25 @@ export const LoginView: React.FC = () => {
               )}
             </form>
             {health && !health.ok && (
-              <JXButton fullWidth variant="outlined" color="neutral" onClick={() => {
-                setProbing(true);
-                probeControlHealth().then((result) => { setHealth(result); setProbing(false); });
-              }}>Retry connection check</JXButton>
+              <JXButton
+                fullWidth
+                variant="outlined"
+                color="neutral"
+                disabled={probing || busy}
+                onClick={() => {
+                  setError("");
+                  setProbing(true);
+                  probeControlHealth().then((result) => {
+                    setHealth(result);
+                    setProbing(false);
+                    if (result.ok && !ssoConfigured) {
+                      api.oidcConfigured().then((data) => setSsoConfigured(Boolean(data.enabled))).catch(() => {});
+                    }
+                  });
+                }}
+              >
+                {probing ? "Checking API…" : "Retry connection check"}
+              </JXButton>
             )}
             {ssoConfigured && <JXButton fullWidth color="neutral" variant="outlined" onClick={() => api.oidcLogin()}>{t("Sign in with your identity provider")}</JXButton>}
             <div className="space-y-3 border-t border-[color:var(--product-line)] pt-5">

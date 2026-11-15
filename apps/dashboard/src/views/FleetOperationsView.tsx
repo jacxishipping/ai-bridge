@@ -120,12 +120,16 @@ export const FleetOperationsView: React.FC = () => {
     inProgress: number;
     failed: number;
     total: number;
-  } | null>({
-    succeeded: 38,
-    inProgress: 2,
-    failed: 0,
-    total: 40,
-  });
+  } | null>(() =>
+    isLiveMode()
+      ? null
+      : {
+          succeeded: 38,
+          inProgress: 2,
+          failed: 0,
+          total: 40,
+        }
+  );
   const [selectedFailedNode, setSelectedFailedNode] = useState<{
     nodeId: string;
     exitCode: number;
@@ -156,101 +160,109 @@ export const FleetOperationsView: React.FC = () => {
   const [newSchedInterval, setNewSchedInterval] = useState<number>(300);
   const [newSchedTool, setNewSchedTool] = useState<string>("get_system_info");
 
-  // Self-healing rules engine state
-  const [rules, setRules] = useState<SelfHealingRule[]>([
-    {
-      id: "SH-SVC-101",
-      name: "Agent Service Failure Remediation",
-      trigger: "service_crash",
-      condition: "ai-bridge-agent exits with non-zero or SIGKILL",
-      action: "systemctl restart ai-bridge-agent && notify SecOps",
-      enabled: true,
-      firedCount: 18,
-      lastFired: "12m ago",
-      category: "service",
-    },
-    {
-      id: "SH-MEM-992",
-      name: "Memory Leak Threshold Watchdog",
-      trigger: "memory_leak",
-      condition: "RAM RSS > 92% sustained for >= 10m",
-      action: "Flush buffer cache, trigger heap dump & worker recycle",
-      enabled: true,
-      firedCount: 14,
-      lastFired: "34m ago",
-      category: "memory",
-    },
-    {
-      id: "SH-TLS-204",
-      name: "mTLS Ephemeral Handshake Stale",
-      trigger: "stale_mtls",
-      condition: "Handshake negotiation timeout > 60s",
-      action: "Rotate ephemeral keypair + re-register enclave",
-      enabled: true,
-      firedCount: 6,
-      lastFired: "3h ago",
-      category: "mtls",
-    },
-    {
-      id: "SH-DSK-319",
-      name: "Disk Pressure Volume Sentinel",
-      trigger: "disk_pressure",
-      condition: "Root volume free space < 10% available",
-      action: "Purge temporary task artifacts older than 48h",
-      enabled: true,
-      firedCount: 29,
-      lastFired: "1h ago",
-      category: "disk",
-    },
-  ]);
+  // Self-healing rules engine state (demo defaults never loaded in live mode)
+  const [rules, setRules] = useState<SelfHealingRule[]>(() =>
+    isLiveMode()
+      ? []
+      : [
+          {
+            id: "SH-SVC-101",
+            name: "Agent Service Failure Remediation",
+            trigger: "service_crash",
+            condition: "ai-bridge-agent exits with non-zero or SIGKILL",
+            action: "systemctl restart ai-bridge-agent && notify SecOps",
+            enabled: true,
+            firedCount: 18,
+            lastFired: "12m ago",
+            category: "service",
+          },
+          {
+            id: "SH-MEM-992",
+            name: "Memory Leak Threshold Watchdog",
+            trigger: "memory_leak",
+            condition: "RAM RSS > 92% sustained for >= 10m",
+            action: "Flush buffer cache, trigger heap dump & worker recycle",
+            enabled: true,
+            firedCount: 14,
+            lastFired: "34m ago",
+            category: "memory",
+          },
+          {
+            id: "SH-TLS-204",
+            name: "mTLS Ephemeral Handshake Stale",
+            trigger: "stale_mtls",
+            condition: "Handshake negotiation timeout > 60s",
+            action: "Rotate ephemeral keypair + re-register enclave",
+            enabled: true,
+            firedCount: 6,
+            lastFired: "3h ago",
+            category: "mtls",
+          },
+          {
+            id: "SH-DSK-319",
+            name: "Disk Pressure Volume Sentinel",
+            trigger: "disk_pressure",
+            condition: "Root volume free space < 10% available",
+            action: "Purge temporary task artifacts older than 48h",
+            enabled: true,
+            firedCount: 29,
+            lastFired: "1h ago",
+            category: "disk",
+          },
+        ]
+  );
 
-  // Cron schedule state
-  const [cronJobs, setCronJobs] = useState<CronJob[]>([
-    {
-      id: "CRN-081",
-      name: "Nightly Enclave Key Rotation",
-      description: "Renew ephemeral RSA/ECDSA signing pairs & flush TLS session tickets",
-      cronExpr: "0 2 * * *",
-      targets: "All Nodes (40)",
-      lastStatus: "success",
-      lastDuration: "42s",
-      nextRun: "In 18 mins",
-      enabled: true,
-    },
-    {
-      id: "CRN-114",
-      name: "Bi-Hourly Diagnostic Journal Flush",
-      description: "Compress and sync rotated diagnostic journal bundles to storage volume",
-      cronExpr: "*/15 * * * *",
-      targets: "#production-east (14)",
-      lastStatus: "success",
-      lastDuration: "12s",
-      nextRun: "In 4m 12s",
-      enabled: true,
-    },
-    {
-      id: "CRN-209",
-      name: "Weekly TPM PCR Attestation Integrity Scan",
-      description: "Cryptographic hash verification of PCR-7 boot measurements across fleet",
-      cronExpr: "0 0 * * 0",
-      targets: "All Nodes (40)",
-      lastStatus: "success",
-      lastDuration: "1m 18s",
-      nextRun: "In 4 days",
-      enabled: true,
-    },
-    {
-      id: "CRN-332",
-      name: "Dead Socket Reclamation & TCP Cleanup",
-      description: "Detect orphaned WebSocket and SSE client connections and reclaim file descriptors",
-      cronExpr: "*/30 * * * *",
-      targets: "Gateways (6)",
-      lastStatus: "success",
-      lastDuration: "6s",
-      nextRun: "In 12m",
-      enabled: true,
-    },
-  ]);
+  // Cron schedule state (demo defaults never loaded in live mode)
+  const [cronJobs, setCronJobs] = useState<CronJob[]>(() =>
+    isLiveMode()
+      ? []
+      : [
+          {
+            id: "CRN-081",
+            name: "Nightly Enclave Key Rotation",
+            description: "Renew ephemeral RSA/ECDSA signing pairs & flush TLS session tickets",
+            cronExpr: "0 2 * * *",
+            targets: "All Nodes (40)",
+            lastStatus: "success",
+            lastDuration: "42s",
+            nextRun: "In 18 mins",
+            enabled: true,
+          },
+          {
+            id: "CRN-114",
+            name: "Bi-Hourly Diagnostic Journal Flush",
+            description: "Compress and sync rotated diagnostic journal bundles to storage volume",
+            cronExpr: "*/15 * * * *",
+            targets: "#production-east (14)",
+            lastStatus: "success",
+            lastDuration: "12s",
+            nextRun: "In 4m 12s",
+            enabled: true,
+          },
+          {
+            id: "CRN-209",
+            name: "Weekly TPM PCR Attestation Integrity Scan",
+            description: "Cryptographic hash verification of PCR-7 boot measurements across fleet",
+            cronExpr: "0 0 * * 0",
+            targets: "All Nodes (40)",
+            lastStatus: "success",
+            lastDuration: "1m 18s",
+            nextRun: "In 4 days",
+            enabled: true,
+          },
+          {
+            id: "CRN-332",
+            name: "Dead Socket Reclamation & TCP Cleanup",
+            description: "Detect orphaned WebSocket and SSE client connections and reclaim file descriptors",
+            cronExpr: "*/30 * * * *",
+            targets: "Gateways (6)",
+            lastStatus: "success",
+            lastDuration: "6s",
+            nextRun: "In 12m",
+            enabled: true,
+          },
+        ]
+  );
 
   const [fleetFramesCount, setFleetFramesCount] = useState<number | null>(null);
 
@@ -281,7 +293,7 @@ export const FleetOperationsView: React.FC = () => {
         setFleetFramesCount(count);
       }
 
-      if (Array.isArray(trigRes) && trigRes.length > 0) {
+      if (Array.isArray(trigRes)) {
         const mappedRules: SelfHealingRule[] = trigRes.map((t: any) => {
           const metric = String(t.metric || "cpu_percent");
           const cat: SelfHealingRule["category"] = metric.includes("mem")
@@ -309,7 +321,7 @@ export const FleetOperationsView: React.FC = () => {
         setRules(mappedRules);
       }
 
-      if (Array.isArray(schedRes) && schedRes.length > 0) {
+      if (Array.isArray(schedRes)) {
         const mappedJobs: CronJob[] = schedRes.map((s: any) => ({
           id: String(s.id),
           name: String(s.name || s.tool || "Scheduled Job"),
@@ -341,7 +353,11 @@ export const FleetOperationsView: React.FC = () => {
       : targetScope === "production-east"
       ? devices.filter((d) => d.tags.includes("production-east")).length
       : targetScope === "gpu-runners"
-      ? 6
+      ? isLiveMode()
+        ? devices.filter((d) => d.tags.includes("gpu-runners")).length
+        : 6
+      : isLiveMode()
+      ? devices.length
       : 8;
 
   const handleBroadcast = async () => {
@@ -898,15 +914,18 @@ export const FleetOperationsView: React.FC = () => {
                       variant="soft"
                       color="neutral"
                       size="sm"
-                      onClick={() =>
-                        setSelectedFailedNode(
-                          lastFailedNode || {
+                      disabled={isLiveMode() && !lastFailedNode}
+                      onClick={() => {
+                        if (lastFailedNode) {
+                          setSelectedFailedNode(lastFailedNode);
+                        } else if (!isLiveMode()) {
+                          setSelectedFailedNode({
                             nodeId: "srv-us-east-412",
                             exitCode: 1,
                             stderr: "Permission denied: access to enclave socket restricted",
-                          }
-                        )
-                      }
+                          });
+                        }
+                      }}
                       startIcon={<Eye className="w-3.5 h-3.5" />}
                     >
                       Failure Drill-Down
@@ -998,7 +1017,11 @@ export const FleetOperationsView: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {rules.map((rule) => (
+          {rules.length === 0 ? (
+            <div className="md:col-span-2 p-6 rounded-xl bg-[var(--product-surface)]/60 border border-[var(--product-line)] text-center text-xs text-[var(--product-text-tertiary)]">
+              No automation rules configured on this control plane. Use &ldquo;Add Rule&rdquo; above to create one.
+            </div>
+          ) : rules.map((rule) => (
             <div key={rule.id}>
               <JXCard className="bg-[var(--product-surface)]/60 border-[var(--product-line)]">
                 <div className="p-4 pb-2 flex items-center justify-between border-b border-[var(--product-line)]">
@@ -1122,7 +1145,13 @@ export const FleetOperationsView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-mono">
-                {cronJobs.map((job) => (
+                {cronJobs.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-6 text-center text-xs font-sans text-[var(--product-text-tertiary)]">
+                      No scheduled jobs configured on this control plane. Use &ldquo;Add Schedule&rdquo; above to create one.
+                    </td>
+                  </tr>
+                ) : cronJobs.map((job) => (
                   <tr key={job.id} className="hover:bg-[var(--product-canvas)]/40 transition-colors">
                     <td className="p-3">
                       <div className="font-semibold text-[var(--product-text-secondary)]">{job.name}</div>
@@ -1185,7 +1214,7 @@ export const FleetOperationsView: React.FC = () => {
       {/* Failure Drill-down Modal */}
       <AnimatePresence>
         {selectedFailedNode && (
-          <GlassModal onClose={() => setSelectedFailedNode(null)} title="Sample broadcast failure">
+          <GlassModal onClose={() => setSelectedFailedNode(null)} title={isLiveMode() ? "Broadcast execution failure" : "Sample broadcast failure"}>
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}

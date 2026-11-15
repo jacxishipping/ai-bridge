@@ -1966,13 +1966,17 @@ export const LiveDesktopView: React.FC = () => {
         />
 
         {/* Encrypted Session Recording HUD Badge */}
-        <div className="absolute top-3 left-3 z-30 pointer-events-none">
-          <div className="px-2.5 py-1 rounded-xl bg-[var(--product-canvas)]/90 border border-[var(--product-line)] text-[11px] font-mono text-[var(--product-text-secondary)] shadow-xl flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
-            <span className="font-semibold text-rose-400">REC</span>
-            <span className="text-[var(--product-text-tertiary)]">Encrypted Manifest Linked</span>
+        {(!live || webrtcConnected || Boolean(liveFrameUrl)) && (
+          <div className="absolute top-3 left-3 z-30 pointer-events-none">
+            <div className="px-2.5 py-1 rounded-xl bg-[var(--product-canvas)]/90 border border-[var(--product-line)] text-[11px] font-mono text-[var(--product-text-secondary)] shadow-xl flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+              <span className="font-semibold text-rose-400">REC</span>
+              <span className="text-[var(--product-text-tertiary)]">
+                {live ? "Live stream session" : "Encrypted Manifest Linked"}
+              </span>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Bi-Directional Drag-and-Drop Dropzone Overlay */}
         {isDraggingFile && (
@@ -2009,7 +2013,24 @@ export const LiveDesktopView: React.FC = () => {
           </div>
         )}
 
-        {/* Remote Operating System Canvas Simulation */}
+        {/* Remote Operating System Canvas (Demo simulation only; live shows honest waiting state) */}
+        {live ? (
+          !webrtcConnected && !liveFrameUrl && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#0b0f19] px-6 text-center">
+              <Monitor className="w-10 h-10 text-[var(--product-text-tertiary)]" />
+              <p className="text-sm font-mono text-[var(--product-text-secondary)]">
+                {desktopDevice
+                  ? `Waiting for desktop frame or WebRTC stream from ${desktopDevice.hostname || desktopDevice.name}`
+                  : "Select an online device to view its live desktop stream"}
+              </p>
+              <p className="text-xs text-[var(--product-text-tertiary)] max-w-md">
+                {isWindowsStreamHost
+                  ? "Click Start Stream above to negotiate H.264 WebRTC, or Refresh Frame for a snapshot."
+                  : "Snapshot frames display here once the agent captures desktop output."}
+              </p>
+            </div>
+          )
+        ) : (
         <div className="absolute inset-0 flex flex-col bg-[#0b0f19]">
           {/* OS Window Chrome Header */}
           <div className="h-8 bg-[var(--product-surface)]/90 border-b border-[var(--product-line)] px-3 flex items-center justify-between text-xs font-mono text-[var(--product-text-tertiary)]">
@@ -2125,6 +2146,7 @@ export const LiveDesktopView: React.FC = () => {
             </div>
           </div>
         </div>
+        )}
 
         {/* Set-of-Marks (SoM) Bounding Visual Segmentation Map */}
         {somOverlay && (
@@ -2464,24 +2486,27 @@ export const LiveDesktopView: React.FC = () => {
         <div className="flex items-center gap-2 w-full md:w-auto justify-end">
           <button
             type="button"
-            onClick={() => focusWindow(activeWindowId)}
-            className="px-3 py-1.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] font-mono text-xs flex items-center gap-1.5 transition-colors"
+            disabled={!activeWindow}
+            onClick={() => activeWindow && focusWindow(activeWindowId)}
+            className="px-3 py-1.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] hover:bg-[var(--product-raised)] disabled:opacity-40 text-[var(--product-text-secondary)] font-mono text-xs flex items-center gap-1.5 transition-colors"
           >
             <Crosshair className="w-3.5 h-3.5 text-indigo-400" />
             <span>Focus Active</span>
           </button>
           <button
             type="button"
-            onClick={() => dispatchMacro(`Minimize ${activeWindow.name}`)}
-            className="px-3 py-1.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] hover:bg-[var(--product-raised)] text-[var(--product-text-secondary)] font-mono text-xs flex items-center gap-1.5 transition-colors"
+            disabled={!activeWindow}
+            onClick={() => activeWindow && dispatchMacro(`Minimize ${activeWindow.name}`)}
+            className="px-3 py-1.5 rounded-xl bg-[var(--product-canvas)] border border-[var(--product-line)] hover:bg-[var(--product-raised)] disabled:opacity-40 text-[var(--product-text-secondary)] font-mono text-xs flex items-center gap-1.5 transition-colors"
           >
             <Minimize2 className="w-3.5 h-3.5" />
             <span>Minimize</span>
           </button>
           <button
             type="button"
-            onClick={() => dispatchMacro(`Graceful Stop PID ${activeWindow.pid}`)}
-            className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-rose-300 font-mono text-xs flex items-center gap-1.5 transition-colors"
+            disabled={!activeWindow}
+            onClick={() => activeWindow && dispatchMacro(`Graceful Stop PID ${activeWindow.pid}`)}
+            className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 disabled:opacity-40 text-rose-300 font-mono text-xs flex items-center gap-1.5 transition-colors"
           >
             <Power className="w-3.5 h-3.5 text-rose-400" />
             <span>Graceful Stop</span>

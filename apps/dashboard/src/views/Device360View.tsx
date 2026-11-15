@@ -179,16 +179,23 @@ export const Device360View: React.FC = () => {
       setTelemetryHistoryCount(0);
       return;
     }
-    setLoadingOverview(true);
-    if (isLive) {
-      api.deviceTelemetry(selectedDevice.id, 20)
-        .then((hist: any) => {
-          if (!active) return;
-          const samples = Array.isArray(hist?.samples) ? hist.samples : Array.isArray(hist) ? hist : [];
-          setTelemetryHistoryCount(samples.length);
-        })
-        .catch(() => {});
+    if (!isLive) {
+      setProcesses([]);
+      setInstalledApps([]);
+      setListeningSockets([]);
+      setDaemons([]);
+      setTelemetryHistoryCount(0);
+      setLoadingOverview(false);
+      return;
     }
+    setLoadingOverview(true);
+    api.deviceTelemetry(selectedDevice.id, 20)
+      .then((hist: any) => {
+        if (!active) return;
+        const samples = Array.isArray(hist?.samples) ? hist.samples : Array.isArray(hist) ? hist : [];
+        setTelemetryHistoryCount(samples.length);
+      })
+      .catch(() => {});
     api.deviceOverview(selectedDevice.id)
       .then((data: any) => {
         if (!active) return;
@@ -871,7 +878,13 @@ export const Device360View: React.FC = () => {
                   <div className="flex justify-between items-center">
                     <span className="text-[var(--product-text-tertiary)]">PUBLIC IP:</span>
                     <span className="text-[var(--product-text-secondary)]">
-                      {isOffline ? "—" : (import.meta as any).env?.VITE_PUBLIC_IP || telemetry.ipAddress || "Not reported"}
+                      {isOffline
+                        ? "—"
+                        : (() => {
+                            const envIp = String((import.meta as any).env?.VITE_PUBLIC_IP || "").trim();
+                            const validEnvIp = envIp && envIp !== "your-aws-ip" ? envIp : "";
+                            return validEnvIp || telemetry.ipAddress || "Not reported";
+                          })()}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">

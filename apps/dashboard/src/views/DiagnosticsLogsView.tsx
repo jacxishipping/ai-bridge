@@ -333,9 +333,13 @@ export const DiagnosticsLogsView: React.FC = () => {
     return [...liveServiceLogs, ...realStoreLogs];
   }, [isLive, defaultLogs, liveServiceLogs, mappedStoreLogs]);
 
-  // Initialize selected entry
+  // Initialize or clear selected entry when activeLogs changes
   useEffect(() => {
-    if (activeLogs.length > 0 && (!selectedEntry || !activeLogs.some((l) => l.id === selectedEntry.id))) {
+    if (activeLogs.length === 0) {
+      if (selectedEntry) setSelectedEntry(null);
+      return;
+    }
+    if (!selectedEntry || !activeLogs.some((l) => l.id === selectedEntry.id)) {
       setSelectedEntry(activeLogs[0]);
     }
   }, [activeLogs, selectedEntry]);
@@ -578,14 +582,16 @@ export const DiagnosticsLogsView: React.FC = () => {
             <div className="p-3 bg-[var(--product-canvas)] border-b border-[var(--product-line)] flex items-center justify-between text-xs font-mono text-[var(--product-text-tertiary)]">
               <div className="flex items-center gap-2">
                 <Terminal className="w-4 h-4 text-indigo-400" />
-                <span className="text-[var(--product-text-secondary)] font-bold">/var/log/ai-bridge/core.stdout.log (tail -f)</span>
+                <span className="text-[var(--product-text-secondary)] font-bold">
+                  {isLive ? `${backendService} (${targetService})` : "/var/log/ai-bridge/core.stdout.log (tail -f)"}
+                </span>
               </div>
               <div className="flex items-center gap-3">
                 <span>UTF-8</span>
-                <span>PID 84019</span>
-                <span className="flex items-center gap-1 text-emerald-400 font-bold">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  LIVE
+                <span>{isLive ? `${filteredLogs.length} lines` : "PID 84019"}</span>
+                <span className={`flex items-center gap-1 font-bold ${isPaused ? "text-amber-400" : logFetchError ? "text-rose-400" : "text-emerald-400"}`}>
+                  <span className={`w-2 h-2 rounded-full ${isPaused ? "bg-amber-400" : logFetchError ? "bg-rose-400" : "bg-emerald-400 animate-pulse"}`} />
+                  {isPaused ? "PAUSED" : logFetchError ? "ERROR" : isLive ? "LIVE" : "DEMO"}
                 </span>
               </div>
             </div>

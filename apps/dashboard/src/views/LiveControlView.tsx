@@ -66,9 +66,16 @@ export function LiveControlView() {
   const [expired, setExpired] = useState(false);
   const isLive = typeof window !== "undefined" && Boolean(token() || sessionToken());
   const refresh = useCallback(async () => {
+    const wasAuthenticated = Boolean(token() || sessionToken());
+    if (!wasAuthenticated) {
+      setSnapshot(null);
+      setOpsPulse(null);
+      setError("Connect a control plane to view live state.");
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError("");
-    const wasAuthenticated = Boolean(token() || sessionToken());
     try {
       const [identity, health, devices, fleetHealth, activity, caps, rolesResp] = await Promise.all([
         api.me(),

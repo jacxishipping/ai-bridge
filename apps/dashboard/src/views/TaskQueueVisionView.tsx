@@ -1226,6 +1226,16 @@ export const TaskQueueVisionView: React.FC = () => {
                       alt={`Desktop frame for ${activeTask?.deviceHostname || activeTask?.deviceId || targetHost}`}
                       className="h-full w-full object-contain bg-black"
                     />
+                  ) : isLive ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[var(--product-canvas)] px-6 text-center">
+                      <Monitor className="w-8 h-8 text-[var(--product-text-tertiary)]" />
+                      <p className="text-xs font-mono text-[var(--product-text-secondary)]">
+                        No captured desktop frame for this task yet.
+                      </p>
+                      <p className="text-[11px] text-[var(--product-text-tertiary)] max-w-md">
+                        Dispatch a capture_desktop_screenshot or capture_desktop_frame task above, or select a completed capture task from the queue.
+                      </p>
+                    </div>
                   ) : (
                   <div className="absolute inset-0 flex flex-col bg-[var(--product-canvas)]">
                     {/* Top Simulated OS Bar */}
