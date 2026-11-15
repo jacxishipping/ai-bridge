@@ -405,6 +405,16 @@ TOOL_CATALOG: dict[str, dict[str, Any]] = {
             },
         },
     },
+    "select_device": {
+        "description": "Select or inspect a target device in the fleet by name, hostname, or ID ('local' for control host).",
+        "category": "system",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "device_id": {"type": "string", "description": "Device ID, name, hostname, or 'local'.", "default": "local"},
+            },
+        },
+    },
     "get_system_info": {
         "description": "Get operating system details, machine architecture, Python version, and workspace paths.",
         "category": "system",
@@ -973,52 +983,74 @@ def resolve_device_record(conn, target: str | None, tenant: str = "default") -> 
     raw = str(target).strip()
     low = raw.lower()
 
-    # 1. Exact ID
-    row = conn.execute("SELECT * FROM devices WHERE id=? AND tenant=? AND revoked=0", (raw, tenant)).fetchone()
-    if row:
-        return dict(row)
+    def _lookup(tenant_filter: str | None) -> dict | None:
+        if tenant_filter is not None:
+            row = conn.execute("SELECT * FROM devices WHERE id=? AND tenant=? AND revoked=0", (raw, tenant_filter)).fetchone()
+            if row:
+                return dict(row)
+            row = conn.execute(
+                "SELECT * FROM devices WHERE (LOWER(name)=? OR LOWER(hostname)=?) AND tenant=? AND revoked=0",
+                (low, low, tenant_filter),
+            ).fetchone()
+            if row:
+                return dict(row)
+            rows = conn.execute(
+                "SELECT * FROM devices WHERE id LIKE ? AND tenant=? AND revoked=0",
+                (f"{raw}%", tenant_filter),
+            ).fetchall()
+            if len(rows) == 1:
+                return dict(rows[0])
+            return None
 
-    # 2. Exact Name or Hostname (case-insensitive)
-    row = conn.execute(
-        "SELECT * FROM devices WHERE (LOWER(name)=? OR LOWER(hostname)=?) AND tenant=? AND revoked=0",
-        (low, low, tenant),
-    ).fetchone()
-    if row:
-        return dict(row)
+        row = conn.execute("SELECT * FROM devices WHERE id=? AND revoked=0", (raw,)).fetchone()
+        if row:
+            return dict(row)
+        row = conn.execute(
+            "SELECT * FROM devices WHERE (LOWER(name)=? OR LOWER(hostname)=?) AND revoked=0",
+            (low, low),
+        ).fetchone()
+        if row:
+            return dict(row)
+        rows = conn.execute(
+            "SELECT * FROM devices WHERE id LIKE ? AND revoked=0",
+            (f"{raw}%",),
+        ).fetchall()
+        if len(rows) == 1:
+            return dict(rows[0])
+        return None
 
-    # 3. ID Prefix
-    rows = conn.execute(
-        "SELECT * FROM devices WHERE id LIKE ? AND tenant=? AND revoked=0",
-        (f"{raw}%", tenant),
-    ).fetchall()
-    if len(rows) == 1:
-        return dict(rows[0])
-
-    return None
+    matched = _lookup(tenant)
+    if matched is not None:
+        return matched
+    return _lookup(None)
 
 
 def find_default_windows_device(conn, tenant: str = "default") -> dict | None:
     """Find the primary active Windows device in the fleet."""
-    # 1. Online Windows workstation
+    def _pick(rows) -> dict | None:
+        for r in rows:
+            os_str = (r["os"] or "").lower()
+            if "win" in os_str and r["status"] == "online":
+                return dict(r)
+        for r in rows:
+            if r["status"] == "online":
+                try:
+                    p = json.loads(r["policy_json"] or "{}")
+                    if p.get("desktop_enabled"):
+                        return dict(r)
+                except Exception:
+                    pass
+        for r in rows:
+            if "win" in (r["os"] or "").lower():
+                return dict(r)
+        return None
+
     rows = conn.execute("SELECT * FROM devices WHERE tenant=? AND revoked=0 ORDER BY last_seen DESC", (tenant,)).fetchall()
-    for r in rows:
-        os_str = (r["os"] or "").lower()
-        if "win" in os_str and r["status"] == "online":
-            return dict(r)
-    # 2. Any online device with desktop_enabled in policy
-    for r in rows:
-        if r["status"] == "online":
-            try:
-                p = json.loads(r["policy_json"] or "{}")
-                if p.get("desktop_enabled"):
-                    return dict(r)
-            except Exception:
-                pass
-    # 3. Any Windows machine
-    for r in rows:
-        if "win" in (r["os"] or "").lower():
-            return dict(r)
-    return None
+    picked = _pick(rows)
+    if picked is not None:
+        return picked
+    all_rows = conn.execute("SELECT * FROM devices WHERE revoked=0 ORDER BY last_seen DESC").fetchall()
+    return _pick(all_rows)
 
 
 class AIExecuteIn(BaseModel):
@@ -1324,24 +1356,31 @@ def attach_ai_routes(
         if tier is None:
             raise HTTPException(status_code=400, detail=f"Unknown tool: '{tool}'. Query /api/ai/tools for valid tools.")
 
-        # Determine target device
+        # Control-plane fleet introspection/selection tools always execute on the control plane host.
+        fleet_control_tools = {"list_devices", "get_device_status", "select_device"}
         target = body.device
-        if (not target or target.lower() in ("auto", "windows")) and tool in DESKTOP_TOOLS:
-            win_dev = find_default_windows_device(conn, body.tenant)
-            if win_dev:
-                target = win_dev["id"]
+        if tool in fleet_control_tools:
+            is_local = True
+            dev_rec = None
+        else:
+            if (not target or target.lower() in ("auto", "windows")) and tool in DESKTOP_TOOLS:
+                win_dev = find_default_windows_device(conn, body.tenant)
+                if win_dev:
+                    target = win_dev["id"]
+            if target and target.strip().lower() == "auto":
+                target = "local"
 
-        is_local = not target or target.lower() in ("local", "host", "droplet")
-        dev_rec = None if is_local else resolve_device_record(conn, target, body.tenant)
+            is_local = not target or target.strip().lower() in ("local", "host", "droplet")
+            dev_rec = None if is_local else resolve_device_record(conn, target, body.tenant)
 
-        if not is_local and dev_rec is None:
-            # Device requested but not found
-            devices = conn.execute("SELECT id, name, hostname, os, status FROM devices WHERE tenant=? AND revoked=0", (body.tenant,)).fetchall()
-            avail = [f"'{d['name']}' (id: {d['id']}, os: {d['os']}, status: {d['status']})" for d in devices]
-            raise HTTPException(
-                status_code=404,
-                detail=f"Device '{target}' not found in tenant '{body.tenant}'. Available: [{', '.join(avail) if avail else 'None'}], or use 'local'.",
-            )
+            if not is_local and dev_rec is None:
+                # Device requested but not found
+                devices = conn.execute("SELECT id, name, hostname, os, status FROM devices WHERE tenant=? AND revoked=0", (body.tenant,)).fetchall()
+                avail = [f"'{d['name']}' (id: {d['id']}, os: {d['os']}, status: {d['status']})" for d in devices]
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Device '{target}' not found in tenant '{body.tenant}'. Available: [{', '.join(avail) if avail else 'None'}], or use 'local'.",
+                )
 
         start_time = time.time()
         from .v1_routes import is_device_human_takeover_active
@@ -1353,7 +1392,7 @@ def attach_ai_routes(
                 raise HTTPException(status_code=403, detail=f"Tool '{tool}' is disabled by global policy.")
             if eff_local.get("allowed_tools") is not None and tool not in eff_local["allowed_tools"]:
                 raise HTTPException(status_code=403, detail=f"Tool '{tool}' is not in the allowed tools list.")
-            if is_device_human_takeover_active("local") and tool not in ("list_devices", "get_device_status"):
+            if is_device_human_takeover_active("local") and tool not in fleet_control_tools:
                 raise HTTPException(
                     status_code=409,
                     detail="Human takeover is active on this device; autonomous AI tasks are paused until control is handed back.",
@@ -1361,19 +1400,78 @@ def attach_ai_routes(
             try:
                 if tool == "list_devices":
                     rows = conn.execute(
-                        "SELECT id, name, hostname, os, status, last_seen, tags_json FROM devices WHERE tenant=? AND revoked=0 ORDER BY last_seen DESC",
+                        "SELECT d.id, d.name, d.hostname, d.os, d.status, d.last_seen, d.tenant, m.group_name, m.tags_json "
+                        "FROM devices d LEFT JOIN device_metadata m ON m.device_id=d.id "
+                        "WHERE d.tenant=? AND d.revoked=0 ORDER BY d.last_seen DESC",
                         (body.tenant,),
                     ).fetchall()
-                    res = {"devices": [dict(r) for r in rows]}
+                    if not rows:
+                        rows = conn.execute(
+                            "SELECT d.id, d.name, d.hostname, d.os, d.status, d.last_seen, d.tenant, m.group_name, m.tags_json "
+                            "FROM devices d LEFT JOIN device_metadata m ON m.device_id=d.id "
+                            "WHERE d.revoked=0 ORDER BY d.last_seen DESC"
+                        ).fetchall()
+                    sys_info = dispatch("get_system_info", {}, is_admin=(role == "admin"))
+                    fleet = [
+                        {
+                            "id": "local",
+                            "device_id": "local",
+                            "name": "local",
+                            "hostname": sys_info.get("machine"),
+                            "os": sys_info.get("system"),
+                            "status": "online",
+                            "workspace": sys_info.get("workspace"),
+                        }
+                    ]
+                    for r in rows:
+                        item = dict(r)
+                        item["device_id"] = item.get("id")
+                        item["group"] = item.pop("group_name", None) or ""
+                        try:
+                            item["tags"] = json.loads(item.pop("tags_json", None) or "[]")
+                        except Exception:
+                            item["tags"] = []
+                        fleet.append(item)
+                    res = {"devices": fleet}
                 elif tool == "get_device_status":
-                    d_arg = str((body.args or {}).get("device_id") or (body.args or {}).get("id") or "local").strip()
-                    if d_arg.lower() in ("", "local", "host", "droplet"):
+                    d_arg = str(
+                        (body.args or {}).get("device_id")
+                        or (body.args or {}).get("device")
+                        or (body.args or {}).get("id")
+                        or body.device
+                        or "local"
+                    ).strip()
+                    if d_arg.lower() in ("", "local", "host", "droplet", "auto"):
                         res = {"device_id": "local", "status": "online", **dispatch("get_resource_usage", {}, is_admin=(role == "admin"))}
                     else:
                         d_rec = resolve_device_record(conn, d_arg, body.tenant)
                         if d_rec is None:
                             raise HTTPException(status_code=404, detail=f"Device '{d_arg}' not found in tenant '{body.tenant}'.")
                         res = d_rec
+                elif tool == "select_device":
+                    d_arg = str(
+                        (body.args or {}).get("device_id")
+                        or (body.args or {}).get("device")
+                        or (body.args or {}).get("id")
+                        or body.device
+                        or "local"
+                    ).strip()
+                    if d_arg.lower() in ("", "local", "host", "droplet", "auto"):
+                        res = {"selected_device": "local", "mode": "local", "note": "Tools will target the local host."}
+                    else:
+                        d_rec = resolve_device_record(conn, d_arg, body.tenant)
+                        if d_rec is None:
+                            raise HTTPException(status_code=404, detail=f"Device '{d_arg}' not found in tenant '{body.tenant}'.")
+                        res = {
+                            "selected_device": d_rec["id"],
+                            "device_id": d_rec["id"],
+                            "name": d_rec.get("name"),
+                            "hostname": d_rec.get("hostname"),
+                            "os": d_rec.get("os"),
+                            "status": d_rec.get("status"),
+                            "mode": "remote",
+                            "note": f"Pass device='{d_rec.get('name') or d_rec['id']}' on subsequent tool calls.",
+                        }
                 else:
                     from .. import tools as _tools_mod
                     from ..policy import Policy as _Policy
@@ -1403,6 +1501,8 @@ def attach_ai_routes(
                     "result": res,
                     "duration_ms": duration_ms,
                 }
+            except HTTPException:
+                raise
             except PermissionError as exc:
                 audit(actor, "local", tool, body.args, "denied", tenant=body.tenant)
                 return JSONResponse(status_code=403, content={"ok": False, "status": "denied", "tool": tool, "error": str(exc)})
@@ -1607,14 +1707,17 @@ def attach_ai_routes(
                     else "https://api.openai.com/v1"
                 )
 
-        # Fetch devices in tenant for context
+        # Fetch devices in tenant (or across all tenants if none matched) for context
         devices = conn.execute("SELECT id, name, hostname, os, status FROM devices WHERE tenant=? AND revoked=0", (body.tenant,)).fetchall()
+        if not devices:
+            devices = conn.execute("SELECT id, name, hostname, os, status FROM devices WHERE revoked=0").fetchall()
         dev_list_str = "\n".join([f"- {d['name']} (ID: {d['id']}, OS: {d['os']}, Status: {d['status']})" for d in devices])
+        fleet_context = "- local (the AI Bridge host)" + (f"\n{dev_list_str}" if dev_list_str else "")
 
         system_prompt = (
             f"You are the AI Bridge fleet controller agent.\n"
             f"You have direct control over the user's computer fleet:\n"
-            f"{dev_list_str if dev_list_str else '- local (the AI Bridge host)'}\n\n"
+            f"{fleet_context}\n\n"
             f"Guidelines:\n"
             f"1. To run terminal commands on Linux servers or workstations, use 'run_shell' with the appropriate device.\n"
             f"2. To control Windows workstations with GUI automation, first call 'take_screenshot' (or 'set_of_marks_screenshot'), inspect the returned image, then use 'mouse_click', 'keyboard_type', etc.\n"

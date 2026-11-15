@@ -16,8 +16,9 @@ from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from ai_bridge.device_routing import BindingError, set_verify_hook
+from ai_bridge.device_routing import BindingError, set_control_hook, set_verify_hook
 
+from . import db as dbmod
 from .app import allowed_cors_origins, create_app
 
 
@@ -207,6 +208,28 @@ def create_combined_app():
     from ai_bridge.server import create_http_app
 
     control = create_app()
+    inproc = getattr(control.state, "inprocess_control_api", None)
+    if inproc is not None:
+        set_control_hook(inproc)
+    if hasattr(gateway, "set_device_token_resolver"):
+        ctl_conn = control.state.conn
+
+        def _resolve_dev_tok(raw_tok: str) -> str | None:
+            if not raw_tok:
+                return None
+            row = ctl_conn.execute(
+                "SELECT id, token_expires_at FROM devices WHERE token_hash=? AND revoked=0",
+                (dbmod.hash_token(raw_tok),),
+            ).fetchone()
+            if row is None:
+                return None
+            exp = row["token_expires_at"]
+            if exp is not None and exp < dbmod.now():
+                return None
+            return row["id"]
+
+        gateway.set_device_token_resolver(_resolve_dev_tok)
+
     mcp_http = create_http_app()
     oauth = gateway.app
 

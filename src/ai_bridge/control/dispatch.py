@@ -7,6 +7,7 @@ here — this is the server-side enforcement point, not the prompt.
 """
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import asdict
 from pathlib import Path
@@ -66,13 +67,38 @@ def _agent_run_role(a: dict) -> dict:
 
 
 def _dispatch_list_devices() -> dict:
+    sys_info = tools.get_system_info()
+    out: list[dict] = [
+        {
+            "id": "local",
+            "device_id": "local",
+            "name": "local",
+            "hostname": sys_info.get("machine"),
+            "os": sys_info.get("system"),
+            "status": "online",
+            "workspace": sys_info.get("workspace"),
+        }
+    ]
     conn = supervisor.get_plane_conn()
     if conn is None:
-        return {"devices": [{"id": "local", "name": "local", "status": "online", **tools.get_system_info()}]}
+        return {"devices": out}
     rows = conn.execute(
-        "SELECT id, name, hostname, os, status, last_seen, tags_json FROM devices WHERE revoked=0 ORDER BY last_seen DESC"
+        "SELECT d.id, d.name, d.hostname, d.os, d.tenant, d.status, d.last_seen, m.group_name, m.tags_json "
+        "FROM devices d "
+        "LEFT JOIN device_metadata m ON m.device_id = d.id "
+        "WHERE d.revoked = 0 "
+        "ORDER BY d.last_seen DESC"
     ).fetchall()
-    return {"devices": [dict(r) for r in rows]}
+    for r in rows:
+        item = dict(r)
+        item["device_id"] = item.get("id")
+        item["group"] = item.pop("group_name", None) or ""
+        try:
+            item["tags"] = json.loads(item.pop("tags_json", None) or "[]")
+        except Exception:
+            item["tags"] = []
+        out.append(item)
+    return {"devices": out}
 
 
 def _dispatch_device_status(a: dict) -> dict:
@@ -302,6 +328,7 @@ def dispatch(tool: str, args: dict, *, policy: Policy | None = None,
     handlers = {
         "list_devices": lambda a: _dispatch_list_devices(),
         "get_device_status": lambda a: _dispatch_device_status(a),
+        "select_device": lambda a: _dispatch_device_status(a),
         "get_system_info": lambda a: tools.get_system_info(),
         "get_resource_usage": lambda a: tools.get_resource_usage(),
         "get_network_info": lambda a: diagnostics.network_info(),

@@ -720,13 +720,30 @@ def approval_form(params: dict, error: str = "", current_binding: str = "") -> s
 </html>"""
 
 
+_DEVICE_TOKEN_RESOLVER = None
+
+
+def set_device_token_resolver(fn) -> None:
+    """Install an optional in-process device token resolver(token) -> device_id | None."""
+    global _DEVICE_TOKEN_RESOLVER
+    _DEVICE_TOKEN_RESOLVER = fn
+
+
 def resolve_device_token(token: str) -> str | None:
     """Validate a device token against the control plane's read-only
-    whoami endpoint. Returns the device_id, or None if invalid.
+    whoami endpoint (or in-process resolver). Returns the device_id, or None if invalid.
     The endpoint touches no device state (unlike heartbeat)."""
     import json
     import urllib.error
     import urllib.request
+
+    if _DEVICE_TOKEN_RESOLVER is not None:
+        try:
+            dev_id = _DEVICE_TOKEN_RESOLVER(token)
+            if dev_id:
+                return dev_id
+        except Exception:
+            pass
 
     url = os.environ.get("AI_BRIDGE_CONTROL_URL", "http://127.0.0.1:8000").rstrip("/") + "/api/agent/whoami"
     req = urllib.request.Request(url, headers={"X-Device-Token": token})

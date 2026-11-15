@@ -15,6 +15,8 @@ import json
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -26,6 +28,11 @@ class BindingError(RuntimeError):
 # Optional in-process verifier used when MCP + OAuth share one ASGI process
 # (e.g. Render). Avoids HTTP self-calls that deadlock a single worker.
 _VERIFY_HOOK: Callable[[str], dict] | None = None
+
+# Optional in-process control-plane handler(method, path_and_query, payload) used
+# when MCP + control plane share one ASGI process. Avoids HTTP self-calls that
+# deadlock a single worker or fail when PORT != 8000.
+_CONTROL_HOOK: Callable[[str, str, dict | None], Any] | None = None
 
 _CLIENT_LOCK = threading.Lock()
 _HTTP_CLIENT: httpx.Client | None = None
@@ -42,6 +49,21 @@ _VERIFY_CACHE_MAX = 256
 def set_verify_hook(hook: Callable[[str], dict] | None) -> None:
     global _VERIFY_HOOK
     _VERIFY_HOOK = hook
+
+
+def set_control_hook(hook: Callable[[str, str, dict | None], Any] | None) -> None:
+    """Install an in-process control-plane API handler(method, path_and_query, body).
+
+    Used when the MCP server and control plane share a single uvicorn worker
+    (Render embedded mode) so fleet listing and task routing never deadlock on
+    loopback HTTP calls.
+    """
+    global _CONTROL_HOOK
+    _CONTROL_HOOK = hook
+
+
+def has_control_hook() -> bool:
+    return _CONTROL_HOOK is not None
 
 
 def get_http_client() -> httpx.Client:
@@ -145,7 +167,22 @@ def resolve_binding(verify_url: str, bearer_token: str, timeout: int = 10) -> st
     return device_id
 
 
+def _extract_path_and_query(url: str) -> str:
+    if not url or url == "inprocess":
+        return "/"
+    if url.startswith("inprocess:"):
+        rest = url[len("inprocess:"):]
+        if not rest:
+            return "/"
+        return rest if rest.startswith("/") else f"/{rest}"
+    parsed = urlsplit(url)
+    path = parsed.path or "/"
+    return f"{path}?{parsed.query}" if parsed.query else path
+
+
 def _api(method: str, url: str, admin_token: str, payload: dict | None = None, timeout: int = 20) -> dict | list:
+    if _CONTROL_HOOK is not None and (not url or url.startswith("inprocess:") or url == "inprocess"):
+        return _CONTROL_HOOK(method, _extract_path_and_query(url), payload)
     try:
         client = get_http_client()
         resp = client.request(
@@ -157,6 +194,10 @@ def _api(method: str, url: str, admin_token: str, payload: dict | None = None, t
         )
         resp.raise_for_status()
         return resp.json()
+    except (httpx.ConnectError, httpx.TimeoutException):
+        if _CONTROL_HOOK is not None:
+            return _CONTROL_HOOK(method, _extract_path_and_query(url), payload)
+        raise
     except httpx.HTTPStatusError as exc:
         raise RuntimeError(f"control plane returned HTTP {exc.response.status_code} for {method} {url}")
 

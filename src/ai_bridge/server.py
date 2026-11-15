@@ -18,14 +18,17 @@ behavior.
 from __future__ import annotations
 
 import argparse
+from contextvars import ContextVar
 import functools
 import hashlib
 import hmac
 import inspect
 import json
+import logging
 import os
 import platform
 
+import anyio
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ImageContent, TextContent
@@ -35,6 +38,7 @@ from .device_routing import (
     BindingError,
     cancel_device_task,
     get_device_task,
+    has_control_hook,
     list_all_devices,
     resolve_binding,
     run_device_tool,
@@ -42,6 +46,11 @@ from .device_routing import (
 from .execution import RUNNER
 from .policy import TOOL_TIERS
 from .security import is_secret_name, read_workspace_text, redact
+
+_LOGGER = logging.getLogger(__name__)
+
+# Per-request HTTP bearer token captured by _BearerAuthMiddleware for off-thread tool calls.
+_HTTP_BEARER_TOKEN: ContextVar[str | None] = ContextVar("ai_bridge_http_bearer_token", default=None)
 
 # Local approval store: approvals are created via request_approval and
 # granted only by approve_task with the admin token (hmac compare) or by
@@ -88,8 +97,25 @@ mcp = FastMCP(
     transport_security=_mcp_transport_security,
 )
 
-VERIFY_URL = os.environ.get("AI_BRIDGE_GATEWAY_VERIFY_URL", "http://127.0.0.1:8002/internal/verify")
-CONTROL_URL = os.environ.get("AI_BRIDGE_CONTROL_URL", "http://127.0.0.1:8000")
+_DEFAULT_VERIFY_URL = os.environ.get("AI_BRIDGE_GATEWAY_VERIFY_URL", "http://127.0.0.1:8002/internal/verify")
+_DEFAULT_CONTROL_URL = os.environ.get("AI_BRIDGE_CONTROL_URL", "http://127.0.0.1:8000")
+
+VERIFY_URL = _DEFAULT_VERIFY_URL
+CONTROL_URL = _DEFAULT_CONTROL_URL
+
+
+def _verify_url() -> str:
+    if VERIFY_URL != _DEFAULT_VERIFY_URL:
+        return VERIFY_URL
+    return os.environ.get("AI_BRIDGE_GATEWAY_VERIFY_URL", VERIFY_URL)
+
+
+def _control_url() -> str:
+    if CONTROL_URL != _DEFAULT_CONTROL_URL:
+        return CONTROL_URL
+    if has_control_hook():
+        return "inprocess:"
+    return os.environ.get("AI_BRIDGE_CONTROL_URL", CONTROL_URL)
 
 
 def _bearer_token() -> str | None:
@@ -97,13 +123,14 @@ def _bearer_token() -> str | None:
         ctx = mcp.get_context()
         req = getattr(getattr(ctx, "request_context", None), "request", None)
     except Exception:
-        return None
-    if req is None:
-        return None
-    auth = (req.headers.get("authorization") or "")
-    if not auth.startswith("Bearer "):
-        return None
-    return auth[7:].strip() or None
+        req = None
+    if req is not None:
+        auth = (req.headers.get("authorization") or "")
+        if auth[:7].lower() == "bearer ":
+            tok = auth[7:].strip()
+            if tok:
+                return tok
+    return _HTTP_BEARER_TOKEN.get()
 
 
 def _session_key() -> str:
@@ -122,7 +149,7 @@ def _oauth_bound_device() -> str | None:
     if admin_tok and hmac.compare_digest(tok, admin_tok):
         return None
     try:
-        return resolve_binding(VERIFY_URL, tok)
+        return resolve_binding(_verify_url(), tok)
     except Exception:
         return None
 
@@ -145,6 +172,14 @@ def _session_device() -> str | None:
 def _admin_token() -> str:
     token = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
     if not token:
+        try:
+            from .control.secrets_backend import get_secret
+            token = get_secret("AI_BRIDGE_ADMIN_TOKEN") or ""
+        except Exception:
+            token = ""
+    if not token and has_control_hook():
+        return "inprocess"
+    if not token:
         raise RuntimeError("AI_BRIDGE_ADMIN_TOKEN is not set; device-bound routing needs it.")
     return token
 
@@ -159,7 +194,7 @@ def _resolve_device_record(target: str | None) -> dict | None:
         return None
     admin = _admin_token()
     try:
-        devices = list_all_devices(CONTROL_URL, admin)
+        devices = list_all_devices(_control_url(), admin)
     except Exception as exc:
         raise RuntimeError(f"Could not retrieve device fleet from control plane: {exc}")
     # 1. Exact ID match
@@ -230,10 +265,8 @@ DESKTOP_ROUTING_TOOLS = {
 def _find_default_windows_device() -> str | None:
     """Find the primary active Windows desktop machine in the enrolled fleet."""
     try:
-        admin = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
-        if not admin:
-            return None
-        devices = list_all_devices(CONTROL_URL, admin)
+        admin = _admin_token()
+        devices = list_all_devices(_control_url(), admin)
         # 1. Prefer online Windows workstation
         for d in devices:
             os_str = str(d.get("os") or "").lower()
@@ -309,16 +342,17 @@ def device_aware(dispatch_name: str | None = None, *, bound: str = "route"):
                     f"Tool '{fn.__name__}' is only available on the local MCP host/droplet. "
                     f"To run on the local host, pass device='local' or call select_device('local')."
                 )
+            ctrl_url = _control_url()
             if bound == "route":
                 return run_device_tool(
-                    CONTROL_URL, admin, device,
+                    ctrl_url, admin, device,
                     dispatch_name or fn.__name__, call_args
                 )
             if bound == "control":
                 name = fn.__name__
                 if name in {"get_task_status", "get_task_result", "cancel_task"}:
                     tid = args[0] if args else kwargs["task_id"]
-                    t_check = get_device_task(CONTROL_URL, admin, tid)
+                    t_check = get_device_task(ctrl_url, admin, tid)
                     if name == "get_task_status":
                         return {"task_id": t_check.get("id") or tid, "status": t_check.get("status")}
                     if name == "get_task_result":
@@ -327,7 +361,7 @@ def device_aware(dispatch_name: str | None = None, *, bound: str = "route"):
                         except Exception:
                             out = t_check.get("result") or ""
                         return {"task_id": t_check.get("id") or tid, "status": t_check.get("status"), "output": out}
-                    t = cancel_device_task(CONTROL_URL, admin, tid)
+                    t = cancel_device_task(ctrl_url, admin, tid)
                     return {"task_id": t.get("task_id") or t.get("id") or tid, "cancelled": t.get("status") == "cancelled"}
                 if name == "list_devices":
                     return fn(*args, **kwargs)
@@ -903,9 +937,17 @@ def list_devices() -> list[dict]:
         "routing_hint": "Pass device='local' or call select_device('local') to target the droplet host.",
     })
     token = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
+    if not token:
+        try:
+            from .control.secrets_backend import get_secret
+            token = get_secret("AI_BRIDGE_ADMIN_TOKEN") or ""
+        except Exception:
+            token = ""
+    if not token and has_control_hook():
+        token = "inprocess"
     if token:
         try:
-            for d in list_all_devices(CONTROL_URL, token):
+            for d in list_all_devices(_control_url(), token):
                 did = d.get("id")
                 out.append({
                     "device_id": did,
@@ -917,8 +959,8 @@ def list_devices() -> list[dict]:
                     "active": did == active,
                     "routing_hint": f"Pass device='{d.get('name') or did}' to target this machine.",
                 })
-        except Exception:
-            pass
+        except Exception as exc:
+            _LOGGER.warning("list_devices failed to fetch enrolled fleet from %s: %s", _control_url(), exc)
     return out
 
 @mcp.tool()
@@ -1647,12 +1689,16 @@ class _BearerAuthMiddleware:
                 normalized_headers.append((b"accept", b"application/json, text/event-stream"))
             scope["headers"] = normalized_headers
 
-        if scope.get("type") != "http" or os.environ.get("AI_BRIDGE_HTTP_ALLOW_ANON") == "1":
-            await self.app(scope, receive, send)
-            return
         headers = {k.decode("latin1").lower(): v.decode("latin1") for k, v in scope.get("headers", [])}
         auth = headers.get("authorization", "")
-        tok = auth[7:].strip() if auth.startswith("Bearer ") else ""
+        tok = auth[7:].strip() if auth[:7].lower() == "bearer " else ""
+        if scope.get("type") != "http" or os.environ.get("AI_BRIDGE_HTTP_ALLOW_ANON") == "1":
+            tok_ctx = _HTTP_BEARER_TOKEN.set(tok or None)
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                _HTTP_BEARER_TOKEN.reset(tok_ctx)
+            return
         authorized = False
         admin_tok = os.environ.get("AI_BRIDGE_ADMIN_TOKEN", "")
         if tok:
@@ -1660,7 +1706,7 @@ class _BearerAuthMiddleware:
                 authorized = True
             else:
                 try:
-                    resolve_binding(VERIFY_URL, tok)
+                    resolve_binding(_verify_url(), tok)
                     authorized = True
                 except BindingError:
                     authorized = False
@@ -1677,10 +1723,46 @@ class _BearerAuthMiddleware:
             })
             await send({"type": "http.response.body", "body": body})
             return
-        await self.app(scope, receive, send)
+        tok_ctx = _HTTP_BEARER_TOKEN.set(tok or None)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _HTTP_BEARER_TOKEN.reset(tok_ctx)
+
+
+def _install_sync_tool_thread_offload() -> None:
+    """Offload synchronous FastMCP tool handlers onto worker threads.
+
+    Prevents blocking the uvicorn event loop during HTTP/combined-mode tool calls
+    (such as remote device wait-polling or fleet API lookups). Direct Python calls
+    to the decorated module functions remain synchronous.
+    """
+    tool_mgr = getattr(mcp, "_tool_manager", None)
+    list_tools = getattr(tool_mgr, "list_tools", None)
+    if not callable(list_tools):
+        return
+    for tool_obj in list_tools():
+        fn = getattr(tool_obj, "fn", None)
+        if fn is None or getattr(tool_obj, "is_async", False) or getattr(fn, "_ai_bridge_offloaded", False):
+            continue
+
+        def _make_async_offload(sync_fn):
+            @functools.wraps(sync_fn)
+            async def _offloaded(**kwargs):
+                return await anyio.to_thread.run_sync(functools.partial(sync_fn, **kwargs))
+
+            _offloaded._ai_bridge_offloaded = True
+            return _offloaded
+
+        tool_obj.fn = _make_async_offload(fn)
+        tool_obj.is_async = True
+
+
+_install_sync_tool_thread_offload()
 
 
 def create_http_app():
+    _install_sync_tool_thread_offload()
     return _BearerAuthMiddleware(mcp.streamable_http_app())
 
 

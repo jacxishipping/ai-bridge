@@ -679,12 +679,14 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
     app.state.conn = conn
     app.state.admin_token = token
     app.state.emergency_stop = False
-    from . import plane_state, role_catalog
+    from . import plane_state, role_catalog, supervisor as supervisormod
     from .v1_routes import bind_control_connection, hydrate_human_takeover_from_db, is_device_human_takeover_active
+    from ..device_routing import set_control_hook
 
     plane_state.sync_emergency_stop_to_app(conn, app.state)
     hydrate_human_takeover_from_db(conn)
     bind_control_connection(conn)
+    supervisormod.set_plane_conn(conn)
     role_catalog.seed_role_catalog(conn)
     task_cond = threading.Condition()
     app.state.task_cond = task_cond
@@ -5177,6 +5179,164 @@ def create_app(*, admin_token: str | None = None, db_path: Path | None = None, d
             except Exception:
                 pass
         return {"tenants": sorted(tenants)}
+
+    def _inprocess_control_api(method: str, path: str, body: dict | None = None) -> dict | list:
+        """Execute core control-plane fleet/task operations directly in-process.
+
+        Prevents single-worker HTTP self-deadlocks when the MCP server and control
+        plane share an ASGI process.
+        """
+        verb = (method or "GET").upper().strip()
+        parsed = urlparse(path or "/")
+        clean_path = parsed.path or "/"
+        query = parse_qs(parsed.query)
+
+        if verb == "GET" and clean_path == "/api/devices":
+            tenant_filter = (query.get("tenant") or [None])[0]
+            if tenant_filter:
+                rows = conn.execute(
+                    "SELECT d.id, d.name, d.hostname, d.os, d.tenant, d.status, d.last_seen, d.revoked, d.created_at, "
+                    "d.token_expires_at, d.policy_json, m.group_name, m.tags_json FROM devices d "
+                    "LEFT JOIN device_metadata m ON m.device_id=d.id WHERE d.revoked=0 AND d.tenant=? "
+                    "ORDER BY d.last_seen DESC",
+                    (tenant_filter,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT d.id, d.name, d.hostname, d.os, d.tenant, d.status, d.last_seen, d.revoked, d.created_at, "
+                    "d.token_expires_at, d.policy_json, m.group_name, m.tags_json FROM devices d "
+                    "LEFT JOIN device_metadata m ON m.device_id=d.id WHERE d.revoked=0 "
+                    "ORDER BY d.last_seen DESC"
+                ).fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                d["group"] = d.pop("group_name", None) or ""
+                d["tags"] = json.loads(d.pop("tags_json", None) or "[]")
+                raw_p = d.get("policy_json") or "{}"
+                try:
+                    parsed_p = json.loads(raw_p) if isinstance(raw_p, str) else (raw_p or {})
+                except Exception:
+                    parsed_p = {}
+                d["has_custom_policy"] = bool(parsed_p)
+                d["policy"] = parsed_p
+                live_meta = _get_device_live_meta(d["id"])
+                if live_meta.get("ip_address"):
+                    d["ip_address"] = live_meta["ip_address"]
+                result.append(d)
+            return result
+
+        if verb == "POST" and clean_path == "/api/tasks":
+            payload = body if isinstance(body, dict) else {}
+            if app.state.emergency_stop:
+                raise RuntimeError("Emergency stop is active; no new tasks accepted.")
+            device_id = str(payload.get("device_id") or "").strip()
+            raw_tool = str(payload.get("tool") or "").strip()
+            task_args = payload.get("args") if isinstance(payload.get("args"), dict) else {}
+            row = conn.execute("SELECT * FROM devices WHERE id=? AND revoked=0", (device_id,)).fetchone()
+            if row is None:
+                raise RuntimeError("Device not found or revoked.")
+            tool_name = normalize_tool_name(raw_tool)
+            tier = TOOL_TIERS.get(tool_name)
+            if tier is None:
+                raise RuntimeError(f"Unknown tool: {raw_tool}")
+            eff_policy = get_effective_device_policy(row)
+            denied_tools = eff_policy.get("denied_tools", [])
+            if raw_tool in denied_tools or tool_name in denied_tools:
+                raise RuntimeError(f"Tool '{tool_name}' is disabled by device policy for '{row['name']}'.")
+            allowed_tools = eff_policy.get("allowed_tools")
+            if allowed_tools is not None and raw_tool not in allowed_tools and tool_name not in allowed_tools:
+                raise RuntimeError(f"Tool '{tool_name}' is not in the allowed tools list for device '{row['name']}'.")
+            if is_device_human_takeover_active(device_id):
+                raise RuntimeError("Human takeover is active on this device; autonomous AI tasks are paused until control is handed back.")
+
+            task_id = uuid.uuid4().hex[:12]
+            status = "queued"
+            approval_id = None
+            max_unattended = int(eff_policy.get("max_tier_unattended", 2))
+            allow_t3 = bool(eff_policy.get("allow_tier3", False))
+            allow_file_del = bool(eff_policy.get("allow_file_deletion", False))
+            is_unrestricted = bool(eff_policy.get("unrestricted", False))
+            needs_approval = False
+            if not is_unrestricted:
+                if tier.value >= 4:
+                    if max_unattended < 4:
+                        needs_approval = True
+                    elif tool_name == "delete_workspace_file" and not allow_file_del:
+                        needs_approval = True
+                elif tier.value == 3:
+                    if not (allow_t3 or max_unattended >= 3):
+                        needs_approval = True
+                elif tier.value > max_unattended:
+                    needs_approval = True
+
+            tenant_val = str(row["tenant"] or payload.get("tenant") or "default")
+            with conn.transaction():
+                if needs_approval:
+                    approval_id = uuid.uuid4().hex[:12]
+                    approval_ttl = max(60, int(os.environ.get("AI_BRIDGE_APPROVAL_TTL_SECONDS", "3600")))
+                    policy_row = conn.execute("SELECT MAX(version) AS version FROM policies").fetchone()
+                    policy_version = policy_row["version"] or 0
+                    conn.execute(
+                        "INSERT INTO approvals (id, task_id, tool, reason, created_at, expires_at, policy_version) VALUES (?,?,?,?,?,?,?)",
+                        (approval_id, task_id, tool_name, f"Tier-{tier.value} operation requires human approval.", dbmod.now(), dbmod.now() + approval_ttl, policy_version),
+                    )
+                    status = "needs_approval"
+                conn.execute(
+                    "INSERT INTO tasks (id, device_id, tenant, tool, args_json, tier, status, approval_id, created_at, updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (task_id, device_id, tenant_val, tool_name, json.dumps(task_args), tier.value, status, approval_id, dbmod.now(), dbmod.now()),
+                )
+            audit("mcp-inprocess", device_id, tool_name, task_args, status, tenant=tenant_val)
+            if status == "queued":
+                notify_tasks(device_id, task_id)
+            return {"task_id": task_id, "status": status, "tier": tier.value, "approval_id": approval_id}
+
+        if verb == "POST" and clean_path.startswith("/api/tasks/") and clean_path.endswith("/cancel"):
+            task_id = clean_path[len("/api/tasks/") : -len("/cancel")].strip("/")
+            row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if row is None:
+                return {}
+            if row["status"] in {"completed", "failed", "cancelled"}:
+                return {"task_id": task_id, "status": row["status"]}
+            conn.execute("UPDATE tasks SET status='cancelled', updated_at=? WHERE id=?", (dbmod.now(), task_id))
+            conn.commit()
+            notify_tasks(row["device_id"], task_id, cancel=True)
+            audit("admin", row["device_id"], "cancel_task", {"task_id": task_id}, "allowed")
+            return {"task_id": task_id, "status": "cancelled"}
+
+        if verb == "GET" and clean_path.startswith("/api/tasks/"):
+            task_id = clean_path[len("/api/tasks/") :].strip("/")
+            if not task_id or "/" in task_id:
+                return {}
+            try:
+                wait_raw = float((query.get("wait") or [0.0])[0] or 0.0)
+            except (TypeError, ValueError):
+                wait_raw = 0.0
+            wait_sec = max(0.0, min(wait_raw, 25.0))
+            in_event_loop = False
+            try:
+                asyncio.get_running_loop()
+                in_event_loop = True
+            except RuntimeError:
+                in_event_loop = False
+            deadline = time.time() + wait_sec
+            while True:
+                row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+                if row is None:
+                    return {}
+                if in_event_loop or wait_sec <= 0 or row["status"] in {"completed", "failed", "cancelled", "timed_out", "needs_approval"}:
+                    return dict(row)
+                rem = deadline - time.time()
+                if rem <= 0:
+                    return dict(row)
+                with task_cond:
+                    task_cond.wait(timeout=min(0.2, rem))
+
+        raise RuntimeError(f"Unsupported in-process control API call: {verb} {clean_path}")
+
+    app.state.inprocess_control_api = _inprocess_control_api
+    set_control_hook(_inprocess_control_api)
 
     # Mount frontend SPA static files if dashboard build dist exists
     dist_dir = Path("/app/apps/dashboard/dist")
